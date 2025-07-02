@@ -1,0 +1,44 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('leads', function (Blueprint $table) {
+            $table->id();
+            $table->string('cpf', 11)->unique();
+            $table->string('nome')->nullable();
+            $table->date('data_nascimento')->nullable();
+            $table->string('fone1')->nullable();
+            $table->string('classe_fone1')->nullable();
+            $table->string('fone2')->nullable();
+            $table->string('classe_fone2')->nullable();
+            $table->string('fone3')->nullable();
+            $table->string('classe_fone3')->nullable();
+            $table->string('fone4')->nullable();
+            $table->string('classe_fone4')->nullable();
+            $table->string('origem_cadastro');
+            $table->timestamp('data_importacao_cadastro');
+            $table->string('consulta')->nullable(); // Resultado da última consulta FGTS
+            $table->timestamp('data_atualizacao')->nullable(); // Data da última análise FGTS
+            $table->decimal('saldo', 10, 2)->nullable();
+            $table->decimal('libera', 10, 2)->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('leads');
+    }
+};
