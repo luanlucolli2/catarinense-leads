@@ -1,12 +1,12 @@
-
 import { Home, LogOut, Menu, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import catarinenselogo from "../../public/catainenseLogo.png";
-import React from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext"; // 1. Importar o hook de autenticação
+import axiosClient from "@/api/axiosClient"; // 2. Importar o cliente Axios
 
 interface SidebarProps {
   className?: string;
@@ -17,6 +17,7 @@ interface SidebarProps {
 const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { setUser, setToken } = useAuth(); // 3. Usar o hook para acessar as funções do contexto
 
   const menuItems = [
     {
@@ -38,54 +39,54 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
       active: false
     },
   ];
-  const firstRender = React.useRef(true);
+  const firstRender = useRef(true);
 
-  // Fechar sidebar em telas menores quando a rota mudar
   useEffect(() => {
-    // Ignora a primeira execução para não fechar a sidebar ao carregar a página
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
-
-    // Fecha a sidebar se estiver aberta em mobile e a rota mudar
     if (window.innerWidth < 1024 && !isCollapsed) {
       onToggle();
     }
-  }, [location.pathname]); // O hook agora só depende da mudança de rota
-  
-  const handleMenuClick = (item: typeof menuItems[0]) => {
+  }, [location.pathname]);
+
+  const handleMenuClick = async (item: typeof menuItems[0]) => {
     if (item.path) {
       navigate(item.path);
     } else if (item.name === "Sair") {
-      // Lógica de logout
-      localStorage.removeItem("isAuthenticated");
-      toast.success("Logout realizado com sucesso!");
-      navigate("/login", { replace: true });
+      // 4. Lógica de logout refatorada
+      try {
+        await axiosClient.post('/logout');
+        toast.success("Logout realizado com sucesso!");
+      } catch (error) {
+        console.error("Falha ao fazer logout no backend:", error);
+        toast.error("Não foi possível invalidar a sessão no servidor.");
+      } finally {
+        // 5. Independentemente do resultado da API, limpamos o estado do frontend
+        setUser(null);
+        setToken(null);
+        navigate("/login", { replace: true });
+      }
     }
   };
 
   return (
     <>
-      {/* Mobile overlay - só aparece quando sidebar está aberta em mobile */}
+      {/* O resto do JSX continua exatamente o mesmo... */}
       {!isCollapsed && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
           onClick={onToggle}
         />
       )}
-
-      {/* Sidebar */}
       <div className={cn(
         "fixed left-0 top-0 z-30 h-screen bg-[#333] transition-all duration-300 ease-in-out",
-        // Em mobile: escondida quando collapsed, visível quando não collapsed
-        // Em desktop: sempre visível, mas com largura diferente
         isCollapsed
           ? "lg:translate-x-0 lg:w-16 -translate-x-full"
           : "translate-x-0 w-60",
         className
       )}>
-        {/* Header com altura alinhada ao header principal */}
         <div className="p-4 border-b border-gray-600 flex items-center justify-between min-h-[73px]">
           <Button
             variant="ghost"
@@ -105,8 +106,6 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             </div>
           )}
         </div>
-
-        {/* Menu Items */}
         <nav className="p-4 space-y-2">
           {menuItems.map((item) => (
             <button

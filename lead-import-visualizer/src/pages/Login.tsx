@@ -6,15 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import catarinenselogo from "../../public/catainenseLogo.png";
-import axiosClient from "@/api/axiosClient"; // 1. Importar nosso cliente Axios
-import { useAuth } from "@/contexts/AuthContext"; // 2. Importar nosso hook de autenticação
+import axiosClient from "@/api/axiosClient";
+import { useAuth } from "@/contexts/AuthContext";
+import { Loader2 } from "lucide-react"; // <- import do spinner
 
 const Login = () => {
   const navigate = useNavigate();
-  const { setUser, setToken } = useAuth(); // 3. Pegar as funções para definir o usuário e o token
+  const { setUser, setToken } = useAuth();
 
   const [formData, setFormData] = useState({
-    email: "teste@catarinense.com", // Pré-preenchido para facilitar os testes
+    email: "teste@catarinense.com",
     password: "password",
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -22,10 +23,7 @@ const Login = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,52 +32,54 @@ const Login = () => {
     setError(null);
 
     try {
-      // 4. Substituir a simulação pela chamada de API real
       const response = await axiosClient.post('/login', formData);
-      
-      // 5. Se o login for bem-sucedido, usar nosso contexto para salvar os dados
       const { user, access_token } = response.data;
       setUser(user);
       setToken(access_token);
 
       toast.success("Login realizado com sucesso!");
-      navigate("/"); // 6. Redirecionar para o Dashboard
-
+      navigate("/");
     } catch (err: any) {
-      // 7. Tratar erros da API
       setIsLoading(false);
-      if (err.response && err.response.status === 422) {
-        // Erro de validação do Laravel
-        setError(err.response.data.errors.email[0]);
-        toast.error(err.response.data.errors.email[0]);
+      if (err.response?.status === 422) {
+        const msg = err.response.data.errors.email[0];
+        setError(msg);
+        toast.error(msg);
       } else {
-        // Outros erros (rede, servidor fora do ar, etc.)
-        setError("Ocorreu um erro. Verifique sua conexão ou tente novamente.");
-        toast.error("Ocorreu um erro ao tentar fazer login.");
+        setError("Ocorreu um erro. Verifique sua conexão.");
+        toast.error("Erro ao tentar fazer login.");
       }
     }
-    // Não precisamos mais do setIsLoading(false) aqui, pois ele já é tratado no bloco catch.
   };
 
   return (
-    <div className="min-h-screen bg-[#353535] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-xl bg-[#333] border-none">
-        <CardHeader className="space-y-4 pb-6">
-          <div className="text-center space-y-2">
-            <div className="flex justify-center mb-1">
-              <img
-                src={catarinenselogo}
-                alt="Logo Catarinense"
-                className="h-20 object-contain"
-              />
-            </div>
+    <div
+      className="min-h-screen flex items-center justify-center p-6"
+      style={{
+        background:
+          "radial-gradient(circle at center, #1f2937 0%, #111827 80%)"
+      }}
+    >
+      <Card className="
+        w-full max-w-md
+        bg-gradient-to-tl from-gray-800 to-gray-700
+        border border-gray-600
+        shadow-2xl shadow-black/60
+      ">
+        <CardHeader className="pb-5 border-b border-gray-600">
+          <div className="flex justify-center">
+            <img
+              src={catarinenselogo}
+              alt="Logo Catarinense"
+              className="h-20 object-contain"
+            />
           </div>
         </CardHeader>
-        
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-300">Email</Label>
+
+        <CardContent className="pt-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <Label htmlFor="email" className="text-gray-200">Email</Label>
               <Input
                 id="email"
                 name="email"
@@ -88,12 +88,12 @@ const Login = () => {
                 value={formData.email}
                 onChange={handleInputChange}
                 required
-                className="h-11 bg-gray-700 border-gray-600 text-white placeholder:text-gray-400 focus:border-green-500 focus:ring-green-500"
+                className="mt-1 h-11 bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-green-400 focus:ring-green-400"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-300">Senha</Label>
+            <div>
+              <Label htmlFor="password" className="text-gray-200">Senha</Label>
               <Input
                 id="password"
                 name="password"
@@ -102,18 +102,27 @@ const Login = () => {
                 value={formData.password}
                 onChange={handleInputChange}
                 required
-                className="h-11 bg-gray-700 border-gray-600 text-white placeholder:text-gray-400 focus:border-green-500 focus:ring-green-500"
+                className="mt-1 h-11 bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-green-400 focus:ring-green-400"
               />
             </div>
 
-            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+            {error && (
+              <p className="text-red-400 text-center text-sm">{error}</p>
+            )}
 
             <Button
               type="submit"
-              className="w-full h-11 text-base font-medium bg-green-700 hover:bg-green-600 text-white transition-colors duration-200"
               disabled={isLoading}
+              className="w-full h-11 text-base font-medium bg-green-700 hover:bg-green-600 text-white shadow-md shadow-green-700/40 transition-colors duration-200"
             >
-              {isLoading ? "Entrando..." : "Entrar"}
+              {isLoading ? (
+                <div className="flex items-center justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  Entrando...
+                </div>
+              ) : (
+                "Entrar"
+              )}
             </Button>
           </form>
         </CardContent>

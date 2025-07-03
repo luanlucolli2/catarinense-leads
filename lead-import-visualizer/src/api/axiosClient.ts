@@ -4,17 +4,18 @@ import axios from 'axios';
 
 // Cria uma instância do Axios com configurações padrão
 const axiosClient = axios.create({
-    baseURL: 'http://localhost/api', // A URL base da nossa API Laravel
-    withCredentials: true, // Essencial para o Sanctum funcionar
+// Lê a URL base da nossa variável de ambiente
+baseURL: import.meta.env.VITE_API_BASE_URL,
+withCredentials: true,
 });
 
-// Interceptor de Requisição: Adiciona o token de autenticação a cada requisição
+// O resto do arquivo permanece o mesmo...
 axiosClient.interceptors.request.use((config) => {
-    const token = localStorage.getItem('AUTH_TOKEN'); // Vamos buscar o token do localStorage
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
+const token = localStorage.getItem('AUTH\_TOKEN');
+if (token) {
+config.headers.Authorization = `Bearer ${token}`;
+}
+return config;
 });
 
 export default axiosClient;
