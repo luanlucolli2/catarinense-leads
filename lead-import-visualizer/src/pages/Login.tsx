@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -7,14 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import catarinenselogo from "../../public/catainenseLogo.png";
+import axiosClient from "@/api/axiosClient"; // 1. Importar nosso cliente Axios
+import { useAuth } from "@/contexts/AuthContext"; // 2. Importar nosso hook de autenticação
 
 const Login = () => {
   const navigate = useNavigate();
+  const { setUser, setToken } = useAuth(); // 3. Pegar as funções para definir o usuário e o token
+
   const [formData, setFormData] = useState({
-    email: "",
-    password: "",
+    email: "teste@catarinense.com", // Pré-preenchido para facilitar os testes
+    password: "password",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -27,29 +31,40 @@ const Login = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    // Simular delay de autenticação
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // 4. Substituir a simulação pela chamada de API real
+      const response = await axiosClient.post('/login', formData);
+      
+      // 5. Se o login for bem-sucedido, usar nosso contexto para salvar os dados
+      const { user, access_token } = response.data;
+      setUser(user);
+      setToken(access_token);
 
-    // Validar credenciais
-    if (formData.email === "admin@catarinense.com" && formData.password === "123456") {
-      // Login bem-sucedido
-      localStorage.setItem("isAuthenticated", "true");
       toast.success("Login realizado com sucesso!");
-      navigate("/");
-    } else {
-      // Login com falha
-      toast.error("Email ou senha inválidos.");
-    }
+      navigate("/"); // 6. Redirecionar para o Dashboard
 
-    setIsLoading(false);
+    } catch (err: any) {
+      // 7. Tratar erros da API
+      setIsLoading(false);
+      if (err.response && err.response.status === 422) {
+        // Erro de validação do Laravel
+        setError(err.response.data.errors.email[0]);
+        toast.error(err.response.data.errors.email[0]);
+      } else {
+        // Outros erros (rede, servidor fora do ar, etc.)
+        setError("Ocorreu um erro. Verifique sua conexão ou tente novamente.");
+        toast.error("Ocorreu um erro ao tentar fazer login.");
+      }
+    }
+    // Não precisamos mais do setIsLoading(false) aqui, pois ele já é tratado no bloco catch.
   };
 
   return (
-    <div className="min-h-screen bg-[#333] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-xl bg-[#333] border-gray-600">
+    <div className="min-h-screen bg-[#353535] flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-xl bg-[#333] border-none">
         <CardHeader className="space-y-4 pb-6">
-          {/* Logo Area */}
           <div className="text-center space-y-2">
             <div className="flex justify-center mb-1">
               <img
@@ -58,7 +73,6 @@ const Login = () => {
                 className="h-20 object-contain"
               />
             </div>
-           
           </div>
         </CardHeader>
         
@@ -92,6 +106,8 @@ const Login = () => {
               />
             </div>
 
+            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+
             <Button
               type="submit"
               className="w-full h-11 text-base font-medium bg-green-700 hover:bg-green-600 text-white transition-colors duration-200"
@@ -100,17 +116,6 @@ const Login = () => {
               {isLoading ? "Entrando..." : "Entrar"}
             </Button>
           </form>
-
-          {/* Credenciais de teste */}
-          <div className="mt-8 p-4 bg-gray-700 rounded-lg border border-gray-600">
-            <p className="text-xs text-gray-300 text-center font-medium">
-              Credenciais de teste:
-            </p>
-            <p className="text-xs text-gray-400 text-center mt-1">
-              Email: admin@catarinense.com<br />
-              Senha: 123456
-            </p>
-          </div>
         </CardContent>
       </Card>
     </div>

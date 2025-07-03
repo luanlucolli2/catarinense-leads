@@ -1,29 +1,30 @@
-
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
+  const { token } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem("isAuthenticated");
-    
-    if (!isAuthenticated || isAuthenticated !== "true") {
+    if (!token) {
+      // Se não houver token, redireciona para a página de login.
+      // O 'replace: true' impede que o usuário volte para a página protegida usando o botão "Voltar" do navegador.
       navigate("/login", { replace: true });
     }
-  }, [navigate]);
+  }, [token, navigate]);
 
-  // Verificar se está autenticado antes de renderizar
-  const isAuthenticated = localStorage.getItem("isAuthenticated");
-  
-  if (!isAuthenticated || isAuthenticated !== "true") {
+  // Se o token não existir, não renderiza nada enquanto o useEffect redireciona.
+  // Uma alternativa aqui seria mostrar um componente de "Carregando...".
+  if (!token) {
     return null;
   }
 
+  // Se o token existir, renderiza a página filha (Dashboard, Histórico, etc.).
   return <>{children}</>;
 };
 
