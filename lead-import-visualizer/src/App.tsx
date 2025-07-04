@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./contexts/AuthContext"; // <-- Importe o Provedor
+import GuestRoute from "./components/GuestRoute"; // 1. Importar o GuestRoute
 
 
 const queryClient = new QueryClient();
@@ -22,7 +23,8 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route path="/login" element={
+              <GuestRoute><Login /></GuestRoute>} />
             <Route
               path="/"
               element={

@@ -1,375 +1,137 @@
-import { useState } from "react";
-import { LeadsTable } from "@/components/LeadsTable";
+import { useState, useMemo } from "react";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { LeadsTable, ProcessedLead } from "@/components/LeadsTable";
 import { LeadsControls } from "@/components/LeadsControls";
 import { ImportModal } from "@/components/ImportModal";
 import { ExportModal } from "@/components/ExportModal";
-import { useToast } from "@/hooks/use-toast";
+import axiosClient from "@/api/axiosClient";
+import { formatCPF, formatCurrency, formatDate, formatPhone } from "@/lib/formatters";
 
-// Mock data com origem e motivos padronizados
-const mockLeads = [
-  { 
-    id: "1", 
-    cpf: "123.456.789-01", 
-    nome: "Ana Silva Santos", 
-    telefone: "(11) 99999-1234", 
-    classe: "Quente" as const, 
-    status: "Elegível" as const, 
-    contratos: 3,
-    saldo: 25000.50,
-    libera: 18000.30,
-    dataAtualizacao: "15/12/2024",
-    motivo: "Aprovado",
-    origem: "Sistema Interno"
-  },
-  { 
-    id: "2", 
-    cpf: "987.654.321-02", 
-    nome: "Carlos Eduardo Lima", 
-    telefone: "(21) 98888-5678", 
-    classe: "Frio" as const, 
-    status: "Inelegível" as const, 
-    contratos: 1,
-    saldo: 8500.00,
-    libera: 0.00,
-    dataAtualizacao: "14/12/2024",
-    motivo: "Não autorizado",
-    origem: "Planilha Excel"
-  },
-  { 
-    id: "3", 
-    cpf: "456.789.123-03", 
-    nome: "Maria Fernanda Costa", 
-    telefone: "(11) 97777-9012", 
-    classe: "Quente" as const, 
-    status: "Elegível" as const, 
-    contratos: 5,
-    saldo: 42000.75,
-    libera: 35000.00,
-    dataAtualizacao: "16/12/2024",
-    motivo: "Aprovado",
-    origem: "API Externa"
-  },
-  { 
-    id: "4", 
-    cpf: "789.123.456-04", 
-    nome: "João Pedro Oliveira", 
-    telefone: "(85) 96666-3456", 
-    classe: "Frio" as const, 
-    status: "Elegível" as const, 
-    contratos: 2,
-    saldo: 15200.80,
-    libera: 12000.00,
-    dataAtualizacao: "13/12/2024",
-    motivo: "Aprovado",
-    origem: "Sistema Interno"
-  },
-  { 
-    id: "5", 
-    cpf: "321.654.987-05", 
-    nome: "Isabela Rodrigues", 
-    telefone: "(11) 95555-7890", 
-    classe: "Quente" as const, 
-    status: "Inelegível" as const, 
-    contratos: 1,
-    saldo: 5000.00,
-    libera: 0.00,
-    dataAtualizacao: "12/12/2024",
-    motivo: "Saldo insuficiente",
-    origem: "Planilha Excel"
-  },
-  { 
-    id: "6", 
-    cpf: "654.321.987-06", 
-    nome: "Rafael Mendes Silva", 
-    telefone: "(21) 94444-2345", 
-    classe: "Frio" as const, 
-    status: "Elegível" as const, 
-    contratos: 4,
-    saldo: 31500.25,
-    libera: 28000.50,
-    dataAtualizacao: "16/12/2024",
-    motivo: "Aprovado",
-    origem: "API Externa"
-  },
-  { 
-    id: "7", 
-    cpf: "147.258.369-07", 
-    nome: "Camila Santos Pereira", 
-    telefone: "(11) 93333-6789", 
-    classe: "Quente" as const, 
-    status: "Elegível" as const, 
-    contratos: 3,
-    saldo: 22000.40,
-    libera: 19500.00,
-    dataAtualizacao: "15/12/2024",
-    motivo: "Aprovado",
-    origem: "Sistema Interno"
-  },
-  { 
-    id: "8", 
-    cpf: "258.369.147-08", 
-    nome: "Gustavo Ferreira", 
-    telefone: "(85) 92222-0123", 
-    classe: "Frio" as const, 
-    status: "Inelegível" as const, 
-    contratos: 1,
-    saldo: 3200.00,
-    libera: 0.00,
-    dataAtualizacao: "11/12/2024",
-    motivo: "Não autorizado",
-    origem: "Planilha Excel"
-  },
-  { 
-    id: "9", 
-    cpf: "369.147.258-09", 
-    nome: "Larissa Almeida", 
-    telefone: "(21) 91111-4567", 
-    classe: "Quente" as const, 
-    status: "Elegível" as const, 
-    contratos: 6,
-    saldo: 58000.90,
-    libera: 52000.00,
-    dataAtualizacao: "17/12/2024",
-    motivo: "Aprovado",
-    origem: "API Externa"
-  },
-  { 
-    id: "10", 
-    cpf: "159.753.486-10", 
-    nome: "Bruno Costa Lima", 
-    telefone: "(11) 90000-8901", 
-    classe: "Frio" as const, 
-    status: "Inelegível" as const, 
-    contratos: 2,
-    saldo: 13800.60,
-    libera: 11000.20,
-    dataAtualizacao: "14/12/2024",
-    motivo: "Saldo insuficiente",
-    origem: "Sistema Interno"
-  },
-];
+interface LeadFromApi {
+  id: number;
+  cpf: string;
+  nome: string | null;
+  data_nascimento: string | null;
+  fone1: string | null;
+  classe_fone1: string | null;
+  fone2: string | null;
+  classe_fone2: string | null;
+  fone3: string | null;
+  classe_fone3: string | null;
+  fone4: string | null;
+  classe_fone4: string | null;
+  origem_cadastro: string;
+  data_importacao_cadastro: string;
+  consulta: string | null;
+  data_atualizacao: string | null;
+  saldo: string | null;
+  libera: string | null;
+}
+
+interface PaginatedLeadsResponse {
+  data: LeadFromApi[];
+  current_page: number;
+  last_page: number;
+  total: number;
+}
 
 const Dashboard = () => {
   const [searchValue, setSearchValue] = useState("");
   const [eligibleFilter, setEligibleFilter] = useState<"todos" | "elegiveis" | "nao-elegiveis">("todos");
-  const [contractDateFromFilter, setContractDateFromFilter] = useState("");
-  const [contractDateToFilter, setContractDateToFilter] = useState("");
   const [motivosFilter, setMotivosFilter] = useState<string[]>([]);
   const [origemFilter, setOrigemFilter] = useState<string[]>([]);
-  const [cpfMassFilter, setCpfMassFilter] = useState("");
-  const [namesMassFilter, setNamesMassFilter] = useState("");
-  const [phonesMassFilter, setPhonesMassFilter] = useState("");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
-  const [appliedCpfList, setAppliedCpfList] = useState<string[]>([]);
-  const [appliedNamesList, setAppliedNamesList] = useState<string[]>([]);
-  const [appliedPhonesList, setAppliedPhonesList] = useState<string[]>([]);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { toast } = useToast();
 
-  const leadsPerPage = 8;
+  const { data: paginatedData, isLoading, isError } = useQuery<PaginatedLeadsResponse>({
+    queryKey: ['leads', currentPage, searchValue, eligibleFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: currentPage.toString() });
+      if (searchValue) params.set('search', searchValue);
+      if (eligibleFilter !== 'todos') params.set('status', eligibleFilter);
+      const response = await axiosClient.get('/leads', { params });
+      return response.data;
+    },
+    placeholderData: keepPreviousData,
+  });
 
-  // Get unique motivos and origens for the filters
-  const availableMotivos = Array.from(new Set(mockLeads.map(lead => lead.motivo))).sort();
-  const availableOrigens = Array.from(new Set(mockLeads.map(lead => lead.origem))).sort();
+  const processedLeads: ProcessedLead[] = useMemo(() => {
+    if (!paginatedData?.data) return [];
 
-  // Parse text list (CPF, names, phones)
-  const parseTextList = (text: string, type: 'cpf' | 'name' | 'phone'): string[] => {
-    if (!text.trim()) return [];
-    
-    return text
-      .split(/[,;\n\r]+/)
-      .map(item => item.trim())
-      .filter(item => item.length > 0)
-      .map(item => {
-        if (type === 'cpf') {
-          // Normalize CPF format
-          const cleanCpf = item.replace(/[^\d]/g, '');
-          if (cleanCpf.length >= 11) {
-            return cleanCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-          }
-          return item;
-        }
-        return item;
-      })
-      .filter(item => item.length > 0);
-  };
+    return paginatedData.data.map(lead => {
+      const liberaIsNumeric = lead.libera && !isNaN(parseFloat(lead.libera.replace(',', '.')));
+      const liberaValue = liberaIsNumeric ? parseFloat(lead.libera!.replace(',', '.')) : 0;
 
-  // Convert date string to comparable format (YYYY-MM-DD to DD/MM/YYYY comparison)
-  const isDateInRange = (dateStr: string, fromDate: string, toDate: string): boolean => {
-    if (!fromDate && !toDate) return true;
-    
-    // Convert DD/MM/YYYY to YYYY-MM-DD for comparison
-    const [day, month, year] = dateStr.split('/');
-    const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    
-    if (fromDate && formattedDate < fromDate) return false;
-    if (toDate && formattedDate > toDate) return false;
-    
-    return true;
-  };
+      const status: "Elegível" | "Inelegível" =
+        lead.consulta === "Saldo FACTA" && liberaValue > 0 ? "Elegível" : "Inelegível";
+      
+      const telefones = [
+        { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
+        { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
+        { fone: formatPhone(lead.fone3), classe: lead.classe_fone3 },
+        { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
+      ].filter(f => f.fone && f.fone !== '--');
 
-  // Check if contract date is in range
-  const isContractDateInRange = (contratos: number, fromDate: string, toDate: string): boolean => {
-    if (!fromDate && !toDate) return true;
-    
-    // Para este exemplo, vamos assumir que quanto mais contratos, mais recente
-    // Em um cenário real, você teria uma data específica para cada contrato
-    const contractDate = new Date();
-    contractDate.setDate(contractDate.getDate() - (10 - contratos) * 30); // Simulação
-    
-    const contractDateStr = contractDate.toISOString().split('T')[0];
-    
-    if (fromDate && contractDateStr < fromDate) return false;
-    if (toDate && contractDateStr > toDate) return false;
-    
-    return true;
-  };
+      return {
+        id: lead.id,
+        cpf: formatCPF(lead.cpf),
+        nome: lead.nome || '--',
+        data_nascimento: formatDate(lead.data_nascimento),
+        telefones,
+        status,
+        contratos: 0, // Placeholder
+        saldo: formatCurrency(lead.saldo),
+        libera: formatCurrency(lead.libera),
+        data_atualizacao: formatDate(lead.data_atualizacao),
+        consulta: lead.consulta || '--',
+        origem_cadastro: lead.origem_cadastro,
+      };
+    });
+  }, [paginatedData]);
+
+  const availableMotivos = ["Aprovado", "Não autorizado", "Saldo insuficiente"];
+  const availableOrigens = ["Sistema Interno", "Planilha Excel", "API Externa"];
 
   const handleApplyFilters = () => {
-    // Apply CPF filter
-    if (cpfMassFilter.trim()) {
-      const cpfList = parseTextList(cpfMassFilter, 'cpf');
-      setAppliedCpfList(cpfList);
-    } else {
-      setAppliedCpfList([]);
-    }
-
-    // Apply Names filter
-    if (namesMassFilter.trim()) {
-      const namesList = parseTextList(namesMassFilter, 'name');
-      setAppliedNamesList(namesList.map(name => name.toLowerCase()));
-    } else {
-      setAppliedNamesList([]);
-    }
-
-    // Apply Phones filter
-    if (phonesMassFilter.trim()) {
-      const phonesList = parseTextList(phonesMassFilter, 'phone');
-      setAppliedPhonesList(phonesList);
-    } else {
-      setAppliedPhonesList([]);
-    }
-
     setCurrentPage(1);
-    
-    toast({
-      title: "Filtros aplicados",
-      description: "Os filtros foram aplicados com sucesso",
-    });
+    toast.success("Filtros aplicados. Buscando dados...");
   };
 
   const handleClearFilters = () => {
     setSearchValue("");
     setEligibleFilter("todos");
-    setContractDateFromFilter("");
-    setContractDateToFilter("");
     setMotivosFilter([]);
     setOrigemFilter([]);
-    setCpfMassFilter("");
-    setNamesMassFilter("");
-    setPhonesMassFilter("");
     setDateFromFilter("");
     setDateToFilter("");
-    setAppliedCpfList([]);
-    setAppliedNamesList([]);
-    setAppliedPhonesList([]);
     setCurrentPage(1);
-    
-    toast({
-      title: "Filtros limpos",
-      description: "Todos os filtros foram removidos",
-    });
+    toast.info("Filtros limpos.");
   };
-
-  // Check if any filters are active
-  const hasActiveFilters = 
-    searchValue !== "" ||
-    eligibleFilter !== "todos" ||
-    contractDateFromFilter !== "" ||
-    contractDateToFilter !== "" ||
-    motivosFilter.length > 0 ||
-    origemFilter.length > 0 ||
-    appliedCpfList.length > 0 ||
-    appliedNamesList.length > 0 ||
-    appliedPhonesList.length > 0 ||
-    dateFromFilter !== "" ||
-    dateToFilter !== "";
-
-  // Filter leads based on all filters
-  const filteredLeads = mockLeads.filter(lead => {
-    // Search filter
-    const matchesSearch = lead.nome.toLowerCase().includes(searchValue.toLowerCase()) ||
-                         lead.cpf.includes(searchValue) ||
-                         lead.telefone.includes(searchValue);
-    
-    // Eligibility filter
-    let matchesEligible = true;
-    if (eligibleFilter === "elegiveis") {
-      matchesEligible = lead.status === "Elegível";
-    } else if (eligibleFilter === "nao-elegiveis") {
-      matchesEligible = lead.status === "Inelegível";
-    }
-
-    // Motivos filter
-    const matchesMotivos = motivosFilter.length === 0 || motivosFilter.includes(lead.motivo);
-
-    // Origem filter
-    const matchesOrigem = origemFilter.length === 0 || origemFilter.includes(lead.origem);
-
-    // CPF mass filter
-    const matchesCpfMass = appliedCpfList.length === 0 || appliedCpfList.includes(lead.cpf);
-
-    // Names mass filter
-    const matchesNamesMass = appliedNamesList.length === 0 || 
-      appliedNamesList.some(name => lead.nome.toLowerCase().includes(name));
-
-    // Phones mass filter
-    const matchesPhonesMass = appliedPhonesList.length === 0 || 
-      appliedPhonesList.some(phone => lead.telefone.includes(phone.replace(/[^\d]/g, '')));
-
-    // Date range filter
-    const matchesDateRange = isDateInRange(lead.dataAtualizacao, dateFromFilter, dateToFilter);
-
-    // Contract date range filter
-    const matchesContractDateRange = isContractDateInRange(lead.contratos, contractDateFromFilter, contractDateToFilter);
-
-    return matchesSearch && matchesEligible && matchesContractDateRange && matchesMotivos && 
-           matchesOrigem && matchesCpfMass && matchesNamesMass && matchesPhonesMass && matchesDateRange;
-  });
-
-  // Pagination
-  const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
-  const paginatedLeads = filteredLeads.slice(
-    (currentPage - 1) * leadsPerPage,
-    currentPage * leadsPerPage
-  );
 
   const handleImport = (type: string, file: File, origin?: string) => {
     console.log(`Importing ${type} from file:`, file.name, origin ? `with origin: ${origin}` : '');
-    toast({
-      title: "Importação iniciada",
-      description: `Processando arquivo ${file.name} para ${type === 'cadastrais' ? 'Dados Cadastrais' : 'Dados de Higienização'}${origin ? ` (Origem: ${origin})` : ''}`,
-    });
+    toast.success("Importação iniciada", { description: `Processando arquivo ${file.name}...` });
   };
 
   const handleExport = (columns: string[]) => {
     console.log("Exporting columns:", columns);
-    toast({
-      title: "Exportação iniciada",
-      description: `Gerando arquivo Excel com ${columns.length} colunas selecionadas`,
-    });
+    toast.info("Exportação iniciada", { description: `Gerando arquivo Excel com ${columns.length} colunas selecionadas.` });
   };
+
+  if (isLoading && !paginatedData) return <div className="p-6 text-center">Carregando leads...</div>;
+  if (isError) return <div className="p-6 text-center text-red-500">Erro ao carregar os dados. Verifique a conexão com a API.</div>;
 
   return (
     <div className="p-4 lg:p-6 max-w-full min-w-0">
       <div className="mb-6 max-w-full">
         <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">Dashboard</h1>
         <p className="text-gray-600 text-sm lg:text-base">
-          Gerencie e visualize seus leads importados ({filteredLeads.length} leads encontrados)
+          Gerencie e visualize seus leads importados ({paginatedData?.total ?? 0} leads encontrados)
         </p>
       </div>
 
@@ -380,20 +142,10 @@ const Dashboard = () => {
         onSearchChange={setSearchValue}
         eligibleFilter={eligibleFilter}
         onEligibleFilterChange={setEligibleFilter}
-        contractDateFromFilter={contractDateFromFilter}
-        onContractDateFromFilterChange={setContractDateFromFilter}
-        contractDateToFilter={contractDateToFilter}
-        onContractDateToFilterChange={setContractDateToFilter}
         motivosFilter={motivosFilter}
         onMotivosFilterChange={setMotivosFilter}
         origemFilter={origemFilter}
         onOrigemFilterChange={setOrigemFilter}
-        cpfMassFilter={cpfMassFilter}
-        onCpfMassFilterChange={setCpfMassFilter}
-        namesMassFilter={namesMassFilter}
-        onNamesMassFilterChange={setNamesMassFilter}
-        phonesMassFilter={phonesMassFilter}
-        onPhonesMassFilterChange={setPhonesMassFilter}
         dateFromFilter={dateFromFilter}
         onDateFromFilterChange={setDateFromFilter}
         dateToFilter={dateToFilter}
@@ -402,14 +154,20 @@ const Dashboard = () => {
         onClearFilters={handleClearFilters}
         availableMotivos={availableMotivos}
         availableOrigens={availableOrigens}
-        hasActiveFilters={hasActiveFilters}
+        hasActiveFilters={searchValue !== "" || eligibleFilter !== "todos" || motivosFilter.length > 0 || origemFilter.length > 0 || dateFromFilter !== "" || dateToFilter !== ""}
+        contractDateFromFilter="" onContractDateFromFilterChange={() => {}}
+        contractDateToFilter="" onContractDateToFilterChange={() => {}}
+        cpfMassFilter="" onCpfMassFilterChange={() => {}}
+        namesMassFilter="" onNamesMassFilterChange={() => {}}
+        phonesMassFilter="" onPhonesMassFilterChange={() => {}}
       />
 
-      <LeadsTable
-        leads={paginatedLeads}
-        currentPage={currentPage}
-        totalPages={totalPages}
+     <LeadsTable
+        leads={processedLeads}
+        currentPage={paginatedData?.current_page ?? 1}
+        totalPages={paginatedData?.last_page ?? 1}
         onPageChange={setCurrentPage}
+        isLoading={isLoading}
       />
 
       <ImportModal

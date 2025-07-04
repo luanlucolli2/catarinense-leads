@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface ProtectedRouteProps {
@@ -7,24 +6,15 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { token } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
-  useEffect(() => {
-    if (!token) {
-      // Se não houver token, redireciona para a página de login.
-      // O 'replace: true' impede que o usuário volte para a página protegida usando o botão "Voltar" do navegador.
-      navigate("/login", { replace: true });
-    }
-  }, [token, navigate]);
-
-  // Se o token não existir, não renderiza nada enquanto o useEffect redireciona.
-  // Uma alternativa aqui seria mostrar um componente de "Carregando...".
-  if (!token) {
-    return null;
+  if (!user) {
+    // Se não há objeto de usuário, redireciona para a página de login.
+    // Usar o componente <Navigate> é a forma mais moderna no React Router v6.
+    return <Navigate to="/login" replace />;
   }
 
-  // Se o token existir, renderiza a página filha (Dashboard, Histórico, etc.).
+  // Se o usuário existir, renderiza a página filha.
   return <>{children}</>;
 };
 

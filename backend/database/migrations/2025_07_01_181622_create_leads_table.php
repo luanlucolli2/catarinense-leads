@@ -1,3 +1,5 @@
+// Em database/migrations/..._create_leads_table.php
+
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -26,10 +28,13 @@ return new class extends Migration
             $table->string('classe_fone4')->nullable();
             $table->string('origem_cadastro');
             $table->timestamp('data_importacao_cadastro');
-            $table->string('consulta')->nullable(); // Resultado da última consulta FGTS
-            $table->timestamp('data_atualizacao')->nullable(); // Data da última análise FGTS
-            $table->decimal('saldo', 10, 2)->nullable();
-            $table->decimal('libera', 10, 2)->nullable();
+            $table->string('consulta')->nullable();
+            $table->timestamp('data_atualizacao')->nullable();
+            
+            // ALTERAÇÃO PRINCIPAL AQUI
+            $table->string('saldo')->nullable();
+            $table->string('libera')->nullable();
+            
             $table->timestamps();
         });
     }

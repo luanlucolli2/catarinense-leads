@@ -29,12 +29,12 @@ class AuthController extends Controller
             ]);
         }
 
+        // A linha abaixo é para criar tokens para clientes de API (como mobile),
+        // mas o login via SPA já cria a sessão automaticamente.
+        // Não precisamos retornar um token para a SPA.
         $user = $request->user();
-        $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
-            'access_token' => $token,
-            'token_type' => 'Bearer',
             'user' => $user,
         ]);
     }
@@ -47,7 +47,14 @@ class AuthController extends Controller
      */
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        // 1. Usar o "guard" de autenticação web para invalidar a sessão.
+        Auth::guard('web')->logout();
+
+        // 2. Invalidar a sessão atual para evitar que seja usada novamente.
+        $request->session()->invalidate();
+
+        // 3. Regenerar o token CSRF como medida de segurança.
+        $request->session()->regenerateToken();
 
         return response()->json(['message' => 'Logout realizado com sucesso.']);
     }

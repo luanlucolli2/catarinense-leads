@@ -34,8 +34,7 @@ class Lead extends Model
         'data_nascimento' => 'date',
         'data_importacao_cadastro' => 'datetime',
         'data_atualizacao' => 'datetime',
-        'saldo' => 'decimal:2',
-        'libera' => 'decimal:2',
+        // As linhas de 'saldo' e 'libera' foram REMOVIDAS daqui
     ];
 
     public function contracts(): HasMany

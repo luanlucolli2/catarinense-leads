@@ -17,7 +17,7 @@ interface SidebarProps {
 const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setUser, setToken } = useAuth(); // 3. Usar o hook para acessar as funções do contexto
+  const { setUser } = useAuth(); // 3. Usar o hook para acessar as funções do contexto
 
   const menuItems = [
     {
@@ -65,7 +65,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
       } finally {
         // 5. Independentemente do resultado da API, limpamos o estado do frontend
         setUser(null);
-        setToken(null);
+
         navigate("/login", { replace: true });
       }
     }

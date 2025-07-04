@@ -12,7 +12,7 @@ import { Loader2 } from "lucide-react"; // <- import do spinner
 
 const Login = () => {
   const navigate = useNavigate();
-  const { setUser, setToken } = useAuth();
+  const { setUser } = useAuth();
 
   const [formData, setFormData] = useState({
     email: "teste@catarinense.com",
@@ -33,12 +33,15 @@ const Login = () => {
 
     try {
       const response = await axiosClient.post('/login', formData);
-      const { user, access_token } = response.data;
+
+      // A API agora retorna apenas 'user'
+      const { user } = response.data;
       setUser(user);
-      setToken(access_token);
+      // Não precisamos mais do token para a autenticação da SPA
 
       toast.success("Login realizado com sucesso!");
       navigate("/");
+
     } catch (err: any) {
       setIsLoading(false);
       if (err.response?.status === 422) {
