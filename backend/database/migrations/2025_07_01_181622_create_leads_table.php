@@ -26,12 +26,11 @@ return new class extends Migration
             $table->string('classe_fone3')->nullable();
             $table->string('fone4')->nullable();
             $table->string('classe_fone4')->nullable();
-            $table->string('origem_cadastro');
-            $table->timestamp('data_importacao_cadastro');
+            
+            // REMOVEMOS 'origem_cadastro' e 'data_importacao_cadastro' daqui
+            
             $table->string('consulta')->nullable();
             $table->timestamp('data_atualizacao')->nullable();
-            
-            // ALTERAÇÃO PRINCIPAL AQUI
             $table->string('saldo')->nullable();
             $table->string('libera')->nullable();
             

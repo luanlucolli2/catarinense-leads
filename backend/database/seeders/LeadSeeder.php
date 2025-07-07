@@ -26,8 +26,6 @@ class LeadSeeder extends Seeder
             'data_nascimento'       => '1992-08-10',
             'fone1'                 => '47991234567', // Telefone com 11 dígitos, sem formatação
             'classe_fone1'          => 'Quente',
-            'origem_cadastro'       => 'Sistema Interno',
-            'data_importacao_cadastro' => now()->subDays(20),
             'consulta'              => 'Saldo FACTA',
             'data_atualizacao'      => '2025-06-28 03:33:42',
             'saldo'                 => '219.42',
@@ -49,8 +47,6 @@ class LeadSeeder extends Seeder
             'classe_fone3'          => 'Quente',
             'fone4'                 => '1123456789',      // Telefone com 10 dígitos
             'classe_fone4'          => 'Frio',
-            'origem_cadastro'       => 'Planilha Higienização',
-            'data_importacao_cadastro' => now()->subDays(15),
             'consulta'              => 'Instituição Fiduciária não possui autorização do Trabalhador para Operação Fiduciária. (7)',
             'data_atualizacao'      => '2025-06-20 03:39:10',
             'saldo'                 => 'Não Autorizado',
@@ -64,8 +60,6 @@ class LeadSeeder extends Seeder
             'data_nascimento'       => '1979-01-01',
             'fone1'                 => '11977774444', // 11 dígitos sem formatação
             'classe_fone1'          => 'Frio',
-            'origem_cadastro'       => 'Planilha Higienização',
-            'data_importacao_cadastro' => now()->subDays(12),
             'consulta'              => 'Instituição Fiduciária não possui autorização do Trabalhador para Operação Fiduciária. (7)',
             'data_atualizacao'      => '2025-06-20 01:06:28',
             'saldo'                 => 'Não Autorizado',

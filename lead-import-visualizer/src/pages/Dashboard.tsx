@@ -22,8 +22,8 @@ interface LeadFromApi {
   classe_fone3: string | null;
   fone4: string | null;
   classe_fone4: string | null;
-  origem_cadastro: string;
-  data_importacao_cadastro: string;
+  origem_cadastro: string | null;
+  data_importacao_cadastro: string | null;
   consulta: string | null;
   data_atualizacao: string | null;
   saldo: string | null;

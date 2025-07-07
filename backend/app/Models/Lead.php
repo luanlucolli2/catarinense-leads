@@ -22,8 +22,6 @@ class Lead extends Model
         'classe_fone3',
         'fone4',
         'classe_fone4',
-        'origem_cadastro',
-        'data_importacao_cadastro',
         'consulta',
         'data_atualizacao',
         'saldo',

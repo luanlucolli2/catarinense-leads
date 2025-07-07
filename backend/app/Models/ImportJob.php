@@ -15,6 +15,8 @@ class ImportJob extends Model
         'user_id',
         'type',
         'file_name',
+        'file_path',
+        'origin', 
         'status',
         'started_at',
         'finished_at',
