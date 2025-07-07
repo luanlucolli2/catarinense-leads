@@ -1,7 +1,9 @@
+# Em backend/docker-compose.yml
+
 services:
     laravel.test:
         build:
-            context: './vendor/laravel/sail/runtimes/8.4'
+            context: ./vendor/laravel/sail/runtimes/8.4
             dockerfile: Dockerfile
             args:
                 WWWGROUP: '${WWWGROUP}'
@@ -9,8 +11,8 @@ services:
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         ports:
+            # A porta 80 do contêiner é mapeada para a porta 80 da sua máquina (via WSL)
             - '${APP_PORT:-80}:80'
-            - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
         environment:
             WWWUSER: '${WWWUSER}'
             LARAVEL_SAIL: 1
@@ -23,6 +25,33 @@ services:
             - sail
         depends_on:
             - mysql
+
+    # ===== NOVO SERVIÇO PARA O FRONTEND =====
+    frontend:
+        # 1. Diz ao Docker para construir esta imagem usando as instruções
+        #    da pasta do nosso frontend.
+        build:
+            context: ../lead-import-visualizer
+            dockerfile: Dockerfile
+        image: catarinense-frontend # Nome da imagem que será criada
+        container_name: catarinense-frontend-app # Nome do contêiner em execução
+        ports:
+            # 2. Mapeia a porta 8080 do contêiner para a porta 8080 da sua máquina.
+            # É isso que permite o acesso via localhost:8080.
+            - "8080:8080"
+        volumes:
+            # 3. Mapeia o código local para dentro do contêiner, para que as
+            #    alterações no seu editor reflitam em tempo real (hot-reload).
+            - ../lead-import-visualizer:/app
+            # 4. Impede que a pasta node_modules local sobrescreva a que foi
+            #    instalada dentro do contêiner pelo Dockerfile.
+            - /app/node_modules
+        networks:
+            - sail
+        depends_on:
+            - laravel.test # Garante que o backend suba antes do frontend
+    # =======================================
+
     mysql:
         image: 'mysql/mysql-server:8.0'
         ports:

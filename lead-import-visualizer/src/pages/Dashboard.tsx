@@ -69,7 +69,7 @@ const Dashboard = () => {
 
       const status: "Elegível" | "Inelegível" =
         lead.consulta === "Saldo FACTA" && liberaValue > 0 ? "Elegível" : "Inelegível";
-      
+
       const telefones = [
         { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
         { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
@@ -155,14 +155,14 @@ const Dashboard = () => {
         availableMotivos={availableMotivos}
         availableOrigens={availableOrigens}
         hasActiveFilters={searchValue !== "" || eligibleFilter !== "todos" || motivosFilter.length > 0 || origemFilter.length > 0 || dateFromFilter !== "" || dateToFilter !== ""}
-        contractDateFromFilter="" onContractDateFromFilterChange={() => {}}
-        contractDateToFilter="" onContractDateToFilterChange={() => {}}
-        cpfMassFilter="" onCpfMassFilterChange={() => {}}
-        namesMassFilter="" onNamesMassFilterChange={() => {}}
-        phonesMassFilter="" onPhonesMassFilterChange={() => {}}
+        contractDateFromFilter="" onContractDateFromFilterChange={() => { }}
+        contractDateToFilter="" onContractDateToFilterChange={() => { }}
+        cpfMassFilter="" onCpfMassFilterChange={() => { }}
+        namesMassFilter="" onNamesMassFilterChange={() => { }}
+        phonesMassFilter="" onPhonesMassFilterChange={() => { }}
       />
 
-     <LeadsTable
+      <LeadsTable
         leads={processedLeads}
         currentPage={paginatedData?.current_page ?? 1}
         totalPages={paginatedData?.last_page ?? 1}

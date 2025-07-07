@@ -36,6 +36,7 @@ class AuthController extends Controller
 
         return response()->json([
             'user' => $user,
+            
         ]);
     }
 
