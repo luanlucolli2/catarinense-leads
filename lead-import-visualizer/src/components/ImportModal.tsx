@@ -6,16 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import axiosClient from "@/api/axiosClient";
+import { cn } from "@/lib/utils"; // Importar o cn para combinar classes
 
 interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportSuccess: () => void; // Nova prop para notificar o pai sobre o sucesso
+  onImportSuccess: () => void;
 }
-
-const suggestedOrigins = [
-  "Site Corporativo", "Landing Page", "Facebook Ads", "Google Ads", "Indicação",
-];
 
 export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalProps) => {
   const [importType, setImportType] = useState("cadastral");
@@ -23,6 +20,7 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
   const [origin, setOrigin] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // A lógica de handlers (handleFileChange, handleClose, handleImport) permanece a mesma
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -31,9 +29,8 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
   };
 
   const handleClose = () => {
-    if (isSubmitting) return; // Impede de fechar durante o envio
+    if (isSubmitting) return;
     onClose();
-    // Resetar o estado ao fechar
     setSelectedFile(null);
     setOrigin("");
     setImportType("cadastral");
@@ -44,36 +41,34 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
       toast.error("Por favor, selecione um arquivo para importar.");
       return;
     }
-
     setIsSubmitting(true);
 
-    // 1. FormData é a forma correta de enviar arquivos via HTTP
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('type', importType);
-    if (importType === 'cadastral' && origin) {
+    if (origin) {
       formData.append('origin', origin);
     }
 
     try {
-      // 2. Chamada de API real com o axiosClient
       const response = await axiosClient.post('/import', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       toast.success("Arquivo enviado com sucesso!", {
         description: response.data.message,
       });
-      
-      onImportSuccess(); // 3. Notifica o Dashboard para atualizar a lista de leads
-      handleClose(); // Fecha o modal
+
+      onImportSuccess();
+      handleClose();
 
     } catch (error: any) {
       console.error("Erro na importação:", error);
-      if (error.response?.data?.errors) {
-        // Trata erros de validação do Laravel
+      if (error.response?.status === 422 && error.response?.data?.missing) {
+        toast.error("Cabeçalho da planilha inválido", {
+          description: `Colunas faltando: ${error.response.data.missing.join(', ')}`,
+        });
+      } else if (error.response?.data?.errors) {
         const validationErrors = Object.values(error.response.data.errors).flat();
         toast.error("Erro de validação", {
           description: (validationErrors[0] as string) || "Verifique os dados enviados.",
@@ -87,22 +82,11 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
       setIsSubmitting(false);
     }
   };
-  
-  const handleDownloadTemplate = (type: 'cadastral' | 'higienizacao') => {
-    // Aponta para a pasta 'public' do seu projeto Laravel
-    const url = type === 'cadastral'
-      ? '/templates/template_import_cadastral.xlsx'
-      : '/templates/template_import_higienizacao.xlsx';
-    
-    // Cria um link e simula o clique para iniciar o download
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', url.split('/').pop() || 'template.xlsx');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
+  const handleDownloadTemplate = (type: 'cadastral' | 'higienizacao') => {
+    const url = `/templates/${type === 'cadastral' ? 'template_import_cadastral.xlsx' : 'template_import_higienizacao.xlsx'}`;
+    window.open(url, '_blank');
+  };
 
   if (!isOpen) return null;
 
@@ -120,20 +104,39 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">Tipo de Importação</label>
             <div className="grid grid-cols-2 gap-2">
-                <Button variant={importType === 'cadastral' ? 'default' : 'outline'} onClick={() => setImportType('cadastral')}>Dados Cadastrais</Button>
-                <Button variant={importType === 'higienizacao' ? 'default' : 'outline'} onClick={() => setImportType('higienizacao')}>Dados de Higienização</Button>
+              {/* MUDANÇA DE ESTILO AQUI */}
+              <Button
+                onClick={() => setImportType('cadastral')}
+                className={cn(
+                  "transition-colors duration-200",
+                  importType === 'cadastral'
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white' // Estilo ATIVO
+                    : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-300' // Estilo INATIVO
+                )}
+              >
+                Dados Cadastrais
+              </Button>
+              <Button
+                onClick={() => setImportType('higienizacao')}
+                className={cn(
+                  "transition-colors duration-200",
+                  importType === 'higienizacao'
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white' // Estilo ATIVO
+                    : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-300' // Estilo INATIVO
+                )}
+              >
+                Dados de Higienização
+              </Button>
             </div>
           </div>
-          
-          {importType === "cadastral" && (
-            <div className="relative">
-              <label htmlFor="origin" className="block text-sm font-medium text-gray-700 mb-2">Origem da Planilha (Opcional)</label>
-              <Input id="origin" type="text" placeholder="Ex: Campanha Facebook Junho" value={origin} onChange={(e) => setOrigin(e.target.value)} />
-            </div>
-          )}
+
+          <div className="relative">
+            <label htmlFor="origin" className="block text-sm font-medium text-gray-700 mb-2">Origem da Planilha (Opcional)</label>
+            <Input id="origin" type="text" placeholder="Ex: Campanha Facebook Junho" value={origin} onChange={(e) => setOrigin(e.target.value)} />
+          </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-             <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-medium text-blue-800 mb-1">Planilha Modelo</h4>
                 <p className="text-xs text-blue-600">Baixe o template do tipo selecionado.</p>
@@ -161,7 +164,12 @@ export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalPro
 
         <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>Cancelar</Button>
-          <Button onClick={handleImport} disabled={!selectedFile || isSubmitting}>
+          {/* MUDANÇA DE ESTILO AQUI */}
+          <Button
+            onClick={handleImport}
+            disabled={!selectedFile || isSubmitting}
+            className="bg-green-700 hover:bg-green-600 text-white transition-colors duration-200"
+          >
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
             {isSubmitting ? "Enviando..." : "Iniciar Importação"}
           </Button>
