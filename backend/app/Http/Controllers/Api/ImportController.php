@@ -16,27 +16,21 @@ use Illuminate\Http\UploadedFile;
 
 class ImportController extends Controller
 {
-    /**
-     * Armazena o arquivo enviado e despacha o job para processamento.
-     */
     public function store(Request $request)
     {
-        /* -----------------------------------------------------------
-         | 1. Validação básica da requisição
-         * -----------------------------------------------------------*/
+        /* 1. Validação básica */
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls'],
-            'type' => ['required', 'string', 'in:cadastral,higienizacao'],
+            'file'   => ['required', 'file', 'mimes:xlsx,xls'],
+            'type'   => ['required', 'string', 'in:cadastral,higienizacao'],
             'origin' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $file = $validated['file'];            /** @var UploadedFile $file */
+        /** @var UploadedFile $file */
+        $file = $validated['file'];
         $type = $validated['type'];
 
-        /* -----------------------------------------------------------
-         | 2. Validação dos cabeçalhos
-         * -----------------------------------------------------------*/
-        $importerClass = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
+        /* 2. Validação de cabeçalhos */
+        $importerClass   = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
         $requiredHeaders = $importerClass::REQUIRED_HEADERS;
 
         $missing = $this->missingHeaders($file, $requiredHeaders);
@@ -48,34 +42,34 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        /* -----------------------------------------------------------
-         | 3. Cabeçalhos OK → grava arquivo e cria ImportJob
-         * -----------------------------------------------------------*/
-        $path = $file->store('imports'); // disk default
+        /* 3. Conta linhas de dados (para a barra de progresso) */
+        $spreadsheet = IOFactory::load($file->getRealPath());
+        $sheet       = $spreadsheet->getActiveSheet();
+        $totalRows   = max($sheet->getHighestDataRow() - 1, 0); // -1 = cabeçalho
+
+        /* 4. Salva arquivo e cria ImportJob */
+        $path = $file->store('imports');
 
         $importJob = ImportJob::create([
-            'user_id' => Auth::id(),
-            'type' => $type,
-            'origin' => $validated['origin'] ?? 'Upload Padrão',
-            'file_name' => $file->getClientOriginalName(),
-            'file_path' => $path,
-            'status' => 'pendente',
+            'user_id'        => Auth::id(),
+            'type'           => $type,
+            'origin'         => $validated['origin'] ?? 'Upload Padrão',
+            'file_name'      => $file->getClientOriginalName(),
+            'file_path'      => $path,
+            'status'         => 'pendente',
+            'total_rows'     => $totalRows,  // 🆕
+            'processed_rows' => 0,           // 🆕
         ]);
 
-        /* -----------------------------------------------------------
-         | 4. Despacha para fila
-         * -----------------------------------------------------------*/
+        /* 5. Despacha o Job para a fila */
         ProcessLeadImportJob::dispatch($importJob);
 
-        /* -----------------------------------------------------------
-         | 5. Resposta imediata
-         * -----------------------------------------------------------*/
+        /* 6. Resposta */
         return response()->json([
             'message' => 'Arquivo recebido. A importação será processada em segundo plano.',
-            'job_id' => $importJob->id,
+            'job_id'  => $importJob->id,
         ], Response::HTTP_ACCEPTED);
     }
-
     /* -----------------------------------------------------------------------
      |  🚚 Helpers
      |-----------------------------------------------------------------------*/

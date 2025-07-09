@@ -17,6 +17,8 @@ return new class extends Migration {
             $table->string('origin')->nullable(); // Adicionar este campo
             $table->string('file_path'); // Adicionar este campo
             $table->string('file_name');
+            $table->unsignedInteger('total_rows')->default(0);
+            $table->unsignedInteger('processed_rows')->default(0);
             $table->string('status'); // 'pendente', 'em_progresso', 'concluido', 'falhou'
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();

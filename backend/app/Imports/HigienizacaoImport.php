@@ -14,11 +14,12 @@ use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Concerns\RemembersRowNumber;
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
-
-class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, ShouldQueue
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\AfterChunk;
+class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
     use RemembersRowNumber;
-  public const REQUIRED_HEADERS = [
+    public const REQUIRED_HEADERS = [
         'cpfcliente',
         'consulta',
         'dataatualizacao',
@@ -164,4 +165,29 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, S
             return null;
         }
     }
+
+   public function registerEvents(): array
+    {
+        return [
+            AfterChunk::class => function () {
+
+                // 1. Sincroniza o modelo com o banco
+                $this->importJob->refresh();
+
+                // 2. Quanto ainda falta?
+                $remaining = $this->importJob->total_rows
+                            - $this->importJob->processed_rows;
+
+                if ($remaining <= 0) {
+                    return;           // já registrado tudo
+                }
+
+                // 3. Soma o menor valor: chunkSize() ou o que ainda resta
+                $increment = min($this->chunkSize(), $remaining);
+
+                $this->importJob->increment('processed_rows', $increment);
+            },
+        ];
+    }
+
 }

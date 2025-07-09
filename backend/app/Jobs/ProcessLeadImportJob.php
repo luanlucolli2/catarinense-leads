@@ -41,7 +41,9 @@ class ProcessLeadImportJob implements ShouldQueue
                 : new HigienizacaoImport($this->importJob);
 
             Excel::import($importer, $this->importJob->file_path);
-
+            $this->importJob->update([
+                'processed_rows' => $this->importJob->total_rows,
+            ]);
             $this->importJob->update(['status' => 'concluido', 'finished_at' => now()]);
 
         } catch (Throwable $e) {

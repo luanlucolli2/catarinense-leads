@@ -16,15 +16,19 @@ class ImportJob extends Model
         'type',
         'file_name',
         'file_path',
-        'origin', 
+        'origin',
         'status',
         'started_at',
         'finished_at',
+        'total_rows',       //  🆕
+        'processed_rows',   //  🆕
     ];
 
     protected $casts = [
-        'started_at' => 'datetime',
-        'finished_at' => 'datetime',
+        'started_at'     => 'datetime',
+        'finished_at'    => 'datetime',
+        'total_rows'     => 'integer',
+        'processed_rows' => 'integer',
     ];
 
     public function user(): BelongsTo

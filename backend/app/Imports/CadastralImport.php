@@ -14,11 +14,12 @@ use Illuminate\Support\Facades\DB; // 1. Importar a classe DB para transações
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Concerns\RemembersRowNumber;
-
+use Maatwebsite\Excel\Concerns\WithEvents;          // ← novo
+use Maatwebsite\Excel\Events\AfterChunk;  
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 
-class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, ShouldQueue
+class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents,ShouldQueue
 {
     use RemembersRowNumber;
 
@@ -175,4 +176,29 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, Shou
 
         return true;
     }
+
+    public function registerEvents(): array
+    {
+        return [
+            AfterChunk::class => function () {
+
+                // 1. Sincroniza o modelo com o banco
+                $this->importJob->refresh();
+
+                // 2. Quanto ainda falta?
+                $remaining = $this->importJob->total_rows
+                            - $this->importJob->processed_rows;
+
+                if ($remaining <= 0) {
+                    return;           // já registrado tudo
+                }
+
+                // 3. Soma o menor valor: chunkSize() ou o que ainda resta
+                $increment = min($this->chunkSize(), $remaining);
+
+                $this->importJob->increment('processed_rows', $increment);
+            },
+        ];
+    }
+
 }
