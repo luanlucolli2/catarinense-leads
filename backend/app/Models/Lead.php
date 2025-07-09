@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany; // 1. Importar a classe
+
 
 class Lead extends Model
 {
@@ -30,7 +32,6 @@ class Lead extends Model
 
     protected $casts = [
         'data_nascimento' => 'date',
-        'data_importacao_cadastro' => 'datetime',
         'data_atualizacao' => 'datetime',
         // As linhas de 'saldo' e 'libera' foram REMOVIDAS daqui
     ];
@@ -38,5 +39,14 @@ class Lead extends Model
     public function contracts(): HasMany
     {
         return $this->hasMany(LeadContract::class);
+    }
+
+    public function importJobs(): BelongsToMany
+    {
+        // A MUDANÇA ESTÁ AQUI:
+        // Removemos o ->withTimestamps() pois a tabela pivot só tem created_at,
+        // que já é gerenciado pelo banco de dados (useCurrent()).
+        return $this->belongsToMany(ImportJob::class, 'lead_imports')
+            ->withPivot('action');
     }
 }

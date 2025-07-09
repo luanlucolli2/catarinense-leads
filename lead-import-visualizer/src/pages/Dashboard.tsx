@@ -48,7 +48,7 @@ const Dashboard = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: paginatedData, isLoading, isError } = useQuery<PaginatedLeadsResponse>({
+  const { data: paginatedData, isLoading, isError, refetch  } = useQuery<PaginatedLeadsResponse>({
     queryKey: ['leads', currentPage, searchValue, eligibleFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ page: currentPage.toString() });
@@ -60,6 +60,8 @@ const Dashboard = () => {
     placeholderData: keepPreviousData,
   });
 
+
+  
   const processedLeads: ProcessedLead[] = useMemo(() => {
     if (!paginatedData?.data) return [];
 
@@ -173,7 +175,11 @@ const Dashboard = () => {
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onImport={handleImport}
+        // 2. Remover a prop 'onImport' e passar a nova 'onImportSuccess'
+        onImportSuccess={() => {
+          toast.info("A lista de leads será atualizada em breve.");
+          refetch(); // Chama a função para buscar os dados novamente
+        }}
       />
 
       <ExportModal

@@ -10,12 +10,32 @@ use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\DB; // 1. Importar a classe DB para transações
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use Maatwebsite\Excel\Concerns\RemembersRowNumber;
+
 use Carbon\Carbon;
-use Maatwebsite\Excel\Concerns\RemembersRowNumber; // 1. Importar o Trait
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, ShouldQueue
 {
-        use RemembersRowNumber; // 2. Usar o Trait
+    use RemembersRowNumber;
+
+    public const REQUIRED_HEADERS = [
+        'cpfcliente',
+        'nomecliente',
+        'datanascimento',
+        'fone1',
+        'classefone1',
+        'fone2',
+        'classefone2',
+        'fone3',
+        'classefone3',
+        'fone4',
+        'classefone4',
+        'datacontrato',
+    ];
 
     protected ImportJob $importJob;
 
@@ -24,80 +44,135 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, Shou
         $this->importJob = $importJob;
     }
 
-    /**
-    * @param array $row
-    *
-    * @return \Illuminate\Database\Eloquent\Model|null
-    */
     public function model(array $row)
     {
-        try {
-            // 1. Normalizar e validar dados da linha
-            $cpf = preg_replace('/\D/', '', $row['cpfcliente']);
-            if (strlen($cpf) !== 11) {
-                throw new \Exception("CPF inválido.");
+        // 2. Envolver toda a lógica em uma transação de banco de dados
+        DB::transaction(function () use ($row) {
+            try {
+                $validator = Validator::make($row, [
+                    'cpfcliente' => ['required'],
+                ]);
+
+                if ($validator->fails()) {
+                    throw new ValidationException($validator);
+                }
+
+                $cpf = preg_replace('/\D/', '', (string) ($row['cpfcliente'] ?? ''));
+
+                // 3. Adicionar a validação de CPF real
+                if (!$this->isValidCpf($cpf)) {
+                    throw new \Exception("CPF inválido (dígito verificador não confere).", 0, new \Exception('cpfcliente'));
+                }
+
+                $lead = Lead::firstOrNew(['cpf' => $cpf]);
+                $action = $lead->exists ? 'update' : 'insert';
+
+                $dataFromSheet = [
+                    'nome' => $row['nomecliente'] ?? null,
+                    'data_nascimento' => $this->transformDate($row['datanascimento'] ?? null),
+                    'fone1' => $this->normalizePhone($row['fone1'] ?? null),
+                    'classe_fone1' => $this->normalizeClasse($row['classefone1'] ?? null),
+                    'fone2' => $this->normalizePhone($row['fone2'] ?? null),
+                    'classe_fone2' => $this->normalizeClasse($row['classefone2'] ?? null),
+                    'fone3' => $this->normalizePhone($row['fone3'] ?? null),
+                    'classe_fone3' => $this->normalizeClasse($row['classefone3'] ?? null),
+                    'fone4' => $this->normalizePhone($row['fone4'] ?? null),
+                    'classe_fone4' => $this->normalizeClasse($row['classefone4'] ?? null),
+                ];
+
+                foreach ($dataFromSheet as $field => $value) {
+                    if (!is_null($value) && $value !== '') {
+                        $lead->{$field} = $value;
+                    }
+                }
+
+                $lead->save();
+
+                if (!empty($row['datacontrato'])) {
+                    $contractDate = $this->transformDate($row['datacontrato']);
+                    if ($contractDate) {
+                        LeadContract::updateOrCreate(
+                            ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
+                            []
+                        );
+                    } else {
+                        throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
+                    }
+                }
+
+                $lead->importJobs()->attach($this->importJob->id, ['action' => $action]);
+
+            } catch (\Exception $e) {
+                // Se qualquer erro ocorrer, a transação será desfeita (rollback)
+                // e nós registramos o erro.
+                $columnName = 'Geral';
+                if ($e instanceof ValidationException) {
+                    $columnName = array_key_first($e->errors());
+                } elseif ($e->getPrevious()) {
+                    $columnName = $e->getPrevious()->getMessage();
+                }
+
+                ImportError::create([
+                    'import_job_id' => $this->importJob->id,
+                    'row_number' => $this->getRowNumber(),
+                    'column_name' => $columnName,
+                    'error_message' => $e->getMessage(),
+                ]);
             }
+        });
 
-            // 2. Lógica de Upsert do Lead
-            $lead = Lead::updateOrCreate(
-                ['cpf' => $cpf],
-                [
-                    'nome' => $row['nomecliente'],
-                    'data_nascimento' => $this->transformDate($row['datanascimento']),
-                    'fone1' => $this->normalizePhone($row['fone1']),
-                    'classe_fone1' => $row['classe1'],
-                    'fone2' => $this->normalizePhone($row['fone2']),
-                    'classe_fone2' => $row['classe2'],
-                    'fone3' => $this->normalizePhone($row['fone3']),
-                    'classe_fone3' => $row['classe3'],
-                    'fone4' => $this->normalizePhone($row['fone4']),
-                    'classe_fone4' => $row['classe4'],
-                ]
-            );
-
-            // 3. Adicionar o contrato, se houver
-            if (!empty($row['datacontrato'])) {
-                LeadContract::updateOrCreate(
-                    ['lead_id' => $lead->id, 'data_contrato' => $this->transformDate($row['datacontrato'])],
-                    []
-                );
-            }
-
-            // 4. Registrar na tabela pivot
-            $lead->importJobs()->attach($this->importJob->id, ['action' => $lead->wasRecentlyCreated ? 'insert' : 'update']);
-
-        } catch (\Exception $e) {
-            // 5. Registrar qualquer erro que ocorrer nesta linha
-            ImportError::create([
-                'import_job_id' => $this->importJob->id,
-                'row_number' => $this->getRowNumber(),
-                'column_name' => 'N/A', // Pode ser melhorado para identificar a coluna exata
-                'error_message' => $e->getMessage(),
-            ]);
-        }
-
-        return null; // Retornamos null porque já estamos tratando a criação/atualização manualmente
+        return null;
     }
 
     public function chunkSize(): int
     {
-        return 1000; // Processa a planilha em blocos de 1000 linhas
+        return 1000;
     }
 
     private function transformDate($value): ?string
     {
         if (empty($value)) return null;
-        // Tenta converter o formato dd/mm/aaaa para aaaa-mm-dd
+        if (is_numeric($value)) {
+            return Carbon::instance(Date::excelToDateTimeObject($value))->format('Y-m-d');
+        }
         try {
-            return Carbon::createFromFormat('d/m/Y', $value)->format('Y-m-d');
+            return Carbon::createFromFormat('d/m/Y', trim($value))->format('Y-m-d');
         } catch (\Exception $e) {
-            return null; // Retorna nulo se a data for inválida
+            return null;
         }
     }
-    
+
     private function normalizePhone($phone): ?string
     {
         if (empty($phone)) return null;
-        return preg_replace('/\D/', '', $phone);
+        return preg_replace('/\D/', '', (string) $phone);
+    }
+    
+    private function normalizeClasse($classe): ?string
+    {
+        if (empty($classe)) return null;
+        return ucfirst(strtolower(trim($classe)));
+    }
+
+    /**
+     * Valida um CPF usando o algoritmo de cálculo dos dígitos verificadores.
+     */
+    private function isValidCpf(string $cpf): bool
+    {
+        if (strlen($cpf) != 11 || preg_match('/(\d)\1{10}/', $cpf)) {
+            return false;
+        }
+
+        for ($t = 9; $t < 11; $t++) {
+            for ($d = 0, $c = 0; $c < $t; $c++) {
+                $d += $cpf[$c] * (($t + 1) - $c);
+            }
+            $d = ((10 * $d) % 11) % 10;
+            if ($cpf[$c] != $d) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

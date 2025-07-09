@@ -1,257 +1,169 @@
+// Em src/components/ImportModal.tsx
 
 import { useState } from "react";
-import { X, Upload, AlertCircle, Download } from "lucide-react";
+import { X, Upload, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import axiosClient from "@/api/axiosClient";
 
 interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (type: string, file: File, origin?: string) => void;
+  onImportSuccess: () => void; // Nova prop para notificar o pai sobre o sucesso
 }
 
 const suggestedOrigins = [
-  "Site Corporativo",
-  "Landing Page",
-  "Facebook Ads",
-  "Google Ads",
-  "Instagram",
-  "WhatsApp Business",
-  "Parceiros",
-  "Indicação",
-  "Telemarketing",
-  "Email Marketing",
-  "Eventos",
-  "Feiras"
+  "Site Corporativo", "Landing Page", "Facebook Ads", "Google Ads", "Indicação",
 ];
 
-export const ImportModal = ({ isOpen, onClose, onImport }: ImportModalProps) => {
-  const [importType, setImportType] = useState("cadastrais");
+export const ImportModal = ({ isOpen, onClose, onImportSuccess }: ImportModalProps) => {
+  const [importType, setImportType] = useState("cadastral");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [origin, setOrigin] = useState("");
-  const [errors, setErrors] = useState<string[]>([]);
-  const [showOriginSuggestions, setShowOriginSuggestions] = useState(false);
-
-  const filteredOrigins = suggestedOrigins.filter(suggestion =>
-    suggestion.toLowerCase().includes(origin.toLowerCase())
-  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      // Simular validação de template
-      if (file.name.includes("invalid")) {
-        setErrors([
-          "Coluna 'Email' não encontrada",
-          "Coluna 'Data_Nascimento' fora da ordem esperada",
-          "Formato de arquivo deve ser .xlsx"
-        ]);
-      } else {
-        setErrors([]);
-      }
-    }
-  };
-
-  const handleOriginSelect = (selectedOrigin: string) => {
-    setOrigin(selectedOrigin);
-    setShowOriginSuggestions(false);
-  };
-
-  const handleImport = () => {
-    if (selectedFile) {
-      onImport(importType, selectedFile, importType === "cadastrais" ? origin : undefined);
-      onClose();
-      setSelectedFile(null);
-      setOrigin("");
-      setErrors([]);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return; // Impede de fechar durante o envio
     onClose();
+    // Resetar o estado ao fechar
     setSelectedFile(null);
     setOrigin("");
-    setErrors([]);
-    setShowOriginSuggestions(false);
+    setImportType("cadastral");
   };
 
-  const handleDownloadTemplate = () => {
-    console.log(`Downloading template for ${importType}`);
-    const templateName = importType === 'cadastrais' ? 'template_dados_cadastrais.xlsx' : 'template_higienizacao.xlsx';
-    
-    const link = document.createElement('a');
-    link.href = '#';
-    link.download = templateName;
-    link.click();
+  const handleImport = async () => {
+    if (!selectedFile) {
+      toast.error("Por favor, selecione um arquivo para importar.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    // 1. FormData é a forma correta de enviar arquivos via HTTP
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('type', importType);
+    if (importType === 'cadastral' && origin) {
+      formData.append('origin', origin);
+    }
+
+    try {
+      // 2. Chamada de API real com o axiosClient
+      const response = await axiosClient.post('/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      toast.success("Arquivo enviado com sucesso!", {
+        description: response.data.message,
+      });
+      
+      onImportSuccess(); // 3. Notifica o Dashboard para atualizar a lista de leads
+      handleClose(); // Fecha o modal
+
+    } catch (error: any) {
+      console.error("Erro na importação:", error);
+      if (error.response?.data?.errors) {
+        // Trata erros de validação do Laravel
+        const validationErrors = Object.values(error.response.data.errors).flat();
+        toast.error("Erro de validação", {
+          description: (validationErrors[0] as string) || "Verifique os dados enviados.",
+        });
+      } else {
+        toast.error("Falha no envio", {
+          description: "Não foi possível enviar o arquivo. Tente novamente.",
+        });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+  
+  const handleDownloadTemplate = (type: 'cadastral' | 'higienizacao') => {
+    // Aponta para a pasta 'public' do seu projeto Laravel
+    const url = type === 'cadastral'
+      ? '/templates/template_import_cadastral.xlsx'
+      : '/templates/template_import_higienizacao.xlsx';
+    
+    // Cria um link e simula o clique para iniciar o download
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', url.split('/').pop() || 'template.xlsx');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 animate-scale-in">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Importar Planilha</h2>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
-          >
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors duration-200" disabled={isSubmitting}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Import Type Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Tipo de Importação
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="importType"
-                  value="cadastrais"
-                  checked={importType === "cadastrais"}
-                  onChange={(e) => setImportType(e.target.value)}
-                  className="mr-3 text-blue-600"
-                />
-                <span className="text-sm text-gray-700">Dados Cadastrais</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="importType"
-                  value="higienizacao"
-                  checked={importType === "higienizacao"}
-                  onChange={(e) => setImportType(e.target.value)}
-                  className="mr-3 text-blue-600"
-                />
-                <span className="text-sm text-gray-700">Dados de Higienização</span>
-              </label>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Tipo de Importação</label>
+            <div className="grid grid-cols-2 gap-2">
+                <Button variant={importType === 'cadastral' ? 'default' : 'outline'} onClick={() => setImportType('cadastral')}>Dados Cadastrais</Button>
+                <Button variant={importType === 'higienizacao' ? 'default' : 'outline'} onClick={() => setImportType('higienizacao')}>Dados de Higienização</Button>
             </div>
           </div>
-
-          {/* Origin Field for Cadastrais */}
-          {importType === "cadastrais" && (
+          
+          {importType === "cadastral" && (
             <div className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Origem da Planilha
-              </label>
-              <Input
-                type="text"
-                placeholder="Digite ou selecione a origem..."
-                value={origin}
-                onChange={(e) => {
-                  setOrigin(e.target.value);
-                  setShowOriginSuggestions(true);
-                }}
-                onFocus={() => setShowOriginSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowOriginSuggestions(false), 200)}
-              />
-              {showOriginSuggestions && filteredOrigins.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                  {filteredOrigins.map((suggestion, index) => (
-                    <button
-                      key={index}
-                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-                      onClick={() => handleOriginSelect(suggestion)}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <label htmlFor="origin" className="block text-sm font-medium text-gray-700 mb-2">Origem da Planilha (Opcional)</label>
+              <Input id="origin" type="text" placeholder="Ex: Campanha Facebook Junho" value={origin} onChange={(e) => setOrigin(e.target.value)} />
             </div>
           )}
 
-          {/* Template Download */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center justify-between">
+             <div className="flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-medium text-blue-800 mb-1">
-                  Planilha Modelo
-                </h4>
-                <p className="text-xs text-blue-600">
-                  Baixe o template correto para garantir a importação
-                </p>
+                <h4 className="text-sm font-medium text-blue-800 mb-1">Planilha Modelo</h4>
+                <p className="text-xs text-blue-600">Baixe o template do tipo selecionado.</p>
               </div>
-              <Button
-                onClick={handleDownloadTemplate}
-                variant="outline"
-                size="sm"
-                className="border-blue-300 text-blue-700 hover:bg-blue-100"
-              >
-                <Download className="w-4 h-4 mr-1" />
-                Baixar
+              <Button onClick={() => handleDownloadTemplate(importType as any)} variant="outline" size="sm" className="border-blue-300 text-blue-700 hover:bg-blue-100">
+                <Download className="w-4 h-4 mr-1" /> Baixar
               </Button>
             </div>
           </div>
 
-          {/* File Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Selecione o arquivo (template)
-            </label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-gray-400 transition-colors duration-200">
-              <input
-                type="file"
-                accept=".xlsx"
-                onChange={handleFileChange}
-                className="hidden"
-                id="file-upload"
-              />
-              <label
-                htmlFor="file-upload"
-                className="cursor-pointer flex flex-col items-center"
-              >
-                <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                <span className="text-sm text-gray-600">
-                  {selectedFile ? selectedFile.name : "Clique para selecionar arquivo .xlsx"}
+            <label className="block text-sm font-medium text-gray-700 mb-2">Selecione o arquivo (.xlsx)</label>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors duration-200 text-center">
+              <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="hidden" id="file-upload" />
+              <label htmlFor="file-upload" className="cursor-pointer">
+                <Upload className="w-8 h-8 text-gray-400 mb-2 mx-auto" />
+                <span className="text-sm text-gray-600 font-medium">
+                  {selectedFile ? selectedFile.name : "Clique para selecionar"}
                 </span>
+                <p className="text-xs text-gray-500">ou arraste e solte o arquivo aqui</p>
               </label>
             </div>
           </div>
-
-          {/* Error Messages */}
-          {errors.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-start">
-                <AlertCircle className="w-5 h-5 text-red-400 mr-2 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h4 className="text-sm font-medium text-red-800 mb-2">
-                    Problemas encontrados no template:
-                  </h4>
-                  <ul className="text-sm text-red-700 space-y-1">
-                    {errors.map((error, index) => (
-                      <li key={index}>• {error}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
-          <Button
-            variant="outline"
-            onClick={handleClose}
-            className="text-gray-700 border-gray-300 hover:bg-gray-50"
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleImport}
-            disabled={!selectedFile || errors.length > 0 || (importType === "cadastrais" && !origin.trim())}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Iniciar Importação
+          <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>Cancelar</Button>
+          <Button onClick={handleImport} disabled={!selectedFile || isSubmitting}>
+            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            {isSubmitting ? "Enviando..." : "Iniciar Importação"}
           </Button>
         </div>
       </div>
