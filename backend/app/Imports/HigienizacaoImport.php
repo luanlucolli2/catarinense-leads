@@ -16,6 +16,8 @@ use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterChunk;
+use Maatwebsite\Excel\Events\AfterImport;
+
 class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
     use RemembersRowNumber;
@@ -166,28 +168,35 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         }
     }
 
-   public function registerEvents(): array
-    {
-        return [
-            AfterChunk::class => function () {
+  public function registerEvents(): array
+{
+    return [
+        AfterChunk::class => function () {
+            $this->importJob->refresh();
 
-                // 1. Sincroniza o modelo com o banco
-                $this->importJob->refresh();
+            $remaining = $this->importJob->total_rows
+                         - $this->importJob->processed_rows;
 
-                // 2. Quanto ainda falta?
-                $remaining = $this->importJob->total_rows
-                            - $this->importJob->processed_rows;
+            if ($remaining <= 0) {
+                return;
+            }
 
-                if ($remaining <= 0) {
-                    return;           // já registrado tudo
-                }
+            $increment = min($this->chunkSize(), $remaining);
 
-                // 3. Soma o menor valor: chunkSize() ou o que ainda resta
-                $increment = min($this->chunkSize(), $remaining);
+            $this->importJob->increment(
+                'processed_rows',
+                $increment
+            );
+        },
 
-                $this->importJob->increment('processed_rows', $increment);
-            },
-        ];
-    }
+        AfterImport::class => function () {
+            $this->importJob->update([
+                'processed_rows' => $this->importJob->total_rows,
+                'status'         => 'concluido',
+                'finished_at'    => now(),
+            ]);
+        },
+    ];
+}
 
 }

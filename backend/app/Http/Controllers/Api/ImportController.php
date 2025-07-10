@@ -16,12 +16,15 @@ use Illuminate\Http\UploadedFile;
 
 class ImportController extends Controller
 {
+    /* -----------------------------------------------------------------------
+     |  POST /import  – envia arquivo e cria o Job
+     |-----------------------------------------------------------------------*/
     public function store(Request $request)
     {
-        /* 1. Validação básica */
+        /* 1. Validação da requisição */
         $validated = $request->validate([
-            'file'   => ['required', 'file', 'mimes:xlsx,xls'],
-            'type'   => ['required', 'string', 'in:cadastral,higienizacao'],
+            'file' => ['required', 'file', 'mimes:xlsx,xls'],
+            'type' => ['required', 'string', 'in:cadastral,higienizacao'],
             'origin' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -30,11 +33,10 @@ class ImportController extends Controller
         $type = $validated['type'];
 
         /* 2. Validação de cabeçalhos */
-        $importerClass   = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
+        $importerClass = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
         $requiredHeaders = $importerClass::REQUIRED_HEADERS;
 
         $missing = $this->missingHeaders($file, $requiredHeaders);
-
         if ($missing) {
             return response()->json([
                 'message' => 'Planilha inválida. Cabeçalhos ausentes.',
@@ -42,49 +44,63 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        /* 3. Conta linhas de dados (para a barra de progresso) */
+        /* 3. Conta linhas de dados (para barra de progresso) */
         $spreadsheet = IOFactory::load($file->getRealPath());
-        $sheet       = $spreadsheet->getActiveSheet();
-        $totalRows   = max($sheet->getHighestDataRow() - 1, 0); // -1 = cabeçalho
+        $sheet = $spreadsheet->getActiveSheet();
+        $totalRows = max($sheet->getHighestDataRow() - 1, 0); // -1 = cabeçalho
 
-        /* 4. Salva arquivo e cria ImportJob */
+        /* 4. Armazena arquivo e cria ImportJob */
         $path = $file->store('imports');
 
         $importJob = ImportJob::create([
-            'user_id'        => Auth::id(),
-            'type'           => $type,
-            'origin'         => $validated['origin'] ?? 'Upload Padrão',
-            'file_name'      => $file->getClientOriginalName(),
-            'file_path'      => $path,
-            'status'         => 'pendente',
-            'total_rows'     => $totalRows,  // 🆕
-            'processed_rows' => 0,           // 🆕
+            'user_id' => Auth::id(),
+            'type' => $type,
+            'origin' => $validated['origin'] ?? 'Upload Padrão',
+            'file_name' => $file->getClientOriginalName(),
+            'file_path' => $path,
+            'status' => 'pendente',
+            'total_rows' => $totalRows,
+            'processed_rows' => 0,
         ]);
 
-        /* 5. Despacha o Job para a fila */
+        /* 5. Despacha o job para a fila */
         ProcessLeadImportJob::dispatch($importJob);
 
-        /* 6. Resposta */
+        /* 6. Resposta 202 Accepted */
         return response()->json([
             'message' => 'Arquivo recebido. A importação será processada em segundo plano.',
-            'job_id'  => $importJob->id,
+            'job_id' => $importJob->id,
         ], Response::HTTP_ACCEPTED);
     }
-    /* -----------------------------------------------------------------------
-     |  🚚 Helpers
-     |-----------------------------------------------------------------------*/
 
+    /* -----------------------------------------------------------------------
+     |  GET /import/{id} – retorna progresso em tempo real
+     |-----------------------------------------------------------------------*/
+    public function show(ImportJob $importJob)
+    {
+        $errors = $importJob->errors()->count();
+
+        $percent = $importJob->total_rows
+            ? (int) floor($importJob->processed_rows / $importJob->total_rows * 100)
+            : 0;
+
+        return response()->json([
+            'status' => $importJob->status,          // agora vem 'pendente', 'em_progresso', ...
+            'processed_rows' => (int) $importJob->processed_rows,
+            'total_rows' => (int) $importJob->total_rows,
+            'percent' => $percent,
+            'errors' => $errors,
+        ]);
+    }
+
+    /* -----------------------------------------------------------------------
+     |  Helpers
+     |-----------------------------------------------------------------------*/
     /**
-     * Retorna um array com os cabeçalhos ausentes na planilha enviada.
-     * Se o array estiver vazio, todos os cabeçalhos obrigatórios existem.
-     *
-     * @param  UploadedFile $file
-     * @param  array        $requiredHeaders
-     * @return array
+     * Retorna um array de cabeçalhos ausentes; vazio se todos presentes.
      */
     private function missingHeaders(UploadedFile $file, array $requiredHeaders): array
     {
-        // Lê apenas a primeira linha (cabeçalhos) do arquivo ainda no tmp
         $spreadsheet = IOFactory::load($file->getRealPath());
         $sheet = $spreadsheet->getActiveSheet();
         $firstRow = $sheet->rangeToArray(
@@ -94,11 +110,9 @@ class ImportController extends Controller
             false
         )[0];
 
-        // Normaliza: trim + lowercase + remove espaços
         $normalize = fn($v) => Str::of($v)->trim()->lower()->replace(' ', '')->value();
         $present = array_map($normalize, $firstRow);
 
-        // Checa quais obrigatórios não aparecem
         $missing = [];
         foreach ($requiredHeaders as $h) {
             if (!in_array($normalize($h), $present, true)) {
@@ -107,5 +121,26 @@ class ImportController extends Controller
         }
 
         return $missing;
+    }
+
+    public function index(Request $request)
+    {
+        $statuses = $request->query('status'); // ex: "pendente,em_progresso"
+
+        $query = ImportJob::where('user_id', $request->user()->id)
+            ->orderByDesc('id');
+
+        if ($statuses) {
+            $query->whereIn('status', explode(',', $statuses));
+        }
+
+        $jobs = $query->get([
+            'id',
+            'status',
+            'processed_rows',
+            'total_rows',
+        ]);
+
+        return response()->json($jobs);
     }
 }

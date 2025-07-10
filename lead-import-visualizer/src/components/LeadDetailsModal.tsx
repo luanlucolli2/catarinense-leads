@@ -49,7 +49,7 @@ export const LeadDetailsModal = ({ isOpen, onClose, lead }: LeadDetailsModalProp
             <div>
               <label className="text-sm font-medium text-gray-500">Origem dos Dados</label>
               <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
-                {lead.origem_cadastro || '--'}
+                {lead.primeira_origem || '--'}
               </span>
             </div>
           </div>

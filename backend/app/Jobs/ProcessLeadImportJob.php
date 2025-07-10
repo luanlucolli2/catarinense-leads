@@ -20,35 +20,38 @@ class ProcessLeadImportJob implements ShouldQueue
 
     public ImportJob $importJob;
 
-    /**
-     * Create a new job instance.
-     */
     public function __construct(ImportJob $importJob)
     {
         $this->importJob = $importJob;
     }
 
-    /**
-     * Execute the job.
-     */
     public function handle(): void
     {
-        $this->importJob->update(['status' => 'em_progresso', 'started_at' => now()]);
+        // marca início
+        $this->importJob->update([
+            'status'     => 'em_progresso',
+            'started_at' => now(),
+        ]);
 
         try {
             $importer = $this->importJob->type === 'cadastral'
                 ? new CadastralImport($this->importJob)
                 : new HigienizacaoImport($this->importJob);
 
+            // despacha a importação (cada chunk vira um job ReadChunk)
+            // NÃO atualiza processed_rows aqui
             Excel::import($importer, $this->importJob->file_path);
-            $this->importJob->update([
-                'processed_rows' => $this->importJob->total_rows,
-            ]);
-            $this->importJob->update(['status' => 'concluido', 'finished_at' => now()]);
 
         } catch (Throwable $e) {
-            $this->importJob->update(['status' => 'falhou', 'finished_at' => now()]);
-            Log::error("Falha na importação do Job ID {$this->importJob->id}: " . $e->getMessage());
+            // se algo falhar antes de despachar, marca como falho
+            $this->importJob->update([
+                'status'      => 'falhou',
+                'finished_at' => now(),
+            ]);
+            Log::error(
+                "Falha na importação do Job ID {$this->importJob->id}: "
+                . $e->getMessage()
+            );
         }
     }
 }
