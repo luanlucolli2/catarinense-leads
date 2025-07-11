@@ -168,7 +168,7 @@ export const ImportModal = ({
             <Input
               id="origin"
               type="text"
-              placeholder="Ex: Campanha Facebook Junho"
+              placeholder="Ex: Base fria 06/2025"
               value={origin}
               onChange={(e) => setOrigin(e.target.value)}
             />

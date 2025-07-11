@@ -6,7 +6,12 @@ import { LeadsTable, ProcessedLead } from "@/components/LeadsTable"
 import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
 import { ExportModal } from "@/components/ExportModal"
-import axiosClient from "@/api/axiosClient"
+import {
+  fetchLeads,
+  fetchLeadsFilters,
+  LeadFromApi,
+  PaginatedLeadsResponse,
+} from "@/api/leads"
 import {
   formatCPF,
   formatCurrency,
@@ -14,75 +19,87 @@ import {
   formatPhone,
 } from "@/lib/formatters"
 
-/* ---------- Tipos vindos da API ---------- */
-interface LeadFromApi {
-  id: number
-  cpf: string
-  nome: string | null
-  data_nascimento: string | null
-  fone1: string | null
-  classe_fone1: string | null
-  fone2: string | null
-  classe_fone2: string | null
-  fone3: string | null
-  classe_fone3: string | null
-  fone4: string | null
-  classe_fone4: string | null
-  primeira_origem: string | null
-  consulta: string | null
-  data_atualizacao: string | null
-  saldo: string | null
-  libera: string | null
-  /* 🆕 campo que vem do back-end */
-  contracts_count: number
-}
-
-interface PaginatedLeadsResponse {
-  data: LeadFromApi[]
-  current_page: number
-  last_page: number
-  total: number
-}
+/* ---------- estado de filtros ---------- */
+type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 
 const Dashboard = () => {
-  /* ------------------- filtros/estado UI ------------------- */
+  const [currentPage, setCurrentPage] = useState(1)
+
+  /* filtros simples */
   const [searchValue, setSearchValue] = useState("")
-  const [eligibleFilter, setEligibleFilter] = useState<
-    "todos" | "elegiveis" | "nao-elegiveis"
-  >("todos")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
   const [motivosFilter, setMotivosFilter] = useState<string[]>([])
   const [origemFilter, setOrigemFilter] = useState<string[]>([])
   const [dateFromFilter, setDateFromFilter] = useState("")
   const [dateToFilter, setDateToFilter] = useState("")
+  /* período de contratos */
+  const [contractDateFromFilter, setContractDateFromFilter] = useState("")
+  const [contractDateToFilter, setContractDateToFilter] = useState("")
+  /* filtros “massa” ainda não implementados */
+ const [cpfMassFilter,    setCpfMassFilter]    = useState("")
+ const [namesMassFilter,  setNamesMassFilter]  = useState("")
+ const [phonesMassFilter, setPhonesMassFilter] = useState("")
+  /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
 
-  /* ------------------- fetch leads ------------------- */
+  /* ---------- opções (motivos & origens) ---------- */
+  const {
+    data: filterOptions,
+    isLoading: loadingOptions,
+    isError: errorOptions,
+  } = useQuery({
+    queryKey: ["leadsFilters"],
+    queryFn: fetchLeadsFilters,
+    staleTime: 1000 * 60 * 5, // 5 min
+  })
+
+  /* ---------- fetch dos leads ---------- */
   const {
     data: paginatedData,
     isLoading,
     isError,
     refetch,
   } = useQuery<PaginatedLeadsResponse>({
-    queryKey: ["leads", currentPage, searchValue, eligibleFilter],
-    queryFn: async () => {
-      const params = new URLSearchParams({ page: currentPage.toString() })
-      if (searchValue) params.set("search", searchValue)
-      if (eligibleFilter !== "todos") params.set("status", eligibleFilter)
-      /* outros filtros podem ser adicionados aqui */
-      const { data } = await axiosClient.get("/leads", { params })
-      return data
-    },
+    queryKey: [
+      "leads",
+      currentPage,
+      searchValue,
+      statusFilter,
+      motivosFilter,
+      origemFilter,
+      dateFromFilter,
+      dateToFilter,
+     contractDateFromFilter,
+   contractDateToFilter,
+   cpfMassFilter,
+   namesMassFilter,
+   phonesMassFilter,
+    ],
+    queryFn: () =>
+      fetchLeads({
+        page: currentPage,
+        search: searchValue,
+        status: statusFilter,
+        motivos: motivosFilter,
+        origens: origemFilter,
+        date_from: dateFromFilter,
+        date_to: dateToFilter,
+        contract_from: contractDateFromFilter,
+        contract_to: contractDateToFilter,
+        cpf: cpfMassFilter,
+        names: namesMassFilter,
+        phones: phonesMassFilter,
+      }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
   })
 
-  /* ------------------- transformação p/ tabela ------------------- */
+  /* ---------- transformação p/ tabela ---------- */
   const processedLeads: ProcessedLead[] = useMemo(() => {
     if (!paginatedData?.data) return []
 
-    return paginatedData.data.map((lead) => {
+    return paginatedData.data.map((lead: LeadFromApi) => {
       const liberaIsNumeric =
         lead.libera && !isNaN(parseFloat(lead.libera.replace(",", ".")))
       const liberaValue = liberaIsNumeric
@@ -108,7 +125,7 @@ const Dashboard = () => {
         data_nascimento: formatDate(lead.data_nascimento),
         telefones,
         status,
-        contratos: lead.contracts_count, // 🆕 agora real
+        contratos: lead.contracts_count,
         saldo: formatCurrency(lead.saldo),
         libera: formatCurrency(lead.libera),
         data_atualizacao: formatDate(lead.data_atualizacao),
@@ -118,10 +135,7 @@ const Dashboard = () => {
     })
   }, [paginatedData])
 
-  /* ------------------- demais handlers (sem alterações) ------------------- */
-  const availableMotivos = ["Aprovado", "Não autorizado", "Saldo insuficiente"]
-  const availableOrigens = ["Sistema Interno", "Planilha Excel", "API Externa"]
-
+  /* ---------- handlers de filtros ---------- */
   const handleApplyFilters = () => {
     setCurrentPage(1)
     toast.success("Filtros aplicados.")
@@ -129,22 +143,39 @@ const Dashboard = () => {
 
   const handleClearFilters = () => {
     setSearchValue("")
-    setEligibleFilter("todos")
+    setStatusFilter("todos")
     setMotivosFilter([])
     setOrigemFilter([])
     setDateFromFilter("")
     setDateToFilter("")
+    setContractDateFromFilter("")
+    setContractDateToFilter("")
+    setCpfMassFilter("")
+    setNamesMassFilter("")
+    setPhonesMassFilter("")
     setCurrentPage(1)
     toast.info("Filtros limpos.")
   }
 
-  /* ------------------- render ------------------- */
-  if (isLoading && !paginatedData)
-    return <div className="p-6 text-center">Carregando leads...</div>
+  /* ---------- flags ---------- */
+  const hasActiveFilters =
+    searchValue ||
+    statusFilter !== "todos" ||
+    motivosFilter.length ||
+    origemFilter.length ||
+    dateFromFilter ||
+    dateToFilter ||
+    contractDateFromFilter ||
+    contractDateToFilter ||
+    cpfMassFilter ||
+    namesMassFilter ||
+    phonesMassFilter
+
+  /* ---------- render ---------- */
   if (isError)
     return (
       <div className="p-6 text-center text-red-500">
-        Erro ao carregar os dados.
+        Erro ao carregar os leads.
       </div>
     )
 
@@ -162,10 +193,12 @@ const Dashboard = () => {
       <LeadsControls
         onImportClick={() => setIsImportModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
+        /* busca rápida e elegibilidade */
         searchValue={searchValue}
         onSearchChange={setSearchValue}
-        eligibleFilter={eligibleFilter}
-        onEligibleFilterChange={setEligibleFilter}
+        eligibleFilter={statusFilter}
+        onEligibleFilterChange={setStatusFilter}
+        /* filtros avançados */
         motivosFilter={motivosFilter}
         onMotivosFilterChange={setMotivosFilter}
         origemFilter={origemFilter}
@@ -174,29 +207,24 @@ const Dashboard = () => {
         onDateFromFilterChange={setDateFromFilter}
         dateToFilter={dateToFilter}
         onDateToFilterChange={setDateToFilter}
+        contractDateFromFilter={contractDateFromFilter}
+        onContractDateFromFilterChange={setContractDateFromFilter}
+        contractDateToFilter={contractDateToFilter}
+        onContractDateToFilterChange={setContractDateToFilter}
+        /* filtros “massa” (placeholder) */
+        cpfMassFilter={cpfMassFilter}
+        onCpfMassFilterChange={setCpfMassFilter}
+        namesMassFilter={namesMassFilter}
+        onNamesMassFilterChange={setNamesMassFilter}
+        phonesMassFilter={phonesMassFilter}
+        onPhonesMassFilterChange={setPhonesMassFilter}
+        /* ações */
         onApplyFilters={handleApplyFilters}
         onClearFilters={handleClearFilters}
-        availableMotivos={availableMotivos}
-        availableOrigens={availableOrigens}
-        hasActiveFilters={
-          searchValue !== "" ||
-          eligibleFilter !== "todos" ||
-          motivosFilter.length > 0 ||
-          origemFilter.length > 0 ||
-          dateFromFilter !== "" ||
-          dateToFilter !== ""
-        }
-        /* filtros não implementados ainda: */
-        contractDateFromFilter=""
-        onContractDateFromFilterChange={() => { }}
-        contractDateToFilter=""
-        onContractDateToFilterChange={() => { }}
-        cpfMassFilter=""
-        onCpfMassFilterChange={() => { }}
-        namesMassFilter=""
-        onNamesMassFilterChange={() => { }}
-        phonesMassFilter=""
-        onPhonesMassFilterChange={() => { }}
+        /* opções dinâmicas */
+        availableMotivos={filterOptions?.motivos ?? []}
+        availableOrigens={filterOptions?.origens ?? []}
+        hasActiveFilters={!!hasActiveFilters}
       />
 
       <LeadsTable
@@ -204,13 +232,14 @@ const Dashboard = () => {
         currentPage={paginatedData?.current_page ?? 1}
         totalPages={paginatedData?.last_page ?? 1}
         onPageChange={setCurrentPage}
-        isLoading={isLoading}
+        isLoading={isLoading || loadingOptions}
       />
 
+      {/* Modais */}
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onImportSuccess={() => refetch()} /* atualiza após import */
+        onImportSuccess={() => refetch()}
       />
 
       <ExportModal

@@ -1,113 +1,214 @@
-
-import { useState } from "react";
-import { X, Calendar, Filter } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MultiSelect } from "@/components/ui/multi-select";
-import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react"
+import { X, Filter } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { MultiSelect } from "@/components/ui/multi-select"
 
 interface FiltersModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
-  eligibleFilter: "todos" | "elegiveis" | "nao-elegiveis";
-  onEligibleFilterChange: (value: "todos" | "elegiveis" | "nao-elegiveis") => void;
-  contractDateFromFilter: string;
-  onContractDateFromFilterChange: (value: string) => void;
-  contractDateToFilter: string;
-  onContractDateToFilterChange: (value: string) => void;
-  motivosFilter: string[];
-  onMotivosFilterChange: (values: string[]) => void;
-  origemFilter: string[];
-  onOrigemFilterChange: (values: string[]) => void;
-  cpfMassFilter: string;
-  onCpfMassFilterChange: (value: string) => void;
-  namesMassFilter: string;
-  onNamesMassFilterChange: (value: string) => void;
-  phonesMassFilter: string;
-  onPhonesMassFilterChange: (value: string) => void;
-  dateFromFilter: string;
-  onDateFromFilterChange: (value: string) => void;
-  dateToFilter: string;
-  onDateToFilterChange: (value: string) => void;
-  onApplyFilters: () => void;
-  onClearFilters: () => void;
-  availableMotivos: string[];
-  availableOrigens: string[];
+  isOpen: boolean
+  onClose: () => void
+
+  /* valores atuais vindos do Dashboard */
+  searchValue: string
+  eligibleFilter: "todos" | "elegiveis" | "nao-elegiveis"
+  contractDateFromFilter: string
+  contractDateToFilter: string
+  motivosFilter: string[]
+  origemFilter: string[]
+  cpfMassFilter: string
+  namesMassFilter: string
+  phonesMassFilter: string
+  dateFromFilter: string
+  dateToFilter: string
+
+  /* setters que afetam o Dashboard (só no Apply!) */
+  onSearchChange: (v: string) => void
+  onEligibleFilterChange: (
+    v: "todos" | "elegiveis" | "nao-elegiveis",
+  ) => void
+  onContractDateFromFilterChange: (v: string) => void
+  onContractDateToFilterChange: (v: string) => void
+  onMotivosFilterChange: (v: string[]) => void
+  onOrigemFilterChange: (v: string[]) => void
+  onCpfMassFilterChange: (v: string) => void
+  onNamesMassFilterChange: (v: string) => void
+  onPhonesMassFilterChange: (v: string) => void
+  onDateFromFilterChange: (v: string) => void
+  onDateToFilterChange: (v: string) => void
+
+  /* callbacks utilitários */
+  onApplyFilters: () => void
+  onClearFilters: () => void
+
+  /* listas */
+  availableMotivos: string[]
+  availableOrigens: string[]
 }
 
 export const FiltersModal = ({
   isOpen,
   onClose,
+
+  /* props (valores atuais) */
   searchValue,
-  onSearchChange,
   eligibleFilter,
-  onEligibleFilterChange,
   contractDateFromFilter,
-  onContractDateFromFilterChange,
   contractDateToFilter,
-  onContractDateToFilterChange,
   motivosFilter,
-  onMotivosFilterChange,
   origemFilter,
-  onOrigemFilterChange,
   cpfMassFilter,
-  onCpfMassFilterChange,
   namesMassFilter,
-  onNamesMassFilterChange,
   phonesMassFilter,
-  onPhonesMassFilterChange,
   dateFromFilter,
-  onDateFromFilterChange,
   dateToFilter,
+
+  /* setters */
+  onSearchChange,
+  onEligibleFilterChange,
+  onContractDateFromFilterChange,
+  onContractDateToFilterChange,
+  onMotivosFilterChange,
+  onOrigemFilterChange,
+  onCpfMassFilterChange,
+  onNamesMassFilterChange,
+  onPhonesMassFilterChange,
+  onDateFromFilterChange,
   onDateToFilterChange,
+
   onApplyFilters,
   onClearFilters,
   availableMotivos,
   availableOrigens,
 }: FiltersModalProps) => {
-  if (!isOpen) return null;
+  /* ------------------------------------------------------------------
+   * 1.  Estado LOCAL – edita aqui, mas só “sobe” no Apply
+   * -----------------------------------------------------------------*/
+  const [localSearch, setLocalSearch] = useState(searchValue)
+  const [localEligible, setLocalEligible] = useState(eligibleFilter)
+  const [localContractFrom, setLocalContractFrom] = useState(
+    contractDateFromFilter,
+  )
+  const [localContractTo, setLocalContractTo] = useState(
+    contractDateToFilter,
+  )
+  const [localMotivos, setLocalMotivos] = useState<string[]>(motivosFilter)
+  const [localOrigens, setLocalOrigens] = useState<string[]>(origemFilter)
+  const [localCpfMass, setLocalCpfMass] = useState(cpfMassFilter)
+  const [localNamesMass, setLocalNamesMass] = useState(namesMassFilter)
+  const [localPhonesMass, setLocalPhonesMass] = useState(phonesMassFilter)
+  const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
+  const [localDateTo, setLocalDateTo] = useState(dateToFilter)
+
+  /* ------------------------------------------------------------------
+   * 2.  Sincroniza quando modal abre
+   * -----------------------------------------------------------------*/
+  useEffect(() => {
+    if (!isOpen) return
+    setLocalSearch(searchValue)
+    setLocalEligible(eligibleFilter)
+    setLocalContractFrom(contractDateFromFilter)
+    setLocalContractTo(contractDateToFilter)
+    setLocalMotivos(motivosFilter)
+    setLocalOrigens(origemFilter)
+    setLocalCpfMass(cpfMassFilter)
+    setLocalNamesMass(namesMassFilter)
+    setLocalPhonesMass(phonesMassFilter)
+    setLocalDateFrom(dateFromFilter)
+    setLocalDateTo(dateToFilter)
+  }, [
+    isOpen,
+    searchValue,
+    eligibleFilter,
+    contractDateFromFilter,
+    contractDateToFilter,
+    motivosFilter,
+    origemFilter,
+    cpfMassFilter,
+    namesMassFilter,
+    phonesMassFilter,
+    dateFromFilter,
+    dateToFilter,
+  ])
+
+  /* ------------------------------------------------------------------
+   * 3.  Commit – envia tudo para o Dashboard
+   * -----------------------------------------------------------------*/
+  const commitAndApply = () => {
+    onSearchChange(localSearch.trim())
+    onEligibleFilterChange(localEligible)
+    onContractDateFromFilterChange(localContractFrom)
+    onContractDateToFilterChange(localContractTo)
+    onMotivosFilterChange(localMotivos)
+    onOrigemFilterChange(localOrigens)
+    onCpfMassFilterChange(localCpfMass.trim())
+    onNamesMassFilterChange(localNamesMass.trim())
+    onPhonesMassFilterChange(localPhonesMass.trim())
+    onDateFromFilterChange(localDateFrom)
+    onDateToFilterChange(localDateTo)
+
+    onApplyFilters()
+    onClose()
+  }
+
+  if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
+        {/* ---------- Cabeçalho ---------- */}
+        <header className="flex items-center justify-between border-b p-6">
           <div className="flex items-center space-x-2">
-            <Filter className="w-5 h-5 text-gray-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Filtros Avançados</h2>
+            <Filter className="h-5 w-5 text-gray-600" />
+            <h2 className="text-xl font-semibold text-gray-900">
+              Filtros Avançados
+            </h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="text-gray-400 transition-colors duration-200 hover:text-gray-600"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
-        </div>
+        </header>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Column */}
+        {/* ---------- Conteúdo ---------- */}
+        <main className="max-h-[calc(90vh-140px)] overflow-y-auto p-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Coluna esquerda */}
             <div className="space-y-6">
-              {/* Search */}
+              {/* Pesquisa */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Pesquisa Geral</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Pesquisa Geral
+                </label>
                 <Input
-                  type="text"
-                  placeholder="Pesquisar por nome, CPF ou telefone..."
-                  value={searchValue}
-                  onChange={(e) => onSearchChange(e.target.value)}
+                  value={localSearch}
+                  onChange={(e) => setLocalSearch(e.target.value)}
+                  placeholder="Nome, CPF ou telefone..."
                 />
               </div>
 
-              {/* Status Filter */}
+              {/* Elegibilidade */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Status de Elegibilidade</label>
-                <Select value={eligibleFilter} onValueChange={onEligibleFilterChange}>
+                <label className="text-sm font-medium text-gray-700">
+                  Status de Elegibilidade
+                </label>
+                <Select
+                  value={localEligible}
+                  onValueChange={(v) =>
+                    setLocalEligible(
+                      v as "todos" | "elegiveis" | "nao-elegiveis",
+                    )
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecionar..." />
                   </SelectTrigger>
@@ -119,140 +220,141 @@ export const FiltersModal = ({
                 </Select>
               </div>
 
-              {/* Contract Date Range Filter */}
+              {/* Período de contrato */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Período de Contratos</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Período de Contratos
+                </label>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500">Data Inicial</label>
-                    <Input
-                      type="date"
-                      value={contractDateFromFilter}
-                      onChange={(e) => onContractDateFromFilterChange(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Data Final</label>
-                    <Input
-                      type="date"
-                      value={contractDateToFilter}
-                      onChange={(e) => onContractDateToFilterChange(e.target.value)}
-                    />
-                  </div>
+                  <Input
+                    type="date"
+                    value={localContractFrom}
+                    onChange={(e) => setLocalContractFrom(e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    value={localContractTo}
+                    onChange={(e) => setLocalContractTo(e.target.value)}
+                  />
                 </div>
               </div>
 
-              {/* Motivos Filter */}
+              {/* Motivos */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Motivos de Consulta</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Motivos de Consulta
+                </label>
                 <MultiSelect
                   options={availableMotivos}
-                  selected={motivosFilter}
-                  onChange={onMotivosFilterChange}
+                  selected={localMotivos}
+                  onChange={setLocalMotivos}
                   placeholder="Selecionar motivos..."
                 />
               </div>
 
-              {/* Origem Filter */}
+              {/* Origens */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Origem dos Dados</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Origem dos Dados
+                </label>
                 <MultiSelect
                   options={availableOrigens}
-                  selected={origemFilter}
-                  onChange={onOrigemFilterChange}
+                  selected={localOrigens}
+                  onChange={setLocalOrigens}
                   placeholder="Selecionar origens..."
                 />
               </div>
 
-              {/* Date Range Filter */}
+              {/* Período de atualização */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Período de Atualização</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Período de Atualização
+                </label>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500">Data Inicial</label>
-                    <Input
-                      type="date"
-                      value={dateFromFilter}
-                      onChange={(e) => onDateFromFilterChange(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Data Final</label>
-                    <Input
-                      type="date"
-                      value={dateToFilter}
-                      onChange={(e) => onDateToFilterChange(e.target.value)}
-                    />
-                  </div>
+                  <Input
+                    type="date"
+                    value={localDateFrom}
+                    onChange={(e) => setLocalDateFrom(e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    value={localDateTo}
+                    onChange={(e) => setLocalDateTo(e.target.value)}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Right Column */}
+            {/* Coluna direita */}
             <div className="space-y-6">
-              {/* CPF Mass Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">CPFs em Massa</label>
+                <label className="text-sm font-medium text-gray-700">
+                  CPFs em Massa
+                </label>
                 <Textarea
-                  placeholder="Cole aqui uma lista de CPFs separados por vírgula, ponto-e-vírgula ou quebra de linha..."
-                  value={cpfMassFilter}
-                  onChange={(e) => onCpfMassFilterChange(e.target.value)}
                   rows={4}
+                  placeholder="Cole CPFs separados por , ; ou quebra de linha"
+                  value={localCpfMass}
+                  onChange={(e) => setLocalCpfMass(e.target.value)}
                 />
               </div>
 
-              {/* Names Mass Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Nomes em Massa</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Nomes em Massa
+                </label>
                 <Textarea
-                  placeholder="Cole aqui uma lista de nomes separados por vírgula, ponto-e-vírgula ou quebra de linha..."
-                  value={namesMassFilter}
-                  onChange={(e) => onNamesMassFilterChange(e.target.value)}
                   rows={4}
+                  placeholder="Cole nomes…"
+                  value={localNamesMass}
+                  onChange={(e) => setLocalNamesMass(e.target.value)}
                 />
               </div>
 
-              {/* Phones Mass Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Telefones em Massa</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Telefones em Massa
+                </label>
                 <Textarea
-                  placeholder="Cole aqui uma lista de telefones separados por vírgula, ponto-e-vírgula ou quebra de linha..."
-                  value={phonesMassFilter}
-                  onChange={(e) => onPhonesMassFilterChange(e.target.value)}
                   rows={4}
+                  placeholder="Cole telefones…"
+                  value={localPhonesMass}
+                  onChange={(e) => setLocalPhonesMass(e.target.value)}
                 />
               </div>
             </div>
           </div>
-        </div>
+        </main>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
+        {/* ---------- Rodapé ---------- */}
+        <footer className="flex items-center justify-end space-x-3 border-t p-6">
           <Button
             variant="outline"
-            onClick={onClearFilters}
-            className="text-gray-700 border-gray-300 hover:bg-gray-50"
+            className="border-gray-300 text-gray-700 hover:bg-gray-50"
+            onClick={() => {
+              onClearFilters()
+              onClose()
+            }}
           >
             Limpar Filtros
           </Button>
+
           <Button
             variant="outline"
+            className="border-gray-300 text-gray-700 hover:bg-gray-50"
             onClick={onClose}
-            className="text-gray-700 border-gray-300 hover:bg-gray-50"
           >
             Cancelar
           </Button>
+
           <Button
-            onClick={() => {
-              onApplyFilters();
-              onClose();
-            }}
             className="bg-blue-600 hover:bg-blue-700"
+            onClick={commitAndApply}
           >
             Aplicar Filtros
           </Button>
-        </div>
+        </footer>
       </div>
     </div>
-  );
-};
+  )
+}

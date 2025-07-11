@@ -82,19 +82,19 @@ export const LeadsTable = ({
   onPageChange,
   isLoading,
 }: LeadsTableProps) => {
-  const [selectedLead, setSelectedLead] = useState<ProcessedLead | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const handleViewLead = (lead: ProcessedLead) => {
-    setSelectedLead(lead);
+    setSelectedLeadId(lead.id);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setSelectedLead(null);
+    setSelectedLeadId(null);
   };
 
   const handleSort = (field: SortField) => {
@@ -417,13 +417,11 @@ export const LeadsTable = ({
         </div>
       </div>
 
-      {selectedLead && (
-        <LeadDetailsModal
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          lead={selectedLead}
-        />
-      )}
+      <LeadDetailsModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        leadId={selectedLeadId}
+      />
     </>
   );
 };

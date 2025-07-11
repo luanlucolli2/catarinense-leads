@@ -16,15 +16,15 @@ Route::post('/login', [AuthController::class, 'login']);
 |--------------------------------------------------*/
 Route::middleware('auth:sanctum')->group(function () {
 
-    Route::get('/user', fn (Request $request) => $request->user());
+    Route::get('/user', fn(Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/leads/filters', [LeadController::class, 'filters']);   // 🆕
 
     Route::apiResource('leads', LeadController::class);
-
     /* Importação */
     Route::post('/import', [ImportController::class, 'store']);          // cria job
-    Route::get ('/import/{importJob}', [ImportController::class, 'show'])// status
-          ->whereNumber('importJob');
+    Route::get('/import/{importJob}', [ImportController::class, 'show'])// status
+        ->whereNumber('importJob');
 
     /* 🆕 lista jobs do usuário – ?status=em_progresso,pendente */
     Route::get('/imports', [ImportController::class, 'index']);

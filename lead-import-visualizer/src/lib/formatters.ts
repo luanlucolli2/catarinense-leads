@@ -1,6 +1,6 @@
 // Em src/lib/formatters.ts
 
-import { format } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 /**
@@ -44,6 +44,20 @@ export const formatDate = (dateString: string | null | undefined): string => {
     return 'Data inválida';
   }
 };
+
+export const formatDateOnly = (
+  iso: string | null | undefined,
+  pattern: string = "dd/MM/yyyy",
+): string => {
+  if (!iso) return "--"
+  try {
+    // corta só YYYY-MM-DD  ➜  parse não altera o dia
+    const date = parse(iso.slice(0, 10), "yyyy-MM-dd", new Date())
+    return format(date, pattern, { locale: ptBR })
+  } catch {
+    return "Data inválida"
+  }
+}
 
 /**
  * Formata um número de telefone para os padrões brasileiros.

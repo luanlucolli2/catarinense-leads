@@ -6,86 +6,169 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
+use App\Models\ImportJob;   // ⬅️ novo
+use Illuminate\Support\Facades\DB;
 
 class LeadController extends Controller
 {
-    /**
-     * Exibe uma lista paginada e filtrada de leads com dados agregados.
-     */
-    public function index(Request $request)
+    /* ===============================================================
+     * GET /leads  →  lista paginada com filtros dinâmicos
+     * ===============================================================*/
+    public function index(Request $r)
     {
-        $query = Lead::query()
-            // 1. Otimização: Adiciona a contagem de contratos como um campo 'contracts_count'
-            ->withCount('contracts')
-            // 2. Otimização: Adiciona a origem do primeiro job como um campo 'primeira_origem'
-            ->addSelect(['primeira_origem' => function ($subQuery) {
-                $subQuery->select('origin')
-                    ->from('import_jobs')
-                    ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
-                    ->whereColumn('lead_imports.lead_id', 'leads.id')
-                    ->orderBy('lead_imports.created_at', 'asc')
-                    ->limit(1);
-            }]);
+        /* ----------- Config ----------- */
+        $perPage = (int) $r->input('per_page', 10);
 
-        // A lógica de filtros continua a mesma...
-        if ($request->filled('search')) {
-            $searchTerm = '%' . $request->input('search') . '%';
-            $query->where(function (Builder $q) use ($searchTerm) {
-                $q->where('nome', 'like', $searchTerm)
-                  ->orWhere('cpf', 'like', $searchTerm);
+        /* ----------- Query base ----------- */
+        $leads = Lead::query()
+            ->select('leads.*')                  // evita conflito com sub-select
+            ->withCount('contracts')             // contracts_count
+            ->addSelect([                        // primeira_origem
+                'primeira_origem' => function ($q) {
+                    $q->select('origin')
+                        ->from('import_jobs')
+                        ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
+                        ->whereColumn('lead_imports.lead_id', 'leads.id')
+                        ->orderBy('lead_imports.created_at')
+                        ->limit(1);
+                },
+            ]);
+
+        /* ----------- 1) Pesquisa livre ----------- */
+        if ($r->filled('search')) {
+            $term = '%' . $r->input('search') . '%';
+
+            $leads->where(function (Builder $q) use ($term) {
+                $q->where('nome', 'like', $term)
+                    ->orWhere('cpf', 'like', $term)
+                    ->orWhere('fone1', 'like', $term)
+                    ->orWhere('fone2', 'like', $term)
+                    ->orWhere('fone3', 'like', $term)
+                    ->orWhere('fone4', 'like', $term);
             });
         }
-        
-        if ($request->filled('status') && $request->input('status') !== 'todos') {
-            if ($request->input('status') === 'elegiveis') {
-                $query->where('consulta', 'Saldo FACTA')->where('libera', '>', 0);
-            } else {
-                $query->where(function (Builder $q) {
-                    $q->where('consulta', '!=', 'Saldo FACTA')->orWhere('libera', '=', '0.00');
+
+        /* ----------- 2) Elegibilidade ----------- */
+        if ($r->filled('status') && $r->status !== 'todos') {
+            if ($r->status === 'elegiveis') {
+                $leads->where('consulta', 'Saldo FACTA')
+                    ->where('libera', '>', 0);
+            } elseif ($r->status === 'nao-elegiveis') {
+                $leads->where(function ($q) {
+                    $q->where('consulta', '!=', 'Saldo FACTA')
+                        ->orWhere('libera', '=', 0);
                 });
             }
         }
 
-        $leads = $query->latest('updated_at')->paginate(10);
+        /* ----------- 3) Motivos (consulta) multi-select ----------- */
+        if ($r->filled('motivos')) {
+            $motivos = explode(',', $r->motivos);        // frontend envia coma-separated
+            $leads->whereIn('consulta', $motivos);
+        }
+
+        /* ----------- 4) Origem multi-select ----------- */
+        if ($r->filled('origens')) {
+            $origens = explode(',', $r->origens);
+            $leads->whereHas('importJobs', function (Builder $q) use ($origens) {
+                $q->whereIn('import_jobs.origin', $origens);
+            });
+        }
+
+        /* ----------- 5) Período de atualização ----------- */
+        if ($r->filled('date_from') || $r->filled('date_to')) {
+            $from = $r->input('date_from', '1900-01-01');
+            $to = $r->input('date_to', now()->toDateString());
+            $leads->whereBetween('data_atualizacao', [$from . ' 00:00:00', $to . ' 23:59:59']);
+        }
+
+        /* ----------- 6) Período de contratos ----------- */
+        if ($r->filled('contract_from') || $r->filled('contract_to')) {
+            $from = $r->input('contract_from', '1900-01-01');
+            $to = $r->input('contract_to', now()->toDateString());
+
+            $leads->whereHas('contracts', function ($q) use ($from, $to) {
+                $q->whereBetween('data_contrato', [$from, $to]);
+            });
+        }
+
+        /* ----------- 7) Mass filters (cpf / nome / fone) ----------- */
+        $this->applyMassFilter($leads, $r, 'cpf', ['cpf']);
+        $this->applyMassFilter($leads, $r, 'names', ['nome']);
+        $this->applyMassFilter($leads, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);
+
+        /* ----------- Resultado ----------- */
+        $leads = $leads->latest('updated_at')->paginate($perPage);
 
         return response()->json($leads);
     }
 
-    /**
-     * Exibe um único lead com todos os seus relacionamentos carregados.
-     */
+    /* ===============================================================
+     * GET /leads/filters  →  motivos & origens distintos
+     * ===============================================================*/
+  public function filters()
+{
+    // 1) subquery: lista dos primeiros job_ids (menor import_job_id) por lead
+    $firstJobIds = DB::table('lead_imports')
+        ->selectRaw('MIN(import_job_id) as id')
+        ->groupBy('lead_id');
+
+    return response()->json([
+        'motivos' => Lead::query()
+            ->whereNotNull('consulta')
+            ->distinct()
+            ->orderBy('consulta')
+            ->pluck('consulta')
+            ->values(),
+
+        'origens' => ImportJob::query()
+            ->where('type', 'cadastral')
+            ->whereIn('id', $firstJobIds)
+            ->distinct()
+            ->orderBy('origin')
+            ->pluck('origin')
+            ->values(),
+    ]);
+}
+
+    /* ===============================================================
+     * GET /leads/{id}
+     * ===============================================================*/
     public function show(Lead $lead)
     {
-        // Aqui mantemos o load() pois queremos todos os detalhes do lead específico.
         $lead->load('contracts', 'importJobs');
-
         return response()->json($lead);
     }
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
 
-    /**
-     * Display the specified resource.
-     */
- 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
+    /* ---------------------------------------------------------------
+     * Helper: aplica whereIn a partir de texto massivo
+     * --------------------------------------------------------------*/
+    private function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
     {
-        //
-    }
+        if (!$r->filled($key)) {
+            return;
+        }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        // normaliza → split por vírgula ; ou quebra de linha
+        $values = preg_split('/[\s,;]+/', $r->input($key));
+        $values = array_values(array_filter(array_unique($values)));
+
+        if (empty($values)) {
+            return;
+        }
+
+        $q->where(function ($sub) use ($columns, $values, $key) {
+            foreach ($columns as $col) {
+                if ($key === 'names') {
+                    // para nomes, busca parcial
+                    foreach ($values as $v) {
+                        $sub->orWhere($col, 'like', '%' . $v . '%');
+                    }
+                } else {
+                    // CPF ou telefones, comparação exata
+                    $sub->orWhereIn($col, $values);
+                }
+            }
+        });
     }
 }
