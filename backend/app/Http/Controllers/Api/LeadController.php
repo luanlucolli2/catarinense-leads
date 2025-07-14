@@ -123,6 +123,14 @@ class LeadController extends Controller
             ->selectRaw('MIN(import_job_id) as id')
             ->groupBy('lead_id');
 
+        // 1b) subquery: últimos job_ids de higienização por lead
+        $lastHigJobIds = DB::table('lead_imports')
+            ->join('import_jobs', 'import_jobs.id', '=', 'lead_imports.import_job_id')
+            ->where('import_jobs.type', 'higienizacao')
+            ->selectRaw('MAX(import_jobs.id) as id')
+            ->groupBy('lead_imports.lead_id');
+
+
         return response()->json([
             'motivos' => Lead::query()
                 ->whereNotNull('consulta')
@@ -142,9 +150,8 @@ class LeadController extends Controller
 
             /* **todas** as origens que apareceram em Higienizações  */
             'origens_hig' => ImportJob::query()
-                ->select('origin')
                 ->where('type', 'higienizacao')
-                ->whereNotNull('origin')
+                ->whereIn('id', $lastHigJobIds)
                 ->distinct()
                 ->orderBy('origin')
                 ->pluck('origin')

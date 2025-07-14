@@ -47,21 +47,21 @@ export const useImportProgressInternal = (jobId: number) => {
     if (status === "em_progresso") {
       toast.message("Importação em andamento", {
         id: toastId.current,
-    description: `${percent}%  •  ${processed_rows}/${total_rows} linhas  •  ${errors} erro(s)`,
+        description: `${percent}%  •  ${processed_rows}/${total_rows} linhas  •  ${errors} erro(s)`,
       })
     }
 
     if (status === "concluido") {
       toast.success("Importação concluída", {
         id: toastId.current,
-    description: `${total_rows} linhas importadas  •  ${errors} erro(s).`,
+        description: `${total_rows} linhas importadas  •  ${errors} erro(s).`,
         duration: 8000,
         onDismiss() {
           removeJob(jobId)
         },
       })
-       queryClient.invalidateQueries({ queryKey: ["leads"] })  // ← força reload
-
+      queryClient.invalidateQueries({ queryKey: ["leads"] })  // ← força reload
+      queryClient.invalidateQueries({ queryKey: ["leadsFilters"] })
       queryClient.invalidateQueries({ queryKey: ["imports"] })
       setFinished(true)
     }

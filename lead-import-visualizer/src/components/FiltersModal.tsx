@@ -264,7 +264,7 @@ export const FiltersModal = ({
               {/* Origens */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  Origem dos Dados
+                  Origem dos Leads
                 </label>
                 <MultiSelect
                   options={availableOrigens}
@@ -277,7 +277,7 @@ export const FiltersModal = ({
               {/* Origens de Higienização */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  Origens de Higienização
+                  Origem das Higienizações
                 </label>
                 <MultiSelect
                   options={availableHigienizacoes}
