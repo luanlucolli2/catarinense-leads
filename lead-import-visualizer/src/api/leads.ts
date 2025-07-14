@@ -63,6 +63,7 @@ export interface LeadFilters {
     cpf?: string      // agora pode conter vírgulas, ; ou quebras
     names?: string
     phones?: string
+    origens_hig?: string[]
 }
 
 // src/api/leads.ts
@@ -87,6 +88,7 @@ const buildQueryParams = (f: LeadFilters) => {
     } if (f.status && f.status !== "todos") p.set("status", f.status)
     if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
     if (f.origens?.length) p.set("origens", f.origens.join(","))
+    if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
     if (f.date_from) p.set("date_from", f.date_from)
     if (f.date_to) p.set("date_to", f.date_to)
     if (f.contract_from) p.set("contract_from", f.contract_from)
@@ -123,6 +125,7 @@ export async function fetchLeadDetail(id: number) {
 export interface FiltersOptionsDTO {
     motivos: string[]
     origens: string[]
+    origens_hig: string[]
 }
 export async function fetchLeadsFilters() {
     const { data } = await axiosClient.get<FiltersOptionsDTO>("/leads/filters")

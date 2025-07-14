@@ -35,6 +35,9 @@ interface LeadsControlsProps {
   onClearFilters: () => void;
   availableMotivos: string[];
   availableOrigens: string[];
+  higienizacaoFilter: string[];
+  onHigienizacaoFilterChange: (values: string[]) => void;
+  availableHigienizacoes: string[];
   hasActiveFilters: boolean;
 }
 
@@ -67,6 +70,9 @@ export const LeadsControls = ({
   onClearFilters,
   availableMotivos,
   availableOrigens,
+  higienizacaoFilter,
+  onHigienizacaoFilterChange,
+  availableHigienizacoes,
   hasActiveFilters,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
@@ -160,6 +166,9 @@ export const LeadsControls = ({
         onMotivosFilterChange={onMotivosFilterChange}
         origemFilter={origemFilter}
         onOrigemFilterChange={onOrigemFilterChange}
+        higienizacaoFilter={higienizacaoFilter}
+        onHigienizacaoFilterChange={onHigienizacaoFilterChange}
+        availableHigienizacoes={availableHigienizacoes}
         cpfMassFilter={cpfMassFilter}
         onCpfMassFilterChange={onCpfMassFilterChange}
         namesMassFilter={namesMassFilter}

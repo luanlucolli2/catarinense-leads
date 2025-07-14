@@ -75,6 +75,16 @@ class LeadController extends Controller
             });
         }
 
+        /* ----------- 4-B) Origem (somente HIGIENIZAÇÕES) ---------- */
+        // parâmetro novo:  ?origens_hig=callcenter,teste
+        if ($r->filled('origens_hig')) {
+            $origHig = explode(',', $r->origens_hig);
+            $leads->whereHas('importJobs', function (Builder $q) use ($origHig) {
+                $q->where('import_jobs.type', 'higienizacao')
+                    ->whereIn('import_jobs.origin', $origHig);
+            });
+        }
+
         /* ----------- 5) Período de atualização ----------- */
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
@@ -106,30 +116,41 @@ class LeadController extends Controller
     /* ===============================================================
      * GET /leads/filters  →  motivos & origens distintos
      * ===============================================================*/
-  public function filters()
-{
-    // 1) subquery: lista dos primeiros job_ids (menor import_job_id) por lead
-    $firstJobIds = DB::table('lead_imports')
-        ->selectRaw('MIN(import_job_id) as id')
-        ->groupBy('lead_id');
+    public function filters()
+    {
+        // 1) subquery: lista dos primeiros job_ids (menor import_job_id) por lead
+        $firstJobIds = DB::table('lead_imports')
+            ->selectRaw('MIN(import_job_id) as id')
+            ->groupBy('lead_id');
 
-    return response()->json([
-        'motivos' => Lead::query()
-            ->whereNotNull('consulta')
-            ->distinct()
-            ->orderBy('consulta')
-            ->pluck('consulta')
-            ->values(),
+        return response()->json([
+            'motivos' => Lead::query()
+                ->whereNotNull('consulta')
+                ->distinct()
+                ->orderBy('consulta')
+                ->pluck('consulta')
+                ->values(),
 
-        'origens' => ImportJob::query()
-            ->where('type', 'cadastral')
-            ->whereIn('id', $firstJobIds)
-            ->distinct()
-            ->orderBy('origin')
-            ->pluck('origin')
-            ->values(),
-    ]);
-}
+            /* primeiros jobs do tipo **cadastral** */
+            'origens' => ImportJob::query()
+                ->where('type', 'cadastral')
+                ->whereIn('id', $firstJobIds)
+                ->distinct()
+                ->orderBy('origin')
+                ->pluck('origin')
+                ->values(),
+
+            /* **todas** as origens que apareceram em Higienizações  */
+            'origens_hig' => ImportJob::query()
+                ->select('origin')
+                ->where('type', 'higienizacao')
+                ->whereNotNull('origin')
+                ->distinct()
+                ->orderBy('origin')
+                ->pluck('origin')
+                ->values(),
+        ]);
+    }
 
     /* ===============================================================
      * GET /leads/{id}

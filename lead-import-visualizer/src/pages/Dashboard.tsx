@@ -30,15 +30,16 @@ const Dashboard = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
   const [motivosFilter, setMotivosFilter] = useState<string[]>([])
   const [origemFilter, setOrigemFilter] = useState<string[]>([])
+  const [higienizacaoFilter, setHigienizacaoFilter] = useState<string[]>([])
   const [dateFromFilter, setDateFromFilter] = useState("")
   const [dateToFilter, setDateToFilter] = useState("")
   /* período de contratos */
   const [contractDateFromFilter, setContractDateFromFilter] = useState("")
   const [contractDateToFilter, setContractDateToFilter] = useState("")
   /* filtros “massa” ainda não implementados */
- const [cpfMassFilter,    setCpfMassFilter]    = useState("")
- const [namesMassFilter,  setNamesMassFilter]  = useState("")
- const [phonesMassFilter, setPhonesMassFilter] = useState("")
+  const [cpfMassFilter, setCpfMassFilter] = useState("")
+  const [namesMassFilter, setNamesMassFilter] = useState("")
+  const [phonesMassFilter, setPhonesMassFilter] = useState("")
   /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -68,13 +69,14 @@ const Dashboard = () => {
       statusFilter,
       motivosFilter,
       origemFilter,
+      higienizacaoFilter,
       dateFromFilter,
       dateToFilter,
-     contractDateFromFilter,
-   contractDateToFilter,
-   cpfMassFilter,
-   namesMassFilter,
-   phonesMassFilter,
+      contractDateFromFilter,
+      contractDateToFilter,
+      cpfMassFilter,
+      namesMassFilter,
+      phonesMassFilter,
     ],
     queryFn: () =>
       fetchLeads({
@@ -83,6 +85,7 @@ const Dashboard = () => {
         status: statusFilter,
         motivos: motivosFilter,
         origens: origemFilter,
+        origens_hig: higienizacaoFilter,
         date_from: dateFromFilter,
         date_to: dateToFilter,
         contract_from: contractDateFromFilter,
@@ -146,6 +149,8 @@ const Dashboard = () => {
     setStatusFilter("todos")
     setMotivosFilter([])
     setOrigemFilter([])
+    setHigienizacaoFilter([])
+
     setDateFromFilter("")
     setDateToFilter("")
     setContractDateFromFilter("")
@@ -169,7 +174,8 @@ const Dashboard = () => {
     contractDateToFilter ||
     cpfMassFilter ||
     namesMassFilter ||
-    phonesMassFilter
+    phonesMassFilter ||
+    higienizacaoFilter.length
 
   /* ---------- render ---------- */
   if (isError)
@@ -203,6 +209,8 @@ const Dashboard = () => {
         onMotivosFilterChange={setMotivosFilter}
         origemFilter={origemFilter}
         onOrigemFilterChange={setOrigemFilter}
+        higienizacaoFilter={higienizacaoFilter}
+        onHigienizacaoFilterChange={setHigienizacaoFilter}
         dateFromFilter={dateFromFilter}
         onDateFromFilterChange={setDateFromFilter}
         dateToFilter={dateToFilter}
@@ -224,6 +232,7 @@ const Dashboard = () => {
         /* opções dinâmicas */
         availableMotivos={filterOptions?.motivos ?? []}
         availableOrigens={filterOptions?.origens ?? []}
+        availableHigienizacoes={filterOptions?.origens_hig ?? []}
         hasActiveFilters={!!hasActiveFilters}
       />
 

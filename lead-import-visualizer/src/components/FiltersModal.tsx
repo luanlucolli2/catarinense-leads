@@ -51,6 +51,9 @@ interface FiltersModalProps {
   /* listas */
   availableMotivos: string[]
   availableOrigens: string[]
+  higienizacaoFilter: string[];
+  onHigienizacaoFilterChange: (values: string[]) => void;
+  availableHigienizacoes: string[];
 }
 
 export const FiltersModal = ({
@@ -87,6 +90,9 @@ export const FiltersModal = ({
   onClearFilters,
   availableMotivos,
   availableOrigens,
+  higienizacaoFilter,
+  onHigienizacaoFilterChange,
+  availableHigienizacoes,
 }: FiltersModalProps) => {
   /* ------------------------------------------------------------------
    * 1.  Estado LOCAL – edita aqui, mas só “sobe” no Apply
@@ -106,6 +112,7 @@ export const FiltersModal = ({
   const [localPhonesMass, setLocalPhonesMass] = useState(phonesMassFilter)
   const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
+  const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
 
   /* ------------------------------------------------------------------
    * 2.  Sincroniza quando modal abre
@@ -123,6 +130,7 @@ export const FiltersModal = ({
     setLocalPhonesMass(phonesMassFilter)
     setLocalDateFrom(dateFromFilter)
     setLocalDateTo(dateToFilter)
+    setLocalHigienizacao(higienizacaoFilter)
   }, [
     isOpen,
     searchValue,
@@ -136,6 +144,7 @@ export const FiltersModal = ({
     phonesMassFilter,
     dateFromFilter,
     dateToFilter,
+    higienizacaoFilter,
   ])
 
   /* ------------------------------------------------------------------
@@ -153,7 +162,7 @@ export const FiltersModal = ({
     onPhonesMassFilterChange(localPhonesMass.trim())
     onDateFromFilterChange(localDateFrom)
     onDateToFilterChange(localDateTo)
-
+    onHigienizacaoFilterChange(localHigienizacao)
     onApplyFilters()
     onClose()
   }
@@ -261,6 +270,19 @@ export const FiltersModal = ({
                   options={availableOrigens}
                   selected={localOrigens}
                   onChange={setLocalOrigens}
+                  placeholder="Selecionar origens..."
+                />
+              </div>
+
+              {/* Origens de Higienização */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Origens de Higienização
+                </label>
+                <MultiSelect
+                  options={availableHigienizacoes}
+                  selected={localHigienizacao}
+                  onChange={setLocalHigienizacao}
                   placeholder="Selecionar origens..."
                 />
               </div>
