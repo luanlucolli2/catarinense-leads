@@ -89,9 +89,9 @@ export const LeadsControls = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <Button 
-              onClick={() => setIsFiltersModalOpen(true)} 
-              variant="outline" 
+            <Button
+              onClick={() => setIsFiltersModalOpen(true)}
+              variant="outline"
               size="sm"
               className={cn(
                 "flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative",
@@ -104,19 +104,19 @@ export const LeadsControls = ({
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
               )}
             </Button>
-            
-            <Button 
-              onClick={onExportClick} 
-              variant="outline" 
+
+            <Button
+              onClick={onExportClick}
+              variant="outline"
               size="sm"
               className="flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50"
             >
               <Download className="w-4 h-4" />
               Exportar
             </Button>
-            
-            <Button 
-              onClick={onImportClick} 
+
+            <Button
+              onClick={onImportClick}
               size="sm"
               className="flex items-center gap-2 px-3 bg-blue-600 hover:bg-blue-700"
             >
