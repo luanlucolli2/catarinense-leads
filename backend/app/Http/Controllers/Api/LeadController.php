@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
+use App\Models\Vendor;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
 use App\Models\ImportJob;   // ⬅️ novo
@@ -107,6 +108,18 @@ class LeadController extends Controller
         $this->applyMassFilter($leads, $r, 'names', ['nome']);
         $this->applyMassFilter($leads, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);
 
+        if ($r->filled('vendors')) {
+        // explode pelos nomes enviados e
+        // normaliza igual ao Vendor::clean()
+        $vendorNames = explode(',', $r->vendors);
+        $cleanNames  = array_map(fn($n) => Vendor::clean($n), $vendorNames);
+
+        // filtra leads pelos contratos cujo vendor.name_clean está na lista
+        $leads->whereHas('contracts.vendor', function (Builder $q) use ($cleanNames) {
+            $q->whereIn('name_clean', $cleanNames);
+        });
+    }
+
         /* ----------- Resultado ----------- */
         $leads = $leads->latest('updated_at')->paginate($perPage);
 
@@ -156,17 +169,25 @@ class LeadController extends Controller
                 ->orderBy('origin')
                 ->pluck('origin')
                 ->values(),
+
+            'vendors' => Vendor::query()
+                ->whereHas('contracts')
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn($v) => ['id' => $v->id, 'name' => $v->name])
+                ->values(),
         ]);
     }
 
     /* ===============================================================
      * GET /leads/{id}
      * ===============================================================*/
-    public function show(Lead $lead)
-    {
-        $lead->load('contracts', 'importJobs');
-        return response()->json($lead);
-    }
+   public function show(Lead $lead)
+     {
+        // eager‑loadamos também vendor dentro de contracts
+        $lead->load(['contracts.vendor', 'importJobs']);
+         return response()->json($lead);
+     }
 
     /* ---------------------------------------------------------------
      * Helper: aplica whereIn a partir de texto massivo

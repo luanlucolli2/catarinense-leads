@@ -10,17 +10,16 @@ class LeadContract extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'lead_id',
-        'data_contrato',
-    ];
+    protected $fillable = ['lead_id', 'vendor_id', 'data_contrato'];
 
-    protected $casts = [
-        'data_contrato' => 'date',
-    ];
+    protected $casts = ['data_contrato' => 'date'];
 
     public function lead(): BelongsTo
     {
         return $this->belongsTo(Lead::class);
+    }
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
     }
 }

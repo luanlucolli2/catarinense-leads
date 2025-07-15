@@ -40,7 +40,12 @@ export interface LeadDetailFromApi {
     data_atualizacao: string | null
     saldo: string | null
     libera: string | null
-    contracts: { id: number; data_contrato: string }[]
+
+    contracts: {
+        id: number
+        data_contrato: string
+        vendor?: { id: number; name: string }
+    }[]
     importJobs: { id: number; origin: string; type: string; created_at: string }[]
 }
 export interface PaginatedLeadsResponse {
@@ -64,6 +69,7 @@ export interface LeadFilters {
     names?: string
     phones?: string
     origens_hig?: string[]
+    vendors?: string[]
 }
 
 // src/api/leads.ts
@@ -107,7 +113,9 @@ const buildQueryParams = (f: LeadFilters) => {
         const list = splitAndNormalize(f.phones, true)
         if (list.length) p.set("phones", list.join(","))
     }
-
+    if (f.vendors?.length) {
+        p.set("vendors", f.vendors.join(","))
+    }
     return p
 }
 /* ---------- Endpoints ---------- */
@@ -126,6 +134,7 @@ export interface FiltersOptionsDTO {
     motivos: string[]
     origens: string[]
     origens_hig: string[]
+    vendors: { id: number; name: string }[]
 }
 export async function fetchLeadsFilters() {
     const { data } = await axiosClient.get<FiltersOptionsDTO>("/leads/filters")

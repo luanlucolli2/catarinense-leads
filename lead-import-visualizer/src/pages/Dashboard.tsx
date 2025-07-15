@@ -40,6 +40,7 @@ const Dashboard = () => {
   const [cpfMassFilter, setCpfMassFilter] = useState("")
   const [namesMassFilter, setNamesMassFilter] = useState("")
   const [phonesMassFilter, setPhonesMassFilter] = useState("")
+  const [vendorsFilter, setVendorsFilter] = useState<string[]>([])
   /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -77,6 +78,7 @@ const Dashboard = () => {
       cpfMassFilter,
       namesMassFilter,
       phonesMassFilter,
+      vendorsFilter,
     ],
     queryFn: () =>
       fetchLeads({
@@ -93,6 +95,7 @@ const Dashboard = () => {
         cpf: cpfMassFilter,
         names: namesMassFilter,
         phones: phonesMassFilter,
+        vendors: vendorsFilter,
       }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
@@ -158,6 +161,7 @@ const Dashboard = () => {
     setCpfMassFilter("")
     setNamesMassFilter("")
     setPhonesMassFilter("")
+    setVendorsFilter([])
     setCurrentPage(1)
     toast.info("Filtros limpos.")
   }
@@ -175,7 +179,8 @@ const Dashboard = () => {
     cpfMassFilter ||
     namesMassFilter ||
     phonesMassFilter ||
-    higienizacaoFilter.length
+    higienizacaoFilter.length ||
+    vendorsFilter.length
 
   /* ---------- render ---------- */
   if (isError)
@@ -233,6 +238,9 @@ const Dashboard = () => {
         availableMotivos={filterOptions?.motivos ?? []}
         availableOrigens={filterOptions?.origens ?? []}
         availableHigienizacoes={filterOptions?.origens_hig ?? []}
+        vendorsFilter={vendorsFilter}                          // ← adicionar
+        onVendorsFilterChange={setVendorsFilter}               // ← adicionar
+        availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
       />
 

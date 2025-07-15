@@ -38,6 +38,9 @@ interface LeadsControlsProps {
   higienizacaoFilter: string[];
   onHigienizacaoFilterChange: (values: string[]) => void;
   availableHigienizacoes: string[];
+  vendorsFilter: string[];
+  onVendorsFilterChange: (values: string[]) => void;
+  availableVendors: { id: number; name: string }[];
   hasActiveFilters: boolean;
 }
 
@@ -73,6 +76,9 @@ export const LeadsControls = ({
   higienizacaoFilter,
   onHigienizacaoFilterChange,
   availableHigienizacoes,
+  vendorsFilter,
+  onVendorsFilterChange,
+  availableVendors,
   hasActiveFilters,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
@@ -179,6 +185,9 @@ export const LeadsControls = ({
         onDateFromFilterChange={onDateFromFilterChange}
         dateToFilter={dateToFilter}
         onDateToFilterChange={onDateToFilterChange}
+        vendorsFilter={vendorsFilter}                     // ← adicionar
+        onVendorsFilterChange={onVendorsFilterChange}     // ← adicionar
+        availableVendors={availableVendors}
         onApplyFilters={onApplyFilters}
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}

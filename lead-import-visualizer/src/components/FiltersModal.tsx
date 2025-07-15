@@ -54,6 +54,9 @@ interface FiltersModalProps {
   higienizacaoFilter: string[];
   onHigienizacaoFilterChange: (values: string[]) => void;
   availableHigienizacoes: string[];
+   vendorsFilter: string[];
+  onVendorsFilterChange: (values: string[]) => void;
+  availableVendors: { id: number; name: string }[];
 }
 
 export const FiltersModal = ({
@@ -93,6 +96,9 @@ export const FiltersModal = ({
   higienizacaoFilter,
   onHigienizacaoFilterChange,
   availableHigienizacoes,
+   vendorsFilter,
+  onVendorsFilterChange,
+  availableVendors,
 }: FiltersModalProps) => {
   /* ------------------------------------------------------------------
    * 1.  Estado LOCAL – edita aqui, mas só “sobe” no Apply
@@ -113,7 +119,7 @@ export const FiltersModal = ({
   const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
-
+const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
   /* ------------------------------------------------------------------
    * 2.  Sincroniza quando modal abre
    * -----------------------------------------------------------------*/
@@ -131,6 +137,7 @@ export const FiltersModal = ({
     setLocalDateFrom(dateFromFilter)
     setLocalDateTo(dateToFilter)
     setLocalHigienizacao(higienizacaoFilter)
+    setLocalVendors(vendorsFilter)
   }, [
     isOpen,
     searchValue,
@@ -145,6 +152,7 @@ export const FiltersModal = ({
     dateFromFilter,
     dateToFilter,
     higienizacaoFilter,
+    vendorsFilter,
   ])
 
   /* ------------------------------------------------------------------
@@ -163,6 +171,7 @@ export const FiltersModal = ({
     onDateFromFilterChange(localDateFrom)
     onDateToFilterChange(localDateTo)
     onHigienizacaoFilterChange(localHigienizacao)
+    onVendorsFilterChange(localVendors)
     onApplyFilters()
     onClose()
   }
@@ -286,7 +295,18 @@ export const FiltersModal = ({
                   placeholder="Selecionar origens..."
                 />
               </div>
-
+            {/* Vendedores */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Vendedores
+              </label>
+             <MultiSelect
+              options={availableVendors.map(v => v.name)}
+                selected={localVendors}
+                onChange={setLocalVendors}
+                placeholder="Selecionar vendedores..."
+              />
+            </div>
               {/* Período de atualização */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">

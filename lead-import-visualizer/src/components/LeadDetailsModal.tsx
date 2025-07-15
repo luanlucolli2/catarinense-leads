@@ -134,9 +134,16 @@ export const LeadDetailsModal = ({
               <label className="text-sm text-gray-500">
                 Contratos ({contracts.length})
               </label>
+
+
               <ul className="mt-2 space-y-1 list-disc list-inside max-h-48 overflow-y-auto pr-2">
                 {contracts.map((c) => (
-                  <li key={c.id}>{formatDateOnly(c.data_contrato)}</li>
+                  <li key={c.id} className="flex justify-between">
+                    <span>{"- "+formatDateOnly(c.data_contrato)}</span>
+                    <span className="text-xs text-gray-600">
+                      {c.vendor?.name ?? "Sem vendedor"}
+                    </span>
+                  </li>
                 ))}
               </ul>
             </section>
