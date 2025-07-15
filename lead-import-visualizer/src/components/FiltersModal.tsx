@@ -54,7 +54,7 @@ interface FiltersModalProps {
   higienizacaoFilter: string[];
   onHigienizacaoFilterChange: (values: string[]) => void;
   availableHigienizacoes: string[];
-   vendorsFilter: string[];
+  vendorsFilter: string[];
   onVendorsFilterChange: (values: string[]) => void;
   availableVendors: { id: number; name: string }[];
 }
@@ -96,7 +96,7 @@ export const FiltersModal = ({
   higienizacaoFilter,
   onHigienizacaoFilterChange,
   availableHigienizacoes,
-   vendorsFilter,
+  vendorsFilter,
   onVendorsFilterChange,
   availableVendors,
 }: FiltersModalProps) => {
@@ -119,7 +119,7 @@ export const FiltersModal = ({
   const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
-const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
+  const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
   /* ------------------------------------------------------------------
    * 2.  Sincroniza quando modal abre
    * -----------------------------------------------------------------*/
@@ -155,6 +155,16 @@ const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
     vendorsFilter,
   ])
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
   /* ------------------------------------------------------------------
    * 3.  Commit – envia tudo para o Dashboard
    * -----------------------------------------------------------------*/
@@ -295,18 +305,18 @@ const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
                   placeholder="Selecionar origens..."
                 />
               </div>
-            {/* Vendedores */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Vendedores
-              </label>
-             <MultiSelect
-              options={availableVendors.map(v => v.name)}
-                selected={localVendors}
-                onChange={setLocalVendors}
-                placeholder="Selecionar vendedores..."
-              />
-            </div>
+              {/* Vendedores */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Vendedores
+                </label>
+                <MultiSelect
+                  options={availableVendors.map(v => v.name)}
+                  selected={localVendors}
+                  onChange={setLocalVendors}
+                  placeholder="Selecionar vendedores..."
+                />
+              </div>
               {/* Período de atualização */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -369,8 +379,7 @@ const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
         </main>
 
         {/* ---------- Rodapé ---------- */}
-        <footer className="flex items-center justify-end space-x-3 border-t p-6">
-          <Button
+<footer className="flex flex-wrap items-center justify-end gap-2 border-t px-4 sm:px-6 py-4">          <Button
             variant="outline"
             className="border-gray-300 text-gray-700 hover:bg-gray-50"
             onClick={() => {

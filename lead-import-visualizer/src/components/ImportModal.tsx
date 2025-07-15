@@ -1,5 +1,5 @@
 /*  src/components/ImportModal.tsx  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { X, Upload, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,7 +103,16 @@ export const ImportModal = ({
       }`
     window.open(url, "_blank")
   }
-
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
   /* ----------------------------- UI ----------------------------- */
   if (!isOpen) return null
 
