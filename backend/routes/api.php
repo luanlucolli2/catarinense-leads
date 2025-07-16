@@ -5,11 +5,13 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\ImportController;
+use App\Http\Controllers\Api\LeadExportController;
 
 /*--------------------------------------------------
 | Rotas Públicas
 |--------------------------------------------------*/
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/leads/export', [LeadExportController::class, 'export']);
 
 /*--------------------------------------------------
 | Rotas Protegidas (Sanctum)
@@ -28,4 +30,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /* 🆕 lista jobs do usuário – ?status=em_progresso,pendente */
     Route::get('/imports', [ImportController::class, 'index']);
+    Route::post('/leads/export', [LeadExportController::class, 'export']);
+
 });

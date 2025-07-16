@@ -16,29 +16,30 @@ class AuthController extends Controller
      * @return \Illuminate\Http\JsonResponse
      * @throws \Illuminate\Validation\ValidationException
      */
-    public function login(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-        ]);
+   public function login(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+        'password' => 'required',
+    ]);
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
-            throw ValidationException::withMessages([
-                'email' => ['As credenciais fornecidas estão incorretas.'],
-            ]);
-        }
-
-        // A linha abaixo é para criar tokens para clientes de API (como mobile),
-        // mas o login via SPA já cria a sessão automaticamente.
-        // Não precisamos retornar um token para a SPA.
-        $user = $request->user();
-
-        return response()->json([
-            'user' => $user,
-            
+    if (! Auth::attempt($request->only('email', 'password'))) {
+        throw ValidationException::withMessages([
+            'email' => ['As credenciais fornecidas estão incorretas.'],
         ]);
     }
+
+    // Recupera o usuário autenticado
+    $user = $request->user();
+
+    // Gera um token de API (plain-text)
+    $token = $user->createToken('api-testing-token')->plainTextToken;
+
+    return response()->json([
+        'user'  => $user,
+        'token' => $token,
+    ]);
+}
 
     /**
      * Log the user out of the application.

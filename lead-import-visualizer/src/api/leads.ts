@@ -141,3 +141,33 @@ export async function fetchLeadsFilters() {
     const { data } = await axiosClient.get<FiltersOptionsDTO>("/leads/filters")
     return data
 }
+export async function exportLeads(
+    filters: LeadFilters,
+    columns: string[]
+): Promise<void> {
+    // payload JSON com filtros e colunas
+    const payload = { ...filters, columns }
+
+    // faz POST esperando blob
+    const response = await axiosClient.post("/leads/export", payload, {
+        responseType: "blob",
+    })
+
+    // cria URL do blob e força download
+    const blob = new Blob([response.data], { type: response.headers["content-type"] })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    // tenta extrair filename do header, fallback:
+    const cd = response.headers["content-disposition"]
+    let filename = "leads_export.xlsx"
+    if (cd) {
+        const match = cd.match(/filename="?(.+)"?/)
+        if (match?.[1]) filename = match[1]
+    }
+    link.href = url
+    link.setAttribute("download", filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+}

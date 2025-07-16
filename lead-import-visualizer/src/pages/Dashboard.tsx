@@ -9,6 +9,7 @@ import { ExportModal } from "@/components/ExportModal"
 import {
   fetchLeads,
   fetchLeadsFilters,
+  exportLeads,
   LeadFromApi,
   PaginatedLeadsResponse,
 } from "@/api/leads"
@@ -182,6 +183,37 @@ const Dashboard = () => {
     higienizacaoFilter.length ||
     vendorsFilter.length
 
+  // monta objeto de filtros pra export
+  const collectFilters = () => ({
+    // não envia page para exportar todas as páginas
+    search: searchValue || undefined,
+    status: statusFilter !== "todos" ? statusFilter : undefined,
+    motivos: motivosFilter.length ? motivosFilter : undefined,
+    origens: origemFilter.length ? origemFilter : undefined,
+    origens_hig: higienizacaoFilter.length ? higienizacaoFilter : undefined,
+    date_from: dateFromFilter || undefined,
+    date_to: dateToFilter || undefined,
+    contract_from: contractDateFromFilter || undefined,
+    contract_to: contractDateToFilter || undefined,
+    cpf: cpfMassFilter || undefined,
+    names: namesMassFilter || undefined,
+    phones: phonesMassFilter || undefined,
+    vendors: vendorsFilter.length ? vendorsFilter : undefined,
+  })
+
+  // handler de exportação efetiva
+  const handleExport = async (columns: string[]) => {
+    toast.info("Exportação iniciada.")
+    try {
+      await exportLeads(collectFilters(), columns)
+      toast.success("Exportação concluída!")
+    } catch (err) {
+      console.error(err)
+      toast.error("Falha ao exportar. Tente novamente.")
+    }
+  }
+
+
   /* ---------- render ---------- */
   if (isError)
     return (
@@ -262,8 +294,7 @@ const Dashboard = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        onExport={() => toast.info("Exportação iniciada.")}
-      />
+        onExport={handleExport} />
     </div>
   )
 }
