@@ -289,7 +289,7 @@ export const LeadsTable = ({
                     <SortButton field="libera">Libera</SortButton>
                   </th>
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
-                    <SortButton field="data_atualizacao">Atualização</SortButton>
+                    <SortButton field="data_atualizacao">Consulta FGTS</SortButton>
                   </th>
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[80px]">
                     <SortButton field="contratos">Contratos</SortButton>

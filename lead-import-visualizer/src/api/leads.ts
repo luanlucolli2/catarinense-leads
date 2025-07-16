@@ -40,7 +40,8 @@ export interface LeadDetailFromApi {
     data_atualizacao: string | null
     saldo: string | null
     libera: string | null
-
+    created_at: string | null           // 🆕
+    updated_at: string | null           // 🆕
     contracts: {
         id: number
         data_contrato: string
