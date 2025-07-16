@@ -382,7 +382,7 @@ export const LeadsTable = ({
               </div>
 
               <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t">
-                <span>Atualizado: {lead.data_atualizacao}</span>
+                <span>Última higienização: {lead.data_atualizacao}</span>
                 <span className="truncate">{lead.consulta}</span>
               </div>
             </div>

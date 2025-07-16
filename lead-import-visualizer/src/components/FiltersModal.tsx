@@ -320,7 +320,7 @@ export const FiltersModal = ({
               {/* Período de atualização */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  Período de Atualização
+                  Período de Higienização
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <Input
