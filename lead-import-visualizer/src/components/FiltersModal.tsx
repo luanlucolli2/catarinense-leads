@@ -248,24 +248,6 @@ export const FiltersModal = ({
                 </Select>
               </div>
 
-              {/* Período de contrato */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Período de Contratos
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    type="date"
-                    value={localContractFrom}
-                    onChange={(e) => setLocalContractFrom(e.target.value)}
-                  />
-                  <Input
-                    type="date"
-                    value={localContractTo}
-                    onChange={(e) => setLocalContractTo(e.target.value)}
-                  />
-                </div>
-              </div>
 
               {/* Motivos */}
               <div className="space-y-2">
@@ -316,6 +298,25 @@ export const FiltersModal = ({
                   onChange={setLocalVendors}
                   placeholder="Selecionar vendedores..."
                 />
+              </div>
+              {/* Período de contrato */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Período de Contratos
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    type="date"
+                    value={localContractFrom}
+                    onChange={(e) => setLocalContractFrom(e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    value={localContractTo}
+                    onChange={(e) => setLocalContractTo(e.target.value)}
+                  />
+                </div>
+
               </div>
               {/* Período de atualização */}
               <div className="space-y-2">
@@ -379,16 +380,16 @@ export const FiltersModal = ({
         </main>
 
         {/* ---------- Rodapé ---------- */}
-<footer className="flex flex-wrap items-center justify-end gap-2 border-t px-4 sm:px-6 py-4">          <Button
-            variant="outline"
-            className="border-gray-300 text-gray-700 hover:bg-gray-50"
-            onClick={() => {
-              onClearFilters()
-              onClose()
-            }}
-          >
-            Limpar Filtros
-          </Button>
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t px-4 sm:px-6 py-4">          <Button
+          variant="outline"
+          className="border-gray-300 text-gray-700 hover:bg-gray-50"
+          onClick={() => {
+            onClearFilters()
+            onClose()
+          }}
+        >
+          Limpar Filtros
+        </Button>
 
           <Button
             variant="outline"
