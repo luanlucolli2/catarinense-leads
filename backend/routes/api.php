@@ -11,7 +11,6 @@ use App\Http\Controllers\Api\LeadExportController;
 | Rotas Públicas
 |--------------------------------------------------*/
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/leads/export', [LeadExportController::class, 'export']);
 
 /*--------------------------------------------------
 | Rotas Protegidas (Sanctum)
@@ -30,6 +29,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /* 🆕 lista jobs do usuário – ?status=em_progresso,pendente */
     Route::get('/imports', [ImportController::class, 'index']);
+    // listagem de erros para o modal
+    Route::get('/import/{importJob}/errors', [ImportController::class, 'errors'])
+        ->whereNumber('importJob');
+
+    // exportação de erros em CSV
+    Route::get('/import/{importJob}/errors/export', [ImportController::class, 'exportErrors'])
+        ->whereNumber('importJob');
     Route::post('/leads/export', [LeadExportController::class, 'export']);
 
 });

@@ -1,4 +1,4 @@
-
+// src/components/modals/RelatorioErrosModal.tsx
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ImportJob, ImportError } from "@/api/mockData";
+import { ImportJob, ImportError } from "@/api/importJobs";
 import { Download } from "lucide-react";
 
 interface RelatorioErrosModalProps {
@@ -23,6 +23,7 @@ interface RelatorioErrosModalProps {
   onClose: () => void;
   job: ImportJob | null;
   errors: ImportError[];
+  onExportCsv: () => void;
 }
 
 export const RelatorioErrosModal = ({
@@ -30,11 +31,8 @@ export const RelatorioErrosModal = ({
   onClose,
   job,
   errors,
+  onExportCsv,
 }: RelatorioErrosModalProps) => {
-  const handleExportCSV = () => {
-    console.log('Exportando erros para CSV...');
-  };
-
   if (!job) return null;
 
   return (
@@ -85,15 +83,17 @@ export const RelatorioErrosModal = ({
         <div className="flex justify-between items-center pt-4 border-t">
           <Button
             variant="outline"
-            onClick={handleExportCSV}
+            onClick={onExportCsv}
             disabled={errors.length === 0}
             className="flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
             Exportar Erros (.csv)
           </Button>
-          
-          <Button onClick={onClose} className="bg-blue-600 hover:bg-blue-700">
+          <Button
+            onClick={onClose}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
             Fechar
           </Button>
         </div>

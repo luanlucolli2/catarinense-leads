@@ -128,19 +128,60 @@ class ImportController extends Controller
         $statuses = $request->query('status'); // ex: "pendente,em_progresso"
 
         $query = ImportJob::where('user_id', $request->user()->id)
-            ->orderByDesc('id');
+            ->orderByDesc('id')
+            // conta erros em cada job
+            ->withCount('errors')
+            // busca nome do usuário que importou
+            ->with('user:id,name');
 
         if ($statuses) {
             $query->whereIn('status', explode(',', $statuses));
         }
 
+        // traz esses campos (front antigo só usa alguns; front novo usa todos):
         $jobs = $query->get([
             'id',
+            'type',
+            'file_name',
+            'origin',
             'status',
-            'processed_rows',
             'total_rows',
+            'processed_rows',
+            'started_at',
+            'finished_at',
         ]);
 
         return response()->json($jobs);
+    }
+
+    public function errors(ImportJob $importJob)
+    {
+        $errors = $importJob
+            ->errors()
+            ->get(['id', 'row_number', 'column_name', 'error_message']);
+
+        return response()->json($errors);
+    }
+
+    public function exportErrors(ImportJob $importJob)
+    {
+        $filename = "import_job_{$importJob->id}_errors.csv";
+
+        return response()->streamDownload(function () use ($importJob) {
+            $handle = fopen('php://output', 'w');
+            // cabeçalho CSV
+            fputcsv($handle, ['Linha', 'Coluna', 'Mensagem do Erro']);
+            // percorre erros
+            foreach ($importJob->errors()->cursor() as $err) {
+                fputcsv($handle, [
+                    $err->row_number,
+                    $err->column_name,
+                    $err->error_message,
+                ]);
+            }
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 }
