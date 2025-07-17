@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { useQuery, keepPreviousData } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { usePersistedState } from "@/hooks/usePersistedState";
 
 import { LeadsTable, ProcessedLead } from "@/components/LeadsTable"
 import { LeadsControls } from "@/components/LeadsControls"
@@ -26,22 +27,55 @@ type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
 
-  /* filtros simples */
-  const [searchValue, setSearchValue] = useState("")
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
-  const [motivosFilter, setMotivosFilter] = useState<string[]>([])
-  const [origemFilter, setOrigemFilter] = useState<string[]>([])
-  const [higienizacaoFilter, setHigienizacaoFilter] = useState<string[]>([])
-  const [dateFromFilter, setDateFromFilter] = useState("")
-  const [dateToFilter, setDateToFilter] = useState("")
+  const [searchValue, setSearchValue] = usePersistedState<string>(
+    "dashboard:searchValue",
+    ""
+  );
+  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>(
+    "dashboard:statusFilter",
+    "todos"
+  );
+  const [motivosFilter, setMotivosFilter] = usePersistedState<string[]>(
+    "dashboard:motivosFilter",
+    []
+  );
+  const [origemFilter, setOrigemFilter] = usePersistedState<string[]>(
+    "dashboard:origemFilter",
+    []
+  );
+  const [higienizacaoFilter, setHigienizacaoFilter] = usePersistedState<
+    string[]
+  >("dashboard:higienizacaoFilter", []);
+  const [dateFromFilter, setDateFromFilter] = usePersistedState<string>(
+    "dashboard:dateFromFilter",
+    ""
+  );
+  const [dateToFilter, setDateToFilter] = usePersistedState<string>(
+    "dashboard:dateToFilter",
+    ""
+  );
   /* período de contratos */
-  const [contractDateFromFilter, setContractDateFromFilter] = useState("")
-  const [contractDateToFilter, setContractDateToFilter] = useState("")
-  /* filtros “massa” ainda não implementados */
-  const [cpfMassFilter, setCpfMassFilter] = useState("")
-  const [namesMassFilter, setNamesMassFilter] = useState("")
-  const [phonesMassFilter, setPhonesMassFilter] = useState("")
-  const [vendorsFilter, setVendorsFilter] = useState<string[]>([])
+  const [contractDateFromFilter, setContractDateFromFilter] =
+    usePersistedState<string>("dashboard:contractDateFromFilter", "");
+  const [contractDateToFilter, setContractDateToFilter] =
+    usePersistedState<string>("dashboard:contractDateToFilter", "");
+  /* filtros “massa” */
+  const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>(
+    "dashboard:cpfMassFilter",
+    ""
+  );
+  const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>(
+    "dashboard:namesMassFilter",
+    ""
+  );
+  const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>(
+    "dashboard:phonesMassFilter",
+    ""
+  );
+  const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>(
+    "dashboard:vendorsFilter",
+    []
+  );
   /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)

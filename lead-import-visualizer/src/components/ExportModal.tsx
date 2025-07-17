@@ -10,22 +10,22 @@ interface ExportModalProps {
 }
 
 const availableColumns = [
-  { id: "cpf",             label: "CPF",                 selected: true },
-  { id: "nome",            label: "Nome",                selected: true },
-  { id: "fone1",           label: "Telefone 1",          selected: true },
-  { id: "fone2",           label: "Telefone 2",          selected: true },
-  { id: "fone3",           label: "Telefone 3",          selected: true },
-  { id: "fone4",           label: "Telefone 4",          selected: true },
-  { id: "classe_fone1",    label: "Classe 1",            selected: true },
-  { id: "classe_fone2",    label: "Classe 2",            selected: true },
-  { id: "classe_fone3",    label: "Classe 3",            selected: true },
-  { id: "classe_fone4",    label: "Classe 4",            selected: true },
-  { id: "status",          label: "Status",              selected: true },
-  { id: "consulta",        label: "Motivo (Consulta)",   selected: true },
-  { id: "saldo",           label: "Saldo",               selected: true },
-  { id: "libera",          label: "Libera",              selected: true },
-  { id: "primeira_origem", label: "Origem",              selected: true },
-  { id: "data_atualizacao",label: "Data de Atualização", selected: true },
+  { id: "cpf", label: "CPF", selected: true },
+  { id: "nome", label: "Nome", selected: true },
+  { id: "fone1", label: "Telefone 1", selected: true },
+  { id: "fone2", label: "Telefone 2", selected: true },
+  { id: "fone3", label: "Telefone 3", selected: true },
+  { id: "fone4", label: "Telefone 4", selected: true },
+  { id: "classe_fone1", label: "Classe 1", selected: true },
+  { id: "classe_fone2", label: "Classe 2", selected: true },
+  { id: "classe_fone3", label: "Classe 3", selected: true },
+  { id: "classe_fone4", label: "Classe 4", selected: true },
+  { id: "status", label: "Status", selected: true },
+  { id: "consulta", label: "Motivo (Consulta)", selected: true },
+  { id: "saldo", label: "Saldo", selected: true },
+  { id: "libera", label: "Libera", selected: true },
+  { id: "primeira_origem", label: "Origem", selected: true },
+  { id: "data_atualizacao", label: "Data de Atualização", selected: true },
 ];
 
 export const ExportModal = ({
@@ -44,6 +44,17 @@ export const ExportModal = ({
       }, {} as Record<string, boolean>);
       setSelectedColumns(init);
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [isOpen]);
 
   const handleColumnToggle = (columnId: string) => {

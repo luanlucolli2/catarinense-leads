@@ -16,30 +16,27 @@ class AuthController extends Controller
      * @return \Illuminate\Http\JsonResponse
      * @throws \Illuminate\Validation\ValidationException
      */
-   public function login(Request $request)
+ public function login(Request $request)
 {
-    $request->validate([
-        'email' => 'required|email',
+    $data = $request->validate([
+        'email'    => 'required|email',
         'password' => 'required',
     ]);
 
-    if (! Auth::attempt($request->only('email', 'password'))) {
+    if (! Auth::attempt($data)) {
         throw ValidationException::withMessages([
-            'email' => ['As credenciais fornecidas estão incorretas.'],
+            'email' => ['Credenciais incorretas.'],
         ]);
     }
 
-    // Recupera o usuário autenticado
-    $user = $request->user();
-
-    // Gera um token de API (plain-text)
-    $token = $user->createToken('api-testing-token')->plainTextToken;
+    // invalida antiga e cria nova
+    $request->session()->regenerate();
 
     return response()->json([
-        'user'  => $user,
-        'token' => $token,
+        'user' => $request->user(),
     ]);
 }
+
 
     /**
      * Log the user out of the application.
