@@ -1,20 +1,26 @@
-import { Toaster } from "@/components/ui/toaster"
-import { Toaster as Sonner } from "@/components/ui/sonner"
-import { TooltipProvider } from "@/components/ui/tooltip"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Outlet,
+} from "react-router-dom";
 
-import Index from "./pages/Index"
-import HistoricoPage from "./pages/Importacoes/HistoricoPage"
-import Login from "./pages/Login"
-import NotFound from "./pages/NotFound"
+import Dashboard from "./pages/Dashboard";
+import HistoricoPage from "./pages/Importacoes/HistoricoPage";
+import Login from "./pages/Login";
+import NotFound from "./pages/NotFound";
 
-import ProtectedRoute from "./components/ProtectedRoute"
-import GuestRoute from "./components/GuestRoute"
-import { AuthProvider } from "./contexts/AuthContext"
-import { ImportProgressProvider } from "@/contexts/ImportProgressContext"
+import ProtectedRoute from "./components/ProtectedRoute";
+import GuestRoute from "./components/GuestRoute";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ImportProgressProvider } from "@/contexts/ImportProgressContext";
+import { AppLayout } from "@/components/AppLayout";
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -24,7 +30,7 @@ const App = () => (
         <Toaster />
         <Sonner />
 
-        {/* Provider global de progresso de importação — mantém toast vivo entre rotas */}
+        {/* Provider global de progresso das importações */}
         <ImportProgressProvider>
           <BrowserRouter>
             <Routes>
@@ -38,27 +44,25 @@ const App = () => (
                 }
               />
 
-              {/* Dashboard principal */}
+              {/* ROTAS PROTEGIDAS COM LAYOUT ÚNICO */}
               <Route
-                path="/"
                 element={
                   <ProtectedRoute>
-                    <Index />
+                    <AppLayout />   {/* contém <Outlet/> */}
                   </ProtectedRoute>
                 }
-              />
+              >
+                {/* página inicial (/ → Dashboard) */}
+                <Route index element={<Dashboard />} />
 
-              {/* Histórico de importações */}
-              <Route
-                path="/importacoes/historico"
-                element={
-                  <ProtectedRoute>
-                    <HistoricoPage />
-                  </ProtectedRoute>
-                }
-              />
+                {/* histórico de importações */}
+                <Route
+                  path="importacoes/historico"
+                  element={<HistoricoPage />}
+                />
+              </Route>
 
-              {/* Catch-all */}
+              {/* 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
@@ -66,6 +70,6 @@ const App = () => (
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
-)
+);
 
-export default App
+export default App;

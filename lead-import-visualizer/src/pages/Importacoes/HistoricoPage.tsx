@@ -46,7 +46,7 @@ const HistoricoPage = () => {
 
     setLoadingErrors(true);
     setSelectedJob(job);
-    
+
     try {
       const jobErrors = await fetchErrorsForJob(job.id);
       setErrors(jobErrors);
@@ -97,11 +97,10 @@ const HistoricoPage = () => {
   };
 
   return (
-    <AppLayout>
       <div className="p-4 lg:p-6 max-w-full min-w-0">
         <div className="mb-6 max-w-full">
           <div className="flex items-center gap-2 mb-2">
-          
+
             <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Histórico de Importações</h1>
           </div>
           <p className="text-gray-600 text-sm lg:text-base">
@@ -245,7 +244,6 @@ const HistoricoPage = () => {
           errors={errors}
         />
       </div>
-    </AppLayout>
   );
 };
 
