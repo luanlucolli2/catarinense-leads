@@ -48,98 +48,109 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         $this->importJob = $importJob;
     }
 
-    public function model(array $row)
-    {
-        DB::transaction(function () use ($row) {
-            try {
-                // validações iniciais
-                $validator = Validator::make($row, [
-                    'cpfcliente' => ['required'],
-                    'nomecliente' => ['required', 'string'],
-                ]);
-                if ($validator->fails()) {
-                    throw new ValidationException($validator);
-                }
-
-                // CPF
-                $cpf = preg_replace('/\D/', '', (string) ($row['cpfcliente'] ?? ''));
-                if (!$this->isValidCpf($cpf)) {
-                    throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
-                }
-
-                // busca ou cria Lead
-                $lead = Lead::firstOrNew(['cpf' => $cpf]);
-                $action = $lead->exists ? 'update' : 'insert';
-
-                // normalização e validação de campos
-                $dataFromSheet = [
-                    'nome' => $this->normalizeName($row['nomecliente']),
-                    'data_nascimento' => $this->transformDate($row['datanascimento'] ?? null),
-                    'fone1' => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
-                    'classe_fone1' => $this->normalizeClasse($row['classefone1'] ?? null),
-                    'fone2' => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
-                    'classe_fone2' => $this->normalizeClasse($row['classefone2'] ?? null),
-                    'fone3' => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
-                    'classe_fone3' => $this->normalizeClasse($row['classefone3'] ?? null),
-                    'fone4' => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
-                    'classe_fone4' => $this->normalizeClasse($row['classefone4'] ?? null),
-                ];
-
-                // aplica apenas campos não-nulos
-                foreach ($dataFromSheet as $field => $value) {
-                    if (!is_null($value) && $value !== '') {
-                        $lead->{$field} = $value;
-                    }
-                }
-
-                $lead->save();
-
-                // contratos + vendedor
-                if (!empty($row['datacontrato'])) {
-                    $contractDate = $this->transformDate($row['datacontrato']);
-                    if (!$contractDate) {
-                        throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
-                    }
-
-                    if (!empty($row['vendedor'])) {
-                        // aplica a mesma normalizeName() que usamos pro lead
-                        $cleanedVendorName = $this->normalizeName($row['vendedor']);
-                        $vendor = Vendor::firstOrCreate(
-                            ['name_clean' => Vendor::clean($cleanedVendorName)],
-                            ['name' => $cleanedVendorName]
-                        );
-                        $vendorId = $vendor->id;
-                    }
-
-                    LeadContract::updateOrCreate(
-                        ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
-                        ['vendor_id' => $vendorId]
-                    );
-                }
-
-                // registra import_job pivot
-                $lead->importJobs()->attach($this->importJob->id, ['action' => $action]);
-
-            } catch (\Exception $e) {
-                // captura erro e grava ImportError
-                $columnName = 'Geral';
-                if ($e instanceof ValidationException) {
-                    $columnName = array_key_first($e->errors());
-                } elseif ($e->getPrevious()) {
-                    $columnName = $e->getPrevious()->getMessage();
-                }
-
-                ImportError::create([
-                    'import_job_id' => $this->importJob->id,
-                    'row_number' => $this->getRowNumber(),
-                    'column_name' => $columnName,
-                    'error_message' => $e->getMessage(),
-                ]);
+public function model(array $row)
+{
+    DB::transaction(function () use ($row) {
+        try {
+            // validações iniciais (inalteradas)
+            $validator = Validator::make($row, [
+                'cpfcliente'  => ['required'],
+                'nomecliente' => ['required', 'string'],
+            ]);
+            if ($validator->fails()) {
+                throw new ValidationException($validator);
             }
-        });
 
-        return null;
-    }
+            // CPF
+            $cpf = preg_replace('/\D/', '', (string) ($row['cpfcliente'] ?? ''));
+            if (!$this->isValidCpf($cpf)) {
+                throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
+            }
+
+            // busca ou cria Lead
+            $lead   = Lead::firstOrNew(['cpf' => $cpf]);
+            $action = $lead->exists ? 'update' : 'insert';
+
+            // normalização e validação de campos (inalterados, inclusive telefones)
+            $dataFromSheet = [
+                'nome'            => $this->normalizeName($row['nomecliente']),
+                'data_nascimento' => $this->transformDate($row['datanascimento'] ?? null),
+
+                'fone1'        => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
+                'classe_fone1' => $this->normalizeClasse($row['classefone1'] ?? null),
+
+                'fone2'        => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
+                'classe_fone2' => $this->normalizeClasse($row['classefone2'] ?? null),
+
+                'fone3'        => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
+                'classe_fone3' => $this->normalizeClasse($row['classefone3'] ?? null),
+
+                'fone4'        => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
+                'classe_fone4' => $this->normalizeClasse($row['classefone4'] ?? null),
+            ];
+
+            /* --------- NOVO: reconciliamos telefones --------- */
+            $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
+            foreach ($mergedPhones as $field => $value) {
+                $dataFromSheet[$field] = $value;
+            }
+            /* -------------------------------------------------- */
+
+            // aplica campos não-nulos ao Lead (inalterado)
+            foreach ($dataFromSheet as $field => $value) {
+                if (!is_null($value) && $value !== '') {
+                    $lead->{$field} = $value;
+                }
+            }
+            $lead->save();
+
+            /* --- restante do método continua igual (contratos, pivot, etc.) --- */
+
+            // contratos + vendedor
+            if (!empty($row['datacontrato'])) {
+                $contractDate = $this->transformDate($row['datacontrato']);
+                if (!$contractDate) {
+                    throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
+                }
+
+                if (!empty($row['vendedor'])) {
+                    $cleanedVendorName = $this->normalizeName($row['vendedor']);
+                    $vendor            = Vendor::firstOrCreate(
+                        ['name_clean' => Vendor::clean($cleanedVendorName)],
+                        ['name' => $cleanedVendorName]
+                    );
+                    $vendorId = $vendor->id;
+                }
+
+                LeadContract::updateOrCreate(
+                    ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
+                    ['vendor_id' => $vendorId ?? null]
+                );
+            }
+
+            // registra import_job pivot
+            $lead->importJobs()->attach($this->importJob->id, ['action' => $action]);
+        } catch (\Exception $e) {
+            /* tratamento de erro inalterado */
+            $columnName = 'Geral';
+            if ($e instanceof ValidationException) {
+                $columnName = array_key_first($e->errors());
+            } elseif ($e->getPrevious()) {
+                $columnName = $e->getPrevious()->getMessage();
+            }
+
+            ImportError::create([
+                'import_job_id' => $this->importJob->id,
+                'row_number'    => $this->getRowNumber(),
+                'column_name'   => $columnName,
+                'error_message' => $e->getMessage(),
+            ]);
+        }
+    });
+
+    return null;
+}
+
 
     public function chunkSize(): int
     {
@@ -204,6 +215,106 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         }
         return $name;
     }
+
+/**
+ * Mescla telefones existentes do Lead com os importados,
+ * garantindo que números "Quente" nunca sejam perdidos
+ * conforme regras combinadas.
+ *
+ * @param  Lead  $lead           Lead já carregado (pode ser novo)
+ * @param  array $incomingSheet  Parte de $dataFromSheet (já normalizada)
+ * @return array                 ['fone1' => ?, 'classe_fone1' => ?, ...]
+ */
+private function mergePhones(Lead $lead, array $incomingSheet): array
+{
+    // normalizador rápido de classe
+    $normClass = function ($c) {
+        $c = ucfirst(strtolower($c ?? 'Frio'));
+        return $c === 'Quente' ? 'Quente' : 'Frio';
+    };
+
+    // fotografia atual do Lead
+    $result = [
+        ['phone' => $lead->fone1, 'class' => $normClass($lead->classe_fone1)],
+        ['phone' => $lead->fone2, 'class' => $normClass($lead->classe_fone2)],
+        ['phone' => $lead->fone3, 'class' => $normClass($lead->classe_fone3)],
+        ['phone' => $lead->fone4, 'class' => $normClass($lead->classe_fone4)],
+    ];
+
+    // telefones vindos do Excel
+    $incoming = [
+        ['phone' => $incomingSheet['fone1']        ?? null, 'class' => $normClass($incomingSheet['classe_fone1'] ?? null)],
+        ['phone' => $incomingSheet['fone2']        ?? null, 'class' => $normClass($incomingSheet['classe_fone2'] ?? null)],
+        ['phone' => $incomingSheet['fone3']        ?? null, 'class' => $normClass($incomingSheet['classe_fone3'] ?? null)],
+        ['phone' => $incomingSheet['fone4']        ?? null, 'class' => $normClass($incomingSheet['classe_fone4'] ?? null)],
+    ];
+
+    foreach ($incoming as $slot) {
+        $phone = $slot['phone'];
+        if (!$phone) {
+            continue; // nada a processar
+        }
+        $class = $slot['class']; // Quente ou Frio
+
+        // 1. já existe?
+        $idxExisting = array_search($phone, array_column($result, 'phone'), true);
+        if ($idxExisting !== false) {
+            // promove Frio → Quente se necessário
+            if ($class === 'Quente' && $result[$idxExisting]['class'] !== 'Quente') {
+                $result[$idxExisting]['class'] = 'Quente';
+            }
+            continue;
+        }
+
+        // 2. lógica principal (novo número)
+        if ($class === 'Quente') {
+            // tenta slot vazio
+            $freeIdx = null;
+            foreach ($result as $i => $s) {
+                if (empty($s['phone'])) {
+                    $freeIdx = $i;
+                    break;
+                }
+            }
+            if (!is_null($freeIdx)) {
+                $result[$freeIdx] = $slot;
+                continue;
+            }
+
+            // sem slots livres → procura primeiro Frio para substituir
+            foreach ($result as $i => $s) {
+                if ($s['class'] === 'Frio') {
+                    $result[$i] = $slot;
+                    continue 2; // volta para próximo número
+                }
+            }
+            // todos os 4 são Quente → descarta
+        } else { // Frio
+            // só entra se houver slot livre
+            foreach ($result as $i => $s) {
+                if (empty($s['phone'])) {
+                    $result[$i] = $slot;
+                    break;
+                }
+            }
+            // caso contrário, ignora
+        }
+    }
+
+    // devolve no formato esperado pelo restante da importação
+    return [
+        'fone1'        => $result[0]['phone'],
+        'classe_fone1' => $result[0]['class'],
+        'fone2'        => $result[1]['phone'],
+        'classe_fone2' => $result[1]['class'],
+        'fone3'        => $result[2]['phone'],
+        'classe_fone3' => $result[2]['class'],
+        'fone4'        => $result[3]['phone'],
+        'classe_fone4' => $result[3]['class'],
+    ];
+}
+
+
 
     /**
      * Valida e normaliza telefone:
