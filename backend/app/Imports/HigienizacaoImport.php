@@ -5,6 +5,7 @@ namespace App\Imports;
 use App\Models\Lead;
 use App\Models\ImportJob;
 use App\Models\ImportError;
+use App\Services\BackupService;               // 👈 NOVO
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
@@ -21,6 +22,7 @@ use Maatwebsite\Excel\Events\AfterImport;
 class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
     use RemembersRowNumber;
+
     public const REQUIRED_HEADERS = [
         'cpfcliente',
         'consulta',
@@ -30,15 +32,18 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
     ];
 
     protected ImportJob $importJob;
+    protected BackupService $backup;          // 👈 NOVO
 
-    public function __construct(ImportJob $importJob)
+    public function __construct(ImportJob $importJob, BackupService $backup)
     {
         $this->importJob = $importJob;
+        $this->backup = $backup;           // 👈 NOVO
     }
 
     public function model(array $row)
     {
         try {
+            /* ---------- validação original ---------- */
             $validator = Validator::make($row, [
                 'cpfcliente' => ['required'],
                 'consulta' => ['required', 'string'],
@@ -53,7 +58,7 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
 
             $data = $validator->validated();
 
-            // normaliza CPF
+            /* ---------- CPF normalizado ---------- */
             $cpf = preg_replace('/\D/', '', (string) $data['cpfcliente']);
             if (strlen($cpf) !== 11) {
                 throw new \Exception(
@@ -63,6 +68,7 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 );
             }
 
+            /* ---------- Lead deve existir ---------- */
             $lead = Lead::where('cpf', $cpf)->first();
             if (!$lead) {
                 throw new \Exception(
@@ -72,7 +78,16 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 );
             }
 
-            // trata a data/hora e converte para UTC
+            /* ---------- BACKUP antes de atualizar ---------- */
+            $alreadyBackedUp = \App\Models\Backup\LeadBackup::where('lead_id', $lead->id)
+                ->where('import_job_id', $this->importJob->id)
+                ->exists();
+
+            if (!$alreadyBackedUp) {
+                $this->backup->bulkBackupLeads(collect([$lead]), $this->importJob);
+            }
+
+            /* ---------- Transformação de data ---------- */
             $dt = $this->transformDateTime($data['dataatualizacao']);
             if (!$dt) {
                 throw new \Exception(
@@ -82,6 +97,7 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 );
             }
 
+            /* ---------- Atualização do Lead ---------- */
             $lead->update([
                 'consulta' => $data['consulta'],
                 'data_atualizacao' => $dt,
@@ -89,8 +105,8 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 'libera' => (string) $data['libera'],
             ]);
 
-            $lead
-                ->importJobs()
+            /* ---------- Pivot lead_imports ---------- */
+            $lead->importJobs()
                 ->attach($this->importJob->id, ['action' => 'update']);
 
         } catch (ValidationException $e) {
@@ -168,35 +184,35 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         }
     }
 
-  public function registerEvents(): array
-{
-    return [
-        AfterChunk::class => function () {
-            $this->importJob->refresh();
+    public function registerEvents(): array
+    {
+        return [
+            AfterChunk::class => function () {
+                $this->importJob->refresh();
 
-            $remaining = $this->importJob->total_rows
-                         - $this->importJob->processed_rows;
+                $remaining = $this->importJob->total_rows
+                    - $this->importJob->processed_rows;
 
-            if ($remaining <= 0) {
-                return;
-            }
+                if ($remaining <= 0) {
+                    return;
+                }
 
-            $increment = min($this->chunkSize(), $remaining);
+                $increment = min($this->chunkSize(), $remaining);
 
-            $this->importJob->increment(
-                'processed_rows',
-                $increment
-            );
-        },
+                $this->importJob->increment(
+                    'processed_rows',
+                    $increment
+                );
+            },
 
-        AfterImport::class => function () {
-            $this->importJob->update([
-                'processed_rows' => $this->importJob->total_rows,
-                'status'         => 'concluido',
-                'finished_at'    => now(),
-            ]);
-        },
-    ];
-}
+            AfterImport::class => function () {
+                $this->importJob->update([
+                    'processed_rows' => $this->importJob->total_rows,
+                    'status' => 'concluido',
+                    'finished_at' => now(),
+                ]);
+            },
+        ];
+    }
 
 }

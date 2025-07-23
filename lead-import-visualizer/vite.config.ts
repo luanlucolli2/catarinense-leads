@@ -1,17 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "0.0.0.0",    // escuta em todas as interfaces IPv4
+    headers: {
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self' 'unsafe-eval' blob:;"
+    },
+    host: "0.0.0.0",      // escuta em todas as interfaces
     port: 8080,
-    strictPort: true,   // falha de vez se 8080 já estiver em uso
-    // proxy para /api => Laravel (evita CORS no dev):
+    strictPort: true,     // falha se 8080 já estiver em uso
+    hmr: false,           // desabilita hot-reload (para testar se era HMR)
     proxy: {
       '/api': {
-        target: 'http://laravel.test', // Aponta para o nome do serviço!
+        target: 'http://laravel.test',
         changeOrigin: true,
         secure: false,
       },
@@ -19,11 +22,10 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    mode === "development" && componentTagger(),
-  ].filter(Boolean),
+  ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      '@': path.resolve(__dirname, './src'),
     },
   },
 }));

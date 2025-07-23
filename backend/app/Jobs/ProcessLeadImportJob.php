@@ -13,6 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Services\BackupService;
 
 class ProcessLeadImportJob implements ShouldQueue
 {
@@ -29,14 +30,23 @@ class ProcessLeadImportJob implements ShouldQueue
     {
         // marca início
         $this->importJob->update([
-            'status'     => 'em_progresso',
+            'status' => 'em_progresso',
             'started_at' => now(),
         ]);
 
+
+        // Limpa backups de imports anteriores
+        /** @var BackupService $backup */
+        $backup = app(BackupService::class);
+        $backup->purgeOldBackups();
+
         try {
+            /** @var BackupService $backup */
+            $backup = app(BackupService::class);
+
             $importer = $this->importJob->type === 'cadastral'
-                ? new CadastralImport($this->importJob)
-                : new HigienizacaoImport($this->importJob);
+                ? new CadastralImport($this->importJob, $backup)
+                : new HigienizacaoImport($this->importJob, $backup);
 
             // despacha a importação (cada chunk vira um job ReadChunk)
             // NÃO atualiza processed_rows aqui
@@ -45,7 +55,7 @@ class ProcessLeadImportJob implements ShouldQueue
         } catch (Throwable $e) {
             // se algo falhar antes de despachar, marca como falho
             $this->importJob->update([
-                'status'      => 'falhou',
+                'status' => 'falhou',
                 'finished_at' => now(),
             ]);
             Log::error(

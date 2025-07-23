@@ -6,6 +6,7 @@ export interface ActiveImportJobDto {
   status: "pendente" | "em_progresso" | "concluido" | "falhou";
   processed_rows: number;
   total_rows: number;
+  errors: number;
 }
 
 /** Para a listagem de Histórico */
@@ -14,12 +15,18 @@ export interface ImportJob {
   type: string;
   fileName: string;
   origin: string;
-  status: "pendente" | "em_progresso" | "concluido" | "falhou";
+  status: "pendente"
+  | "em_progresso"
+  | "concluido"
+  | "falhou"
+  | "revertido";
   totalRows: number;
   processedRows: number;
   errorsCount: number;
   startedAt: string | null;
   finishedAt: string | null;
+  rolledBackAt: string | null;          // 👈 novo
+
   user: { name: string };
 }
 
@@ -59,6 +66,10 @@ export async function listActiveImports(): Promise<
   return data as ActiveImportJobDto[];
 }
 
+export async function rollbackImportJob(id: number): Promise<void> {
+  await axiosClient.post(`/import/${id}/rollback`);
+}
+
 /** GET /imports → lista completa (Histórico) */
 export async function listImportJobs(): Promise<ImportJob[]> {
   const { data } = await axiosClient.get("/imports");
@@ -73,6 +84,7 @@ export async function listImportJobs(): Promise<ImportJob[]> {
     errorsCount: raw.errors_count,
     startedAt: raw.started_at,
     finishedAt: raw.finished_at,
+    rolledBackAt: raw.rolled_back_at,
     user: raw.user,
   }));
 }

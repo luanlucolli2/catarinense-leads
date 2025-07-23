@@ -103,16 +103,16 @@ export const ImportModal = ({
       }`
     window.open(url, "_blank")
   }
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
+  // useEffect(() => {
+  //   if (isOpen) {
+  //     document.body.style.overflow = 'hidden';
+  //   } else {
+  //     document.body.style.overflow = '';
+  //   }
+  //   return () => {
+  //     document.body.style.overflow = '';
+  //   };
+  // }, [isOpen]);
   /* ----------------------------- UI ----------------------------- */
   if (!isOpen) return null
 
