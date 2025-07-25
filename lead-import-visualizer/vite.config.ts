@@ -5,8 +5,8 @@ import path from "path";
 export default defineConfig(({ mode }) => ({
   server: {
     headers: {
-      'Content-Security-Policy':
-        "default-src 'self'; script-src 'self' 'unsafe-eval' blob:;"
+      'Cache-Control': 'no-store',
+
     },
     host: "0.0.0.0",      // escuta em todas as interfaces
     port: 8080,

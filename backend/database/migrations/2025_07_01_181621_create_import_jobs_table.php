@@ -23,6 +23,7 @@ return new class extends Migration {
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();
             $table->timestamps();
+            $table->index(['origin', 'type']);   // filtro combinado de origem + tipo
         });
     }
 

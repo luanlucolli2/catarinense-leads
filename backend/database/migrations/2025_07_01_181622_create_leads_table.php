@@ -6,8 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -26,15 +25,17 @@ return new class extends Migration
             $table->string('classe_fone3')->nullable();
             $table->string('fone4')->nullable();
             $table->string('classe_fone4')->nullable();
-            
+
             // REMOVEMOS 'origem_cadastro' e 'data_importacao_cadastro' daqui
-            
+
             $table->string('consulta')->nullable();
             $table->timestamp('data_atualizacao')->nullable();
             $table->string('saldo')->nullable();
             $table->string('libera')->nullable();
-            
+
             $table->timestamps();
+            $table->index('data_atualizacao');
+            $table->index('consulta');
         });
     }
 
