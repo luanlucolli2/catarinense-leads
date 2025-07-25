@@ -7,7 +7,6 @@ services:
             dockerfile: Dockerfile
             args:
                 WWWGROUP: '${WWWGROUP}'
-                PHP_MEMORY_LIMIT: 512M        
         image: 'sail-8.4/app'
         extra_hosts:
             - 'host.docker.internal:host-gateway'
@@ -22,6 +21,7 @@ services:
             IGNITION_LOCAL_SITES_PATH: '${PWD}'
         volumes:
             - '.:/var/www/html'
+            - './docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini'
         networks:
             - sail
         depends_on:
