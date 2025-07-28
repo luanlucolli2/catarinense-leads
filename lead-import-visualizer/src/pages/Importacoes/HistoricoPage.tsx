@@ -15,13 +15,14 @@ import {
 } from "@/api/importJobs";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Eye, RotateCcw } from "lucide-react";
+import { FileText, Eye, RotateCcw, ShieldAlert, Loader2 } from "lucide-react"; // Ícones adicionados
 import { toast } from "sonner";
 import {
-  AlertDialog, AlertDialogTrigger, AlertDialogContent,
+  AlertDialog, AlertDialogContent,
   AlertDialogHeader, AlertDialogTitle, AlertDialogFooter,
   AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils"; // Import `cn` para classes condicionais
 
 const HistoricoPage = () => {
   const queryClient = useQueryClient();
@@ -30,14 +31,15 @@ const HistoricoPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loadingErrors, setLoadingErrors] = useState(false);
   const [loadingRollback, setLoadingRollback] = useState<number | null>(null);
-  const [confirmJob, setConfirmJob] = useState<ImportJob | null>(null);   // 🔔
+  const [confirmJob, setConfirmJob] = useState<ImportJob | null>(null);
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ["importJobs"],
     queryFn: listImportJobs,
-    staleTime: 0,               // ✅ sempre stale → refetch on mount
-    refetchOnWindowFocus: true, // opcional: também refetch quando volta à aba
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
+
   /* ---------------- helpers ---------------- */
   const lastJobId = Math.max(...jobs.map(j => j.id), 0);
 
@@ -61,13 +63,13 @@ const HistoricoPage = () => {
     setLoadingRollback(job.id);
     try {
       await rollbackImportJob(job.id);
-      toast.success("Rollback iniciado com sucesso.");
+      toast.success("Rollback da importação concluído com sucesso.");
       await queryClient.invalidateQueries({ queryKey: ["importJobs"] });
+      setConfirmJob(null); // Fecha o modal SÓ no sucesso
     } catch (err: any) {
-      toast.error(err.response?.data?.error || "Erro ao iniciar rollback");
+      toast.error(err.response?.data?.error || "Erro ao executar rollback");
     } finally {
       setLoadingRollback(null);
-      setConfirmJob(null);
     }
   };
 
@@ -76,24 +78,17 @@ const HistoricoPage = () => {
 
   const getStatusBadge = (status: ImportJob["status"]) => {
     const map = {
-      concluido: ["outline", "bg-green-100 text-green-800 hover:opacity-100"],
-      revertido: ["secondary", "bg-gray-100  text-gray-800  hover:opacity-100"],
-      falhou: ["destructive", "bg-red-100   text-red-800  hover:opacity-100"],
-      pendente: ["secondary", "bg-blue-100  text-blue-800 hover:opacity-100"],
-      em_progresso: ["secondary", "bg-blue-100  text-blue-800 hover:opacity-100"],
+      concluido: "bg-green-100 text-green-800",
+      revertido: "bg-gray-200 text-gray-800",
+      falhou: "bg-red-100 text-red-800",
+      pendente: "bg-blue-100 text-blue-800",
+      em_progresso: "bg-blue-100 text-blue-800 animate-pulse",
     } as const;
-    const [variant, color] = map[status];
-    const label =
-      status === "concluido" ? "Concluído" :
-        status === "revertido" ? "Revertido" :
-          status === "em_progresso" ? "Em progresso" :
-            status === "pendente" ? "Pendente" :
-              "Falhou";
-    return (
-      <Badge variant={variant as any} className={color}>
-        {label}
-      </Badge>
-    );
+    const label = {
+      concluido: "Concluído", revertido: "Revertido",
+      em_progresso: "Em progresso", pendente: "Pendente", falhou: "Falhou",
+    } as const;
+    return <Badge variant="outline" className={cn("border-transparent", map[status])}>{label[status]}</Badge>;
   };
 
   const getTypeBadge = (type: ImportJob["type"]) => {
@@ -102,7 +97,7 @@ const HistoricoPage = () => {
       higienizacao: "bg-orange-100 text-orange-800",
     } as const;
     return (
-      <Badge variant="outline" className={colors[type]}>
+      <Badge variant="outline" className={cn("border-transparent", colors[type])}>
         {type === "cadastral" ? "Cadastral" : "Higienização"}
       </Badge>
     );
@@ -130,94 +125,51 @@ const HistoricoPage = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="px-3 xl:px-6 py-3">Arquivo</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Origem</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Tipo</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Status</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Erros</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Início</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Término</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Usuário</TableHead>
-                <TableHead className="px-3 xl:px-6 py-3">Ações</TableHead>
+                <TableHead>Arquivo</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Erros</TableHead>
+                <TableHead>Início</TableHead>
+                <TableHead>Término</TableHead>
+                <TableHead>Usuário</TableHead>
+                <TableHead>Ações</TableHead>
               </TableRow>
             </TableHeader>
 
             <TableBody>
               {jobs.map(job => {
                 const isLast = job.id === lastJobId;
-                const rollbackDisabled =
-                  job.status !== "concluido" || job.rolledBackAt !== null;
+                const rollbackDisabled = job.status !== "concluido" || job.rolledBackAt !== null;
 
                 return (
                   <TableRow key={job.id} className="hover:bg-gray-50">
-                    <TableCell className="px-3 xl:px-6 py-4 truncate">{job.fileName}</TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 truncate">{job.origin}</TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4">{getTypeBadge(job.type)}</TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4">{getStatusBadge(job.status)}</TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 font-semibold">
-                      {job.errorsCount > 0 ? (
-                        <span className="text-red-600">{job.errorsCount}</span>
-                      ) : (
-                        <span className="text-gray-500">0</span>
-                      )}
+                    <TableCell className="truncate">{job.fileName}</TableCell>
+                    <TableCell className="truncate">{job.origin}</TableCell>
+                    <TableCell>{getTypeBadge(job.type)}</TableCell>
+                    <TableCell>{getStatusBadge(job.status)}</TableCell>
+                    <TableCell className="font-semibold">
+                      <span className={job.errorsCount > 0 ? "text-red-600" : "text-gray-500"}>
+                        {job.errorsCount}
+                      </span>
                     </TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 text-sm text-gray-600">
-                      {formatDateStr(job.startedAt)}
-                    </TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 text-sm text-gray-600">
-                      {formatDateStr(job.finishedAt)}
-                    </TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 text-sm">{job.user.name}</TableCell>
-                    <TableCell className="px-3 xl:px-6 py-4 flex gap-2">
-                      {/* Ver */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewReport(job)}
-                        disabled={job.status === "pendente" || job.status === "em_progresso" || loadingErrors}
-                        className="flex items-center gap-1"
-                      >
+                    <TableCell className="text-sm text-gray-600">{formatDateStr(job.startedAt)}</TableCell>
+                    <TableCell className="text-sm text-gray-600">{formatDateStr(job.finishedAt)}</TableCell>
+                    <TableCell className="text-sm">{job.user.name}</TableCell>
+                    <TableCell className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleViewReport(job)}>
                         <Eye className="w-4 h-4" />
-                        <span className="hidden xl:inline">Ver</span>
+                        <span className="hidden xl:inline ml-1">Ver</span>
                       </Button>
-
-                      {/* Desfazer – renderiza SÓ no último job */}
                       {isLast && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              disabled={rollbackDisabled || loadingRollback === job.id}
-                              className="flex items-center gap-1"
-                              onClick={() => setConfirmJob(job)}
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                              <span className="hidden xl:inline">Desfazer</span>
-                            </Button>
-                          </AlertDialogTrigger>
-
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Desfazer importação?
-                              </AlertDialogTitle>
-                            </AlertDialogHeader>
-                            <p className="text-sm text-gray-600">
-                              Esta ação reverterá todas as alterações feitas
-                              por <strong>{job.fileName}</strong>. Deseja continuar?
-                            </p>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                disabled={loadingRollback === job.id}
-                                onClick={() => executeRollback(job)}
-                              >
-                                Confirmar
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        <Button
+                          variant="destructive" size="sm"
+                          disabled={rollbackDisabled || loadingRollback === job.id}
+                          onClick={() => setConfirmJob(job)}
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          <span className="hidden xl:inline ml-1">Desfazer</span>
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
@@ -227,81 +179,45 @@ const HistoricoPage = () => {
           </Table>
         </div>
 
-        {/* mobile – regras idênticas para exibição do botão */}
+        {/* mobile */}
         <div className="lg:hidden space-y-4 p-4">
           {jobs.map(job => {
             const isLast = job.id === lastJobId;
-            const rollbackDisabled =
-              job.status !== "concluido" || job.rolledBackAt !== null;
+            const rollbackDisabled = job.status !== "concluido" || job.rolledBackAt !== null;
 
             return (
-              <div key={job.id} className="bg-white border rounded-lg p-4 space-y-2">
-                <div className="flex justify-between">
-                  <h3 className="font-medium truncate">{job.fileName}</h3>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleViewReport(job)}
-                      disabled={job.status === "pendente" || job.status === "em_progresso" || loadingErrors}
-                    >
+              <div key={job.id} className="bg-white border rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-start">
+                  <h3 className="font-medium truncate pr-4">{job.fileName}</h3>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => handleViewReport(job)} disabled={job.errorsCount === 0 || loadingErrors}>
                       <Eye className="w-4 h-4" />
                     </Button>
                     {isLast && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={rollbackDisabled || loadingRollback === job.id}
-                            onClick={() => setConfirmJob(job)}
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Desfazer importação?</AlertDialogTitle>
-                          </AlertDialogHeader>
-                          <p className="text-sm text-gray-600">
-                            Isso reverterá as alterações feitas por <strong>{job.fileName}</strong>.
-                          </p>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              disabled={loadingRollback === job.id}
-                              onClick={() => executeRollback(job)}
-                            >
-                              Confirmar
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button size="sm" variant="destructive" disabled={rollbackDisabled || loadingRollback === job.id} onClick={() => setConfirmJob(job)}>
+                        <RotateCcw className="w-4 h-4" />
+                      </Button>
                     )}
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center flex-wrap gap-2">
                   {getTypeBadge(job.type)}
                   {getStatusBadge(job.status)}
-                  <span className="text-sm">
+                  <span className="text-sm text-gray-600">
                     {job.errorsCount} {job.errorsCount === 1 ? "erro" : "erros"}
                   </span>
                 </div>
-
-                <div className="text-xs text-gray-500">
-                  Início: {formatDateStr(job.startedAt)}<br />
-                  Término: {formatDateStr(job.finishedAt)}
-                </div>
-                <div className="text-xs text-gray-500">
-                  Por: <strong>{job.user.name}</strong>
+                <div className="text-xs text-gray-500 border-t pt-2 mt-2">
+                  <p>Início: {formatDateStr(job.startedAt)}</p>
+                  <p>Término: {formatDateStr(job.finishedAt)}</p>
+                  <p>Por: <strong>{job.user.name}</strong></p>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {jobs.length === 0 && (
+        {jobs.length === 0 && !isLoading && (
           <div className="text-center py-12 text-gray-500">
             <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
             <p>Nenhuma importação encontrada</p>
@@ -309,7 +225,7 @@ const HistoricoPage = () => {
         )}
       </div>
 
-      {/* Modal de erros */}
+      {/* ===== MODAL DE RELATÓRIO DE ERROS (SEM ALTERAÇÃO) ===== */}
       <RelatorioErrosModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -317,6 +233,46 @@ const HistoricoPage = () => {
         errors={errors}
         onExportCsv={() => selectedJob && exportImportErrorsCsv(selectedJob.id)}
       />
+
+      {/* ===== MODAL DE CONFIRMAÇÃO DE ROLLBACK (CENTRALIZADO E ESTILIZADO) ===== */}
+      <AlertDialog open={!!confirmJob} onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <ShieldAlert className="h-6 w-6" />
+              Desfazer Importação?
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="text-sm text-gray-700">
+            <p>
+              Esta ação é irreversível e irá remover todos os registros criados pela importação do arquivo:
+            </p>
+            <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
+              {confirmJob?.fileName}
+            </p>
+            <p>Deseja realmente continuar?</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loadingRollback !== null}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={loadingRollback !== null}
+              onClick={(e) => {
+                e.preventDefault(); // Previne o fechamento automático do modal
+                if (confirmJob) executeRollback(confirmJob);
+              }}
+            >
+              {loadingRollback === confirmJob?.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Sim, desfazer importação"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
