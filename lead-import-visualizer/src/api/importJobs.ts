@@ -41,11 +41,12 @@ export interface ImportError {
 /** POST /import → inicia upload e retorna o DTO de polling */
 export async function startImport(
   formData: FormData
-): Promise<ActiveImportJobDto> {
+): Promise<{ job_id: number }> { // O retorno agora é mais simples
   const { data } = await axiosClient.post("/import", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return getImportJob(data.job_id);
+  // Apenas retorne os dados da resposta do POST
+  return data;
 }
 
 /** GET /import/{id} → status para polling */

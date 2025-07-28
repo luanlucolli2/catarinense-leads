@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -11,17 +10,34 @@ use App\Imports\HigienizacaoImport;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet; // Importe a classe Worksheet
+use PhpOffice\PhpSpreadsheet\Reader\Exception as ReaderException; // Importe a exceção para o catch
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\UploadedFile;
 
 class ImportController extends Controller
-{
+
     /* -----------------------------------------------------------------------
-     |  POST /import  – envia arquivo e cria o Job
+     |  POST /import  – envia arquivo e cria o Job (agora serializado)
      |-----------------------------------------------------------------------*/
+{
+    /**
+     * Envia o arquivo, valida, cria o registro do Job e o despacha para a fila.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function store(Request $request)
     {
-        /* 1. Validação da requisição */
+        // 0. Impede imports concorrentes (globalmente)
+        $inProgress = ImportJob::whereIn('status', ['pendente', 'em_progresso'])->exists();
+        if ($inProgress) {
+            return response()->json([
+                'message' => 'Já existe uma importação em andamento. Aguarde a conclusão antes de iniciar outra.'
+            ], Response::HTTP_CONFLICT);
+        }
+
+        // 1. Validação da requisição do Laravel
         $validated = $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls'],
             'type' => ['required', 'string', 'in:cadastral,higienizacao'],
@@ -32,11 +48,25 @@ class ImportController extends Controller
         $file = $validated['file'];
         $type = $validated['type'];
 
-        /* 2. Validação de cabeçalhos */
+        // ======================= PONTO DE OTIMIZAÇÃO =======================
+        // Carrega a planilha UMA ÚNICA VEZ em memória para todas as validações.
+        try {
+            $spreadsheet = IOFactory::load($file->getRealPath());
+            $sheet = $spreadsheet->getActiveSheet();
+        } catch (ReaderException $e) {
+            // Se o arquivo estiver corrompido ou for inválido, retorna um erro claro.
+            return response()->json([
+                'message' => 'Não foi possível ler o arquivo. Verifique se o formato é válido e se não está corrompido.'
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        // =================================================================
+
+        // 2. Validação de cabeçalhos usando a planilha já carregada
         $importerClass = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
         $requiredHeaders = $importerClass::REQUIRED_HEADERS;
 
-        $missing = $this->missingHeaders($file, $requiredHeaders);
+        // Chama o helper modificado que recebe o objeto da planilha, não o caminho do arquivo.
+        $missing = $this->getMissingHeadersFromSheet($sheet, $requiredHeaders);
         if ($missing) {
             return response()->json([
                 'message' => 'Planilha inválida. Cabeçalhos ausentes.',
@@ -44,12 +74,13 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        /* 3. Conta linhas de dados (para barra de progresso) */
-        $spreadsheet = IOFactory::load($file->getRealPath());
-        $sheet = $spreadsheet->getActiveSheet();
-        $totalRows = max($sheet->getHighestDataRow() - 1, 0); // -1 = cabeçalho
+        // 3. Conta linhas de dados (já subtraindo o cabeçalho)
+        $totalRows = max($sheet->getHighestDataRow() - 1, 0);
 
-        /* 4. Armazena arquivo e cria ImportJob */
+        // Libera o objeto da planilha da memória, pois não será mais usado.
+        unset($spreadsheet, $sheet);
+
+        // 4. Armazena o arquivo original e cria o registro do ImportJob no banco
         $path = $file->store('imports');
 
         $importJob = ImportJob::create([
@@ -63,16 +94,44 @@ class ImportController extends Controller
             'processed_rows' => 0,
         ]);
 
-        /* 5. Despacha o job para a fila */
+        // 5. Despacha o job para ser processado em segundo plano pela fila
         ProcessLeadImportJob::dispatch($importJob);
 
-        /* 6. Resposta 202 Accepted */
+        // 6. Resposta 202 Accepted, informando que a tarefa foi aceita
         return response()->json([
             'message' => 'Arquivo recebido. A importação será processada em segundo plano.',
             'job_id' => $importJob->id,
         ], Response::HTTP_ACCEPTED);
     }
 
+    /**
+     * Helper para verificar cabeçalhos ausentes a partir de um objeto Worksheet.
+     *
+     * @param Worksheet $sheet A planilha a ser verificada.
+     * @param array $requiredHeaders A lista de cabeçalhos obrigatórios.
+     * @return array A lista de cabeçalhos ausentes.
+     */
+    private function getMissingHeadersFromSheet(Worksheet $sheet, array $requiredHeaders): array
+    {
+        $firstRow = $sheet->rangeToArray(
+            'A1:' . $sheet->getHighestColumn() . '1',
+            null,
+            true,
+            false
+        )[0] ?? []; // Adiciona ?? [] para segurança
+
+        $normalize = fn(?string $v) => Str::of($v)->trim()->lower()->replace(' ', '')->value();
+        $present = array_map($normalize, $firstRow);
+
+        $missing = [];
+        foreach ($requiredHeaders as $h) {
+            if (!in_array($normalize($h), $present, true)) {
+                $missing[] = $h;
+            }
+        }
+
+        return $missing;
+    }
     /* -----------------------------------------------------------------------
      |  GET /import/{id} – retorna progresso em tempo real
      |-----------------------------------------------------------------------*/
@@ -85,7 +144,7 @@ class ImportController extends Controller
             : 0;
 
         return response()->json([
-            'status' => $importJob->status,          // agora vem 'pendente', 'em_progresso', ...
+            'status' => $importJob->status,
             'processed_rows' => (int) $importJob->processed_rows,
             'total_rows' => (int) $importJob->total_rows,
             'percent' => $percent,
@@ -96,9 +155,6 @@ class ImportController extends Controller
     /* -----------------------------------------------------------------------
      |  Helpers
      |-----------------------------------------------------------------------*/
-    /**
-     * Retorna um array de cabeçalhos ausentes; vazio se todos presentes.
-     */
     private function missingHeaders(UploadedFile $file, array $requiredHeaders): array
     {
         $spreadsheet = IOFactory::load($file->getRealPath());
@@ -125,20 +181,17 @@ class ImportController extends Controller
 
     public function index(Request $request)
     {
-        $statuses = $request->query('status'); // ex: "pendente,em_progresso"
+        $statuses = $request->query('status');
 
         $query = ImportJob::where('user_id', $request->user()->id)
             ->orderByDesc('id')
-            // conta erros em cada job
             ->withCount('errors')
-            // busca nome do usuário que importou
             ->with('user:id,name');
 
         if ($statuses) {
             $query->whereIn('status', explode(',', $statuses));
         }
 
-        // traz esses campos (front antigo só usa alguns; front novo usa todos):
         $jobs = $query->get([
             'id',
             'type',
@@ -169,9 +222,8 @@ class ImportController extends Controller
 
         return response()->streamDownload(function () use ($importJob) {
             $handle = fopen('php://output', 'w');
-            // cabeçalho CSV
+
             fputcsv($handle, ['Linha', 'Coluna', 'Mensagem do Erro']);
-            // percorre erros
             foreach ($importJob->errors()->cursor() as $err) {
                 fputcsv($handle, [
                     $err->row_number,
@@ -179,6 +231,7 @@ class ImportController extends Controller
                     $err->error_message,
                 ]);
             }
+
             fclose($handle);
         }, $filename, [
             'Content-Type' => 'text/csv',

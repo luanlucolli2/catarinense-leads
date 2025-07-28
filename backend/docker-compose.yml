@@ -1,85 +1,94 @@
-# Em backend/docker-compose.yml
+# docker-compose.yml
+
+# Âncora para reutilizar a configuração de ambiente
+x-app-environment: &app-environment
+  WWWUSER: '${WWWUSER}'
+  LARAVEL_SAIL: 1
+  XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+  XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
+  IGNITION_LOCAL_SITES_PATH: '${PWD}'
 
 services:
-    laravel.test:
-        build:
-            context: ./vendor/laravel/sail/runtimes/8.4
-            dockerfile: Dockerfile
-            args:
-                WWWGROUP: '${WWWGROUP}'
-        image: 'sail-8.4/app'
-        extra_hosts:
-            - 'host.docker.internal:host-gateway'
-        ports:
-            # A porta 80 do contêiner é mapeada para a porta 80 da sua máquina (via WSL)
-            - '${APP_PORT:-80}:80'
-        environment:
-            WWWUSER: '${WWWUSER}'
-            LARAVEL_SAIL: 1
-            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
-            XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
-            IGNITION_LOCAL_SITES_PATH: '${PWD}'
-        volumes:
-            - '.:/var/www/html'
-            - './docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini'
-        networks:
-            - sail
-        depends_on:
-            - mysql
+  laravel.test:
+    build:
+      context: ./vendor/laravel/sail/runtimes/8.4
+      dockerfile: Dockerfile
+      args:
+        WWWGROUP: '${WWWGROUP}'
+    image: 'sail-8.4/app'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - '${APP_PORT:-80}:80'
+    environment:
+      <<: *app-environment
+    volumes:
+      - '.:/var/www/html'
+      - './docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini'
+    networks:
+      - sail
+    depends_on:
+      - mysql
 
-    # ===== NOVO SERVIÇO PARA O FRONTEND =====
-    frontend:
-        # 1. Diz ao Docker para construir esta imagem usando as instruções
-        #    da pasta do nosso frontend.
-        build:
-            context: ../lead-import-visualizer
-            dockerfile: Dockerfile
-        image: catarinense-frontend # Nome da imagem que será criada
-        container_name: catarinense-frontend-app # Nome do contêiner em execução
-        ports:
-            # 2. Mapeia a porta 8080 do contêiner para a porta 8080 da sua máquina.
-            # É isso que permite o acesso via localhost:8080.
-            - "8080:8080"
-        volumes:
-            # 3. Mapeia o código local para dentro do contêiner, para que as
-            #    alterações no seu editor reflitam em tempo real (hot-reload).
-            - ../lead-import-visualizer:/app
-            # 4. Impede que a pasta node_modules local sobrescreva a que foi
-            #    instalada dentro do contêiner pelo Dockerfile.
-            - /app/node_modules
-        networks:
-            - sail
-        depends_on:
-            - laravel.test # Garante que o backend suba antes do frontend
-    # =======================================
+  queue:
+    image: sail-8.4/app
+    command: php artisan queue:work --verbose --timeout=120 --memory=480 --tries=3
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+    networks:
+      - sail
+    restart: unless-stopped
 
-    mysql:
-        image: 'mysql/mysql-server:8.0'
-        ports:
-            - '${FORWARD_DB_PORT:-3306}:3306'
-        environment:
-            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ROOT_HOST: '%'
-            MYSQL_DATABASE: '${DB_DATABASE}'
-            MYSQL_USER: '${DB_USERNAME}'
-            MYSQL_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ALLOW_EMPTY_PASSWORD: 1
-        volumes:
-            - 'sail-mysql:/var/lib/mysql'
-            - './vendor/laravel/sail/database/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
-        networks:
-            - sail
-        healthcheck:
-            test:
-                - CMD
-                - mysqladmin
-                - ping
-                - '-p${DB_PASSWORD}'
-            retries: 3
-            timeout: 5s
+  # ===== SERVIÇO FRONTEND (Indentação Corrigida) =====
+  frontend:
+    build:
+      context: ../lead-import-visualizer
+      dockerfile: Dockerfile
+    image: catarinense-frontend
+    container_name: catarinense-frontend-app
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../lead-import-visualizer:/app
+      - /app/node_modules
+    networks:
+      - sail
+    depends_on:
+      - laravel.test
+
+  # ===== SERVIÇO MYSQL (Indentação Corrigida) =====
+  mysql:
+    image: 'mysql/mysql-server:8.0'
+    ports:
+      - '${FORWARD_DB_PORT:-3306}:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_ROOT_HOST: '%'
+      MYSQL_DATABASE: '${DB_DATABASE}'
+      MYSQL_USER: '${DB_USERNAME}'
+      MYSQL_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_ALLOW_EMPTY_PASSWORD: 1
+    volumes:
+      - 'sail-mysql:/var/lib/mysql'
+      - './vendor/laravel/sail/database/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
+    networks:
+      - sail
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - '-p${DB_PASSWORD}'
+      retries: 3
+      timeout: 5s
+
 networks:
-    sail:
-        driver: bridge
+  sail:
+    driver: bridge
 volumes:
-    sail-mysql:
-        driver: local
+  sail-mysql:
+    driver: local

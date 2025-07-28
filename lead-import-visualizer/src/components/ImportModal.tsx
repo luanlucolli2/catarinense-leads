@@ -1,4 +1,3 @@
-/*  src/components/ImportModal.tsx  */
 import { useState, useEffect } from "react"
 import { X, Upload, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,7 +19,6 @@ export const ImportModal = ({
   onClose,
   onImportSuccess,
 }: ImportModalProps) => {
-  /* ----------------------------- state ----------------------------- */
   const [importType, setImportType] =
     useState<"cadastral" | "higienizacao">("cadastral")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -29,8 +27,6 @@ export const ImportModal = ({
 
   const { addJob } = useImportProgressCtx()
 
-
-  /* --------------------------- handlers --------------------------- */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) setSelectedFile(file)
@@ -45,48 +41,63 @@ export const ImportModal = ({
   }
 
   const handleImport = async () => {
-    if (!selectedFile) {
-      toast.error("Selecione um arquivo para importar.")
-      return
-    }
+    // ... (código anterior igual)
     setIsSubmitting(true)
 
     const formData = new FormData()
-    formData.append("file", selectedFile)
+    formData.append("file", selectedFile!)
     formData.append("type", importType)
     if (origin) formData.append("origin", origin)
 
     try {
-      /* 1 ▸ POST /import  */
-      const job = await startImport(formData)
+      /* 1 ▸ POST /import (agora retorna apenas { job_id }) */
+      const response = await startImport(formData) // `response` agora é { job_id: ... }
 
-      /* 2 ▸ ativa acompanhamento global */
-      addJob(job.id)
-      /* 3 ▸ feedback imediato */
-      // toast.success("Arquivo enviado com sucesso!", {
-      //   description: "A importação foi iniciada.",
-      // })
+      /* 2 ▸ ativa acompanhamento global com o ID recebido */
+      addJob(response.job_id) // Use o ID da resposta direta
+
 
       onImportSuccess()
       handleClose()
     } catch (error: any) {
+      // ESTE BLOCO AGORA FUNCIONARÁ COMO ESPERADO PARA TODOS OS ERROS
       console.error("Erro na importação:", error)
 
-      if (error.response?.status === 422 && error.response?.data?.missing) {
-        toast.error("Cabeçalho da planilha inválido", {
-          description: `Colunas faltando: ${error.response.data.missing.join(
-            ", ",
-          )}`,
-        })
-      } else if (error.response?.data?.errors) {
-        const validationErrors = Object.values(error.response.data.errors).flat()
-        toast.error("Erro de validação", {
-          description:
-            (validationErrors[0] as string) ?? "Verifique os dados enviados.",
-        })
+      const res = error.response
+      if (res) {
+        const { status, data } = res
+
+        // Conflito: já há um import em andamento
+        // Conflito: já há um import em andamento
+        if (status === 409) {
+          toast.error("Importação Concorrente", {
+            description: data.message || "Já existe uma importação em andamento. Aguarde a conclusão.",
+          })
+        }
+        // Cabeçalhos faltando na planilha
+        else if (status === 422 && Array.isArray(data.missing)) {
+          toast.error("Cabeçalhos inválidos na planilha", {
+            description: `Colunas faltando: ${data.missing.join(", ")}`,
+          })
+        }
+        // Erros de validação do request (ex: arquivo > max, tipo errado, etc.)
+        else if (status === 422 && data.errors) {
+          const validationErrors = Object.values(data.errors).flat() as string[]
+          toast.error("Erro de validação", {
+            description:
+              validationErrors[0] || "Verifique os dados do formulário.",
+          })
+        }
+        // Qualquer outro retorno do servidor (500, 403, etc.)
+        else {
+          toast.error("Falha no envio", {
+            description: data.message || "Tente novamente mais tarde.",
+          })
+        }
       } else {
-        toast.error("Falha no envio", {
-          description: "Não foi possível enviar o arquivo. Tente novamente.",
+        // Sem resposta (problema de rede)
+        toast.error("Erro de rede", {
+          description: "Verifique sua conexão e tente novamente.",
         })
       }
     } finally {
@@ -103,17 +114,18 @@ export const ImportModal = ({
       }`
     window.open(url, "_blank")
   }
-  // useEffect(() => {
-  //   if (isOpen) {
-  //     document.body.style.overflow = 'hidden';
-  //   } else {
-  //     document.body.style.overflow = '';
-  //   }
-  //   return () => {
-  //     document.body.style.overflow = '';
-  //   };
-  // }, [isOpen]);
-  /* ----------------------------- UI ----------------------------- */
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null
 
   return (
