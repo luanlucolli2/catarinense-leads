@@ -1,0 +1,120 @@
+# ./render.yaml  (NOVO ARQUIVO)
+
+services:
+  # 1. Serviço para o Frontend (React/Vite)
+  # Usaremos o tipo "Static Site" do Render, que é o mais eficiente e barato.
+  # Ele não precisa de um Dockerfile, pois o próprio Render fará o build.
+  - type: static
+    name: frontend
+    env: static
+    # Garante que o deploy só acontece se houver mudanças no frontend
+    buildFilter:
+      paths:
+        - lead-import-visualizer/**
+    # Comandos para instalar dependências e buildar o projeto
+    buildCommand: |
+      cd lead-import-visualizer &&
+      npm install &&
+      npm run build
+    # Pasta onde o Vite coloca os arquivos finais do build
+    staticPublishPath: ./lead-import-visualizer/dist
+    # Regra essencial para Single Page Applications (SPAs) como o React
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # 2. Serviço para a API (Backend Laravel)
+  # Este será um serviço web que usa o Dockerfile de produção que criaremos a seguir.
+  - type: web
+    name: backend
+    env: docker
+    # Aponta para a pasta do backend
+    dockerContext: ./backend
+    # Aponta para o novo Dockerfile de produção
+    dockerfilePath: ./backend/Dockerfile.prod
+    # Garante que o deploy só acontece se houver mudanças no backend
+    buildFilter:
+      paths:
+        - backend/**
+    # O Render precisa saber como verificar se sua API está saudável
+    healthCheckPath: /api/health # Crie esta rota no seu api.php para retornar um 200 OK
+    envVars:
+      - key: APP_URL
+        # O Render injeta a URL do serviço automaticamente
+        fromService:
+          type: web
+          name: backend
+          property: url
+      - key: FRONTEND_URL
+        fromService:
+          type: static
+          name: frontend
+          property: url
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        fromService:
+          type: psql # ou 'mysql' se disponível no Render
+          name: database
+          property: internalHost
+      # As variáveis do banco de dados são injetadas a partir do serviço de DB
+      - key: DB_DATABASE
+        fromService:
+          type: psql
+          name: database
+          property: database
+      - key: DB_USERNAME
+        fromService:
+          type: psql
+          name: database
+          property: user
+      - key: DB_PASSWORD
+        fromService:
+          type: psql
+          name: database
+          property: password
+      # Agrupamos os segredos (APP_KEY, etc.) para segurança
+      - fromGroup: laravel-secrets
+    # Comando para rodar as migrations a cada deploy
+    startCommand: |
+      php artisan migrate --force &&
+      php artisan config:cache &&
+      php artisan route:cache &&
+      /usr/sbin/php-fpm -O
+
+  # 3. Serviço de Worker para Filas do Laravel
+  - type: worker
+    name: queue-worker
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile.prod
+    buildFilter:
+      paths:
+        - backend/**
+    # Comando específico para iniciar o worker
+    startCommand: "php artisan queue:work --verbose --tries=3 --timeout=120"
+    envVars:
+      - fromGroup: laravel-secrets
+
+  # 4. Banco de Dados Gerenciado
+  - type: psql # PostgreSQL é a opção mais comum e robusta nos planos gratuitos
+    name: database
+    plan: free
+
+# --- GRUPO DE SEGREDOS ---
+# Estas variáveis devem ser configuradas na interface do Render
+envVarGroups:
+  - name: laravel-secrets
+    envVars:
+      - key: APP_KEY
+        sync: false # Cole o valor do seu .env aqui
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: SANCTUM_STATEFUL_DOMAINS
+        fromService:
+          type: static
+          name: frontend
+          property: url
