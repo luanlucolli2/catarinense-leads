@@ -1,5 +1,6 @@
-# ./render.yaml (VERSÃO FINAL CORRIGIDA)
+# ./render.yaml (ESTRUTURA CORRIGIDA)
 
+# O campo 'services' define suas aplicações (frontend, backend, worker)
 services:
   # 1. Serviço para o Frontend (React/Vite)
   - type: web
@@ -23,7 +24,7 @@ services:
     name: backend
     runtime: docker
     dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile.prod # Certifique-se que o nome do Dockerfile está correto
+    dockerfilePath: ./backend/Dockerfile.prod
     buildFilter:
       paths:
         - backend/**
@@ -40,29 +41,13 @@ services:
           name: frontend
           property: url
       - key: DB_CONNECTION
-        # ATENÇÃO: Se o Render provisionar um MySQL, mude aqui para 'mysql'.
-        # Se for PostgreSQL (como definido abaixo), o driver correto é 'pgsql'.
+        # Driver do Laravel para PostgreSQL
         value: pgsql
-      - key: DB_HOST
-        fromService:
-          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
+      # CORREÇÃO: Usamos 'fromDatabase' para referenciar o banco de dados
+      - key: DATABASE_URL
+        fromDatabase:
           name: database
-          property: internalHost
-      - key: DB_DATABASE
-        fromService:
-          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
-          name: database
-          property: database
-      - key: DB_USERNAME
-        fromService:
-          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
-          name: database
-          property: user
-      - key: DB_PASSWORD
-        fromService:
-          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
-          name: database
-          property: password
+          property: connectionString
       - fromGroup: laravel-secrets
     startCommand: |
       php artisan migrate --force &&
@@ -81,11 +66,17 @@ services:
         - backend/**
     startCommand: "php artisan queue:work --verbose --tries=3 --timeout=120"
     envVars:
+      # O worker também precisa da URL do banco para se conectar
+      - key: DATABASE_URL
+        fromDatabase:
+          name: database
+          property: connectionString
       - fromGroup: laravel-secrets
 
-  # 4. Banco de Dados Gerenciado
-  - type: postgres # CORREÇÃO: "psql" alterado para "postgres"
-    name: database
+# CORREÇÃO: Bancos de dados têm sua própria seção de nível superior
+databases:
+  - name: database
+    # O Render infere que é PostgreSQL. Não é necessário 'type'.
     plan: free
 
 # --- GRUPO DE SEGREDOS ---
