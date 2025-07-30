@@ -1,23 +1,18 @@
-# ./render.yaml (VERSÃO CORRIGIDA E VERIFICADA)
+# ./render.yaml (VERSÃO FINAL CORRIGIDA)
 
 services:
   # 1. Serviço para o Frontend (React/Vite)
-  # CORREÇÃO: O tipo é 'web' e o ambiente de execução é 'static'.
   - type: web
     name: frontend
-    runtime: static # Define que é um site estático
-    # Garante que o deploy só acontece se houver mudanças no frontend
+    runtime: static
     buildFilter:
       paths:
         - lead-import-visualizer/**
-    # Comandos para instalar dependências e buildar o projeto
     buildCommand: |
       cd lead-import-visualizer &&
       npm install &&
       npm run build
-    # Pasta onde o Vite coloca os arquivos finais do build
     staticPublishPath: ./lead-import-visualizer/dist
-    # Regra essencial para Single Page Applications (SPAs) como o React
     routes:
       - type: rewrite
         source: /*
@@ -26,54 +21,54 @@ services:
   # 2. Serviço para a API (Backend Laravel)
   - type: web
     name: backend
-    runtime: docker # O runtime aqui é 'docker' pois usamos um Dockerfile
+    runtime: docker
     dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile.prod
+    dockerfilePath: ./backend/Dockerfile.prod # Certifique-se que o nome do Dockerfile está correto
     buildFilter:
       paths:
         - backend/**
-    healthCheckPath: /api/health # Lembre-se de criar esta rota
+    healthCheckPath: /api/health
     envVars:
       - key: APP_URL
         fromService:
           type: web
           name: backend
           property: url
-      # CORREÇÃO: A referência ao frontend também precisa saber que ele é do tipo 'web'
       - key: FRONTEND_URL
         fromService:
           type: web
           name: frontend
           property: url
       - key: DB_CONNECTION
-        value: mysql # ATENÇÃO: Verifique se o serviço de DB abaixo é mysql ou psql
+        # ATENÇÃO: Se o Render provisionar um MySQL, mude aqui para 'mysql'.
+        # Se for PostgreSQL (como definido abaixo), o driver correto é 'pgsql'.
+        value: pgsql
       - key: DB_HOST
         fromService:
-          type: psql
+          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
           name: database
           property: internalHost
       - key: DB_DATABASE
         fromService:
-          type: psql
+          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
           name: database
           property: database
       - key: DB_USERNAME
         fromService:
-          type: psql
+          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
           name: database
           property: user
       - key: DB_PASSWORD
         fromService:
-          type: psql
+          type: postgres # CORREÇÃO: "psql" alterado para "postgres"
           name: database
           property: password
       - fromGroup: laravel-secrets
-    # Comando para rodar as migrations e otimizações antes de iniciar o servidor
     startCommand: |
       php artisan migrate --force &&
       php artisan config:cache &&
       php artisan route:cache &&
-      /usr/sbin/php-fpm83 -O # Ajuste a versão do php-fpm se necessário
+      /usr/sbin/php-fpm83 -O
 
   # 3. Serviço de Worker para Filas do Laravel
   - type: worker
@@ -89,7 +84,7 @@ services:
       - fromGroup: laravel-secrets
 
   # 4. Banco de Dados Gerenciado
-  - type: psql
+  - type: postgres # CORREÇÃO: "psql" alterado para "postgres"
     name: database
     plan: free
 
@@ -103,7 +98,6 @@ envVarGroups:
         value: production
       - key: APP_DEBUG
         value: false
-      # CORREÇÃO: A referência ao frontend também precisa saber que ele é do tipo 'web'
       - key: SANCTUM_STATEFUL_DOMAINS
         fromService:
           type: web
