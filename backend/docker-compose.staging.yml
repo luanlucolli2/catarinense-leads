@@ -1,0 +1,84 @@
+version: "3.9"
+
+x-app-env: &app-env
+  APP_ENV: production
+  WWWUSER: '1000'
+  APP_DEBUG: 'false'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: leads-mysql
+    restart: unless-stopped
+    volumes:
+      - sail-mysql:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    networks: [sail]
+
+  laravel:
+    build:
+      context: ./vendor/laravel/sail/runtimes/8.4
+      dockerfile: Dockerfile
+      args:
+        WWWGROUP: '1000'
+    image: leads-backend
+    container_name: leads-backend
+    env_file: .env.staging
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/var/www/html
+      - ./docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+    ports:
+      - "80:80"
+    depends_on: [mysql]
+    networks: [sail]
+
+  queue:
+    image: leads-backend
+    container_name: leads-queue
+    command: php artisan queue:work --verbose --timeout=120 --memory=512 --tries=3
+    env_file: .env.staging
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/var/www/html
+    depends_on: [mysql]
+    networks: [sail]
+    restart: unless-stopped
+
+  scheduler:
+    image: leads-backend
+    container_name: leads-scheduler
+    command: php artisan schedule:work
+    env_file: .env.staging
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/var/www/html
+    depends_on: [mysql]
+    networks: [sail]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../lead-import-visualizer
+      dockerfile: Dockerfile
+    image: leads-frontend
+    container_name: leads-frontend
+    env_file: ../lead-import-visualizer/.env.staging
+    ports:
+      - "8080:8080"
+    networks: [sail]
+    depends_on: [laravel]
+
+networks:
+  sail:
+    driver: bridge
+
+volumes:
+  sail-mysql:
