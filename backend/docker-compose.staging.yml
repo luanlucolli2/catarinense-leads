@@ -51,19 +51,6 @@ services:
     networks: [sail]
     restart: unless-stopped
 
-  scheduler:
-    image: leads-backend
-    container_name: leads-scheduler
-    command: php artisan schedule:work
-    env_file: .env.staging
-    environment:
-      <<: *app-env
-    volumes:
-      - .:/var/www/html
-    depends_on: [mysql]
-    networks: [sail]
-    restart: unless-stopped
-
   frontend:
     build:
       context: ../lead-import-visualizer
