@@ -19,8 +19,15 @@ import GuestRoute from "./components/GuestRoute";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ImportProgressProvider } from "@/contexts/ImportProgressContext";
 import { AppLayout } from "@/components/AppLayout";
-
+import { useEffect } from "react";
+import axiosClient from "./api/axiosClient";
 const queryClient = new QueryClient();
+
+// App.tsx (root)
+useEffect(() => {
+  axiosClient.get('/sanctum/csrf-cookie');
+}, []);
+
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
