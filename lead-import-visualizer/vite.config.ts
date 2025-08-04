@@ -14,12 +14,12 @@ export default defineConfig(({ mode }) => ({
     hmr: false,           // desabilita hot-reload (para testar se era HMR)
     proxy: {
       '/api': {
-        target: 'http://laravel.test',
+        target: 'http://laravel',
         changeOrigin: true,
         secure: false,
       },
       '/sanctum': {             // ← adiciona esta entrada
-        target: 'http://laravel.test',
+        target: 'http://laravel',
         changeOrigin: true,
         secure: false,
       },
