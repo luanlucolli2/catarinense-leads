@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false,
       },
+      '/sanctum': {             // ← adiciona esta entrada
+        target: 'http://laravel.test',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   plugins: [

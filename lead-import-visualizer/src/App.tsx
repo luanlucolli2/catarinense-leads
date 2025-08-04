@@ -30,10 +30,10 @@ import axios from 'axios';
 const App = () => {
 
   useEffect(() => {
-    axios.get("http://164.90.138.102/sanctum/csrf-cookie", { withCredentials: true })
-      .then(() => {
-        // 2) só então faz o login via axiosClient (/api/login)
-      });
+    axios.get('/sanctum/csrf-cookie', { withCredentials: true })
+    .then(() => {
+      // 2) só então faz o login via axiosClient (/api/login)
+    });
   }, []);
 
 
