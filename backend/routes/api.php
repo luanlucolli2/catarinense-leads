@@ -10,8 +10,8 @@ use App\Http\Controllers\Api\RollbackController;  // 👈 aqui
 /*--------------------------------------------------
 | Rotas Públicas
 |--------------------------------------------------*/
-Route::post('/login', [AuthController::class, 'login'])
-     ->middleware('web');
+Route::middleware('web')->post('/login', [AuthController::class, 'login']);
+
 /*--------------------------------------------------
 | Rotas Protegidas (Sanctum)
 |--------------------------------------------------*/
