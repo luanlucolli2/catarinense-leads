@@ -22,6 +22,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useEffect } from "react";
 import axiosClient from "./api/axiosClient";
 const queryClient = new QueryClient();
+import axios from 'axios';
 
 // App.tsx (root)
 
@@ -29,7 +30,10 @@ const queryClient = new QueryClient();
 const App = () => {
 
   useEffect(() => {
-    axiosClient.get('/sanctum/csrf-cookie');
+    axios.get('/sanctum/csrf-cookie', { withCredentials: true })
+      .then(() => {
+        // 2) só então faz o login via axiosClient (/api/login)
+      });
   }, []);
 
 
