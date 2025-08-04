@@ -19,73 +19,57 @@ import GuestRoute from "./components/GuestRoute";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ImportProgressProvider } from "@/contexts/ImportProgressContext";
 import { AppLayout } from "@/components/AppLayout";
-import { useEffect } from "react";
-import axiosClient from "./api/axiosClient";
+
 const queryClient = new QueryClient();
-import axios from 'axios';
 
-// App.tsx (root)
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <AuthProvider>
+        {/* Toasters globais */}
+        <Toaster />
+        <Sonner />
 
+        {/* Provider global de progresso das importações */}
+        <ImportProgressProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Login (rota de convidado) */}
+              <Route
+                path="/login"
+                element={
+                  <GuestRoute>
+                    <Login />
+                  </GuestRoute>
+                }
+              />
 
-const App = () => {
+              {/* ROTAS PROTEGIDAS COM LAYOUT ÚNICO */}
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <AppLayout />   {/* contém <Outlet/> */}
+                  </ProtectedRoute>
+                }
+              >
+                {/* página inicial (/ → Dashboard) */}
+                <Route index element={<Dashboard />} />
 
-  useEffect(() => {
-    axios.get('/sanctum/csrf-cookie', { withCredentials: true })
-    .then(() => {
-      // 2) só então faz o login via axiosClient (/api/login)
-    });
-  }, []);
-
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          {/* Toasters globais */}
-          <Toaster />
-          <Sonner />
-
-          {/* Provider global de progresso das importações */}
-          <ImportProgressProvider>
-            <BrowserRouter>
-              <Routes>
-                {/* Login (rota de convidado) */}
+                {/* histórico de importações */}
                 <Route
-                  path="/login"
-                  element={
-                    <GuestRoute>
-                      <Login />
-                    </GuestRoute>
-                  }
+                  path="importacoes/historico"
+                  element={<HistoricoPage />}
                 />
+              </Route>
 
-                {/* ROTAS PROTEGIDAS COM LAYOUT ÚNICO */}
-                <Route
-                  element={
-                    <ProtectedRoute>
-                      <AppLayout />   {/* contém <Outlet/> */}
-                    </ProtectedRoute>
-                  }
-                >
-                  {/* página inicial (/ → Dashboard) */}
-                  <Route index element={<Dashboard />} />
-
-                  {/* histórico de importações */}
-                  <Route
-                    path="importacoes/historico"
-                    element={<HistoricoPage />}
-                  />
-                </Route>
-
-                {/* 404 */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </ImportProgressProvider>
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
-  );
-};
+              {/* 404 */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </ImportProgressProvider>
+      </AuthProvider>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
 export default App;
