@@ -17,6 +17,12 @@ class DatabaseSeeder extends Seeder
              'email' => 'teste@catarinense.com',
              'password' => 'password'
         ]);
+
+           User::create([
+             'name' => 'Alessandra Vitancourt',
+             'email' => 'alessandra@catarinensecredito.com.br',
+             'password' => 'catarinense123'
+        ]);
         
         // Adicione esta linha:
         $this->call(LeadSeeder::class);
