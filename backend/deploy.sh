@@ -19,7 +19,7 @@ COMPOSE_FILE="docker-compose.staging.yml"
 LARAVEL_SERVICE="laravel"
 
 # O nome do branch principal do seu repositório.
-GIT_BRANCH="main"
+GIT_BRANCH="staging"
 
 
 # --- Início do Deploy ---
