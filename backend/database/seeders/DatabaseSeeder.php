@@ -25,6 +25,5 @@ class DatabaseSeeder extends Seeder
         ]);
         
         // Adicione esta linha:
-        $this->call(LeadSeeder::class);
     }
 }
