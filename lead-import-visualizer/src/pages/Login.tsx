@@ -32,25 +32,36 @@ const Login = () => {
     setError(null);
 
     try {
-      const response = await axiosClient.post('/login', formData);
+      // ----------------------------------------------------
+      // PASSO 1: Obter o cookie CSRF do Sanctum
+      // ----------------------------------------------------
+      await axiosClient.get('/sanctum/csrf-cookie');
 
-      // A API agora retorna apenas 'user'
+      // ----------------------------------------------------
+      // PASSO 2: Agora, com o cookie em mãos, fazer o login
+      // ----------------------------------------------------
+      const response = await axiosClient.post('/api/login', formData); // <-- Use /api/login
+
       const { user } = response.data;
       setUser(user);
-      // Não precisamos mais do token para a autenticação da SPA
-
+      
       toast.success("Login realizado com sucesso!");
       navigate("/");
 
     } catch (err: any) {
       setIsLoading(false);
-      if (err.response?.status === 422) {
+      // O erro 419 também cairá aqui. Podemos tratá-lo.
+      if (err.response?.status === 419) {
+          setError("Sua sessão expirou. Por favor, tente novamente.");
+          toast.error("Sessão expirada. Tente fazer o login de novo.");
+      } else if (err.response?.status === 422) {
         const msg = err.response.data.errors.email[0];
         setError(msg);
         toast.error(msg);
       } else {
-        setError("Ocorreu um erro. Verifique sua conexão.");
-        toast.error("Erro ao tentar fazer login.");
+        const errorMsg = err.response?.data?.message || "Ocorreu um erro. Verifique sua conexão.";
+        setError(errorMsg);
+        toast.error(errorMsg);
       }
     }
   };
