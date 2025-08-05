@@ -9,6 +9,7 @@ import catarinenselogo from "../../public/catainenseLogo.png";
 import axiosClient from "@/api/axiosClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react"; // <- import do spinner
+import http from "@/api/http";           // <= Importa o cliente genérico
 
 const Login = () => {
   const navigate = useNavigate();
@@ -31,24 +32,21 @@ const Login = () => {
     setIsLoading(true);
     setError(null);
 
-    try {
-      // ----------------------------------------------------
-      // PASSO 1: Obter o cookie CSRF do Sanctum
-      // ----------------------------------------------------
-      await axiosClient.get('/sanctum/csrf-cookie');
+     try {
+    // 1. Usar o cliente GENÉRICO para o handshake do Sanctum (sem /api)
+    await http.get('/sanctum/csrf-cookie');
 
-      // ----------------------------------------------------
-      // PASSO 2: Agora, com o cookie em mãos, fazer o login
-      // ----------------------------------------------------
-      const response = await axiosClient.post('/api/login', formData); // <-- Use /api/login
+    // 2. Usar o cliente da API para o login (já tem /api na base)
+    // A chamada é para '/login', o resultado final será '/api/login'
+    const response = await axiosClient.post('/login', formData);
 
-      const { user } = response.data;
-      setUser(user);
-      
-      toast.success("Login realizado com sucesso!");
-      navigate("/");
+    const { user } = response.data;
+    setUser(user);
+    
+    toast.success("Login realizado com sucesso!");
+    navigate("/");
 
-    } catch (err: any) {
+  } catch (err: any) {
       setIsLoading(false);
       // O erro 419 também cairá aqui. Podemos tratá-lo.
       if (err.response?.status === 419) {
