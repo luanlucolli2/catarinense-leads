@@ -1,23 +1,31 @@
-# Em lead-import-visualizer/Dockerfile
+# /lead-import-visualizer/Dockerfile
 
-# 1. Usar a imagem oficial do Node.js como base
-FROM node:18-alpine
+# --- ESTÁGIO 1: Build ---
+# Usamos a imagem Node para "construir" nosso app React/Vite.
+FROM node:18-alpine AS build
 
-# 2. Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
-# 3. Copiar os arquivos de manifesto de dependências
+# Copia os manifestos de dependência e instala (aproveitando o cache do Docker)
 COPY package*.json ./
-
-# 4. Instalar as dependências do projeto
 RUN npm install
 
-# 5. Copiar o restante do código do projeto para dentro do contêiner
+# Copia todo o resto do código fonte
 COPY . .
 
-# 6. Expor a porta que o Vite usa
-EXPOSE 8080
+# Roda o comando que gera a build de produção na pasta /app/dist
+RUN npm run build
 
-# 7. O comando padrão para iniciar o servidor
-# Em lead-import-visualizer/Dockerfile
-CMD ["npm", "run", "dev", "--", "--host"]
+# --- ESTÁGIO 2: Produção ---
+# Agora, usamos uma imagem super leve do Nginx para servir os arquivos.
+# O resultado final é um container minúsculo e rápido.
+FROM nginx:1.25-alpine
+
+# Copia os arquivos otimizados do estágio de build para a pasta do Nginx.
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Copia nosso arquivo de configuração do Nginx que criamos no Passo 1.
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expõe a porta 80, onde o Nginx escuta por padrão.
+EXPOSE 80

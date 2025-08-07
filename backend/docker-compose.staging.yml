@@ -58,13 +58,13 @@ services:
 
   frontend:
     build:
-      context: ../lead-import-visualizer
-      dockerfile: Dockerfile
+      context: ../lead-import-visualizer # O contexto não muda
+      dockerfile: Dockerfile             # Ele vai usar nosso novo Dockerfile
     image: leads-frontend
     container_name: leads-frontend
-    env_file: ../lead-import-visualizer/.env.staging
+    # O env_file não é mais necessário aqui, o Nginx cuida de tudo.
     ports:
-      - "8080:8080"
+      - "8080:80" # <-- MUITO IMPORTANTE: Mapeia a porta 8080 do servidor para a porta 80 do Nginx DENTRO do container.
     networks: [sail]
     depends_on: [laravel]
 
