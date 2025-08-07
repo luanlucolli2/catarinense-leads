@@ -38,8 +38,6 @@ services:
     volumes:
       - .:/var/www/html
       - ./docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-    ports:
-      - "80:80"
     depends_on: [mysql]
     networks: [sail]
 
