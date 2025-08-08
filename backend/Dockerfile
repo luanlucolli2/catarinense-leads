@@ -55,11 +55,15 @@ FROM base AS release
 # Copia as dependências já instaladas do estágio 'vendor'
 COPY --from=vendor /var/www/html/vendor /var/www/html/vendor
 
-# Copia o código da aplicação
+# Copia o código da aplicação (incluindo qualquer "sujeira" que possa existir no servidor)
 COPY --chown=sail:sail . .
 
-# Roda as otimizações do Laravel para produção.
-# Isso cria arquivos de cache para rotas e configurações, tornando a app mais rápida.
+# !! PASSO DE ESTERILIZAÇÃO !!
+# AQUI ESTÁ A CORREÇÃO. Removemos forçadamente quaisquer arquivos de cache
+# que possam ter sido copiados, garantindo uma build 100% limpa.
+RUN rm -f bootstrap/cache/*.php
+
+# Agora sim, com a certeza de que está tudo limpo, rodamos as otimizações.
 RUN php artisan config:cache && \
     php artisan route:cache && \
     php artisan view:cache
