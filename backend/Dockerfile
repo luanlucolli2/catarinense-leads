@@ -3,7 +3,7 @@
 # Usamos a imagem oficial do Laravel Sail como base.
 # Ela já inclui Apache, PHP, Composer e todas as extensões necessárias.
 # Substitua '8.2' pela sua versão do PHP se for diferente.
-FROM laravel/sail:8.2-php8.2
+FROM ghcr.io/laravel/sail:8.2
 
 # Define o diretório de trabalho padrão.
 WORKDIR /var/www/html
