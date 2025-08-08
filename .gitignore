@@ -40,6 +40,8 @@ pnpm-debug.log*
 
 # Arquivos de cache e sessão do Laravel
 /backend/bootstrap/cache/*.php
+/backend/bootstrap/cache/packages.php
+/backend/bootstrap/cache/services.php
 /backend/storage/framework/
 /backend/storage/logs/
 /backend/storage/app/public/ # Evita versionar arquivos de upload
