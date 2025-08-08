@@ -1,2 +1,65 @@
-backend/.env.staging
-.env.staging
+# .gitignore Unificado para o Monorepo Catarinense Leads
+
+# Arquivos de Ambiente e Segredos
+# Ignora todos os arquivos .env, EXCETO o .env.example que serve de modelo.
+.env
+.env.*
+!.env.example
+
+# Sistema Operacional e Editores de Código
+.DS_Store
+Thumbs.db
+*.swo
+*.swp
+/.idea
+/.vscode/
+/.fleet/
+/.zed/
+
+# Logs e Arquivos Gerados
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Backend: Laravel ---
+
+# Dependências do Composer
+/backend/vendor/
+
+# Dependências do NPM (se houver no backend)
+/backend/node_modules/
+
+# Arquivo de autenticação do Composer
+/backend/auth.json
+
+# Cache de testes do PHPUnit
+/backend/.phpunit.cache/
+.phpunit.result.cache
+
+# Arquivos de cache e sessão do Laravel
+/backend/bootstrap/cache/*.php
+/backend/storage/framework/
+/backend/storage/logs/
+/backend/storage/app/public/ # Evita versionar arquivos de upload
+/backend/public/storage      # O symlink criado pelo 'artisan storage:link'
+
+# Arquivos gerados pelo Laravel Pail
+/backend/storage/pail/
+
+# Arquivos gerados pelo Scribe (documentação de API)
+/backend/public/vendor/scribe/
+/backend/resources/views/scribe/
+
+# --- Frontend: React/Vite ---
+
+# Dependências do NPM
+/lead-import-visualizer/node_modules/
+
+# Pasta de build de produção
+/lead-import-visualizer/dist/
+/lead-import-visualizer/dist-ssr/
+
+# Arquivos de configuração local do Vite
+*.local
