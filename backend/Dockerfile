@@ -44,7 +44,7 @@ USER sail
 FROM base AS vendor
 
 COPY --chown=sail:sail composer.json composer.lock ./
-RUN composer install --no-interaction --no-dev --optimize-autoloader
+RUN composer install --no-interaction --no-dev --no-scripts --optimize-autoloader
 
 # --- Estágio Final ---
 # Começamos de novo da imagem base para manter a imagem final limpa.
