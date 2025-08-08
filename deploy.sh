@@ -62,8 +62,9 @@ docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan migrate --forc
 
 # Passo 8: Limpar e otimizar os caches do Laravel
 echo ">>> 7/8: Limpando caches e otimizando a aplicação..."
-docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan optimize
-
+docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan config:cache
+docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan route:cache
+docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan event:cache
 # Passo 9: Sair do modo de manutenção
 echo ">>> 8/8: Tirando a aplicação do modo de manutenção..."
 docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan up
