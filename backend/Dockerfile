@@ -19,6 +19,7 @@ RUN apk add --no-cache \
       libpng-dev \
       libxml2-dev \
       oniguruma-dev \
+      icu-dev \  # <--- ADICIONE ESTA LINHA. É a dependência que faltava para a extensão 'intl'.
       && docker-php-ext-install \
       pdo_mysql \
       zip \
