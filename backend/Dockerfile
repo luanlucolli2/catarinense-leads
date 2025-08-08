@@ -65,8 +65,7 @@ RUN rm -f bootstrap/cache/*.php
 
 # Agora sim, com a certeza de que está tudo limpo, rodamos as otimizações.
 RUN php artisan config:cache && \
-    php artisan route:cache && \
-    php artisan view:cache
+    php artisan route:cache
 
 # Expõe a porta 9000, padrão do PHP-FPM
 EXPOSE 9000
