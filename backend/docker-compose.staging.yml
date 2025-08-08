@@ -25,24 +25,22 @@ services:
     networks: [sail]
 
   laravel:
-   
     build:
-      context: . 
+      context: ./vendor/laravel/sail/runtimes/8.4
       dockerfile: Dockerfile
       args:
-        CACHE_BUSTER: ${CACHE_BUSTER:-1}
+        WWWGROUP: '1000'
     image: leads-backend
     container_name: leads-backend
     env_file: .env.staging
     environment:
       <<: *app-env
     volumes:
-      - sail-storage:/var/www/html/storage
-    depends_on:
-      mysql:
-        condition: service_healthy 
+      - .:/var/www/html
+      - ./docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+    depends_on: [mysql]
     networks: [sail]
-  
+
   queue:
     image: leads-backend
     container_name: leads-queue
@@ -51,22 +49,20 @@ services:
     environment:
       <<: *app-env
     volumes:
-      - sail-storage:/var/www/html/storage
-    depends_on:
-      mysql:
-        condition: service_healthy 
+      - .:/var/www/html
+    depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
 
   frontend:
     build:
-      context: ../lead-import-visualizer 
-      dockerfile: Dockerfile            
+      context: ../lead-import-visualizer # O contexto não muda
+      dockerfile: Dockerfile             # Ele vai usar nosso novo Dockerfile
     image: leads-frontend
     container_name: leads-frontend
-    
+    # O env_file não é mais necessário aqui, o Nginx cuida de tudo.
     ports:
-      - "8080:80" 
+      - "8080:80" # <-- MUITO IMPORTANTE: Mapeia a porta 8080 do servidor para a porta 80 do Nginx DENTRO do container.
     networks: [sail]
     depends_on: [laravel]
 
@@ -76,5 +72,3 @@ networks:
 
 volumes:
   sail-mysql:
-  sail-storage: 
-
