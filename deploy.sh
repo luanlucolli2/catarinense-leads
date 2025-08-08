@@ -29,6 +29,10 @@ docker compose -f $COMPOSE_FILE exec $LARAVEL_SERVICE php artisan down || echo "
 
 # Passo 4: Reconstruir as imagens Docker
 echo ">>> 3/8: Reconstruindo as imagens Docker com o novo código..."
+# Exportamos uma variável com a data/hora atual para quebrar o cache do Docker
+export CACHE_BUSTER=$(date +%s)
+echo "Forçando reconstrução com CACHE_BUSTER=$CACHE_BUSTER"
+
 docker compose -f $COMPOSE_FILE build --no-cache
 
 # Passo 5: Recriando e subindo os contêineres

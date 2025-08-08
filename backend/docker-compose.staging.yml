@@ -29,6 +29,8 @@ services:
     build:
       context: . 
       dockerfile: Dockerfile
+      args:
+        CACHE_BUSTER: ${CACHE_BUSTER:-1}
     image: leads-backend
     container_name: leads-backend
     env_file: .env.staging
