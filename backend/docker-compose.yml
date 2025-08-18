@@ -32,7 +32,7 @@ services:
 
   queue:
     image: sail-8.4/app
-    command: php artisan queue:work --verbose --timeout=120 --memory=480 --tries=3
+    command: php artisan queue:work --queue=default --sleep=3 --verbose --timeout=0 --memory=512 --tries=1
     environment:
       <<: *app-environment
     volumes:
