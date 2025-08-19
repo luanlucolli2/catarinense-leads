@@ -6,6 +6,7 @@ import {
   listCltConsultJobs,
   createCltConsultJob,
   downloadCltReport,
+  cancelCltConsultJob,
   CltConsultJobListItem,
 } from "@/api/clt";
 import { useCltJobPolling } from "@/hooks/useCltJobPolling";
@@ -38,7 +39,7 @@ const CLTConsultaPage = () => {
   const { job: watchedJob } = useCltJobPolling(watchingJobId, {
     enabled: !!watchingJobId,
     intervalMs: 3000,
-    // stopOn default já é ['concluido','falhou']
+    stopOn: ['concluido', 'falhou', 'cancelado'], // ✅ também para cancelado
   });
 
   async function fetchPage(p = 1) {
@@ -56,7 +57,6 @@ const CLTConsultaPage = () => {
     }
   }
 
-  // mesmo fetch, mas sem loading (p/ polling suave)
   async function fetchPageSilent(p = page) {
     try {
       const res = await listCltConsultJobs(p);
@@ -79,27 +79,27 @@ const CLTConsultaPage = () => {
     [items]
   );
 
-  // Polling suave do histórico somente se houver jobs abertos
   useEffect(() => {
     if (!hasOpen) return;
     const t = window.setInterval(() => {
       void fetchPageSilent(page);
     }, 5000);
-
     return () => window.clearInterval(t);
-    // depende só de hasOpen e page (evita piscar por depender do array inteiro)
   }, [hasOpen, page]); 
 
-  // Quando o job recém-criado finaliza, parar hook e atualizar lista
   useEffect(() => {
     if (!watchedJob) return;
     if (watchedJob.status === "concluido") {
-      setWatchingJobId(null); // pare o hook primeiro
+      setWatchingJobId(null);
       toast.success(`Consulta #${watchedJob.id} concluída.`);
       void fetchPage(page);
     } else if (watchedJob.status === "falhou") {
       setWatchingJobId(null);
       toast.error(`Consulta #${watchedJob.id} falhou.`);
+      void fetchPage(page);
+    } else if (watchedJob.status === "cancelado") {
+      setWatchingJobId(null);
+      toast.info(`Consulta #${watchedJob.id} cancelada.`);
       void fetchPage(page);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,7 +110,7 @@ const CLTConsultaPage = () => {
       const { id } = await createCltConsultJob({ title: titulo, cpfs });
       setWatchingJobId(id);
       toast.success(`Consulta criada (#${id}).`);
-      await fetchPage(1); // já mostra o novo item
+      await fetchPage(1);
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao criar consulta");
     }
@@ -121,6 +121,17 @@ const CLTConsultaPage = () => {
       await downloadCltReport(id);
     } catch (e: any) {
       toast.error(e?.message ?? "Falha no download");
+    }
+  };
+
+  const handleCancel = async (id: number, reason?: string) => {
+    try {
+      await cancelCltConsultJob(id, reason);
+      if (id === watchingJobId) setWatchingJobId(null);
+      toast.info(`Consulta #${id} cancelada.`);
+      await fetchPage(page);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Não foi possível cancelar");
     }
   };
 
@@ -153,6 +164,7 @@ const CLTConsultaPage = () => {
           items={filteredItems}
           loading={loading}
           onDownload={handleDownload}
+          onCancel={handleCancel}
           onRefresh={() => fetchPage(page)}
           page={page}
           lastPage={lastPage}

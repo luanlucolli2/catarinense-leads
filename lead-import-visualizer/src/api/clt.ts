@@ -2,7 +2,7 @@
 import axiosClient from './axiosClient'
 
 /** Estados do job no backend */
-export type CltJobStatus = 'pendente' | 'em_progresso' | 'concluido' | 'falhou'
+export type CltJobStatus = 'pendente' | 'em_progresso' | 'concluido' | 'falhou' | 'cancelado'
 
 /** DTO básico (index) */
 export interface CltConsultJobListItem {
@@ -17,6 +17,8 @@ export interface CltConsultJobListItem {
   file_name?: string | null
   started_at?: string | null
   finished_at?: string | null
+  canceled_at?: string | null
+  cancel_reason?: string | null
   created_at: string
 }
 
@@ -31,6 +33,8 @@ export interface CltConsultJobShow {
   has_file: boolean
   started_at?: string | null
   finished_at?: string | null
+  canceled_at?: string | null
+  cancel_reason?: string | null
   created_at: string
 }
 
@@ -45,7 +49,6 @@ export interface Paginated<T> {
 
 /** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
 export async function ensureCsrfCookie() {
-  // Se tua app já faz isso no login, pode ignorar chamar manualmente.
   await axiosClient.get('/sanctum/csrf-cookie')
 }
 
@@ -59,7 +62,6 @@ export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsult
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
 export async function createCltConsultJob(input: { title: string; cpfs: string | string[] }) {
-  // (se rolar 419 no primeiro POST da sessão, chame ensureCsrfCookie() antes)
   const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
     '/clt/consult-jobs',
     input
@@ -79,11 +81,9 @@ export async function downloadCltReport(id: number) {
     responseType: 'blob',
   })
 
-  // tenta extrair nome do arquivo do header
   const cd = resp.headers['content-disposition'] || ''
   const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.xlsx`
 
-  // baixa via blob
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')
   a.href = url
@@ -92,6 +92,17 @@ export async function downloadCltReport(id: number) {
   a.click()
   a.remove()
   window.URL.revokeObjectURL(url)
+}
+
+/** Cancela um job (opcionalmente com motivo) */
+export async function cancelCltConsultJob(id: number, reason?: string) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: CltJobStatus
+    canceled_at?: string | null
+    cancel_reason?: string | null
+  }>(`/clt/consult-jobs/${id}/cancel`, reason ? { reason } : {})
+  return data
 }
 
 function parseContentDispositionFilename(contentDisposition: string): string | null {

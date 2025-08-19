@@ -45,21 +45,15 @@ class CltConsultController extends Controller
 
     public function store(Request $request)
     {
-        // Aceitar 'cpfs' como array OU 'cpfs' como string do textarea
         $data = $request->validate([
             'title' => ['required','string','max:191'],
-            'cpfs'  => ['required'], // array|string
+            'cpfs'  => ['required'],
         ]);
 
         $cpfs = $data['cpfs'];
-
-        if (is_string($cpfs)) {
-            $tokens = preg_split('/[\s,;]+/u', $cpfs, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        } elseif (is_array($cpfs)) {
-            $tokens = $cpfs;
-        } else {
-            $tokens = [];
-        }
+        $tokens = is_string($cpfs)
+            ? (preg_split('/[\s,;]+/u', $cpfs, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            : (is_array($cpfs) ? $cpfs : []);
 
         $valid = [];
         $invalid = [];
@@ -67,7 +61,7 @@ class CltConsultController extends Controller
         foreach ($tokens as $t) {
             $norm = Cpf::normalize((string) $t);
             if ($norm === null) {
-                continue; // ignora lixos (ex.: <10 ou >11 dígitos não-normalizáveis)
+                continue;
             }
             if (Cpf::isValid($norm)) {
                 $valid[] = $norm;
@@ -76,8 +70,7 @@ class CltConsultController extends Controller
             }
         }
 
-        // Unicos e reindexados
-        $valid = array_values(array_unique($valid));
+        $valid   = array_values(array_unique($valid));
         $invalid = array_values(array_diff(array_unique($invalid), $valid));
 
         if ((count($valid) + count($invalid)) === 0) {
@@ -95,7 +88,6 @@ class CltConsultController extends Controller
             'fail_count'    => 0,
         ]);
 
-        // despacha o job (válidos vão para a API; inválidos viram linhas com mensagem)
         ProcessCltConsultJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid);
 
         return response()->json([
@@ -134,6 +126,38 @@ class CltConsultController extends Controller
         return response($content, Response::HTTP_OK, [
             'Content-Type'        => $mime,
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    /** ✅ Cancelar job */
+    public function cancel(Request $request, int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if (in_array($job->status, ['concluido','falhou','cancelado'], true)) {
+            return response()->json([
+                'message' => 'Job não pode ser cancelado neste estado.',
+                'status'  => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $data = $request->validate([
+            'reason' => ['nullable','string','max:191'],
+        ]);
+
+        $job->update([
+            'status'        => 'cancelado',
+            'canceled_at'   => now(),
+            'cancel_reason' => $data['reason'] ?? null,
+        ]);
+
+        return response()->json([
+            'id'           => $job->id,
+            'status'       => $job->status,
+            'canceled_at'  => $job->canceled_at,
+            'cancel_reason'=> $job->cancel_reason,
         ]);
     }
 }
