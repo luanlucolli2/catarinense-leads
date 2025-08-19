@@ -38,18 +38,21 @@ services:
     volumes:
       - .:/var/www/html
       - ./docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
+    restart: unless-stopped
 
   queue:
     image: leads-backend
     container_name: leads-queue
-    command: php artisan queue:work --verbose --timeout=120 --memory=512 --tries=3
+    command: php artisan queue:work --queue=default --sleep=3 --verbose --timeout=10800 --memory=512 --tries=1
     env_file: .env.staging
     environment:
       <<: *app-env
     volumes:
       - .:/var/www/html
+      - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
@@ -72,3 +75,4 @@ networks:
 
 volumes:
   sail-mysql:
+  storage-data:
