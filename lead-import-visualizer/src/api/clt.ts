@@ -1,6 +1,6 @@
 // src/api/clt.ts
 import axiosClient from './axiosClient'
-
+import http from './http'
 /** Estados do job no backend */
 export type CltJobStatus = 'pendente' | 'em_progresso' | 'concluido' | 'falhou' | 'cancelado'
 
@@ -49,7 +49,7 @@ export interface Paginated<T> {
 
 /** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
 export async function ensureCsrfCookie() {
-  await axiosClient.get('/sanctum/csrf-cookie')
+  await http.get('/sanctum/csrf-cookie')
 }
 
 /** Lista os jobs do usuário autenticado */
