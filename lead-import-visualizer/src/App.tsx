@@ -6,13 +6,13 @@ import {
   BrowserRouter,
   Routes,
   Route,
-  Outlet,
 } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
 import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -59,6 +59,12 @@ const App = () => (
                 <Route
                   path="importacoes/historico"
                   element={<HistoricoPage />}
+                />
+
+                {/* consulta CLT (Consignado em Folha) */}
+                <Route
+                  path="clt/consulta"
+                  element={<CLTConsultaPage />}
                 />
               </Route>
 

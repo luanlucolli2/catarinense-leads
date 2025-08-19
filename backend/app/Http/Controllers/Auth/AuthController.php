@@ -37,6 +37,27 @@ class AuthController extends Controller
     ]);
 }
 
+public function loginToken(Request $request)
+{
+    $data = $request->validate([
+        'email'    => 'required|email',
+        'password' => 'required',
+    ]);
+
+    if (! Auth::attempt($data)) {
+        throw ValidationException::withMessages([
+            'email' => ['Credenciais incorretas.'],
+        ]);
+    }
+
+    $user  = $request->user();
+    $token = $user->createToken('postman')->plainTextToken;
+
+    return response()->json([
+        'token' => $token,
+        'user'  => $user,
+    ]);
+}
 
     /**
      * Log the user out of the application.
