@@ -19,7 +19,8 @@ class ProcessCltConsultJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 3600; // 1h por job
+    /** Timeout por job (segundos). Controlado via .env: CLT_JOB_TIMEOUT. */
+    public int $timeout;
 
     private int $jobId;
     private int $userId;
@@ -39,7 +40,10 @@ class ProcessCltConsultJob implements ShouldQueue
         $this->cpfs        = array_values(array_unique($cpfs));
         $this->invalidCpfs = array_values(array_unique($invalidCpfs));
 
-        $this->onQueue('default'); // ou 'clt'
+        $this->onQueue('default');
+
+        // ✅ aqui pode chamar env()
+        $this->timeout = (int) env('CLT_JOB_TIMEOUT', 10800); // padrão 3h
     }
 
     public function handle(FactaApiService $facta): void
@@ -48,20 +52,20 @@ class ProcessCltConsultJob implements ShouldQueue
         $job = CltConsultJob::query()->whereKey($this->jobId)->firstOrFail();
 
         $job->update([
-            'status'     => 'em_progresso',
+            'status' => 'em_progresso',
             'started_at' => Carbon::now(),
             'total_cpfs' => count($this->cpfs) + count($this->invalidCpfs),
         ]);
 
         $maxAttempts = (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5);
-        $retryDelay  = (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60);
+        $retryDelay = (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60);
 
-        $rows               = [];
-        $successMap         = [];
-        $lastError          = [];
-        $terminalFailures   = [];
-        $pendentes          = $this->cpfs;
-        $invalidCount       = count($this->invalidCpfs);
+        $rows = [];
+        $successMap = [];
+        $lastError = [];
+        $terminalFailures = [];
+        $pendentes = $this->cpfs;
+        $invalidCount = count($this->invalidCpfs);
 
         try {
             // 1) CPFs inválidos (não vão para a FACTA)
@@ -74,9 +78,10 @@ class ProcessCltConsultJob implements ShouldQueue
 
             // 2) Processa CPFs válidos (com teimosinha)
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                if (empty($pendentes)) break;
+                if (empty($pendentes))
+                    break;
 
-                Log::info("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: ".count($pendentes));
+                Log::info("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes));
                 $toTry = $pendentes;
 
                 foreach ($toTry as $cpf) {
@@ -84,51 +89,51 @@ class ProcessCltConsultJob implements ShouldQueue
 
                     if ($res['ok'] === true) {
                         $vinculos = $res['vinculos'] ?? [];
-                        $total    = is_array($vinculos) ? count($vinculos) : 0;
+                        $total = is_array($vinculos) ? count($vinculos) : 0;
 
                         if ($total > 0) {
                             foreach ($vinculos as $v) {
                                 $row = $this->baseRow($cpf);
-                                $row['numeroVinculos']            = $total;
+                                $row['numeroVinculos'] = $total;
 
                                 // Núcleo
-                                $row['elegivel']                  = $v['elegivel']                      ?? null;
-                                $row['valorMargemDisponivel']     = $v['valorMargemDisponivel']         ?? null;
-                                $row['valorMaximoPrestacao']      = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
-                                $row['valorBaseMargem']           = $v['valorBaseMargem']               ?? null;
-                                $row['valorTotalVencimentos']     = $v['valorTotalVencimentos']         ?? null;
+                                $row['elegivel'] = $v['elegivel'] ?? null;
+                                $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
+                                $row['valorMaximoPrestacao'] = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
+                                $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
+                                $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
 
                                 // Vínculo/empregador
-                                $row['nomeEmpregador']            = $v['nomeEmpregador']                ?? null;
-                                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador']     ?? null;
+                                $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
+                                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
                                 $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
-                                $row['matricula']                 = $v['matricula']                     ?? null;
-                                $row['dataAdmissao']              = $v['dataAdmissao']                  ?? null;
-                                $row['tempoAdmissaoMeses']        = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
-                                $row['dataDesligamento']          = $v['dataDesligamento']              ?? null;
-                                $row['codigoMotivoDesligamento']  = $v['codigoMotivoDesligamento']      ?? null;
+                                $row['matricula'] = $v['matricula'] ?? null;
+                                $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
+                                $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
+                                $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
+                                $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
 
                                 // Contexto
-                                $row['codigoCategoriaTrabalhador']= $v['codigoCategoriaTrabalhador']    ?? null;
-                                $row['cbo_descricao']             = $v['cbo_descricao']                 ?? null;
-                                $row['cnae_descricao']            = $v['cnae_descricao']                ?? null;
+                                $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
+                                $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
+                                $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
                                 $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
 
                                 // Alertas
-                                $row['possuiAlertas']             = $v['possuiAlertas']                 ?? null;
+                                $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
                                 $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
-                                $row['emprestimosLegados']        = $v['emprestimosLegados']            ?? null;
+                                $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
                                 $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
 
                                 // Identificação
-                                $row['nome']                      = $v['nome']                          ?? null;
-                                $row['dataNascimento']            = $v['dataNascimento']                ?? null;
-                                $row['idade']                     = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
-                                $row['sexo_descricao']            = $v['sexo_descricao']                ?? null;
+                                $row['nome'] = $v['nome'] ?? null;
+                                $row['dataNascimento'] = $v['dataNascimento'] ?? null;
+                                $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
+                                $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
 
                                 // Meta/status
-                                $row['status_code']               = $v['status_code']                   ?? null;
-                                $row['mensagem']                  = $res['mensagem']                    ?? 'OK';
+                                $row['status_code'] = $v['status_code'] ?? null;
+                                $row['mensagem'] = $res['mensagem'] ?? 'OK';
 
                                 $rows[] = $row;
                             }
@@ -140,7 +145,7 @@ class ProcessCltConsultJob implements ShouldQueue
                         }
 
                         $successMap[$cpf] = true;
-                        $pendentes = array_values(array_filter($pendentes, fn ($x) => $x !== $cpf));
+                        $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                         $job->increment('success_count');
 
                     } else {
@@ -148,7 +153,7 @@ class ProcessCltConsultJob implements ShouldQueue
 
                         if (isset($res['retriable']) && $res['retriable'] === false) {
                             $terminalFailures[$cpf] = $msg;
-                            $pendentes = array_values(array_filter($pendentes, fn ($x) => $x !== $cpf));
+                            $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                         } else {
                             $lastError[$cpf] = $msg;
                         }
@@ -177,33 +182,33 @@ class ProcessCltConsultJob implements ShouldQueue
             }
 
             $successCount = count($successMap);
-            $failCount    = $invalidCount + count($terminalFailures) + count($pendentes);
+            $failCount = $invalidCount + count($terminalFailures) + count($pendentes);
 
             // gerar e salvar o Excel
-            $disk     = env('CLT_REPORTS_DISK', 'public');
-            $dir      = 'clt-reports';
-            $ts       = Carbon::now()->format('Ymd_His');
+            $disk = env('CLT_REPORTS_DISK', 'public');
+            $dir = 'clt-reports';
+            $ts = Carbon::now()->format('Ymd_His');
             $fileName = "clt-consulta_{$this->jobId}_{$ts}.xlsx";
-            $path     = "{$dir}/{$fileName}";
+            $path = "{$dir}/{$fileName}";
 
             Excel::store(new CltConsultExport($rows), $path, $disk);
 
             $job->update([
                 'success_count' => $successCount,
-                'fail_count'    => $failCount,
-                'file_disk'     => $disk,
-                'file_path'     => $path,
-                'file_name'     => $fileName,
-                'status'        => 'concluido',
-                'finished_at'   => Carbon::now(),
+                'fail_count' => $failCount,
+                'file_disk' => $disk,
+                'file_path' => $path,
+                'file_name' => $fileName,
+                'status' => 'concluido',
+                'finished_at' => Carbon::now(),
             ]);
 
             Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$successCount}, falha: {$failCount}");
 
         } catch (Throwable $e) {
-            Log::error("[CLT] Job {$this->jobId} falhou: ".$e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error("[CLT] Job {$this->jobId} falhou: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $job->update([
-                'status'      => 'falhou',
+                'status' => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
         }
@@ -224,7 +229,8 @@ class ProcessCltConsultJob implements ShouldQueue
     private function computeValorMaximoPrestacao($valorMargemDisponivel): ?string
     {
         $f = $this->toFloatPtBr($valorMargemDisponivel);
-        if ($f === null) return null;
+        if ($f === null)
+            return null;
         $calc = $f * 0.70;
         return $this->formatPtBrMoney($calc);
     }
@@ -238,15 +244,18 @@ class ProcessCltConsultJob implements ShouldQueue
     private function computeTempoAdmissaoMeses(?string $dataAdmissao, ?string $dataDesligamento): ?int
     {
         $ini = $this->parseDateBr($dataAdmissao);
-        if (!$ini) return null;
+        if (!$ini)
+            return null;
         $fim = $this->parseDateBr($dataDesligamento) ?? Carbon::now();
-        if ($fim->lt($ini)) return 0;
+        if ($fim->lt($ini))
+            return 0;
         return $ini->diffInMonths($fim);
     }
 
     private function parseDateBr(?string $s): ?Carbon
     {
-        if (!$s) return null;
+        if (!$s)
+            return null;
         try {
             return Carbon::createFromFormat('d/m/Y', trim($s))->startOfDay();
         } catch (\Throwable $e) {
@@ -256,12 +265,16 @@ class ProcessCltConsultJob implements ShouldQueue
 
     private function toFloatPtBr($v): ?float
     {
-        if ($v === null) return null;
-        if (is_numeric($v)) return (float) $v;
+        if ($v === null)
+            return null;
+        if (is_numeric($v))
+            return (float) $v;
         $s = preg_replace('/[^\d,\-\.]/', '', (string) $v);
-        if ($s === '' || $s === '-' ) return null;
+        if ($s === '' || $s === '-')
+            return null;
         $s = str_replace(['.', ','], ['', '.'], $s);
-        if (!is_numeric($s)) return null;
+        if (!is_numeric($s))
+            return null;
         return (float) $s;
     }
 

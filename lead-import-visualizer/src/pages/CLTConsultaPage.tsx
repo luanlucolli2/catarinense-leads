@@ -1,128 +1,172 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CLTControls } from "@/components/CLTControls";
 import { CLTHistoryTable } from "@/components/CLTHistoryTable";
 import { NewCLTConsultModal } from "@/components/NewCLTConsultModal";
+import {
+  listCltConsultJobs,
+  createCltConsultJob,
+  downloadCltReport,
+  CltConsultJobListItem,
+} from "@/api/clt";
+import { useCltJobPolling } from "@/hooks/useCltJobPolling";
+import { toast } from "sonner";
 
-interface CLTConsult {
-  id: string;
-  titulo: string;
-  criadoEm: string;
-  status: "Concluído" | "Em andamento" | "Falhou";
-  totalCPFs: number;
-  sucesso: number;
-  falhas: number;
+function formatDateTimeBR(iso: string | null | undefined) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 const CLTConsultaPage = () => {
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-  const [consultas, setConsultas] = useState<CLTConsult[]>([
-    {
-      id: "1",
-      titulo: "Lote CLT – Piloto Interno",
-      criadoEm: "10/08/2025 09:12",
-      status: "Concluído",
-      totalCPFs: 120,
-      sucesso: 118,
-      falhas: 2,
-    },
-    {
-      id: "2", 
-      titulo: "Lote CLT – Teste Perform.",
-      criadoEm: "11/08/2025 16:40",
-      status: "Concluído",
-      totalCPFs: 1000,
-      sucesso: 998,
-      falhas: 2,
-    },
-    {
-      id: "3",
-      titulo: "Lote CLT – Validação API",
-      criadoEm: "12/08/2025 08:03",
-      status: "Falhou",
-      totalCPFs: 300,
-      sucesso: 0,
-      falhas: 300,
-    },
-    {
-      id: "4",
-      titulo: "Lote CLT – Processamento",
-      criadoEm: "14/08/2025 10:15",
-      status: "Em andamento",
-      totalCPFs: 500,
-      sucesso: 0,
-      falhas: 0,
-    },
-  ]);
+  const [loading, setLoading] = useState(false);
 
-  const handleNewConsult = (titulo: string, cpfs: string) => {
-    const newConsult: CLTConsult = {
-      id: Date.now().toString(),
-      titulo,
-      criadoEm: new Date().toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit", 
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit"
-      }),
-      status: "Em andamento",
-      totalCPFs: cpfs.split(/[\n,\s]+/).filter(cpf => cpf.trim()).length,
-      sucesso: 0,
-      falhas: 0,
-    };
-    
-    setConsultas(prev => [newConsult, ...prev]);
-    
-    // Simular mudança para "Concluído" após 3 segundos
-    setTimeout(() => {
-      setConsultas(prev => prev.map(c => 
-        c.id === newConsult.id 
-          ? { ...c, status: "Concluído", sucesso: newConsult.totalCPFs - 2, falhas: 2 }
-          : c
-      ));
-    }, 3000);
+  const [page, setPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  const [items, setItems] = useState<CltConsultJobListItem[]>([]);
+
+  const [watchingJobId, setWatchingJobId] = useState<number | null>(null);
+  const { job: watchedJob } = useCltJobPolling(watchingJobId, {
+    enabled: !!watchingJobId,
+    intervalMs: 3000,
+    // stopOn default já é ['concluido','falhou']
+  });
+
+  async function fetchPage(p = 1) {
+    setLoading(true);
+    try {
+      const res = await listCltConsultJobs(p);
+      setItems(res.data);
+      setTotal(res.total);
+      setLastPage(res.last_page);
+      setPage(res.current_page);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Falha ao carregar histórico");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // mesmo fetch, mas sem loading (p/ polling suave)
+  async function fetchPageSilent(p = page) {
+    try {
+      const res = await listCltConsultJobs(p);
+      setItems(res.data);
+      setTotal(res.total);
+      setLastPage(res.last_page);
+      setPage(res.current_page);
+    } catch {
+      // silencioso
+    }
+  }
+
+  useEffect(() => {
+    fetchPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const hasOpen = useMemo(
+    () => items.some((i) => i.status === "pendente" || i.status === "em_progresso"),
+    [items]
+  );
+
+  // Polling suave do histórico somente se houver jobs abertos
+  useEffect(() => {
+    if (!hasOpen) return;
+    const t = window.setInterval(() => {
+      void fetchPageSilent(page);
+    }, 5000);
+
+    return () => window.clearInterval(t);
+    // depende só de hasOpen e page (evita piscar por depender do array inteiro)
+  }, [hasOpen, page]); 
+
+  // Quando o job recém-criado finaliza, parar hook e atualizar lista
+  useEffect(() => {
+    if (!watchedJob) return;
+    if (watchedJob.status === "concluido") {
+      setWatchingJobId(null); // pare o hook primeiro
+      toast.success(`Consulta #${watchedJob.id} concluída.`);
+      void fetchPage(page);
+    } else if (watchedJob.status === "falhou") {
+      setWatchingJobId(null);
+      toast.error(`Consulta #${watchedJob.id} falhou.`);
+      void fetchPage(page);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedJob]);
+
+  const handleNewConsult = async (titulo: string, cpfs: string) => {
+    try {
+      const { id } = await createCltConsultJob({ title: titulo, cpfs });
+      setWatchingJobId(id);
+      toast.success(`Consulta criada (#${id}).`);
+      await fetchPage(1); // já mostra o novo item
+    } catch (e: any) {
+      toast.error(e?.message ?? "Falha ao criar consulta");
+    }
   };
 
-  const handleDownload = (consultaId: string) => {
-    // Mock download - no protótipo apenas simula
-    console.log(`Baixando planilha da consulta ${consultaId}`);
+  const handleDownload = async (id: number) => {
+    try {
+      await downloadCltReport(id);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Falha no download");
+    }
   };
+
+  const filteredItems = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => i.title.toLowerCase().includes(q));
+  }, [items, searchValue]);
 
   return (
-      <div className="p-4 lg:p-6 max-w-full min-w-0">
-        <div className="mb-6 max-w-full">
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">
-            Consulta CLT (Consignado em Folha)
-          </h1>
-          <p className="text-gray-600 text-sm lg:text-base">
-            As importações existentes são FGTS. Aqui você realiza consulta CLT em massa colando CPFs e baixa o resultado em Excel.
-          </p>
-        </div>
+    <div className="p-4 lg:p-6 max-w-full min-w-0">
+      <div className="mb-6 max-w-full">
+        <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">
+          Consulta CLT (Consignado em Folha)
+        </h1>
+        <p className="text-gray-600 text-sm lg:text-base">
+          As importações existentes são FGTS. Aqui você realiza consulta CLT em massa colando
+          CPFs e baixa o resultado em Excel.
+        </p>
+      </div>
 
-        <div className="space-y-6">
-          {/* Controls */}
-          <CLTControls 
-            onNewConsultClick={() => setIsNewConsultModalOpen(true)}
-            searchValue={searchValue}
-            onSearchChange={setSearchValue}
-          />
+      <div className="space-y-6">
+        <CLTControls
+          onNewConsultClick={() => setIsNewConsultModalOpen(true)}
+          searchValue={searchValue}
+          onSearchChange={setSearchValue}
+        />
 
-          {/* History Table */}
-          <CLTHistoryTable 
-            consultas={consultas}
-            onDownload={handleDownload}
-            searchValue={searchValue}
-          />
-        </div>
-
-        {/* New Consult Modal */}
-        <NewCLTConsultModal
-          isOpen={isNewConsultModalOpen}
-          onClose={() => setIsNewConsultModalOpen(false)}
-          onSubmit={handleNewConsult}
+        <CLTHistoryTable
+          items={filteredItems}
+          loading={loading}
+          onDownload={handleDownload}
+          onRefresh={() => fetchPage(page)}
+          page={page}
+          lastPage={lastPage}
+          onPageChange={(p) => fetchPage(p)}
+          formatDateTimeBR={formatDateTimeBR}
         />
       </div>
+
+      <NewCLTConsultModal
+        isOpen={isNewConsultModalOpen}
+        onClose={() => setIsNewConsultModalOpen(false)}
+        onSubmit={handleNewConsult}
+      />
+    </div>
   );
 };
 

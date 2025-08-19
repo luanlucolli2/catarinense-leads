@@ -1,0 +1,105 @@
+// src/api/clt.ts
+import axiosClient from './axiosClient'
+
+/** Estados do job no backend */
+export type CltJobStatus = 'pendente' | 'em_progresso' | 'concluido' | 'falhou'
+
+/** DTO básico (index) */
+export interface CltConsultJobListItem {
+  id: number
+  title: string
+  status: CltJobStatus
+  total_cpfs: number
+  success_count: number
+  fail_count: number
+  file_disk?: string | null
+  file_path?: string | null
+  file_name?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  created_at: string
+}
+
+/** DTO de show() */
+export interface CltConsultJobShow {
+  id: number
+  title: string
+  status: CltJobStatus
+  total_cpfs: number
+  success_count: number
+  fail_count: number
+  has_file: boolean
+  started_at?: string | null
+  finished_at?: string | null
+  created_at: string
+}
+
+/** Resposta de paginação Laravel */
+export interface Paginated<T> {
+  data: T[]
+  current_page: number
+  last_page: number
+  per_page: number
+  total: number
+}
+
+/** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
+export async function ensureCsrfCookie() {
+  // Se tua app já faz isso no login, pode ignorar chamar manualmente.
+  await axiosClient.get('/sanctum/csrf-cookie')
+}
+
+/** Lista os jobs do usuário autenticado */
+export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsultJobListItem>> {
+  const { data } = await axiosClient.get<Paginated<CltConsultJobListItem>>(
+    `/clt/consult-jobs?page=${page}`
+  )
+  return data
+}
+
+/** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
+export async function createCltConsultJob(input: { title: string; cpfs: string | string[] }) {
+  // (se rolar 419 no primeiro POST da sessão, chame ensureCsrfCookie() antes)
+  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
+    '/clt/consult-jobs',
+    input
+  )
+  return data
+}
+
+/** Busca um job específico (para checar status) */
+export async function getCltConsultJob(id: number): Promise<CltConsultJobShow> {
+  const { data } = await axiosClient.get<CltConsultJobShow>(`/clt/consult-jobs/${id}`)
+  return data
+}
+
+/** Faz o download do relatório (stream) */
+export async function downloadCltReport(id: number) {
+  const resp = await axiosClient.get(`/clt/consult-jobs/${id}/download`, {
+    responseType: 'blob',
+  })
+
+  // tenta extrair nome do arquivo do header
+  const cd = resp.headers['content-disposition'] || ''
+  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.xlsx`
+
+  // baixa via blob
+  const url = window.URL.createObjectURL(resp.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+function parseContentDispositionFilename(contentDisposition: string): string | null {
+  const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(contentDisposition)
+  if (!match) return null
+  try {
+    return decodeURIComponent(match[1].replace(/\"/g, ''))
+  } catch {
+    return match[1].replace(/\"/g, '')
+  }
+}

@@ -15,9 +15,9 @@ class FactaApiService
     public function __construct()
     {
         $cfg = config('facta');
-        $this->baseUrl   = rtrim($cfg['base_url'] ?? '', '/');
+        $this->baseUrl = rtrim($cfg['base_url'] ?? '', '/');
         $this->basicAuth = $cfg['basic_auth'] ?? null;
-        $this->tokenTtl  = (int) ($cfg['token_ttl'] ?? 3300);
+        $this->tokenTtl = (int) ($cfg['token_ttl'] ?? 3300);
     }
 
     public function getToken(): ?string
@@ -28,8 +28,8 @@ class FactaApiService
             }
 
             $resp = Http::withHeaders([
-                'Authorization' => 'Basic '.$this->basicAuth,
-            ])->timeout(10)->get($this->baseUrl.'/gera-token');
+                'Authorization' => 'Basic ' . $this->basicAuth,
+            ])->timeout(10)->get($this->baseUrl . '/gera-token');
 
             if (!$resp->ok()) {
                 throw new \RuntimeException("FACTA token error: HTTP {$resp->status()}");
@@ -37,7 +37,7 @@ class FactaApiService
 
             $json = $resp->json();
             if (!is_array($json) || !empty($json['erro'])) {
-                throw new \RuntimeException('FACTA token error: '.($json['mensagem'] ?? 'Unknown'));
+                throw new \RuntimeException('FACTA token error: ' . ($json['mensagem'] ?? 'Unknown'));
             }
 
             $token = $json['token'] ?? null;
@@ -59,7 +59,7 @@ class FactaApiService
      */
     public function autorizaConsulta(string $cpf): array
     {
-        // CPF já deve vir normalizado/validado no Job; aqui só reforço 11 dígitos.
+        // Reforço: 11 dígitos
         $cpf = preg_replace('/\D+/', '', $cpf ?? '');
         if (strlen($cpf) !== 11) {
             return ['ok' => false, 'mensagem' => 'CPF inválido', 'vinculos' => null, 'retriable' => false];
@@ -69,15 +69,16 @@ class FactaApiService
             $token = $this->getToken();
 
             return Http::withHeaders([
-                'Authorization' => 'Bearer '.$token,
-            ])->timeout(15)->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
-                'cpf' => $cpf,
-            ]);
+                'Authorization' => 'Bearer ' . $token,
+            ])->timeout(15)->get($this->baseUrl . '/consignado-trabalhador/autoriza-consulta', [
+                        'cpf' => $cpf,
+                    ]);
         };
 
         try {
             $resp = $doRequest();
 
+            // Se 401, renova token e tenta 1x
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $resp = $doRequest();
@@ -85,7 +86,7 @@ class FactaApiService
 
             if (!$resp->ok()) {
                 $status = $resp->status();
-                // Considera não-retriável para 400; retriável para 401/408/429/5xx
+                // retriável p/ 401/408/429/5xx; não-retriável p/ 400/404 etc.
                 $retriable = in_array($status, [401, 408, 429], true) || $status >= 500;
                 return ['ok' => false, 'mensagem' => "HTTP {$status}", 'vinculos' => null, 'retriable' => $retriable];
             }
@@ -95,8 +96,8 @@ class FactaApiService
                 return ['ok' => false, 'mensagem' => 'Resposta inválida da FACTA', 'vinculos' => null, 'retriable' => true];
             }
 
+            // sucesso
             if (empty($json['erro'])) {
-                // aceita variações de chave
                 $container =
                     $json['dados_Trabalhador']
                     ?? $json['dados_trabalhador']
@@ -107,37 +108,123 @@ class FactaApiService
 
                 if (is_array($dados) && count($dados) > 0) {
                     return [
-                        'ok'        => true,
-                        'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
-                        'vinculos'  => $dados,
-                        'retriable' => false, // sucesso não precisa retry
+                        'ok' => true,
+                        'mensagem' => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
+                        'vinculos' => $dados,
+                        'retriable' => false,
                     ];
                 }
 
+                // sucesso sem vínculos
                 return [
-                    'ok'        => true,
-                    'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
-                    'vinculos'  => [],
+                    'ok' => true,
+                    'mensagem' => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
+                    'vinculos' => [],
                     'retriable' => false,
                 ];
             }
 
             // erro=true
             $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');
-            $lower = mb_strtolower($mensagem, 'UTF-8');
-            $naoEncontrado =
-                str_contains($lower, 'não encontrado na base') ||
-                str_contains($lower, 'nao encontrado na base');
+            $terminalNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
 
             return [
-                'ok'        => false,
-                'mensagem'  => $mensagem,
-                'vinculos'  => null,
-                'retriable' => ! $naoEncontrado, // não-retriável quando "CPF não encontrado na base"
+                'ok' => false,
+                'mensagem' => $mensagem,
+                'vinculos' => null,
+                'retriable' => !$terminalNaoEncontrado,
             ];
 
         } catch (Throwable $e) {
-            return ['ok' => false, 'mensagem' => 'Exceção: '.$e->getMessage(), 'vinculos' => null, 'retriable' => true];
+            return ['ok' => false, 'mensagem' => 'Exceção: ' . $e->getMessage(), 'vinculos' => null, 'retriable' => true];
         }
+    }
+
+    /**
+     * Detecta de forma robusta "CPF não encontrado na base" (com/sem acento, espaços, variações).
+     */
+    private function isNaoEncontradoMessage(string $mensagem): bool
+    {
+        $msg = trim($mensagem);
+
+        // Comparação direta (mais rápida) — com acento e exatamente igual
+        if (strcasecmp($msg, 'CPF não encontrado na base') === 0) {
+            return true;
+        }
+        // Mesma frase sem acento
+        if (strcasecmp($msg, 'CPF nao encontrado na base') === 0) {
+            return true;
+        }
+
+        // Normaliza para lower-case, remove acentos básicos e reduz espaços
+        $norm = $this->normalize($msg);
+        if ($norm === 'cpf nao encontrado na base') {
+            return true;
+        }
+
+        // Também aceita como *substring* (algumas APIs anexam detalhes antes/depois)
+        return str_contains($norm, 'nao encontrado na base')
+            || str_contains($norm, 'não encontrado na base'); // por redundância/clareza
+    }
+
+    /**
+     * Normaliza string: lower, sem acentos, espaços colapsados.
+     */
+    private function normalize(string $s): string
+    {
+        $s = mb_strtolower($s, 'UTF-8');
+        // remove acentos comuns sem depender de ext externas
+        $map = [
+            'á' => 'a',
+            'à' => 'a',
+            'â' => 'a',
+            'ã' => 'a',
+            'ä' => 'a',
+            'é' => 'e',
+            'è' => 'e',
+            'ê' => 'e',
+            'ë' => 'e',
+            'í' => 'i',
+            'ì' => 'i',
+            'î' => 'i',
+            'ï' => 'i',
+            'ó' => 'o',
+            'ò' => 'o',
+            'ô' => 'o',
+            'õ' => 'o',
+            'ö' => 'o',
+            'ú' => 'u',
+            'ù' => 'u',
+            'û' => 'u',
+            'ü' => 'u',
+            'ç' => 'c',
+            'Á' => 'a',
+            'À' => 'a',
+            'Â' => 'a',
+            'Ã' => 'a',
+            'Ä' => 'a',
+            'É' => 'e',
+            'È' => 'e',
+            'Ê' => 'e',
+            'Ë' => 'e',
+            'Í' => 'i',
+            'Ì' => 'i',
+            'Î' => 'i',
+            'Ï' => 'i',
+            'Ó' => 'o',
+            'Ò' => 'o',
+            'Ô' => 'o',
+            'Õ' => 'o',
+            'Ö' => 'o',
+            'Ú' => 'u',
+            'Ù' => 'u',
+            'Û' => 'u',
+            'Ü' => 'u',
+            'Ç' => 'c',
+        ];
+        $s = strtr($s, $map);
+        // colapsa múltiplos espaços
+        $s = preg_replace('/\s+/', ' ', $s) ?? $s;
+        return trim($s);
     }
 }
