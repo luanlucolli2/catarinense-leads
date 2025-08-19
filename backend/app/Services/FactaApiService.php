@@ -30,6 +30,7 @@ class FactaApiService
 
             $resp = Http::withHeaders([
                 'Authorization' => 'Basic '.$this->basicAuth,
+                'Accept'        => 'application/json',
             ])->timeout(10)->get($this->baseUrl.'/gera-token');
 
             if (!$resp->ok()) {
@@ -54,9 +55,9 @@ class FactaApiService
      * Consulta dados do trabalhador (Dataprev) por CPF.
      * Retorna:
      *  - ok: bool
-     *  - mensagem: string (preferindo a mensagem real da FACTA)
+     *  - mensagem: string (sempre tentando preservar a mensagem real da FACTA)
      *  - vinculos: array|null
-     *  - retriable: bool (false para erros terminais, ex.: "CPF não encontrado na base")
+     *  - retriable: bool (false p/ "CPF não encontrado na base")
      */
     public function autorizaConsulta(string $cpf): array
     {
@@ -71,6 +72,7 @@ class FactaApiService
 
             return Http::withHeaders([
                 'Authorization' => 'Bearer '.$token,
+                'Accept'        => 'application/json',
             ])->timeout(15)->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
                 'cpf' => $cpf,
             ]);
@@ -85,9 +87,10 @@ class FactaApiService
                 $resp = $doRequest();
             }
 
+            // HTTP != 2xx → erro de transporte; tenta extrair mensagem útil
             if (!$resp->ok()) {
                 $status    = $resp->status();
-                $mensagem  = $this->responseMessage($resp); // 👈 pega msg real do corpo/JSON
+                $mensagem  = $this->responseMessage($resp);
                 $retriable = in_array($status, [401, 408, 429], true) || $status >= 500;
                 return [
                     'ok'        => false,
@@ -97,9 +100,10 @@ class FactaApiService
                 ];
             }
 
+            // HTTP 200 → pode ser sucesso OU erro lógico da FACTA
             $json = $resp->json();
 
-            // Se veio 200 mas o corpo não é JSON parseável, ainda assim devolvemos o body como mensagem
+            // 200 com corpo não-JSON: devolve body como mensagem e marca retriable
             if (!is_array($json)) {
                 return [
                     'ok'        => false,
@@ -109,43 +113,44 @@ class FactaApiService
                 ];
             }
 
-            // sucesso
-            if (empty($json['erro'])) {
-                $container =
-                    $json['dados_Trabalhador']
-                    ?? $json['dados_trabalhador']
-                    ?? $json['dadosTrabalhador']
-                    ?? null;
+            // Se "erro" vier true, mesmo com 200 → é falha lógica de negócio.
+            if (!empty($json['erro'])) {
+                $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');
+                $terminalNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
 
-                $dados = is_array($container) ? ($container['dados'] ?? null) : null;
+                return [
+                    'ok'        => false,
+                    'mensagem'  => $mensagem,         // preserva a mensagem exata
+                    'vinculos'  => null,
+                    'retriable' => ! $terminalNaoEncontrado, // não retry se "não encontrado"
+                ];
+            }
 
-                if (is_array($dados) && count($dados) > 0) {
-                    return [
-                        'ok'        => true,
-                        'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
-                        'vinculos'  => $dados,
-                        'retriable' => false,
-                    ];
-                }
+            // Sucesso lógico (erro=false)
+            $container =
+                $json['dados_Trabalhador']
+                ?? $json['dados_trabalhador']
+                ?? $json['dadosTrabalhador']
+                ?? null;
 
-                // sucesso sem vínculos
+            $dados = is_array($container) ? ($container['dados'] ?? null) : null;
+
+            // Tem vínculos
+            if (is_array($dados) && count($dados) > 0) {
                 return [
                     'ok'        => true,
-                    'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
-                    'vinculos'  => [],
+                    'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
+                    'vinculos'  => $dados,
                     'retriable' => false,
                 ];
             }
 
-            // erro=true (HTTP 200 mas a FACTA sinalizou erro)
-            $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');
-            $terminalNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
-
+            // Sucesso sem vínculos (total 0)
             return [
-                'ok'        => false,
-                'mensagem'  => $mensagem, // 👈 preserva a mensagem exata da FACTA
-                'vinculos'  => null,
-                'retriable' => ! $terminalNaoEncontrado,
+                'ok'        => true,
+                'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
+                'vinculos'  => [],
+                'retriable' => false,
             ];
 
         } catch (Throwable $e) {
@@ -176,14 +181,14 @@ class FactaApiService
                 if (is_string($msg) && trim($msg) !== '') {
                     return trim($msg);
                 }
-                // nenhum campo padrão — aproveita algum detalhe textual
+                // nenhum campo padrão — aproveita um trecho do JSON
                 $encoded = json_encode($json, JSON_UNESCAPED_UNICODE);
                 if (is_string($encoded)) {
                     return $this->truncate(trim($encoded));
                 }
             }
         } catch (\Throwable $e) {
-            // ignora — não era JSON mesmo
+            // ignora — não era JSON
         }
 
         // tenta corpo texto
