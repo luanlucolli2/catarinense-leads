@@ -166,6 +166,19 @@ class ProcessCltConsultJob implements ShouldQueue
                     } else {
                         $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
 
+                        // NOVO: caso neutro "CPF não encontrado na base"
+                        if (!empty($res['not_found'])) {
+                            $row = $this->baseRow($cpf);
+                            $row['numeroVinculos'] = 0;
+                            $row['mensagem'] = $msg;          // mantém a mensagem original
+                            $rows[] = $row;
+
+                            // remove dos pendentes, mas não conta sucesso nem falha
+                            $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
+                            // segue sem alterar counters agora; fail_count é calculado no fim
+                            continue;
+                        }
+
                         if (isset($res['retriable']) && $res['retriable'] === false) {
                             $terminalFailures[$cpf] = $msg;
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
@@ -191,7 +204,7 @@ class ProcessCltConsultJob implements ShouldQueue
                 $rows[] = $row;
             }
 
-            // 4) Falhas após teimosinha
+            // 4) Falhas após teimosinha (o que restou em $pendentes)
             foreach ($pendentes as $cpf) {
                 if ($this->finishIfCancelled($job)) return;
 
@@ -210,6 +223,7 @@ class ProcessCltConsultJob implements ShouldQueue
 
             $successCount = count($successMap);
             $failCount    = $invalidCount + count($terminalFailures) + count($pendentes);
+            // Observação: entradas "not_found" são neutras e não entram em $failCount nem em $successCount.
 
             // gerar e salvar o Excel
             $disk     = env('CLT_REPORTS_DISK', 'public');
