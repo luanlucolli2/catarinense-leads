@@ -58,13 +58,20 @@ class FactaApiService
      *  - mensagem: string (sempre tentando preservar a mensagem real da FACTA)
      *  - vinculos: array|null
      *  - retriable: bool (false p/ "CPF não encontrado na base")
+     *  - not_found: bool (true quando a mensagem indica explicitamente "CPF não encontrado na base")
      */
     public function autorizaConsulta(string $cpf): array
     {
         // Reforço: 11 dígitos
         $cpf = preg_replace('/\D+/', '', $cpf ?? '');
         if (strlen($cpf) !== 11) {
-            return ['ok' => false, 'mensagem' => 'CPF inválido', 'vinculos' => null, 'retriable' => false];
+            return [
+                'ok'        => false,
+                'mensagem'  => 'CPF inválido',
+                'vinculos'  => null,
+                'retriable' => false,
+                'not_found' => false,
+            ];
         }
 
         $doRequest = function () use ($cpf) {
@@ -96,7 +103,8 @@ class FactaApiService
                     'ok'        => false,
                     'mensagem'  => $mensagem ?: "HTTP {$status}",
                     'vinculos'  => null,
-                    'retriable' => $retriable
+                    'retriable' => $retriable,
+                    'not_found' => false,
                 ];
             }
 
@@ -109,20 +117,22 @@ class FactaApiService
                     'ok'        => false,
                     'mensagem'  => $this->responseMessage($resp) ?: 'Resposta inválida da FACTA',
                     'vinculos'  => null,
-                    'retriable' => true
+                    'retriable' => true,
+                    'not_found' => false,
                 ];
             }
 
             // Se "erro" vier true, mesmo com 200 → é falha lógica de negócio.
             if (!empty($json['erro'])) {
                 $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');
-                $terminalNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
+                $isNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
 
                 return [
                     'ok'        => false,
-                    'mensagem'  => $mensagem,         // preserva a mensagem exata
+                    'mensagem'  => $mensagem,                // preserva a mensagem exata
                     'vinculos'  => null,
-                    'retriable' => ! $terminalNaoEncontrado, // não retry se "não encontrado"
+                    'retriable' => ! $isNaoEncontrado,       // não retry se "não encontrado"
+                    'not_found' => $isNaoEncontrado,         // <<< sinal neutro para o Job
                 ];
             }
 
@@ -142,6 +152,7 @@ class FactaApiService
                     'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
                     'vinculos'  => $dados,
                     'retriable' => false,
+                    'not_found' => false,
                 ];
             }
 
@@ -151,6 +162,7 @@ class FactaApiService
                 'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
                 'vinculos'  => [],
                 'retriable' => false,
+                'not_found' => false,
             ];
 
         } catch (Throwable $e) {
@@ -158,7 +170,8 @@ class FactaApiService
                 'ok'        => false,
                 'mensagem'  => 'Exceção: '.$e->getMessage(),
                 'vinculos'  => null,
-                'retriable' => true
+                'retriable' => true,
+                'not_found' => false,
             ];
         }
     }
