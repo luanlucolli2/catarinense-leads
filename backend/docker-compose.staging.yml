@@ -46,7 +46,7 @@ services:
   queue:
     image: leads-backend
     container_name: leads-queue
-    command: php artisan queue:work --queue=default --sleep=3 --verbose --timeout=10800 --memory=512 --tries=1
+    command: php artisan queue:work --queue=default --sleep=3 --verbose --timeout=18000 --memory=512 --tries=1
     env_file: .env.staging
     environment:
       <<: *app-env
