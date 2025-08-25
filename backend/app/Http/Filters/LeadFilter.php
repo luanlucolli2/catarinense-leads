@@ -6,12 +6,22 @@ use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
 use App\Models\Lead;
 use App\Models\Vendor;
-use Illuminate\Support\Facades\DB;
 
 class LeadFilter
 {
     public static function apply(Request $r): Builder
     {
+        // Extrai número de 'libera' (TEXT) removendo símbolos, trocando vírgula por ponto e CAST para DECIMAL.
+        // MySQL 8+: REGEXP_REPLACE disponível.
+        $liberaExpr = "CAST(REPLACE(REGEXP_REPLACE(COALESCE(leads.libera, ''), '[^0-9.,-]', ''), ',', '.') AS DECIMAL(20,2))";
+
+        // 'consulta' alinhada à regra de negócio: TRIM para evitar espaços indesejados.
+        $consultaSaldoFacta = "TRIM(leads.consulta) = 'Saldo FACTA'";
+
+        // Expressão booleana normalizada de elegibilidade:
+        // Elegível SE consulta == 'Saldo FACTA' E libera_num > 0; caso contrário, não-elegível.
+        $isElegivel = "CASE WHEN ($consultaSaldoFacta AND $liberaExpr > 0) THEN 1 ELSE 0 END";
+
         $query = Lead::query()
             ->select('leads.*')
             ->withCount('contracts')
@@ -42,13 +52,11 @@ class LeadFilter
         // 2) Status (elegíveis / não-elegíveis)
         if ($r->filled('status') && $r->status !== 'todos') {
             if ($r->status === 'elegiveis') {
-                $query->where('consulta', 'Saldo FACTA')
-                      ->where('libera', '>', 0);
+                // Elegível: consulta == 'Saldo FACTA' e libera_num > 0
+                $query->whereRaw("$isElegivel = 1");
             } else {
-                $query->where(function ($q) {
-                    $q->where('consulta', '!=', 'Saldo FACTA')
-                      ->orWhere('libera', '=', 0);
-                });
+                // Não-elegível: complemento da regra acima (cobre NULL/strings vazias/não numéricos)
+                $query->whereRaw("$isElegivel = 0");
             }
         }
 

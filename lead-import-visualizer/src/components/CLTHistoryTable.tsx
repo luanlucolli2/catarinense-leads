@@ -33,7 +33,7 @@ import {
 type Props = {
   items: CltConsultJobListItem[];
   loading?: boolean;
-  onDownload: (id: number) => void;
+  onDownload: (id: number, opts?: { preview?: boolean }) => void; // 👈 agora aceita "preview"
   onCancel: (id: number) => Promise<void>;
   onRefresh?: () => void; // mantido por compatibilidade, não utilizado aqui
 
@@ -79,7 +79,6 @@ function StatusBadge({ status }: { status: CltConsultJobListItem["status"] }) {
   }
 }
 
-
 export const CLTHistoryTable = ({
   items,
   loading,
@@ -91,15 +90,17 @@ export const CLTHistoryTable = ({
   formatDateTimeBR,
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
-  const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(
-    null
-  );
+  const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
 
   const handlePrev = () => onPageChange(Math.max(1, page - 1));
   const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
 
-  const canDownload = (i: CltConsultJobListItem) =>
+  const canDownloadFinal = (i: CltConsultJobListItem) =>
     i.status === "concluido" && Boolean(i.file_path);
+
+  // Prévia disponível apenas enquanto pendente/em_progresso E se backend já gerou preview_path
+  const canDownloadPreview = (i: CltConsultJobListItem) =>
+    (i.status === "pendente" || i.status === "em_progresso") && Boolean(i.preview_path);
 
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -159,64 +160,77 @@ export const CLTHistoryTable = ({
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((i) => (
-                <TableRow key={i.id} className="hover:bg-gray-50">
-                  <TableCell className="font-medium">{i.title}</TableCell>
-                  <TableCell className="text-gray-600">
-                    {formatDateTimeBR(i.created_at)}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <StatusBadge status={i.status} />
-                  </TableCell>
-                  <TableCell className="text-center font-medium">
-                    {i.total_cpfs.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-center text-green-600 font-medium">
-                    {i.success_count.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-center text-red-600 font-medium">
-                    {i.fail_count.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <Button
-                        onClick={() => openCancelDialog(i)}
-                        disabled={!canCancel(i) || cancelingId === i.id}
-                        variant="destructive"
-                        size="sm"
-                        className={cn(
-                          "flex items-center gap-2 px-3",
-                          !canCancel(i) && "opacity-50 cursor-not-allowed"
-                        )}
-                        title={canCancel(i) ? "Cancelar consulta" : undefined}
-                      >
-                        {cancelingId === i.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <XCircle className="w-4 h-4" />
-                        )}
-                        Cancelar
-                      </Button>
+              items.map((i) => {
+                const finalReady = canDownloadFinal(i);
+                const previewReady = canDownloadPreview(i);
+                const downloadDisabled = !finalReady && !previewReady;
 
-                      <Button
-                        onClick={() => onDownload(i.id)}
-                        disabled={!canDownload(i)}
-                        variant="outline"
-                        size="sm"
-                        className={cn(
-                          "flex items-center gap-2 px-3",
-                          canDownload(i)
-                            ? "border-blue-300 text-blue-700 hover:bg-blue-50"
-                            : "opacity-50 cursor-not-allowed"
-                        )}
-                      >
-                        <Download className="w-4 h-4" />
-                        Baixar planilha
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                return (
+                  <TableRow key={i.id} className="hover:bg-gray-50">
+                    <TableCell className="font-medium">{i.title}</TableCell>
+                    <TableCell className="text-gray-600">
+                      {formatDateTimeBR(i.created_at)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <StatusBadge status={i.status} />
+                    </TableCell>
+                    <TableCell className="text-center font-medium">
+                      {i.total_cpfs.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center text-green-600 font-medium">
+                      {i.success_count.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center text-red-600 font-medium">
+                      {i.fail_count.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button
+                          onClick={() => openCancelDialog(i)}
+                          disabled={!canCancel(i) || cancelingId === i.id}
+                          variant="destructive"
+                          size="sm"
+                          className={cn(
+                            "flex items-center gap-2 px-3",
+                            !canCancel(i) && "opacity-50 cursor-not-allowed"
+                          )}
+                          title={canCancel(i) ? "Cancelar consulta" : undefined}
+                        >
+                          {cancelingId === i.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <XCircle className="w-4 h-4" />
+                          )}
+                          Cancelar
+                        </Button>
+
+                        <Button
+                          onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
+                          disabled={downloadDisabled}
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "flex items-center gap-2 px-3",
+                            !downloadDisabled
+                              ? "border-blue-300 text-blue-700 hover:bg-blue-50"
+                              : "opacity-50 cursor-not-allowed"
+                          )}
+                          title={
+                            finalReady
+                              ? "Baixar planilha final"
+                              : previewReady
+                              ? "Baixar planilha (prévia)"
+                              : undefined
+                          }
+                        >
+                          <Download className="w-4 h-4" />
+                          {finalReady ? "Baixar planilha" : previewReady ? "Baixar planilha (prévia)" : "Baixar planilha"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>

@@ -13,6 +13,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
 
@@ -50,9 +51,10 @@ class ProcessCltConsultJob implements ShouldQueue
         /** @var CltConsultJob $job */
         $job = CltConsultJob::query()->whereKey($this->jobId)->firstOrFail();
 
-        // Se foi cancelado antes de começar, encerra sem mexer em nada.
+        // Se foi cancelado antes de começar, encerra e limpa qualquer prévia.
         if ($this->isCancelled()) {
             Log::info("[CLT] Job {$this->jobId} já cancelado antes do início.");
+            $this->deletePreview($job);
             return;
         }
 
@@ -65,6 +67,7 @@ class ProcessCltConsultJob implements ShouldQueue
             ]);
         } else {
             Log::info("[CLT] Job {$this->jobId} cancelado na largada.");
+            $this->deletePreview($job);
             return;
         }
 
@@ -166,16 +169,15 @@ class ProcessCltConsultJob implements ShouldQueue
                     } else {
                         $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
 
-                        // NOVO: caso neutro "CPF não encontrado na base"
+                        // Caso neutro "CPF não encontrado na base" — não conta falha nem sucesso.
                         if (!empty($res['not_found'])) {
                             $row = $this->baseRow($cpf);
                             $row['numeroVinculos'] = 0;
-                            $row['mensagem'] = $msg;          // mantém a mensagem original
+                            $row['mensagem'] = $msg; // mantém mensagem original
                             $rows[] = $row;
 
-                            // remove dos pendentes, mas não conta sucesso nem falha
+                            // retira dos pendentes (não será mais tentado)
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
-                            // segue sem alterar counters agora; fail_count é calculado no fim
                             continue;
                         }
 
@@ -188,13 +190,19 @@ class ProcessCltConsultJob implements ShouldQueue
                     }
                 }
 
+                // 🔒 checa cancelamento imediatamente antes de gerar a PRÉVIA (evita recriar após cancelar)
+                if ($this->finishIfCancelled($job)) return;
+
+                // 🔄 Gera PRÉVIA ao final da tentativa
+                $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
+
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job)) return;
                     sleep(max(1, $retryDelay));
                 }
             }
 
-            // 3) Falhas não-retriáveis
+            // 3) Falhas não-retriáveis (adiciona linhas finais)
             foreach ($terminalFailures as $cpf => $msg) {
                 if ($this->finishIfCancelled($job)) return;
 
@@ -204,7 +212,7 @@ class ProcessCltConsultJob implements ShouldQueue
                 $rows[] = $row;
             }
 
-            // 4) Falhas após teimosinha (o que restou em $pendentes)
+            // 4) Falhas após teimosinha (restantes em $pendentes)
             foreach ($pendentes as $cpf) {
                 if ($this->finishIfCancelled($job)) return;
 
@@ -214,18 +222,19 @@ class ProcessCltConsultJob implements ShouldQueue
                 $rows[] = $row;
             }
 
-            // Se cancelou durante a montagem final, encerra sem concluir/gerar arquivo.
+            // Se cancelou durante a montagem final, encerra sem concluir/gerar arquivo definitivo.
             if ($this->isCancelled()) {
                 $job->update(['finished_at' => Carbon::now()]);
+                $this->deletePreview($job);
                 Log::info("[CLT] Job {$this->jobId} cancelado na finalização.");
                 return;
             }
 
             $successCount = count($successMap);
             $failCount    = $invalidCount + count($terminalFailures) + count($pendentes);
-            // Observação: entradas "not_found" são neutras e não entram em $failCount nem em $successCount.
+            // Observação: entradas "not_found" são neutras (não contam em sucesso nem falha).
 
-            // gerar e salvar o Excel
+            // gerar e salvar o Excel FINAL
             $disk     = env('CLT_REPORTS_DISK', 'public');
             $dir      = 'clt-reports';
             $ts       = Carbon::now()->format('Ymd_His');
@@ -245,9 +254,14 @@ class ProcessCltConsultJob implements ShouldQueue
                     'status'        => 'concluido',
                     'finished_at'   => Carbon::now(),
                 ]);
+
+                // 🧹 apaga a PRÉVIA ao final
+                $this->deletePreview($job);
+
                 Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$successCount}, falha: {$failCount}");
             } else {
                 $job->update(['finished_at' => Carbon::now()]);
+                $this->deletePreview($job);
                 Log::info("[CLT] Job {$this->jobId} cancelado após geração de artefatos.");
             }
 
@@ -257,6 +271,9 @@ class ProcessCltConsultJob implements ShouldQueue
                 'status'      => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
+
+            // em falha geral, também limpamos a prévia
+            $this->deletePreview($job);
         }
     }
 
@@ -272,6 +289,7 @@ class ProcessCltConsultJob implements ShouldQueue
     {
         if ($this->isCancelled()) {
             $job->update(['finished_at' => Carbon::now()]);
+            $this->deletePreview($job);
             Log::info("[CLT] Job {$this->jobId} interrompido por cancelamento.");
             return true;
         }
@@ -286,6 +304,66 @@ class ProcessCltConsultJob implements ShouldQueue
         }
         $row['cpf'] = $cpf;
         return $row;
+    }
+
+    private function generatePreview(CltConsultJob $job, array $rows, array $pendentes, array $terminalFailures): void
+    {
+        try {
+            $rowsPreview = $rows;
+
+            foreach ($terminalFailures as $cpf => $msg) {
+                $rowsPreview[] = array_merge($this->baseRow($cpf), [
+                    'numeroVinculos' => 0,
+                    'mensagem'       => $msg,
+                ]);
+            }
+
+            foreach ($pendentes as $cpf) {
+                $rowsPreview[] = array_merge($this->baseRow($cpf), [
+                    'numeroVinculos' => 0,
+                    'mensagem'       => 'Em andamento',
+                ]);
+            }
+
+            $disk        = env('CLT_REPORTS_DISK', 'public');
+            $dir         = 'clt-previews';
+            $fileName    = "clt-consulta_{$this->jobId}_preview.xlsx";
+            $path        = "{$dir}/{$fileName}";
+            $updatedAt   = Carbon::now();
+
+            Excel::store(new CltConsultExport($rowsPreview), $path, $disk);
+
+            $job->update([
+                'preview_disk'       => $disk,
+                'preview_path'       => $path,
+                'preview_name'       => $fileName,
+                'preview_updated_at' => $updatedAt,
+            ]);
+        } catch (Throwable $e) {
+            Log::warning("[CLT] Job {$this->jobId} falha ao gerar prévia: ".$e->getMessage());
+        }
+    }
+
+    /** Apaga a prévia (arquivo+campos) se existir */
+    private function deletePreview(CltConsultJob $job): void
+    {
+        try {
+            if ($job->preview_disk && $job->preview_path) {
+                $disk = Storage::disk($job->preview_disk);
+                if ($disk->exists($job->preview_path)) {
+                    $disk->delete($job->preview_path);
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning("[CLT] Job {$this->jobId} falha ao apagar prévia: ".$e->getMessage());
+        } finally {
+            $job->updateQuietly([
+                'preview_disk'       => null,
+                'preview_path'       => null,
+                'preview_name'       => null,
+                'preview_updated_at' => null,
+            ]);
+        }
     }
 
     private function computeValorMaximoPrestacao($valorMargemDisponivel): ?string

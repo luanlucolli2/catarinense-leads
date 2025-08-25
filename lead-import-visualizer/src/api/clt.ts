@@ -15,6 +15,12 @@ export interface CltConsultJobListItem {
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
+  // 👇 campos opcionais de PRÉVIA (o index retorna os atributos do model)
+  preview_disk?: string | null
+  preview_path?: string | null
+  preview_name?: string | null
+  preview_updated_at?: string | null
+
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
@@ -31,6 +37,10 @@ export interface CltConsultJobShow {
   success_count: number
   fail_count: number
   has_file: boolean
+  // 👇 também exposto no show()
+  has_preview?: boolean
+  preview_updated_at?: string | null
+
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
@@ -75,7 +85,7 @@ export async function getCltConsultJob(id: number): Promise<CltConsultJobShow> {
   return data
 }
 
-/** Faz o download do relatório (stream) */
+/** Faz o download do relatório FINAL (stream) */
 export async function downloadCltReport(id: number) {
   const resp = await axiosClient.get(`/clt/consult-jobs/${id}/download`, {
     responseType: 'blob',
@@ -83,6 +93,25 @@ export async function downloadCltReport(id: number) {
 
   const cd = resp.headers['content-disposition'] || ''
   const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.xlsx`
+
+  const url = window.URL.createObjectURL(resp.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+/** Faz o download da PRÉVIA (enquanto em andamento) */
+export async function downloadCltPreview(id: number) {
+  const resp = await axiosClient.get(`/clt/consult-jobs/${id}/preview`, {
+    responseType: 'blob',
+  })
+
+  const cd = resp.headers['content-disposition'] || ''
+  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}-preview.xlsx`
 
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')
