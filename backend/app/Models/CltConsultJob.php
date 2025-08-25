@@ -12,12 +12,15 @@ class CltConsultJob extends Model
         'file_disk','file_path','file_name',
         'started_at','finished_at',
         'canceled_at','cancel_reason',
+        // 👇 prévia
+        'preview_disk','preview_path','preview_name','preview_updated_at',
     ];
 
     protected $casts = [
-        'started_at'   => 'datetime',
-        'finished_at'  => 'datetime',
-        'canceled_at'  => 'datetime',
+        'started_at'         => 'datetime',
+        'finished_at'        => 'datetime',
+        'canceled_at'        => 'datetime',
+        'preview_updated_at' => 'datetime',
     ];
 
     public function user() {
@@ -32,5 +35,11 @@ class CltConsultJob extends Model
     public function getIsCancelableAttribute(): bool
     {
         return in_array($this->status, ['pendente','em_progresso'], true);
+    }
+
+    /** Conveniência: tem prévia disponível? */
+    public function getHasPreviewAttribute(): bool
+    {
+        return !empty($this->preview_path) && !empty($this->preview_disk);
     }
 }

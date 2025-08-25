@@ -6,6 +6,7 @@ import {
   listCltConsultJobs,
   createCltConsultJob,
   downloadCltReport,
+  downloadCltPreview,
   cancelCltConsultJob,
   CltConsultJobListItem,
 } from "@/api/clt";
@@ -116,9 +117,14 @@ const CLTConsultaPage = () => {
     }
   };
 
-  const handleDownload = async (id: number) => {
+  // 👇 agora decide se baixa FINAL ou PRÉVIA
+  const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
     try {
-      await downloadCltReport(id);
+      if (opts?.preview) {
+        await downloadCltPreview(id);
+      } else {
+        await downloadCltReport(id);
+      }
     } catch (e: any) {
       toast.error(e?.message ?? "Falha no download");
     }

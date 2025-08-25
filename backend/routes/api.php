@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clt/consult-jobs', [CltConsultController::class, 'store']);
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
+    Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
 
     // ✅ Cancelar um job
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');

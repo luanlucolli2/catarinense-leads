@@ -8,6 +8,7 @@ use App\Models\CltConsultJob;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -30,16 +31,19 @@ class CltConsultController extends Controller
             ->findOrFail($id);
 
         return response()->json([
-            'id'            => $job->id,
-            'title'         => $job->title,
-            'status'        => $job->status,
-            'total_cpfs'    => $job->total_cpfs,
-            'success_count' => $job->success_count,
-            'fail_count'    => $job->fail_count,
-            'has_file'      => $job->file_disk && $job->file_path,
-            'started_at'    => $job->started_at,
-            'finished_at'   => $job->finished_at,
-            'created_at'    => $job->created_at,
+            'id'                  => $job->id,
+            'title'               => $job->title,
+            'status'              => $job->status,
+            'total_cpfs'          => $job->total_cpfs,
+            'success_count'       => $job->success_count,
+            'fail_count'          => $job->fail_count,
+            'has_file'            => $job->file_disk && $job->file_path,
+            'started_at'          => $job->started_at,
+            'finished_at'         => $job->finished_at,
+            'created_at'          => $job->created_at,
+            // prévia
+            'has_preview'         => $job->preview_disk && $job->preview_path,
+            'preview_updated_at'  => $job->preview_updated_at,
         ]);
     }
 
@@ -96,6 +100,7 @@ class CltConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
+    /** Download do relatório FINAL */
     public function download(int $id)
     {
         $job = CltConsultJob::query()
@@ -129,7 +134,41 @@ class CltConsultController extends Controller
         ]);
     }
 
-    /** ✅ Cancelar job */
+    /** ✅ Download da PRÉVIA (enquanto em andamento) */
+    public function downloadPreview(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if (empty($job->preview_disk) || empty($job->preview_path)) {
+            return response()->json(['message' => 'Prévia não disponível.'], Response::HTTP_CONFLICT);
+        }
+
+        $filename = $job->preview_name ?: "clt-consulta-{$job->id}-preview.xlsx";
+
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
+        $disk = Storage::disk($job->preview_disk);
+
+        if (! $disk->exists($job->preview_path)) {
+            return response()->json(['message' => 'Arquivo de prévia não encontrado.'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (method_exists($disk, 'download')) {
+            return $disk->download($job->preview_path, $filename);
+        }
+
+        $content = $disk->get($job->preview_path);
+        $mime = $disk->mimeType($job->preview_path)
+            ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+        return response($content, Response::HTTP_OK, [
+            'Content-Type'        => $mime,
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    /** ✅ Cancelar job (agora apaga a PRÉVIA imediatamente) */
     public function cancel(Request $request, int $id)
     {
         $job = CltConsultJob::query()
@@ -147,17 +186,37 @@ class CltConsultController extends Controller
             'reason' => ['nullable','string','max:191'],
         ]);
 
+        // marca como cancelado
         $job->update([
             'status'        => 'cancelado',
             'canceled_at'   => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
 
+        // apaga PRÉVIA imediatamente (robustez contra race e worker parado)
+        try {
+            if ($job->preview_disk && $job->preview_path) {
+                $disk = Storage::disk($job->preview_disk);
+                if ($disk->exists($job->preview_path)) {
+                    $disk->delete($job->preview_path);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[CLT] Erro ao apagar prévia no cancel (job {$job->id}): ".$e->getMessage());
+        } finally {
+            $job->update([
+                'preview_disk'       => null,
+                'preview_path'       => null,
+                'preview_name'       => null,
+                'preview_updated_at' => null,
+            ]);
+        }
+
         return response()->json([
-            'id'           => $job->id,
-            'status'       => $job->status,
-            'canceled_at'  => $job->canceled_at,
-            'cancel_reason'=> $job->cancel_reason,
+            'id'            => $job->id,
+            'status'        => $job->status,
+            'canceled_at'   => $job->canceled_at,
+            'cancel_reason' => $job->cancel_reason,
         ]);
     }
 }
