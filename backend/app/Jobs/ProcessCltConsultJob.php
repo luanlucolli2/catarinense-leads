@@ -24,6 +24,14 @@ class ProcessCltConsultJob implements ShouldQueue
     /** Timeout por job (segundos). Controlado via .env: CLT_JOB_TIMEOUT. */
     public int $timeout;
 
+    // --- NOVO: Constantes para controle de prévia e cancelamento ---
+    /** Intervalo em segundos para gerar a prévia. */
+    private const PREVIEW_INTERVAL_SECONDS = 60;
+
+    /** A cada quantos CPFs checar o cancelamento (throttling para evitar sobrecarga no DB). */
+    private const CANCEL_CHECK_THROTTLE = 20;
+    // --- FIM NOVO ---
+
     private int $jobId;
     private int $userId;
     private string $title;
@@ -51,14 +59,12 @@ class ProcessCltConsultJob implements ShouldQueue
         /** @var CltConsultJob $job */
         $job = CltConsultJob::query()->whereKey($this->jobId)->firstOrFail();
 
-        // Se foi cancelado antes de começar, encerra e limpa qualquer prévia.
         if ($this->isCancelled()) {
             Log::info("[CLT] Job {$this->jobId} já cancelado antes do início.");
             $this->deletePreview($job);
             return;
         }
 
-        // Marcar em progresso (somente se não cancelado)
         if (!$this->isCancelled()) {
             $job->update([
                 'status'     => 'em_progresso',
@@ -80,12 +86,14 @@ class ProcessCltConsultJob implements ShouldQueue
         $terminalFailures = [];
         $pendentes        = $this->cpfs;
         $invalidCount     = count($this->invalidCpfs);
+        
+        // --- NOVO: Controle de tempo para prévia ---
+        $lastPreviewTime  = Carbon::now();
 
         try {
             // 1) CPFs inválidos
             foreach ($this->invalidCpfs as $cpfInv) {
-                if ($this->finishIfCancelled($job)) return;
-
+                // Não precisa checar cancelamento aqui, é rápido.
                 $row = $this->baseRow($cpfInv);
                 $row['numeroVinculos'] = 0;
                 $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
@@ -99,13 +107,20 @@ class ProcessCltConsultJob implements ShouldQueue
 
                 Log::info("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: ".count($pendentes));
                 $toTry = $pendentes;
+                $cpfCounter = 0; // --- NOVO: Contador para throttling do cancelamento
 
                 foreach ($toTry as $cpf) {
-                    if ($this->finishIfCancelled($job)) return;
+                    $cpfCounter++; // --- NOVO
+                    // --- ALTERADO: Lógica de verificação de cancelamento com throttling ---
+                    if ($cpfCounter % self::CANCEL_CHECK_THROTTLE === 0) {
+                        if ($this->finishIfCancelled($job)) return;
+                    }
+                    // --- FIM ALTERADO ---
 
                     $res = $facta->autorizaConsulta($cpf);
 
                     if ($res['ok'] === true) {
+                        // ... (toda a lógica de processamento de sucesso permanece idêntica)
                         $vinculos = $res['vinculos'] ?? [];
                         $total = is_array($vinculos) ? count($vinculos) : 0;
 
@@ -113,46 +128,34 @@ class ProcessCltConsultJob implements ShouldQueue
                             foreach ($vinculos as $v) {
                                 $row = $this->baseRow($cpf);
                                 $row['numeroVinculos'] = $total;
-
-                                // Núcleo
-                                $row['elegivel']                  = $v['elegivel']                      ?? null;
-                                $row['valorMargemDisponivel']     = $v['valorMargemDisponivel']         ?? null;
-                                $row['valorMaximoPrestacao']      = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
-                                $row['valorBaseMargem']           = $v['valorBaseMargem']               ?? null;
-                                $row['valorTotalVencimentos']     = $v['valorTotalVencimentos']         ?? null;
-
-                                // Vínculo/empregador
-                                $row['nomeEmpregador']            = $v['nomeEmpregador']                ?? null;
-                                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador']     ?? null;
+                                // ... mapeamento de campos
+                                $row['elegivel'] = $v['elegivel'] ?? null;
+                                $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
+                                $row['valorMaximoPrestacao'] = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
+                                $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
+                                $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
+                                $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
+                                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
                                 $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
-                                $row['matricula']                 = $v['matricula']                     ?? null;
-                                $row['dataAdmissao']              = $v['dataAdmissao']                  ?? null;
-                                $row['tempoAdmissaoMeses']        = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
-                                $row['dataDesligamento']          = $v['dataDesligamento']              ?? null;
-                                $row['codigoMotivoDesligamento']  = $v['codigoMotivoDesligamento']      ?? null;
-
-                                // Contexto
-                                $row['codigoCategoriaTrabalhador']= $v['codigoCategoriaTrabalhador']    ?? null;
-                                $row['cbo_descricao']             = $v['cbo_descricao']                 ?? null;
-                                $row['cnae_descricao']            = $v['cnae_descricao']                ?? null;
+                                $row['matricula'] = $v['matricula'] ?? null;
+                                $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
+                                $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
+                                $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
+                                $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
+                                $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
+                                $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
+                                $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
                                 $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
-
-                                // Alertas
-                                $row['possuiAlertas']             = $v['possuiAlertas']                 ?? null;
+                                $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
                                 $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
-                                $row['emprestimosLegados']        = $v['emprestimosLegados']            ?? null;
+                                $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
                                 $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
-
-                                // Identificação
-                                $row['nome']                      = $v['nome']                          ?? null;
-                                $row['dataNascimento']            = $v['dataNascimento']                ?? null;
-                                $row['idade']                     = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
-                                $row['sexo_descricao']            = $v['sexo_descricao']                ?? null;
-
-                                // Meta/status
-                                $row['status_code']               = $v['status_code']                   ?? null;
-                                $row['mensagem']                  = $res['mensagem']                    ?? 'OK';
-
+                                $row['nome'] = $v['nome'] ?? null;
+                                $row['dataNascimento'] = $v['dataNascimento'] ?? null;
+                                $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
+                                $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
+                                $row['status_code'] = $v['status_code'] ?? null;
+                                $row['mensagem'] = $res['mensagem'] ?? 'OK';
                                 $rows[] = $row;
                             }
                         } else {
@@ -165,22 +168,17 @@ class ProcessCltConsultJob implements ShouldQueue
                         $successMap[$cpf] = true;
                         $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                         $job->increment('success_count');
-
                     } else {
+                        // ... (lógica de falha permanece idêntica)
                         $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
-
-                        // Caso neutro "CPF não encontrado na base" — não conta falha nem sucesso.
                         if (!empty($res['not_found'])) {
                             $row = $this->baseRow($cpf);
                             $row['numeroVinculos'] = 0;
-                            $row['mensagem'] = $msg; // mantém mensagem original
+                            $row['mensagem'] = $msg;
                             $rows[] = $row;
-
-                            // retira dos pendentes (não será mais tentado)
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                             continue;
                         }
-
                         if (isset($res['retriable']) && $res['retriable'] === false) {
                             $terminalFailures[$cpf] = $msg;
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
@@ -188,13 +186,24 @@ class ProcessCltConsultJob implements ShouldQueue
                             $lastError[$cpf] = $msg;
                         }
                     }
+
+                    // --- NOVO: Gera prévia por tempo se o intervalo foi atingido ---
+                    if ($lastPreviewTime->diffInSeconds(Carbon::now()) >= self::PREVIEW_INTERVAL_SECONDS) {
+                        if ($this->finishIfCancelled($job)) return;
+                        
+                        Log::info("[CLT] Job {$this->jobId} gerando prévia por tempo.");
+                        $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
+                        $lastPreviewTime = Carbon::now(); // Reseta o timer
+                    }
+                    // --- FIM NOVO ---
                 }
 
-                // 🔒 checa cancelamento imediatamente antes de gerar a PRÉVIA (evita recriar após cancelar)
                 if ($this->finishIfCancelled($job)) return;
 
-                // 🔄 Gera PRÉVIA ao final da tentativa
+                // 🔄 Gera PRÉVIA ao final da tentativa (garante atualização para loops rápidos)
+                Log::info("[CLT] Job {$this->jobId} gerando prévia ao final da tentativa {$attempt}.");
                 $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
+                $lastPreviewTime = Carbon::now(); // Reseta o timer também
 
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job)) return;
@@ -203,9 +212,9 @@ class ProcessCltConsultJob implements ShouldQueue
             }
 
             // 3) Falhas não-retriáveis (adiciona linhas finais)
+            // ... (restante do código sem alterações)
             foreach ($terminalFailures as $cpf => $msg) {
                 if ($this->finishIfCancelled($job)) return;
-
                 $row = $this->baseRow($cpf);
                 $row['numeroVinculos'] = 0;
                 $row['mensagem'] = $msg;
@@ -215,14 +224,12 @@ class ProcessCltConsultJob implements ShouldQueue
             // 4) Falhas após teimosinha (restantes em $pendentes)
             foreach ($pendentes as $cpf) {
                 if ($this->finishIfCancelled($job)) return;
-
                 $row = $this->baseRow($cpf);
                 $row['numeroVinculos'] = 0;
                 $row['mensagem'] = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
                 $rows[] = $row;
             }
 
-            // Se cancelou durante a montagem final, encerra sem concluir/gerar arquivo definitivo.
             if ($this->isCancelled()) {
                 $job->update(['finished_at' => Carbon::now()]);
                 $this->deletePreview($job);
@@ -232,9 +239,7 @@ class ProcessCltConsultJob implements ShouldQueue
 
             $successCount = count($successMap);
             $failCount    = $invalidCount + count($terminalFailures) + count($pendentes);
-            // Observação: entradas "not_found" são neutras (não contam em sucesso nem falha).
 
-            // gerar e salvar o Excel FINAL
             $disk     = env('CLT_REPORTS_DISK', 'public');
             $dir      = 'clt-reports';
             $ts       = Carbon::now()->format('Ymd_His');
@@ -243,7 +248,6 @@ class ProcessCltConsultJob implements ShouldQueue
 
             Excel::store(new CltConsultExport($rows), $path, $disk);
 
-            // Evitar sobrescrever cancelado no final
             if (!$this->isCancelled()) {
                 $job->update([
                     'success_count' => $successCount,
@@ -254,10 +258,7 @@ class ProcessCltConsultJob implements ShouldQueue
                     'status'        => 'concluido',
                     'finished_at'   => Carbon::now(),
                 ]);
-
-                // 🧹 apaga a PRÉVIA ao final
                 $this->deletePreview($job);
-
                 Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$successCount}, falha: {$failCount}");
             } else {
                 $job->update(['finished_at' => Carbon::now()]);
@@ -271,8 +272,6 @@ class ProcessCltConsultJob implements ShouldQueue
                 'status'      => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
-
-            // em falha geral, também limpamos a prévia
             $this->deletePreview($job);
         }
     }
@@ -281,6 +280,7 @@ class ProcessCltConsultJob implements ShouldQueue
 
     private function isCancelled(): bool
     {
+        // Esta função permanece a mesma, mas será chamada com menos frequência.
         $status = DB::table('clt_consult_jobs')->where('id', $this->jobId)->value('status');
         return $status === 'cancelado';
     }
@@ -296,6 +296,7 @@ class ProcessCltConsultJob implements ShouldQueue
         return false;
     }
 
+    // ... (demais métodos helpers `baseRow`, `generatePreview`, `deletePreview`, etc., permanecem idênticos)
     private function baseRow(string $cpf): array
     {
         $row = [];
@@ -344,7 +345,6 @@ class ProcessCltConsultJob implements ShouldQueue
         }
     }
 
-    /** Apaga a prévia (arquivo+campos) se existir */
     private function deletePreview(CltConsultJob $job): void
     {
         try {
