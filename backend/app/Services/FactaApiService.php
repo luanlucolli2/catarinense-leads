@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -14,7 +15,7 @@ class FactaApiService
     private ?string $basicAuth;
     private int $tokenTtl;
 
-    /** NOVO: timeouts p/ requisições */
+    /** Timeouts por requisição */
     private int $httpTimeout;
     private int $httpConnectTimeout;
 
@@ -25,7 +26,6 @@ class FactaApiService
         $this->basicAuth = $cfg['basic_auth'] ?? null;
         $this->tokenTtl  = (int) ($cfg['token_ttl'] ?? 3300);
 
-        // Defaults seguros; podem ser sobrescritos no .env
         $this->httpTimeout        = (int) env('CLT_HTTP_TIMEOUT', 15);
         $this->httpConnectTimeout = (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10);
     }
@@ -61,25 +61,28 @@ class FactaApiService
     }
 
     /**
-     * Consulta unitária (mantida p/ compatibilidade/pontos isolados).
+     * Consulta unitária (mantida para fallback/compatibilidade).
      * Retorna:
      *  - ok: bool
      *  - mensagem: string
      *  - vinculos: array|null
      *  - retriable: bool
      *  - not_found: bool
+     *  - http_status: int|null
+     *  - retry_after: int|null (segundos)
      */
     public function autorizaConsulta(string $cpf): array
     {
-        // Reforço: 11 dígitos
         $cpf = preg_replace('/\D+/', '', $cpf ?? '');
         if (strlen($cpf) !== 11) {
             return [
-                'ok'        => false,
-                'mensagem'  => 'CPF inválido',
-                'vinculos'  => null,
-                'retriable' => false,
-                'not_found' => false,
+                'ok'          => false,
+                'mensagem'    => 'CPF inválido',
+                'vinculos'    => null,
+                'retriable'   => false,
+                'not_found'   => false,
+                'http_status' => null,
+                'retry_after' => null,
             ];
         }
 
@@ -89,17 +92,24 @@ class FactaApiService
             return Http::withHeaders([
                 'Authorization' => 'Bearer '.$token,
                 'Accept'        => 'application/json',
-            ])->timeout($this->httpTimeout)
-              ->connectTimeout($this->httpConnectTimeout)
-              ->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
-                  'cpf' => $cpf,
-              ]);
+            ])
+            ->timeout($this->httpTimeout)
+            ->connectTimeout($this->httpConnectTimeout)
+            ->retry(
+                (int) env('CLT_HTTP_RETRY', 1),
+                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+                function ($exception) {
+                    return $exception instanceof ConnectionException;
+                }
+            )
+            ->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
+                'cpf' => $cpf,
+            ]);
         };
 
         try {
             $resp = $doRequest();
 
-            // Se 401, renova token e tenta 1x
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $resp = $doRequest();
@@ -108,22 +118,22 @@ class FactaApiService
             return $this->parseAutorizaResponse($resp);
         } catch (Throwable $e) {
             return [
-                'ok'        => false,
-                'mensagem'  => 'Exceção: '.$e->getMessage(),
-                'vinculos'  => null,
-                'retriable' => true,
-                'not_found' => false,
+                'ok'          => false,
+                'mensagem'    => 'Exceção: '.$e->getMessage(),
+                'vinculos'    => null,
+                'retriable'   => true,
+                'not_found'   => false,
+                'http_status' => null,
+                'retry_after' => null,
             ];
         }
     }
 
     /**
-     * NOVO: Consulta em lote (concorrente) por CPFs válidos (11 dígitos).
-     * Retorna array associativo: [cpf => resultado-da-autorizaConsulta(...)]
+     * Consulta em lote concorrente; retorna [cpf => resultado]
      */
     public function autorizaConsultaLote(array $cpfs): array
     {
-        // Normaliza e filtra cpfs inválidos (aqui assumimos que já vieram válidos do Job)
         $cpfs = array_values(array_filter(array_map(function ($c) {
             $c = preg_replace('/\D+/', '', (string) $c);
             return strlen($c) === 11 ? $c : null;
@@ -133,29 +143,45 @@ class FactaApiService
             return [];
         }
 
-        // 1) Dispara o pool com o token atual
         $token   = $this->getToken();
         $headers = [
             'Authorization' => 'Bearer '.$token,
             'Accept'        => 'application/json',
         ];
-
         $url = $this->baseUrl.'/consignado-trabalhador/autoriza-consulta';
 
         /** @var array<string,HttpResponse> $responses */
-        $responses = Http::pool(function (Pool $pool) use ($cpfs, $headers, $url) {
-            $reqs = [];
+        try {
+            $responses = Http::pool(function (Pool $pool) use ($cpfs, $headers, $url) {
+                $reqs = [];
+                foreach ($cpfs as $cpf) {
+                    $reqs[] = $pool->as($cpf)
+                        ->withHeaders($headers)
+                        ->timeout($this->httpTimeout)
+                        ->connectTimeout($this->httpConnectTimeout)
+                        ->retry(
+                            (int) env('CLT_HTTP_RETRY', 1),
+                            (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+                            function ($exception) {
+                                return $exception instanceof ConnectionException;
+                            }
+                        )
+                        ->get($url, ['cpf' => $cpf]);
+                }
+                return $reqs;
+            });
+        } catch (Throwable $e) {
+            // Pool falhou – tenta unitário para cada CPF (fallback)
+            $out = [];
             foreach ($cpfs as $cpf) {
-                $reqs[] = $pool->as($cpf)
-                    ->withHeaders($headers)
-                    ->timeout($this->httpTimeout)
-                    ->connectTimeout($this->httpConnectTimeout)
-                    ->get($url, ['cpf' => $cpf]);
+                $one = $this->autorizaConsulta($cpf);
+                $one['mensagem'] = 'Fallback (pool exceção): '.($one['mensagem'] ?? '');
+                $out[$cpf] = $one;
             }
-            return $reqs;
-        });
+            return $out;
+        }
 
-        // 2) Se houver 401 em algum, renova token e refaz somente aqueles CPFs (1x)
+        // 401 → renova token apenas dos necessários
         $needRetry = [];
         foreach ($responses as $cpf => $resp) {
             if ($resp instanceof HttpResponse && $resp->status() === 401) {
@@ -169,36 +195,42 @@ class FactaApiService
                 'Authorization' => 'Bearer '.$token2,
                 'Accept'        => 'application/json',
             ];
-            /** @var array<string,HttpResponse> $retryResponses */
-            $retryResponses = Http::pool(function (Pool $pool) use ($needRetry, $headers2, $url) {
-                $reqs = [];
-                foreach ($needRetry as $cpf) {
-                    $reqs[] = $pool->as($cpf)
-                        ->withHeaders($headers2)
-                        ->timeout($this->httpTimeout)
-                        ->connectTimeout($this->httpConnectTimeout)
-                        ->get($url, ['cpf' => $cpf]);
+            try {
+                /** @var array<string,HttpResponse> $retryResponses */
+                $retryResponses = Http::pool(function (Pool $pool) use ($needRetry, $headers2, $url) {
+                    $reqs = [];
+                    foreach ($needRetry as $cpf) {
+                        $reqs[] = $pool->as($cpf)
+                            ->withHeaders($headers2)
+                            ->timeout($this->httpTimeout)
+                            ->connectTimeout($this->httpConnectTimeout)
+                            ->retry(
+                                (int) env('CLT_HTTP_RETRY', 1),
+                                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+                                function ($exception) {
+                                    return $exception instanceof ConnectionException;
+                                }
+                            )
+                            ->get($url, ['cpf' => $cpf]);
+                    }
+                    return $reqs;
+                });
+                foreach ($retryResponses as $cpf => $resp) {
+                    $responses[$cpf] = $resp;
                 }
-                return $reqs;
-            });
-            // substitui apenas os que foram re-tentados
-            foreach ($retryResponses as $cpf => $resp) {
-                $responses[$cpf] = $resp;
+            } catch (Throwable $e) {
+                // mantém as respostas antigas (401); o Job vai retriar em outra tentativa
             }
         }
 
-        // 3) Monta resultados normalizados por CPF
         $out = [];
         foreach ($cpfs as $cpf) {
             $resp = $responses[$cpf] ?? null;
             if (!$resp instanceof HttpResponse) {
-                $out[$cpf] = [
-                    'ok'        => false,
-                    'mensagem'  => 'Sem resposta',
-                    'vinculos'  => null,
-                    'retriable' => true,
-                    'not_found' => false,
-                ];
+                // Fallback unitário quando o pool não devolveu Response para este CPF
+                $one = $this->autorizaConsulta($cpf);
+                $one['mensagem'] = 'Fallback após pool: '.($one['mensagem'] ?? '');
+                $out[$cpf] = $one;
                 continue;
             }
             $out[$cpf] = $this->parseAutorizaResponse($resp);
@@ -207,53 +239,56 @@ class FactaApiService
         return $out;
     }
 
-    /**
-     * Parser unificado da resposta da FACTA (tanto p/ unitário quanto p/ lote).
-     */
+    /** --------- Helpers --------- */
+
     private function parseAutorizaResponse(HttpResponse $resp): array
     {
-        // HTTP != 2xx → erro de transporte; tenta extrair mensagem útil
+        $status     = $resp->status();
+        $retryAfter = $this->getRetryAfterSeconds($resp);
+
         if (!$resp->ok()) {
-            $status    = $resp->status();
             $mensagem  = $this->responseMessage($resp);
             $retriable = in_array($status, [401, 408, 429], true) || $status >= 500;
             return [
-                'ok'        => false,
-                'mensagem'  => $mensagem ?: "HTTP {$status}",
-                'vinculos'  => null,
-                'retriable' => $retriable,
-                'not_found' => false,
+                'ok'          => false,
+                'mensagem'    => $mensagem ?: "HTTP {$status}",
+                'vinculos'    => null,
+                'retriable'   => $retriable,
+                'not_found'   => false,
+                'http_status' => $status,
+                'retry_after' => $retryAfter,
             ];
         }
 
         $json = $resp->json();
 
-        // 200 com corpo não-JSON
         if (!is_array($json)) {
             return [
-                'ok'        => false,
-                'mensagem'  => $this->responseMessage($resp) ?: 'Resposta inválida da FACTA',
-                'vinculos'  => null,
-                'retriable' => true,
-                'not_found' => false,
+                'ok'          => false,
+                'mensagem'    => $this->responseMessage($resp) ?: 'Resposta inválida da FACTA',
+                'vinculos'    => null,
+                'retriable'   => true,
+                'not_found'   => false,
+                'http_status' => $status,
+                'retry_after' => $retryAfter,
             ];
         }
 
-        // erro=true (falha lógica de negócio)
         if (!empty($json['erro'])) {
-            $mensagem       = (string) ($json['mensagem'] ?? 'Falha na consulta');
+            $mensagem        = (string) ($json['mensagem'] ?? 'Falha na consulta');
             $isNaoEncontrado = $this->isNaoEncontradoMessage($mensagem);
 
             return [
-                'ok'        => false,
-                'mensagem'  => $mensagem,
-                'vinculos'  => null,
-                'retriable' => ! $isNaoEncontrado,
-                'not_found' => $isNaoEncontrado,
+                'ok'          => false,
+                'mensagem'    => $mensagem,
+                'vinculos'    => null,
+                'retriable'   => !$isNaoEncontrado,
+                'not_found'   => $isNaoEncontrado,
+                'http_status' => $status,
+                'retry_after' => $retryAfter,
             ];
         }
 
-        // Sucesso lógico (erro=false)
         $container =
             $json['dados_Trabalhador']
             ?? $json['dados_trabalhador']
@@ -264,56 +299,62 @@ class FactaApiService
 
         if (is_array($dados) && count($dados) > 0) {
             return [
-                'ok'        => true,
-                'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
-                'vinculos'  => $dados,
-                'retriable' => false,
-                'not_found' => false,
+                'ok'          => true,
+                'mensagem'    => $json['mensagem'] ?? ($container['mensagem'] ?? 'OK'),
+                'vinculos'    => $dados,
+                'retriable'   => false,
+                'not_found'   => false,
+                'http_status' => 200,
+                'retry_after' => null,
             ];
         }
 
-        // Sucesso sem vínculos
         return [
-            'ok'        => true,
-            'mensagem'  => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
-            'vinculos'  => [],
-            'retriable' => false,
-            'not_found' => false,
+            'ok'          => true,
+            'mensagem'    => $json['mensagem'] ?? ($container['mensagem'] ?? 'Sem vínculos'),
+            'vinculos'    => [],
+            'retriable'   => false,
+            'not_found'   => false,
+            'http_status' => 200,
+            'retry_after' => null,
         ];
     }
 
-    /**
-     * Extrai a mensagem "mais útil" da resposta HTTP:
-     * - Se JSON e tiver 'mensagem'/'message', usa.
-     * - Senão, usa o corpo texto (truncado) se houver.
-     * - Senão, retorna "HTTP {status}".
-     */
+    private function getRetryAfterSeconds(HttpResponse $resp): ?int
+    {
+        $h = $resp->header('Retry-After');
+        if ($h === null) return null;
+        $h = trim((string) $h);
+        if ($h === '') return null;
+
+        if (ctype_digit($h)) {
+            return max(0, (int) $h);
+        }
+        $ts = strtotime($h);
+        if ($ts !== false) {
+            $delta = $ts - time();
+            return $delta > 0 ? $delta : 0;
+        }
+        return null;
+    }
+
     private function responseMessage(HttpResponse $resp): string
     {
         $status = $resp->status();
-
-        // tenta JSON
         try {
             $json = $resp->json();
             if (is_array($json)) {
                 $msg = $json['mensagem'] ?? $json['message'] ?? null;
-                if (is_string($msg) && trim($msg) !== '') {
-                    return trim($msg);
-                }
+                if (is_string($msg) && trim($msg) !== '') return trim($msg);
                 $encoded = json_encode($json, JSON_UNESCAPED_UNICODE);
-                if (is_string($encoded)) {
-                    return $this->truncate(trim($encoded));
-                }
+                if (is_string($encoded)) return $this->truncate(trim($encoded));
             }
         } catch (\Throwable $e) {
-            // ignora — não era JSON
+            // ignore
         }
 
-        // tenta corpo texto
         $body = (string) $resp->body();
-        if (trim($body) !== '') {
-            return $this->truncate(trim($body));
-        }
+        if (trim($body) !== '') return $this->truncate(trim($body));
 
         return "HTTP {$status}";
     }
@@ -324,9 +365,6 @@ class FactaApiService
         return mb_substr($s, 0, $max, 'UTF-8').'…';
     }
 
-    /**
-     * Detecta de forma robusta "CPF não encontrado na base" (com/sem acento, espaços, variações).
-     */
     private function isNaoEncontradoMessage(string $mensagem): bool
     {
         $msg = trim($mensagem);
@@ -341,9 +379,6 @@ class FactaApiService
             || str_contains($norm, 'não encontrado na base');
     }
 
-    /**
-     * Normaliza string: lower, sem acentos, espaços colapsados.
-     */
     private function normalize(string $s): string
     {
         $s = mb_strtolower($s, 'UTF-8');
