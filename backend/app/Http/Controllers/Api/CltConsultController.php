@@ -79,7 +79,7 @@ class CltConsultController extends Controller
 
         if ((count($valid) + count($invalid)) === 0) {
             return response()->json([
-                'message' => 'Nenhum CPF válido ou normalizável encontrado (10–11 dígitos).'
+                'message' => 'Nenhum CPF válido ou normalizável encontrado (8–11 dígitos; 8–10 serão completados com zeros à esquerda).'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 

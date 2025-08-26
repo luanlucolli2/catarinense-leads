@@ -1,4 +1,4 @@
-# .gitignore Unificado para o Monorepo Catarinense Leads
+ .gitignore Unificado para o Monorepo Catarinense Leads
 
 # Arquivos de Ambiente e Segredos
 # Ignora todos os arquivos .env, EXCETO o .env.example que serve de modelo.
