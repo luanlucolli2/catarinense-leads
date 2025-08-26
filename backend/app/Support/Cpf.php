@@ -7,16 +7,24 @@ class Cpf
     /**
      * Normaliza um CPF:
      * - mantém apenas dígitos
-     * - se tiver 10 dígitos, prefixa '0'
-     * - se não ficar com 11 dígitos ao final, retorna null
+     * - se tiver entre 8 e 10 dígitos, completa com zeros à esquerda até 11
+     * - se tiver 11 dígitos, mantém
+     * - caso contrário, retorna null
      */
     public static function normalize(?string $input): ?string
     {
         $d = preg_replace('/\D+/', '', (string) $input);
-        if (strlen($d) === 10) {
-            $d = '0' . $d;
+        $len = strlen($d);
+
+        if ($len < 8 || $len > 11) {
+            return null;
         }
-        return strlen($d) === 11 ? $d : null;
+
+        if ($len < 11) {
+            $d = str_pad($d, 11, '0', STR_PAD_LEFT);
+        }
+
+        return $d;
     }
 
     /**
