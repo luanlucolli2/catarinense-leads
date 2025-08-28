@@ -12,23 +12,48 @@ use Throwable;
 
 class FactaApiService
 {
+    /** API */
     private string $baseUrl;
     private ?string $basicAuth;
     private int $tokenTtl;
+    private int $tokenLockTtl;
+    private int $tokenLockWait;
+    private int $tokenTtlSkew;
 
-    /** Timeouts por requisição */
+    /** HTTP (1ª rodada) */
     private int $httpTimeout;
     private int $httpConnectTimeout;
+    private int $httpRetry;
+    private int $httpRetryDelayMs;
+
+    /** HTTP (2ª rodada opcional em pool) */
+    private bool $httpSecondTry;
+    private int $httpSecondTimeout;
+    private int $httpSecondConnectTimeout;
 
     public function __construct()
     {
-        $cfg = config('facta');
-        $this->baseUrl   = rtrim($cfg['base_url'] ?? '', '/');
-        $this->basicAuth = $cfg['basic_auth'] ?? null;
-        $this->tokenTtl  = (int) ($cfg['token_ttl'] ?? 3300);
+        $api  = (array) config('cltfacta.api', []);
+        $http = (array) config('cltfacta.http', []);
 
-        $this->httpTimeout        = (int) env('CLT_HTTP_TIMEOUT', 15);
-        $this->httpConnectTimeout = (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10);
+        // API
+        $this->baseUrl        = rtrim((string) ($api['base_url'] ?? ''), '/');
+        $this->basicAuth      = $api['basic_auth'] ?? null;
+        $this->tokenTtl       = (int) ($api['token_ttl'] ?? 3300);
+        $this->tokenLockTtl   = (int) ($api['token_lock_ttl'] ?? 10);
+        $this->tokenLockWait  = (int) ($api['token_lock_wait'] ?? 5);
+        $this->tokenTtlSkew   = (int) ($api['token_ttl_skew'] ?? 30);
+
+        // HTTP (1ª)
+        $this->httpTimeout        = (int) ($http['timeout'] ?? 15);
+        $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
+        $this->httpRetry          = (int) ($http['retry'] ?? 1);
+        $this->httpRetryDelayMs   = (int) ($http['retry_delay_ms'] ?? 200);
+
+        // HTTP (2ª)
+        $this->httpSecondTry            = (bool) ($http['second_try'] ?? true);
+        $this->httpSecondTimeout        = (int) ($http['second_timeout'] ?? 10);
+        $this->httpSecondConnectTimeout = (int) ($http['second_connect_timeout'] ?? 5);
     }
 
     /**
@@ -41,10 +66,8 @@ class FactaApiService
             return $cached;
         }
 
-        $lockTtl   = (int) env('FACTA_TOKEN_LOCK_TTL', 10);
-        $blockWait = (int) env('FACTA_TOKEN_LOCK_WAIT', 5);
-        $lock = Cache::lock('facta_token_lock', $lockTtl);
-        $lock->block($blockWait);
+        $lock = Cache::lock('facta_token_lock', $this->tokenLockTtl);
+        $lock->block($this->tokenLockWait);
 
         try {
             $cached = Cache::get('facta_token');
@@ -62,11 +85,7 @@ class FactaApiService
                 ])
                 ->timeout(10)
                 ->connectTimeout(5)
-                ->retry(
-                    (int) env('CLT_HTTP_RETRY', 1),
-                    (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                    fn ($e) => $e instanceof ConnectionException
-                )
+                ->retry($this->httpRetry, $this->httpRetryDelayMs, fn ($e) => $e instanceof ConnectionException)
                 ->get($this->baseUrl.'/gera-token');
 
             if (!$resp->ok()) {
@@ -83,8 +102,7 @@ class FactaApiService
                 throw new \RuntimeException('FACTA token error: token ausente na resposta');
             }
 
-            $skew = (int) env('FACTA_TOKEN_TTL_SKEW', 30);
-            $ttl  = max(30, $this->tokenTtl - $skew);
+            $ttl = max(30, $this->tokenTtl - $this->tokenTtlSkew);
             Cache::put('facta_token', $token, $ttl);
 
             return $token;
@@ -120,11 +138,7 @@ class FactaApiService
             ])
             ->timeout($this->httpTimeout)
             ->connectTimeout($this->httpConnectTimeout)
-            ->retry(
-                (int) env('CLT_HTTP_RETRY', 1),
-                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                fn ($exception) => $exception instanceof ConnectionException
-            )
+            ->retry($this->httpRetry, $this->httpRetryDelayMs, fn ($e) => $e instanceof ConnectionException)
             ->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
                 'cpf' => $cpf,
             ]);
@@ -154,7 +168,6 @@ class FactaApiService
 
     /**
      * Consulta em lote concorrente; retorna [cpf => resultado]
-     * Melhorado: 2ª tentativa também em POOL para os "missing", sem fallback unitário sequencial.
      */
     public function autorizaConsultaLote(array $cpfs): array
     {
@@ -186,18 +199,13 @@ class FactaApiService
                         ->withHeaders($headers)
                         ->timeout($this->httpTimeout)
                         ->connectTimeout($this->httpConnectTimeout)
-                        ->retry(
-                            (int) env('CLT_HTTP_RETRY', 1),
-                            (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                            fn ($exception) => $exception instanceof ConnectionException
-                        )
+                        ->retry($this->httpRetry, $this->httpRetryDelayMs, fn ($e) => $e instanceof ConnectionException)
                         ->get($url, ['cpf' => $cpf]);
                 }
                 return $reqs;
             });
         } catch (Throwable $e) {
-            // Se o pool inteiro falhou, não serialize unitariamente.
-            // Apenas devolve "retriable" p/ todos (o Job vai retriar).
+            // Pool inteiro falhou → devolve retriable (o Job vai retriar)
             $out = [];
             foreach ($cpfs as $cpf) {
                 $out[$cpf] = [
@@ -235,11 +243,7 @@ class FactaApiService
                             ->withHeaders($headers2)
                             ->timeout($this->httpTimeout)
                             ->connectTimeout($this->httpConnectTimeout)
-                            ->retry(
-                                (int) env('CLT_HTTP_RETRY', 1),
-                                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                                fn ($exception) => $exception instanceof ConnectionException
-                            )
+                            ->retry($this->httpRetry, $this->httpRetryDelayMs, fn ($e) => $e instanceof ConnectionException)
                             ->get($url, ['cpf' => $cpf]);
                     }
                     return $reqs;
@@ -259,23 +263,16 @@ class FactaApiService
                 $missing[] = $cpf;
             }
         }
-        if (!empty($missing) && (int) env('CLT_HTTP_SECOND_TRY', 1) === 1) {
-            $timeout2 = (int) env('CLT_HTTP_TIMEOUT_SECOND', max(5, min($this->httpTimeout, 10)));
-            $connect2 = (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', max(3, min($this->httpConnectTimeout, 5)));
-
+        if (!empty($missing) && $this->httpSecondTry) {
             try {
-                $retry2 = Http::pool(function (Pool $pool) use ($missing, $headers, $url, $timeout2, $connect2) {
+                $retry2 = Http::pool(function (Pool $pool) use ($missing, $headers, $url) {
                     $reqs = [];
                     foreach ($missing as $cpf) {
                         $reqs[] = $pool->as($cpf)
                             ->withHeaders($headers)
-                            ->timeout($timeout2)
-                            ->connectTimeout($connect2)
-                            ->retry(
-                                (int) env('CLT_HTTP_RETRY', 1),
-                                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                                fn ($exception) => $exception instanceof ConnectionException
-                            )
+                            ->timeout($this->httpSecondTimeout)
+                            ->connectTimeout($this->httpSecondConnectTimeout)
+                            ->retry($this->httpRetry, $this->httpRetryDelayMs, fn ($e) => $e instanceof ConnectionException)
                             ->get($url, ['cpf' => $cpf]);
                     }
                     return $reqs;
@@ -284,7 +281,7 @@ class FactaApiService
                     $responses[$cpf] = $resp;
                 }
             } catch (Throwable $e) {
-                // segunda tentativa falhou: deixa como missing para devolver retriable
+                // segunda tentativa falhou → deixa missing (Job vai retriar depois)
             }
         }
 
