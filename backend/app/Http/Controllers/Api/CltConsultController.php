@@ -219,4 +219,48 @@ class CltConsultController extends Controller
             'cancel_reason' => $job->cancel_reason,
         ]);
     }
+
+    /** ✅ Excluir job + arquivos (final e prévia). Bloqueia se pendente/em_progresso. */
+    public function destroy(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if (in_array($job->status, ['pendente','em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
+                'status'  => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        // Apaga arquivo FINAL, se houver
+        try {
+            if ($job->file_disk && $job->file_path) {
+                $disk = Storage::disk($job->file_disk);
+                if ($disk->exists($job->file_path)) {
+                    $disk->delete($job->file_path);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): ".$e->getMessage());
+        }
+
+        // Apaga PRÉVIA, se por acaso ainda existir
+        try {
+            if ($job->preview_disk && $job->preview_path) {
+                $disk = Storage::disk($job->preview_disk);
+                if ($disk->exists($job->preview_path)) {
+                    $disk->delete($job->preview_path);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): ".$e->getMessage());
+        }
+
+        // Remove o registro definitivamente (sem soft delete)
+        $job->delete();
+
+        return response()->noContent(); // 204
+    }
 }

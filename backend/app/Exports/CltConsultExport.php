@@ -34,6 +34,7 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         'valorBaseMargem',
         'valorMargemDisponivel',
         'valorMaximoPrestacao',               // "Valor Máximo da Prestação"
+        'codigoCategoriaTrabalhador',         // 👈 movido para cá
         'numeroVinculos',                     // Nº de Vínculos
         'nomeEmpregador',
         'numeroInscricaoEmpregador',
@@ -41,7 +42,6 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         'matricula',
         'dataDesligamento',
         'codigoMotivoDesligamento',
-        'codigoCategoriaTrabalhador',
         'cbo_descricao',
         'cnae_descricao',
         'dataInicioAtividadeEmpregador',
@@ -69,6 +69,7 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         'Valor Base da Margem',
         'Margem Disponível',
         'Valor Máximo da Prestação',
+        'Categoria do Trabalhador (código)',  // 👈 movido para cá
         'Nº de Vínculos',
         'Nome do Empregador',
         'Nº Inscrição do Empregador',
@@ -76,7 +77,6 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         'Matrícula',
         'Data de Desligamento',
         'Motivo do Desligamento (código)',
-        'Categoria do Trabalhador (código)',
         'CBO (descrição)',
         'CNAE (descrição)',
         'Início da Atividade do Empregador',
@@ -128,7 +128,7 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
                 $fullRange = "A1:{$highestColumn}{$highestRow}";
                 $sheet->getStyle($fullRange)
                     ->getAlignment()
-                    ->setHorizontal(Alignment::HORIZONTAL_LEFT) 
+                    ->setHorizontal(Alignment::HORIZONTAL_LEFT)
                     ->setVertical(Alignment::VERTICAL_CENTER);
 
                 // Cabeçalho em negrito
