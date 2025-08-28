@@ -15,7 +15,7 @@ export interface CltConsultJobListItem {
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
-  // 👇 campos opcionais de PRÉVIA (o index retorna os atributos do model)
+  // campos opcionais de PRÉVIA
   preview_disk?: string | null
   preview_path?: string | null
   preview_name?: string | null
@@ -37,7 +37,6 @@ export interface CltConsultJobShow {
   success_count: number
   fail_count: number
   has_file: boolean
-  // 👇 também exposto no show()
   has_preview?: boolean
   preview_updated_at?: string | null
 
@@ -131,6 +130,14 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
     canceled_at?: string | null
     cancel_reason?: string | null
   }>(`/clt/consult-jobs/${id}/cancel`, reason ? { reason } : {})
+  return data
+}
+
+/** Exclui definitivamente um job e seus arquivos */
+export async function deleteCltConsultJob(id: number) {
+  const { data } = await axiosClient.delete<{ success: boolean; id: number }>(
+    `/clt/consult-jobs/${id}`
+  )
   return data
 }
 

@@ -49,4 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ✅ Cancelar um job
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
+
+    // ✅ Excluir um job (e seus arquivos)
+    Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
 });

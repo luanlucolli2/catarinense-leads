@@ -8,6 +8,7 @@ import {
   downloadCltReport,
   downloadCltPreview,
   cancelCltConsultJob,
+  deleteCltConsultJob,
   CltConsultJobListItem,
 } from "@/api/clt";
 import { useCltJobPolling } from "@/hooks/useCltJobPolling";
@@ -40,8 +41,12 @@ const CLTConsultaPage = () => {
   const { job: watchedJob } = useCltJobPolling(watchingJobId, {
     enabled: !!watchingJobId,
     intervalMs: 3000,
-    stopOn: ['concluido', 'falhou', 'cancelado'], // ✅ também para cancelado
+    stopOn: ["concluido", "falhou", "cancelado"],
   });
+
+  // helper para mostrar o nome nas mensagens
+  const titleOf = (id: number) =>
+    items.find((i) => i.id === id)?.title ?? `#${id}`;
 
   async function fetchPage(p = 1) {
     setLoading(true);
@@ -86,21 +91,23 @@ const CLTConsultaPage = () => {
       void fetchPageSilent(page);
     }, 5000);
     return () => window.clearInterval(t);
-  }, [hasOpen, page]); 
+  }, [hasOpen, page]);
 
   useEffect(() => {
     if (!watchedJob) return;
+    const niceTitle = watchedJob.title ?? titleOf(watchedJob.id);
+
     if (watchedJob.status === "concluido") {
       setWatchingJobId(null);
-      toast.success(`Consulta #${watchedJob.id} concluída.`);
+      toast.success(`Consulta "${niceTitle}" concluída.`);
       void fetchPage(page);
     } else if (watchedJob.status === "falhou") {
       setWatchingJobId(null);
-      toast.error(`Consulta #${watchedJob.id} falhou.`);
+      toast.error(`Consulta "${niceTitle}" falhou.`);
       void fetchPage(page);
     } else if (watchedJob.status === "cancelado") {
       setWatchingJobId(null);
-      toast.info(`Consulta #${watchedJob.id} cancelada.`);
+      toast.info(`Consulta "${niceTitle}" cancelada.`);
       void fetchPage(page);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,14 +117,13 @@ const CLTConsultaPage = () => {
     try {
       const { id } = await createCltConsultJob({ title: titulo, cpfs });
       setWatchingJobId(id);
-      toast.success(`Consulta criada (#${id}).`);
+      toast.success(`Consulta "${titulo}" criada.`);
       await fetchPage(1);
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao criar consulta");
     }
   };
 
-  // 👇 agora decide se baixa FINAL ou PRÉVIA
   const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
     try {
       if (opts?.preview) {
@@ -131,13 +137,26 @@ const CLTConsultaPage = () => {
   };
 
   const handleCancel = async (id: number, reason?: string) => {
+    const niceTitle = titleOf(id);
     try {
       await cancelCltConsultJob(id, reason);
       if (id === watchingJobId) setWatchingJobId(null);
-      toast.info(`Consulta #${id} cancelada.`);
+      toast.info(`Consulta "${niceTitle}" cancelada.`);
       await fetchPage(page);
     } catch (e: any) {
       toast.error(e?.message ?? "Não foi possível cancelar");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    const niceTitle = titleOf(id);
+    try {
+      await deleteCltConsultJob(id);
+      if (id === watchingJobId) setWatchingJobId(null);
+      toast.success(`Consulta "${niceTitle}" excluída.`);
+      await fetchPage(page);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Não foi possível excluir");
     }
   };
 
@@ -171,6 +190,7 @@ const CLTConsultaPage = () => {
           loading={loading}
           onDownload={handleDownload}
           onCancel={handleCancel}
+          onDelete={handleDelete}
           onRefresh={() => fetchPage(page)}
           page={page}
           lastPage={lastPage}

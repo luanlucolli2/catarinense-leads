@@ -7,6 +7,7 @@ import {
   ChevronRight,
   XCircle,
   ShieldAlert,
+  Trash2,                // 👈 novo ícone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,16 +34,17 @@ import {
 type Props = {
   items: CltConsultJobListItem[];
   loading?: boolean;
-  onDownload: (id: number, opts?: { preview?: boolean }) => void; // 👈 agora aceita "preview"
+  onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
-  onRefresh?: () => void; // mantido por compatibilidade, não utilizado aqui
+  onDelete: (id: number) => Promise<void>;    // 👈 novo
+  onRefresh?: () => void;
 
   // paginação
   page: number;
   lastPage: number;
   onPageChange: (p: number) => void;
 
-  // util de formatação
+  // util
   formatDateTimeBR: (iso?: string | null) => string;
 };
 
@@ -84,6 +86,7 @@ export const CLTHistoryTable = ({
   loading,
   onDownload,
   onCancel,
+  onDelete,
   page,
   lastPage,
   onPageChange,
@@ -92,18 +95,24 @@ export const CLTHistoryTable = ({
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
 
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteJob, setConfirmDeleteJob] = useState<CltConsultJobListItem | null>(null);
+
   const handlePrev = () => onPageChange(Math.max(1, page - 1));
   const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
 
   const canDownloadFinal = (i: CltConsultJobListItem) =>
     i.status === "concluido" && Boolean(i.file_path);
 
-  // Prévia disponível apenas enquanto pendente/em_progresso E se backend já gerou preview_path
   const canDownloadPreview = (i: CltConsultJobListItem) =>
     (i.status === "pendente" || i.status === "em_progresso") && Boolean(i.preview_path);
 
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
+
+  // pode excluir quando NÃO está em processamento (inclui concluído/falhou/cancelado)
+  const canDelete = (i: CltConsultJobListItem) =>
+    !(i.status === "pendente" || i.status === "em_progresso");
 
   const openCancelDialog = (i: CltConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -114,16 +123,31 @@ export const CLTHistoryTable = ({
     if (!confirmJob) return;
     try {
       setCancelingId(confirmJob.id);
-      await onCancel(confirmJob.id); // sem motivo
+      await onCancel(confirmJob.id);
     } finally {
       setCancelingId(null);
       setConfirmJob(null);
     }
   };
 
+  const openDeleteDialog = (i: CltConsultJobListItem) => {
+    if (!canDelete(i) || deletingId !== null) return;
+    setConfirmDeleteJob(i);
+  };
+
+  const executeDelete = async () => {
+    if (!confirmDeleteJob) return;
+    try {
+      setDeletingId(confirmDeleteJob.id);
+      await onDelete(confirmDeleteJob.id);
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteJob(null);
+    }
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      {/* Top bar somente com o contador (sem botão de atualizar e sem paginação) */}
       <div className="px-4 py-3">
         <div className="text-sm text-gray-600">
           {loading ? "Carregando..." : `${items.length} itens na página`}
@@ -185,25 +209,26 @@ export const CLTHistoryTable = ({
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-2">
+                        {/* Cancelar: branco com ícone vermelho (outline) - ícone apenas */}
                         <Button
                           onClick={() => openCancelDialog(i)}
                           disabled={!canCancel(i) || cancelingId === i.id}
-                          variant="destructive"
-                          size="sm"
+                          variant="outline"
+                          size="icon"
                           className={cn(
-                            "flex items-center gap-2 px-3",
-                            !canCancel(i) && "opacity-50 cursor-not-allowed"
+                            "border-red-300 text-red-600 hover:bg-red-50",
+                            (!canCancel(i) || cancelingId === i.id) && "opacity-50 cursor-not-allowed"
                           )}
-                          title={canCancel(i) ? "Cancelar consulta" : undefined}
+                          title={canCancel(i) ? "Cancelar consulta" : "Cancelar indisponível"}
                         >
                           {cancelingId === i.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <XCircle className="w-4 h-4" />
                           )}
-                          Cancelar
                         </Button>
 
+                        {/* Download (final ou prévia) — mantém com texto */}
                         <Button
                           onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
                           disabled={downloadDisabled}
@@ -220,11 +245,30 @@ export const CLTHistoryTable = ({
                               ? "Baixar planilha final"
                               : previewReady
                               ? "Baixar planilha (prévia)"
-                              : undefined
+                              : "Baixar indisponível"
                           }
                         >
                           <Download className="w-4 h-4" />
                           {finalReady ? "Baixar planilha" : previewReady ? "Baixar planilha (prévia)" : "Baixar planilha"}
+                        </Button>
+
+                        {/* Excluir: vermelho com ícone branco (destructive) - ícone apenas */}
+                        <Button
+                          onClick={() => openDeleteDialog(i)}
+                          disabled={!canDelete(i) || deletingId === i.id}
+                          variant="destructive"
+                          size="icon"
+                          className={cn(
+                            "bg-red-600 hover:bg-red-700 text-white",
+                            (!canDelete(i) || deletingId === i.id) && "opacity-50 cursor-not-allowed"
+                          )}
+                          title={canDelete(i) ? "Excluir definitivamente" : "Excluir indisponível enquanto processa"}
+                        >
+                          {deletingId === i.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </Button>
                       </div>
                     </TableCell>
@@ -236,7 +280,7 @@ export const CLTHistoryTable = ({
         </Table>
       </div>
 
-      {/* Paginação no rodapé (estilo LeadsTable) */}
+      {/* Paginação */}
       <div className="bg-white px-4 lg:px-6 py-3 border-t border-gray-200 flex items-center justify-between">
         <div className="text-sm text-gray-500">
           Página {page} de {lastPage || 1}
@@ -263,7 +307,7 @@ export const CLTHistoryTable = ({
         </div>
       </div>
 
-      {/* ===== MODAL DE CONFIRMAÇÃO DE CANCELAMENTO ===== */}
+      {/* ===== MODAL: Confirmar CANCELAMENTO ===== */}
       <AlertDialog
         open={!!confirmJob}
         onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}
@@ -294,7 +338,7 @@ export const CLTHistoryTable = ({
               className="bg-red-600 hover:bg-red-700"
               disabled={cancelingId !== null}
               onClick={(e) => {
-                e.preventDefault(); // evita fechar automaticamente
+                e.preventDefault();
                 void executeCancel();
               }}
             >
@@ -302,6 +346,51 @@ export const CLTHistoryTable = ({
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 "Sim, cancelar consulta"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ===== MODAL: Confirmar EXCLUSÃO ===== */}
+      <AlertDialog
+        open={!!confirmDeleteJob}
+        onOpenChange={(isOpen) => !isOpen && setConfirmDeleteJob(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-6 w-6" />
+              Excluir definitivamente?
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+
+          <div className="text-sm text-gray-700">
+            <p>Essa ação irá remover o registro e os arquivos vinculados (planilha final e prévia, se houver):</p>
+            {confirmDeleteJob && (
+              <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
+                {confirmDeleteJob.title} (#{confirmDeleteJob.id})
+              </p>
+            )}
+            <p>Essa operação não pode ser desfeita.</p>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingId !== null}>
+              Fechar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deletingId !== null}
+              onClick={(e) => {
+                e.preventDefault();
+                void executeDelete();
+              }}
+            >
+              {deletingId === confirmDeleteJob?.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Sim, excluir"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -7,6 +7,7 @@ use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+// opcional: use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class FactaApiService
@@ -30,17 +31,43 @@ class FactaApiService
         $this->httpConnectTimeout = (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10);
     }
 
+    /**
+     * Obtém token com lock para evitar thundering herd
+     */
     public function getToken(): ?string
     {
-        return Cache::remember('facta_token', $this->tokenTtl, function () {
+        $cached = Cache::get('facta_token');
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
+        $lockTtl   = (int) env('FACTA_TOKEN_LOCK_TTL', 10);
+        $blockWait = (int) env('FACTA_TOKEN_LOCK_WAIT', 5);
+        $lock = Cache::lock('facta_token_lock', $lockTtl);
+        $lock->block($blockWait);
+
+        try {
+            $cached = Cache::get('facta_token');
+            if (is_string($cached) && $cached !== '') {
+                return $cached;
+            }
+
             if (!$this->basicAuth) {
                 throw new \RuntimeException('FACTA_BASIC_AUTH not configured');
             }
 
             $resp = Http::withHeaders([
-                'Authorization' => 'Basic '.$this->basicAuth,
-                'Accept'        => 'application/json',
-            ])->timeout(10)->get($this->baseUrl.'/gera-token');
+                    'Authorization' => 'Basic '.$this->basicAuth,
+                    'Accept'        => 'application/json',
+                ])
+                ->timeout(10)
+                ->connectTimeout(5)
+                ->retry(
+                    (int) env('CLT_HTTP_RETRY', 1),
+                    (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+                    fn ($e) => $e instanceof ConnectionException
+                )
+                ->get($this->baseUrl.'/gera-token');
 
             if (!$resp->ok()) {
                 throw new \RuntimeException("FACTA token error: HTTP {$resp->status()}");
@@ -56,20 +83,18 @@ class FactaApiService
                 throw new \RuntimeException('FACTA token error: token ausente na resposta');
             }
 
+            $skew = (int) env('FACTA_TOKEN_TTL_SKEW', 30);
+            $ttl  = max(30, $this->tokenTtl - $skew);
+            Cache::put('facta_token', $token, $ttl);
+
             return $token;
-        });
+        } finally {
+            optional($lock)->release();
+        }
     }
 
     /**
-     * Consulta unitária (mantida para fallback/compatibilidade).
-     * Retorna:
-     *  - ok: bool
-     *  - mensagem: string
-     *  - vinculos: array|null
-     *  - retriable: bool
-     *  - not_found: bool
-     *  - http_status: int|null
-     *  - retry_after: int|null (segundos)
+     * Consulta unitária (fallback/compat)
      */
     public function autorizaConsulta(string $cpf): array
     {
@@ -98,9 +123,7 @@ class FactaApiService
             ->retry(
                 (int) env('CLT_HTTP_RETRY', 1),
                 (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                function ($exception) {
-                    return $exception instanceof ConnectionException;
-                }
+                fn ($exception) => $exception instanceof ConnectionException
             )
             ->get($this->baseUrl.'/consignado-trabalhador/autoriza-consulta', [
                 'cpf' => $cpf,
@@ -131,6 +154,7 @@ class FactaApiService
 
     /**
      * Consulta em lote concorrente; retorna [cpf => resultado]
+     * Melhorado: 2ª tentativa também em POOL para os "missing", sem fallback unitário sequencial.
      */
     public function autorizaConsultaLote(array $cpfs): array
     {
@@ -151,6 +175,9 @@ class FactaApiService
         $url = $this->baseUrl.'/consignado-trabalhador/autoriza-consulta';
 
         /** @var array<string,HttpResponse> $responses */
+        $responses = [];
+
+        // -------- 1ª TENTATIVA (POOL) --------
         try {
             $responses = Http::pool(function (Pool $pool) use ($cpfs, $headers, $url) {
                 $reqs = [];
@@ -162,33 +189,38 @@ class FactaApiService
                         ->retry(
                             (int) env('CLT_HTTP_RETRY', 1),
                             (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                            function ($exception) {
-                                return $exception instanceof ConnectionException;
-                            }
+                            fn ($exception) => $exception instanceof ConnectionException
                         )
                         ->get($url, ['cpf' => $cpf]);
                 }
                 return $reqs;
             });
         } catch (Throwable $e) {
-            // Pool falhou – tenta unitário para cada CPF (fallback)
+            // Se o pool inteiro falhou, não serialize unitariamente.
+            // Apenas devolve "retriable" p/ todos (o Job vai retriar).
             $out = [];
             foreach ($cpfs as $cpf) {
-                $one = $this->autorizaConsulta($cpf);
-                $one['mensagem'] = 'Fallback (pool exceção): '.($one['mensagem'] ?? '');
-                $out[$cpf] = $one;
+                $out[$cpf] = [
+                    'ok'          => false,
+                    'mensagem'    => 'Sem resposta (pool falhou)',
+                    'vinculos'    => null,
+                    'retriable'   => true,
+                    'not_found'   => false,
+                    'http_status' => null,
+                    'retry_after' => null,
+                ];
             }
             return $out;
         }
 
-        // 401 → renova token apenas dos necessários
-        $needRetry = [];
+        // -------- 401 → renova token apenas dos necessários --------
+        $needRetry401 = [];
         foreach ($responses as $cpf => $resp) {
             if ($resp instanceof HttpResponse && $resp->status() === 401) {
-                $needRetry[] = $cpf;
+                $needRetry401[] = $cpf;
             }
         }
-        if (!empty($needRetry)) {
+        if (!empty($needRetry401)) {
             Cache::forget('facta_token');
             $token2   = $this->getToken();
             $headers2 = [
@@ -196,10 +228,9 @@ class FactaApiService
                 'Accept'        => 'application/json',
             ];
             try {
-                /** @var array<string,HttpResponse> $retryResponses */
-                $retryResponses = Http::pool(function (Pool $pool) use ($needRetry, $headers2, $url) {
+                $retryResponses = Http::pool(function (Pool $pool) use ($needRetry401, $headers2, $url) {
                     $reqs = [];
-                    foreach ($needRetry as $cpf) {
+                    foreach ($needRetry401 as $cpf) {
                         $reqs[] = $pool->as($cpf)
                             ->withHeaders($headers2)
                             ->timeout($this->httpTimeout)
@@ -207,9 +238,7 @@ class FactaApiService
                             ->retry(
                                 (int) env('CLT_HTTP_RETRY', 1),
                                 (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-                                function ($exception) {
-                                    return $exception instanceof ConnectionException;
-                                }
+                                fn ($exception) => $exception instanceof ConnectionException
                             )
                             ->get($url, ['cpf' => $cpf]);
                     }
@@ -219,18 +248,60 @@ class FactaApiService
                     $responses[$cpf] = $resp;
                 }
             } catch (Throwable $e) {
-                // mantém as respostas antigas (401); o Job vai retriar em outra tentativa
+                // mantém as 401 (o Job tentará de novo depois)
             }
         }
 
+        // -------- 2ª TENTATIVA (POOL) para MISSING --------
+        $missing = [];
+        foreach ($cpfs as $cpf) {
+            if (!isset($responses[$cpf]) || !($responses[$cpf] instanceof HttpResponse)) {
+                $missing[] = $cpf;
+            }
+        }
+        if (!empty($missing) && (int) env('CLT_HTTP_SECOND_TRY', 1) === 1) {
+            $timeout2 = (int) env('CLT_HTTP_TIMEOUT_SECOND', max(5, min($this->httpTimeout, 10)));
+            $connect2 = (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', max(3, min($this->httpConnectTimeout, 5)));
+
+            try {
+                $retry2 = Http::pool(function (Pool $pool) use ($missing, $headers, $url, $timeout2, $connect2) {
+                    $reqs = [];
+                    foreach ($missing as $cpf) {
+                        $reqs[] = $pool->as($cpf)
+                            ->withHeaders($headers)
+                            ->timeout($timeout2)
+                            ->connectTimeout($connect2)
+                            ->retry(
+                                (int) env('CLT_HTTP_RETRY', 1),
+                                (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+                                fn ($exception) => $exception instanceof ConnectionException
+                            )
+                            ->get($url, ['cpf' => $cpf]);
+                    }
+                    return $reqs;
+                });
+                foreach ($retry2 as $cpf => $resp) {
+                    $responses[$cpf] = $resp;
+                }
+            } catch (Throwable $e) {
+                // segunda tentativa falhou: deixa como missing para devolver retriable
+            }
+        }
+
+        // -------- Monta saída --------
         $out = [];
         foreach ($cpfs as $cpf) {
             $resp = $responses[$cpf] ?? null;
             if (!$resp instanceof HttpResponse) {
-                // Fallback unitário quando o pool não devolveu Response para este CPF
-                $one = $this->autorizaConsulta($cpf);
-                $one['mensagem'] = 'Fallback após pool: '.($one['mensagem'] ?? '');
-                $out[$cpf] = $one;
+                $out[$cpf] = [
+                    'ok'          => false,
+                    'mensagem'    => 'Sem resposta do serviço',
+                    'vinculos'    => null,
+                    'retriable'   => true,
+                    'not_found'   => false,
+                    'http_status' => null,
+                    'retry_after' => null,
+                ];
                 continue;
             }
             $out[$cpf] = $this->parseAutorizaResponse($resp);
