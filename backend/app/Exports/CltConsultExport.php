@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithEvents
 {
@@ -103,17 +104,36 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         // Mapeia cada linha associativa para o array na ordem de COLS
         $out = [];
         foreach ($this->rows as $row) {
-            $out[] = array_map(
-                fn (string $key) => $row[$key] ?? null,
-                self::COLS
-            );
+            $mapped = [];
+            foreach (self::COLS as $key) {
+                $val = $row[$key] ?? null;
+
+                if ($key === 'cpf') {
+                    // Mantém só dígitos, remove zeros à esquerda e garante tipo numérico
+                    $digits = preg_replace('/\D+/', '', (string) $val);
+                    $digits = ltrim($digits ?? '', '0');
+                    if ($digits === '') {
+                        $digits = '0';
+                    }
+
+                    // Em 64-bit usar int; em 32-bit usar float (mantém exatidão para 11 dígitos)
+                    if (PHP_INT_SIZE >= 8) {
+                        $val = (int) $digits;
+                    } else {
+                        $val = (float) $digits;
+                    }
+                }
+
+                $mapped[] = $val;
+            }
+            $out[] = $mapped;
         }
         return $out;
     }
 
     /**
-     * Centraliza horizontal e verticalmente todas as células
-     * e deixa o cabeçalho (linha 1) em negrito.
+     * Ajusta estilos gerais, deixa cabeçalho em negrito
+     * e formata a coluna A (CPF) como número inteiro.
      */
     public function registerEvents(): array
     {
@@ -134,6 +154,14 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
                 // Cabeçalho em negrito
                 $headerRange = "A1:{$highestColumn}1";
                 $sheet->getStyle($headerRange)->getFont()->setBold(true);
+
+                // Coluna A (CPF) como número inteiro (evita notação científica e remove zeros à esquerda)
+                if ($highestRow >= 2) {
+                    $cpfRange = "A2:A{$highestRow}";
+                    $sheet->getStyle($cpfRange)
+                        ->getNumberFormat()
+                        ->setFormatCode('0'); // inteiro, sem separador
+                }
             },
         ];
     }
