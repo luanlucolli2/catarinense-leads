@@ -9,7 +9,7 @@ return [
     */
     'api' => [
         // Base da API (homolog por padrão)
-        'base_url'        => env('FACTA_BASE_URL', 'https://webservice-homol.facta.com.br'),
+        'base_url'        => env('FACTA_BASE_URL', 'https://webservice.facta.com.br'),
 
         // Credencial "Basic ..." (base64 user:pass)
         'basic_auth'      => env('FACTA_BASIC_AUTH'),
