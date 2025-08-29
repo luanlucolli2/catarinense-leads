@@ -13,7 +13,7 @@ GIT_BRANCH="staging"
 
 # Limpezas "seguras" (não tocam volumes). Ajuste se quiser mais agressivo.
 BUILDER_PRUNE_UNTIL="${BUILDER_PRUNE_UNTIL:-24h}"    # build cache mais antigo que isso
-CONTAINER_PRUNE_UNTIL="${CONTAINER_PRUNE_UNTIL:-24h}"# containers parados há > isso
+CONTAINER_PRUNE_UNTIL="${CONTAINER_PRUNE_UNTIL:-24h}" # containers parados há > isso
 # Para também limpar *imagens não utilizadas* (além de dangling), exporte DOCKER_PRUNE_UNUSED=1
 DOCKER_PRUNE_UNUSED="${DOCKER_PRUNE_UNUSED:-0}"
 
