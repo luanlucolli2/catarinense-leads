@@ -7,7 +7,6 @@ use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-// opcional: use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class FactaApiService
@@ -330,6 +329,7 @@ class FactaApiService
 
         $json = $resp->json();
 
+        // Resposta 200 mas não-JSON → falha temporária
         if (!is_array($json)) {
             return [
                 'ok'          => false,
@@ -341,6 +341,22 @@ class FactaApiService
                 'retry_after' => $retryAfter,
             ];
         }
+
+        // --- 👇 NOVO: mensagem com HTML (ex.: "403 Forbidden" em uma página) → retriável
+        $msgRaw = (string) ($json['mensagem'] ?? $json['message'] ?? '');
+        if ($msgRaw !== '' && $this->looksLikeHtml($msgRaw)) {
+            $short = $this->summarizeHtml($msgRaw);
+            return [
+                'ok'          => false,
+                'mensagem'    => $short,
+                'vinculos'    => null,
+                'retriable'   => true,   // tratar como temporário (retriável)
+                'not_found'   => false,
+                'http_status' => $status, // pode ser 200, mesmo com HTML
+                'retry_after' => $retryAfter,
+            ];
+        }
+        // --- 👆 NOVO
 
         if (!empty($json['erro'])) {
             $mensagem        = (string) ($json['mensagem'] ?? 'Falha na consulta');
@@ -388,6 +404,32 @@ class FactaApiService
         ];
     }
 
+    private function looksLikeHtml(string $s): bool
+    {
+        $snip = mb_substr($s, 0, 2048, 'UTF-8'); // checa só o início
+        if (preg_match('/<!DOCTYPE\s+HTML/i', $snip)) return true;
+        if (preg_match('/<html[\s>]/i', $snip)) return true;
+        if (preg_match('/<head>|<title>|<body>/i', $snip)) return true;
+        if (preg_match('/<\/html>/i', $snip)) return true;
+        return false;
+    }
+
+    private function summarizeHtml(string $html): string
+    {
+        $title = null;
+        if (preg_match('/<title>(.*?)<\/title>/is', $html, $m)) {
+            $title = trim(strip_tags($m[1] ?? ''));
+        }
+        $lower = mb_strtolower($html, 'UTF-8');
+        if (str_contains($lower, '403') && str_contains($lower, 'forbidden')) {
+            return ($title !== null ? "{$title}" : 'HTML 403 Forbidden').' (tratado como temporário)';
+        }
+        if (str_contains($lower, '503') && str_contains($lower, 'service unavailable')) {
+            return ($title !== null ? "{$title}" : 'HTML 503 Service Unavailable').' (tratado como temporário)';
+        }
+        return ($title !== null ? "HTML: {$title}" : 'Resposta HTML inesperada').' (tratado como temporário)';
+    }
+
     private function getRetryAfterSeconds(HttpResponse $resp): ?int
     {
         $h = $resp->header('Retry-After');
@@ -413,7 +455,12 @@ class FactaApiService
             $json = $resp->json();
             if (is_array($json)) {
                 $msg = $json['mensagem'] ?? $json['message'] ?? null;
-                if (is_string($msg) && trim($msg) !== '') return trim($msg);
+                if (is_string($msg) && trim($msg) !== '') {
+                    if ($this->looksLikeHtml($msg)) {
+                        return $this->summarizeHtml($msg);
+                    }
+                    return trim($msg);
+                }
                 $encoded = json_encode($json, JSON_UNESCAPED_UNICODE);
                 if (is_string($encoded)) return $this->truncate(trim($encoded));
             }
@@ -422,7 +469,12 @@ class FactaApiService
         }
 
         $body = (string) $resp->body();
-        if (trim($body) !== '') return $this->truncate(trim($body));
+        if (trim($body) !== '') {
+            if ($this->looksLikeHtml($body)) {
+                return $this->summarizeHtml($body);
+            }
+            return $this->truncate(trim($body));
+        }
 
         return "HTTP {$status}";
     }
