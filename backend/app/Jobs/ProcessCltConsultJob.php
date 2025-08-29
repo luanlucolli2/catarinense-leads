@@ -84,6 +84,9 @@ class ProcessCltConsultJob implements ShouldQueue
         $invalidCount = count($this->invalidCpfs);
         $lastPreviewTime = Carbon::now();
 
+        // 👇 novo acumulador para "não encontrado"
+        $notFoundTotal = 0;
+
         try {
             // 1) Linhas para CPFs com DV inválido
             foreach ($this->invalidCpfs as $cpfInv) {
@@ -131,6 +134,7 @@ class ProcessCltConsultJob implements ShouldQueue
                         'sem_resposta' => 0
                     ];
                     $successInChunk = 0;
+                    $notFoundInChunk = 0; // 👈 novo
 
                     foreach ($chunkCpfs as $cpf) {
                         $res = $batchResults[$cpf] ?? [
@@ -228,10 +232,14 @@ class ProcessCltConsultJob implements ShouldQueue
                             $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
 
                             if (!empty($res['not_found'])) {
+                                // 👇 contabiliza "não encontrado"
                                 $row = $this->baseRow($cpf);
                                 $row['numeroVinculos'] = 0;
                                 $row['mensagem'] = $msg;
                                 $rows[] = $row;
+
+                                $notFoundInChunk++;
+                                $notFoundTotal++;
 
                                 $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                                 continue;
@@ -248,6 +256,9 @@ class ProcessCltConsultJob implements ShouldQueue
 
                     if ($successInChunk > 0) {
                         $job->increment('success_count', $successInChunk);
+                    }
+                    if ($notFoundInChunk > 0) {
+                        $job->increment('not_found_count', $notFoundInChunk); // 👈 feedback em tempo real
                     }
 
                     Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – stats chunk #" . ($idx + 1) . ": " . json_encode($stats));
@@ -272,17 +283,16 @@ class ProcessCltConsultJob implements ShouldQueue
                 $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
                 $lastPreviewTime = Carbon::now();
 
-                // --- Ajuste de chunk sob pressão de 429
+                // --- Ajustes de chunk/backoff (inalterados)
                 if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
                     $ratio429 = count($toTry) > 0 ? $seen429InAttempt / count($toTry) : 0.0;
-                    if ($ratio429 >= 0.20) { // >=20% dos CPFs do ciclo tomaram 429
+                    if ($ratio429 >= 0.20) {
                         $old = $chunkSize;
                         $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
                         Log::warning("[CLT] Job {$this->jobId} – muitos 429 (ratio=" . round($ratio429, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
                     }
                 }
 
-                // --- Ajuste de chunk sob pressão de sem_resposta (timeouts / drops)
                 $semRespRatio = $totalInAttempt > 0 ? ($semRespTotalAttempt / $totalInAttempt) : 0.0;
                 if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
                     $old = $chunkSize;
@@ -290,7 +300,6 @@ class ProcessCltConsultJob implements ShouldQueue
                     Log::warning("[CLT] Job {$this->jobId} – muitos sem_resposta (ratio=" . round($semRespRatio, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
                 }
 
-                // --- Backoff dinâmico: Retry-After (cap) + jitter + multiplicador por sem_resposta
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job))
                         return;
@@ -298,7 +307,6 @@ class ProcessCltConsultJob implements ShouldQueue
                     $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
                     $base = max(1, $retryDelay, $baseRetryAfter);
 
-                    // amplifica o sono se sem_resposta estiver alto (saturação silenciosa)
                     $sleepFactor = 1.0;
                     if ($semRespRatio >= 0.90)
                         $sleepFactor = 2.0;
@@ -306,14 +314,14 @@ class ProcessCltConsultJob implements ShouldQueue
                         $sleepFactor = 1.5;
 
                     $withFactor = (int) ceil($base * $sleepFactor);
-                    $jitter = random_int(0, (int) max(1, ceil($withFactor * 0.15))); // +15% máx
+                    $jitter = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
                     $sleepSecs = $withFactor + $jitter;
 
                     Log::debug("[CLT] Job {$this->jobId} – dormindo {$sleepSecs}s (base={$base}, factor={$sleepFactor}, jitter={$jitter}, retryAfterMax={$retryAfterMax}, semRespRatio=" . round($semRespRatio, 2) . ").");
                     sleep($sleepSecs);
                 }
 
-                // Stall detector (sem progresso real entre tentativas)
+                // Stall detector
                 $currPendCount = count($pendentes);
                 if ($currPendCount === $prevPendCount && $successThisAttempt === 0 && !empty($pendentes)) {
                     Log::warning("[CLT] Job {$this->jobId} – sem progresso na tentativa {$attempt}. Mantendo backoff e aguardando próximos retries.");
@@ -366,8 +374,9 @@ class ProcessCltConsultJob implements ShouldQueue
             Storage::disk($disk)->move($tmpPath, $path);
 
             $job->update([
-                'success_count' => $successCount,
+                'success_count' => $successCount, // sobrescreve para ficar exato
                 'fail_count' => $failCount,
+                'not_found_count' => $notFoundTotal, // 👈 grava total de "não encontrado"
                 'file_disk' => $disk,
                 'file_path' => $path,
                 'file_name' => $fileName,
@@ -375,7 +384,7 @@ class ProcessCltConsultJob implements ShouldQueue
                 'finished_at' => Carbon::now(),
             ]);
             $this->deletePreview($job);
-            Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$successCount}, falha: {$failCount}");
+            Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$successCount}, não encontrado: {$notFoundTotal}, falha: {$failCount}");
 
         } catch (Throwable $e) {
             Log::error("[CLT] Job {$this->jobId} falhou: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);

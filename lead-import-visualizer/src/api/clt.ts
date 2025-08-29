@@ -12,6 +12,7 @@ export interface CltConsultJobListItem {
   total_cpfs: number
   success_count: number
   fail_count: number
+  not_found_count: number       // 👈 novo
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
@@ -36,6 +37,7 @@ export interface CltConsultJobShow {
   total_cpfs: number
   success_count: number
   fail_count: number
+  not_found_count: number       // 👈 novo
   has_file: boolean
   has_preview?: boolean
   preview_updated_at?: string | null

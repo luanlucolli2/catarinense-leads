@@ -7,7 +7,7 @@ import {
   ChevronRight,
   XCircle,
   ShieldAlert,
-  Trash2,                // 👈 novo ícone
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,7 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
-  onDelete: (id: number) => Promise<void>;    // 👈 novo
+  onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
 
   // paginação
@@ -55,29 +55,29 @@ function StatusBadge({ status }: { status: CltConsultJobListItem["status"] }) {
         <Badge className="bg-green-100 text-green-800 border-green-200">
           Concluído
         </Badge>
-      )
+      );
     case "em_progresso":
       return (
         <Badge className="inline-flex items-center justify-center gap-1.5 bg-blue-100 text-blue-800 border-blue-200 whitespace-nowrap text-center">
           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
           <span className="leading-none">Em andamento</span>
         </Badge>
-      )
+      );
     case "falhou":
       return (
         <Badge className="bg-red-100 text-red-800 border-red-200">
           Falhou
         </Badge>
-      )
+      );
     case "cancelado":
       return (
         <Badge className="bg-gray-100 text-gray-800 border-gray-200">
           Cancelado
         </Badge>
-      )
+      );
     case "pendente":
     default:
-      return <Badge variant="secondary">Pendente</Badge>
+      return <Badge variant="secondary">Pendente</Badge>;
   }
 }
 
@@ -163,6 +163,7 @@ export const CLTHistoryTable = ({
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-center">Total de CPFs</TableHead>
               <TableHead className="text-center">Sucesso</TableHead>
+              <TableHead className="text-center">Não encontrado</TableHead> {/* 👈 novo */}
               <TableHead className="text-center">Falhas</TableHead>
               <TableHead className="text-center">Ações</TableHead>
             </TableRow>
@@ -170,7 +171,7 @@ export const CLTHistoryTable = ({
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                   <div className="flex items-center gap-2 justify-center">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Carregando...
@@ -179,7 +180,7 @@ export const CLTHistoryTable = ({
               </TableRow>
             ) : items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                   Nenhuma consulta encontrada
                 </TableCell>
               </TableRow>
@@ -204,12 +205,15 @@ export const CLTHistoryTable = ({
                     <TableCell className="text-center text-green-600 font-medium">
                       {i.success_count.toLocaleString()}
                     </TableCell>
+                    <TableCell className="text-center text-amber-600 font-medium">
+                      {(i.not_found_count ?? 0).toLocaleString()}
+                    </TableCell>
                     <TableCell className="text-center text-red-600 font-medium">
                       {i.fail_count.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {/* Cancelar: branco com ícone vermelho (outline) - ícone apenas */}
+                        {/* Cancelar */}
                         <Button
                           onClick={() => openCancelDialog(i)}
                           disabled={!canCancel(i) || cancelingId === i.id}
@@ -228,7 +232,7 @@ export const CLTHistoryTable = ({
                           )}
                         </Button>
 
-                        {/* Download (final ou prévia) — mantém com texto */}
+                        {/* Download (final ou prévia) */}
                         <Button
                           onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
                           disabled={downloadDisabled}
@@ -244,15 +248,15 @@ export const CLTHistoryTable = ({
                             finalReady
                               ? "Baixar planilha final"
                               : previewReady
-                              ? "Baixar planilha (prévia)"
-                              : "Baixar indisponível"
+                                ? "Baixar planilha (prévia)"
+                                : "Baixar indisponível"
                           }
                         >
                           <Download className="w-4 h-4" />
                           {finalReady ? "Baixar planilha" : previewReady ? "Baixar planilha (prévia)" : "Baixar planilha"}
                         </Button>
 
-                        {/* Excluir: vermelho com ícone branco (destructive) - ícone apenas */}
+                        {/* Excluir */}
                         <Button
                           onClick={() => openDeleteDialog(i)}
                           disabled={!canDelete(i) || deletingId === i.id}
@@ -273,7 +277,7 @@ export const CLTHistoryTable = ({
                       </div>
                     </TableCell>
                   </TableRow>
-                )
+                );
               })
             )}
           </TableBody>

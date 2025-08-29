@@ -31,27 +31,28 @@ class CltConsultController extends Controller
             ->findOrFail($id);
 
         return response()->json([
-            'id'                  => $job->id,
-            'title'               => $job->title,
-            'status'              => $job->status,
-            'total_cpfs'          => $job->total_cpfs,
-            'success_count'       => $job->success_count,
-            'fail_count'          => $job->fail_count,
-            'has_file'            => $job->file_disk && $job->file_path,
-            'started_at'          => $job->started_at,
-            'finished_at'         => $job->finished_at,
-            'created_at'          => $job->created_at,
+            'id' => $job->id,
+            'title' => $job->title,
+            'status' => $job->status,
+            'total_cpfs' => $job->total_cpfs,
+            'success_count' => $job->success_count,
+            'fail_count' => $job->fail_count,
+            'not_found_count' => $job->not_found_count, // 👈 novo no payload
+            'has_file' => $job->file_disk && $job->file_path,
+            'started_at' => $job->started_at,
+            'finished_at' => $job->finished_at,
+            'created_at' => $job->created_at,
             // prévia
-            'has_preview'         => $job->preview_disk && $job->preview_path,
-            'preview_updated_at'  => $job->preview_updated_at,
+            'has_preview' => $job->preview_disk && $job->preview_path,
+            'preview_updated_at' => $job->preview_updated_at,
         ]);
     }
 
     public function store(Request $request)
     {
         $data = $request->validate([
-            'title' => ['required','string','max:191'],
-            'cpfs'  => ['required'],
+            'title' => ['required', 'string', 'max:191'],
+            'cpfs' => ['required'],
         ]);
 
         $cpfs = $data['cpfs'];
@@ -74,7 +75,7 @@ class CltConsultController extends Controller
             }
         }
 
-        $valid   = array_values(array_unique($valid));
+        $valid = array_values(array_unique($valid));
         $invalid = array_values(array_diff(array_unique($invalid), $valid));
 
         if ((count($valid) + count($invalid)) === 0) {
@@ -84,18 +85,19 @@ class CltConsultController extends Controller
         }
 
         $job = CltConsultJob::create([
-            'user_id'       => $request->user()->id,
-            'title'         => $data['title'],
-            'status'        => 'pendente',
-            'total_cpfs'    => count($valid) + count($invalid),
+            'user_id' => $request->user()->id,
+            'title' => $data['title'],
+            'status' => 'pendente',
+            'total_cpfs' => count($valid) + count($invalid),
             'success_count' => 0,
-            'fail_count'    => 0,
+            'fail_count' => 0,
+            'not_found_count' => 0, // 👈 inicia zerado
         ]);
 
         ProcessCltConsultJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid);
 
         return response()->json([
-            'id'     => $job->id,
+            'id' => $job->id,
             'status' => $job->status,
         ], Response::HTTP_ACCEPTED);
     }
@@ -116,7 +118,7 @@ class CltConsultController extends Controller
         /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
         $disk = Storage::disk($job->file_disk);
 
-        if (! $disk->exists($job->file_path)) {
+        if (!$disk->exists($job->file_path)) {
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
         }
 
@@ -129,8 +131,8 @@ class CltConsultController extends Controller
             ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
         return response($content, Response::HTTP_OK, [
-            'Content-Type'        => $mime,
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
     }
 
@@ -150,7 +152,7 @@ class CltConsultController extends Controller
         /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
         $disk = Storage::disk($job->preview_disk);
 
-        if (! $disk->exists($job->preview_path)) {
+        if (!$disk->exists($job->preview_path)) {
             return response()->json(['message' => 'Arquivo de prévia não encontrado.'], Response::HTTP_NOT_FOUND);
         }
 
@@ -163,37 +165,36 @@ class CltConsultController extends Controller
             ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
         return response($content, Response::HTTP_OK, [
-            'Content-Type'        => $mime,
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
     }
 
-    /** ✅ Cancelar job (agora apaga a PRÉVIA imediatamente) */
+    /** ✅ Cancelar job (apaga a PRÉVIA imediatamente) */
     public function cancel(Request $request, int $id)
     {
         $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['concluido','falhou','cancelado'], true)) {
+        if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
             return response()->json([
                 'message' => 'Job não pode ser cancelado neste estado.',
-                'status'  => $job->status,
+                'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
 
         $data = $request->validate([
-            'reason' => ['nullable','string','max:191'],
+            'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
-        // marca como cancelado
         $job->update([
-            'status'        => 'cancelado',
-            'canceled_at'   => now(),
+            'status' => 'cancelado',
+            'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
 
-        // apaga PRÉVIA imediatamente (robustez contra race e worker parado)
+        // apaga PRÉVIA imediatamente
         try {
             if ($job->preview_disk && $job->preview_path) {
                 $disk = Storage::disk($job->preview_disk);
@@ -202,20 +203,20 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar prévia no cancel (job {$job->id}): ".$e->getMessage());
+            Log::warning("[CLT] Erro ao apagar prévia no cancel (job {$job->id}): " . $e->getMessage());
         } finally {
             $job->update([
-                'preview_disk'       => null,
-                'preview_path'       => null,
-                'preview_name'       => null,
+                'preview_disk' => null,
+                'preview_path' => null,
+                'preview_name' => null,
                 'preview_updated_at' => null,
             ]);
         }
 
         return response()->json([
-            'id'            => $job->id,
-            'status'        => $job->status,
-            'canceled_at'   => $job->canceled_at,
+            'id' => $job->id,
+            'status' => $job->status,
+            'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);
     }
@@ -227,10 +228,10 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente','em_progresso'], true)) {
+        if (in_array($job->status, ['pendente', 'em_progresso'], true)) {
             return response()->json([
                 'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
-                'status'  => $job->status,
+                'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
 
@@ -243,7 +244,7 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): ".$e->getMessage());
+            Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
         // Apaga PRÉVIA, se por acaso ainda existir
@@ -255,10 +256,9 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): ".$e->getMessage());
+            Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): " . $e->getMessage());
         }
 
-        // Remove o registro definitivamente (sem soft delete)
         $job->delete();
 
         return response()->noContent(); // 204
