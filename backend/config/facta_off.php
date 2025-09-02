@@ -1,13 +1,90 @@
 <?php
 
 return [
-    // Base URL do serviço FGTS Base Offline (pode apontar para homol ou prod)
+    /*
+    |--------------------------------------------------------------------------
+    | FACTA OFF – API (FGTS Base Offline)
+    |--------------------------------------------------------------------------
+    */
+    // Base URL do serviço FGTS Base Offline (homolog/prod)
     'base_url'   => env('FACTA_OFF_BASE_URL', 'https://fgtsoff.facta.com.br'),
 
-    // Credenciais em Basic Auth (valor deve ser o user:pass em BASE64)
-    // Ex.: base64_encode('usuario:senha') → "dXN1YXJpbzpzZW5oYQ=="
+    // Credenciais em Basic Auth (user:pass base64)
     'basic_auth' => env('FACTA_OFF_BASIC_AUTH'),
 
-    // TTL (segundos) do token Bearer retornado pelo endpoint /gera-token
+    // TTL (segundos) do token Bearer retornado pelo /gera-token
     'token_ttl'  => (int) env('FACTA_OFF_TOKEN_TTL_SECONDS', 3600),
+
+    // Parâmetros do lock/TTL do token (anti-thundering herd)
+    'token' => [
+        'lock_ttl'  => (int) env('FACTA_OFF_TOKEN_LOCK_TTL', 10),
+        'lock_wait' => (int) env('FACTA_OFF_TOKEN_LOCK_WAIT', 5),
+        'ttl_skew'  => (int) env('FACTA_OFF_TOKEN_TTL_SKEW', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | HTTP (timeouts e retry)
+    |--------------------------------------------------------------------------
+    */
+    'http' => [
+        'timeout'         => (int) env('FGTS_HTTP_TIMEOUT', 10),
+        'connect_timeout' => (int) env('FGTS_HTTP_CONNECT_TIMEOUT', 5),
+        'retry'           => (int) env('FGTS_HTTP_RETRY', 1),
+        'retry_delay_ms'  => (int) env('FGTS_HTTP_RETRY_DELAY_MS', 200),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Concorrência (pool)
+    |--------------------------------------------------------------------------
+    */
+    'pool' => [
+        'concurrency' => (int) env('FGTS_OFF_POOL_CONCURRENCY', 2),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rate limit (token bucket global)
+    |--------------------------------------------------------------------------
+    */
+    'rate' => [
+        'tokens_per_second' => (int) env('FGTS_OFF_RATE_TOKENS_PER_SECOND', 2),
+        'burst'             => (int) env('FGTS_OFF_RATE_BURST', 2),
+        'bucket_lock_ttl'   => (int) env('FGTS_OFF_BUCKET_LOCK_TTL', 2),
+        'bucket_lock_wait'  => (int) env('FGTS_OFF_BUCKET_LOCK_WAIT', 1),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | JOB (teimosinha / backoff / janela)
+    |--------------------------------------------------------------------------
+    */
+    'job' => [
+        'timeout_seconds'        => (int) env('FGTS_OFF_JOB_TIMEOUT', 18000), // 5h
+        'max_attempts'           => (int) env('FGTS_OFF_CONSULT_MAX_ATTEMPTS', 5),
+        'retry_delay_seconds'    => (int) env('FGTS_OFF_CONSULT_RETRY_DELAY_SECONDS', 30),
+        'chunk'                  => (int) env('FGTS_OFF_HTTP_CHUNK', 6),
+        'min_chunk'              => (int) env('FGTS_OFF_HTTP_MIN_CHUNK', 2),
+        'retry_after_max'        => (int) env('FGTS_OFF_HTTP_RETRY_AFTER_MAX', 120),
+        'preview_interval_seconds'=> (int) env('FGTS_OFF_PREVIEW_INTERVAL_SECONDS', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | STORAGE (relatórios e prévias)
+    |--------------------------------------------------------------------------
+    */
+    'storage' => [
+        // Disco do Filesystem (ex.: public, local, s3)
+        'reports_disk' => env('FGTS_OFF_REPORTS_DISK', 'public'),
+
+        // Diretórios e nomes
+        'dir_reports'  => env('FGTS_OFF_REPORTS_DIR', 'fgts-off-reports'),
+        'dir_previews' => env('FGTS_OFF_PREVIEWS_DIR', 'fgts-off-previews'),
+
+        // Padrões de nome de arquivo
+        'final_prefix'   => env('FGTS_OFF_FINAL_PREFIX', 'fgts-offline'),
+        'preview_suffix' => env('FGTS_OFF_PREVIEW_SUFFIX', 'preview'),
+    ],
 ];

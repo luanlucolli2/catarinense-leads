@@ -39,29 +39,33 @@ class FactaOfflineApiService
     {
         $cfg = (array) config('facta_off', []);
 
+        // Base/credenciais/token
         $this->baseUrl   = rtrim((string) ($cfg['base_url'] ?? ''), '/');
         $this->basicAuth = $cfg['basic_auth'] ?? null;
         $this->tokenTtl  = (int) ($cfg['token_ttl'] ?? 3600);
 
-        // Locks/TTL do token (padrões seguros; pode sobrepor via .env depois)
-        $this->tokenLockTtl  = (int) env('FACTA_OFF_TOKEN_LOCK_TTL', 10);
-        $this->tokenLockWait = (int) env('FACTA_OFF_TOKEN_LOCK_WAIT', 5);
-        $this->tokenTtlSkew  = (int) env('FACTA_OFF_TOKEN_TTL_SKEW', 30);
+        $tokenCfg = (array) ($cfg['token'] ?? []);
+        $this->tokenLockTtl  = (int) ($tokenCfg['lock_ttl']  ?? 10);
+        $this->tokenLockWait = (int) ($tokenCfg['lock_wait'] ?? 5);
+        $this->tokenTtlSkew  = (int) ($tokenCfg['ttl_skew']  ?? 30);
 
-        // Timeouts e retry básicos
-        $this->httpTimeout        = (int) env('FGTS_HTTP_TIMEOUT', 10);
-        $this->httpConnectTimeout = (int) env('FGTS_HTTP_CONNECT_TIMEOUT', 5);
-        $this->httpRetry          = (int) env('FGTS_HTTP_RETRY', 1);
-        $this->httpRetryDelayMs   = (int) env('FGTS_HTTP_RETRY_DELAY_MS', 200);
+        // HTTP
+        $httpCfg = (array) ($cfg['http'] ?? []);
+        $this->httpTimeout        = (int) ($httpCfg['timeout']          ?? 10);
+        $this->httpConnectTimeout = (int) ($httpCfg['connect_timeout']  ?? 5);
+        $this->httpRetry          = (int) ($httpCfg['retry']            ?? 1);
+        $this->httpRetryDelayMs   = (int) ($httpCfg['retry_delay_ms']   ?? 200);
 
-        // Concorrência (quantas saem em paralelo por "pool").
-        $this->poolConcurrency = (int) env('FGTS_OFF_POOL_CONCURRENCY', 2);
+        // Pool/concorrência
+        $poolCfg = (array) ($cfg['pool'] ?? []);
+        $this->poolConcurrency = (int) ($poolCfg['concurrency'] ?? 2);
 
-        // Token bucket (global, coordenado entre workers)
-        $this->rateTokensPerSecond = (int) env('FGTS_OFF_RATE_TOKENS_PER_SECOND', 2); // 2 rps
-        $this->rateBurst           = (int) env('FGTS_OFF_RATE_BURST', 2);             // rajada de 2
-        $this->bucketLockTtl       = (int) env('FGTS_OFF_BUCKET_LOCK_TTL', 2);
-        $this->bucketLockWait      = (int) env('FGTS_OFF_BUCKET_LOCK_WAIT', 1);
+        // Rate limit (token bucket)
+        $rateCfg = (array) ($cfg['rate'] ?? []);
+        $this->rateTokensPerSecond = (int) ($rateCfg['tokens_per_second'] ?? 2); // 2 rps
+        $this->rateBurst           = (int) ($rateCfg['burst']             ?? 2); // rajada de 2
+        $this->bucketLockTtl       = (int) ($rateCfg['bucket_lock_ttl']   ?? 2);
+        $this->bucketLockWait      = (int) ($rateCfg['bucket_lock_wait']  ?? 1);
     }
 
     /**
@@ -87,13 +91,13 @@ class FactaOfflineApiService
                 throw new \RuntimeException('FACTA_OFF_BASIC_AUTH not configured');
             }
 
-            // Gera token
+            // Gera token (usa timeouts/retry configurados)
             $resp = Http::withHeaders([
                     'Authorization' => 'Basic '.$this->basicAuth,
                     'Accept'        => 'application/json',
                 ])
-                ->timeout(10)
-                ->connectTimeout(5)
+                ->timeout($this->httpTimeout)
+                ->connectTimeout($this->httpConnectTimeout)
                 ->retry(
                     $this->httpRetry,
                     $this->httpRetryDelayMs,

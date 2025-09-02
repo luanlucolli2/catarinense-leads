@@ -21,10 +21,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Timeout por job (segundos) — via config('fgts_off.job.timeout_seconds'). */
+    /** Timeout por job (segundos) — via config('facta_off.job.timeout_seconds'). */
     public int $timeout;
 
-    /** Intervalo em segundos para gerar a prévia — via config('fgts_off.job.preview_interval_seconds'). */
+    /** Intervalo em segundos para gerar a prévia — via config('facta_off.job.preview_interval_seconds'). */
     private int $previewIntervalSeconds;
 
     private int $jobId;
@@ -47,9 +47,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
         $this->onQueue('default');
 
-        // Configs padrão (podem ser refinadas depois em config/fgts_off.php)
-        $this->timeout                = (int) config('fgts_off.job.timeout_seconds', 18000); // 5h
-        $this->previewIntervalSeconds = (int) config('fgts_off.job.preview_interval_seconds', 60);
+        // Configs agora vêm de config('facta_off.*')
+        $this->timeout                = (int) config('facta_off.job.timeout_seconds', 18000); // 5h
+        $this->previewIntervalSeconds = (int) config('facta_off.job.preview_interval_seconds', 60);
     }
 
     public function handle(FactaOfflineApiService $api): void
@@ -71,12 +71,12 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             'total_cpfs' => count($this->cpfs) + count($this->invalidCpfs),
         ]);
 
-        // Knobs de execução
-        $maxAttempts   = (int) config('fgts_off.job.max_attempts', 5);
-        $retryDelay    = (int) config('fgts_off.job.retry_delay_seconds', 30);
-        $chunkSize     = (int) config('fgts_off.job.chunk', 6); // valor confortável
-        $minChunk      = max(1, (int) config('fgts_off.job.min_chunk', 2));
-        $retryAfterCap = (int) config('fgts_off.job.retry_after_max', 120);
+        // Knobs de execução (de facta_off.job.*)
+        $maxAttempts   = (int) config('facta_off.job.max_attempts', 5);
+        $retryDelay    = (int) config('facta_off.job.retry_delay_seconds', 30);
+        $chunkSize     = (int) config('facta_off.job.chunk', 6); // valor confortável
+        $minChunk      = max(1, (int) config('facta_off.job.min_chunk', 2));
+        $retryAfterCap = (int) config('facta_off.job.retry_after_max', 120);
 
         $rows               = [];
         $authorizedMap      = []; // cpf => true (autorizado)
@@ -318,10 +318,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $notAuthorizedCount  = count($notAuthorizedMap);
             $failCount           = $invalidCount + count($terminalFailures) + count($pendentes);
 
-            // Excel FINAL (escrita atômica)
-            $disk         = (string) config('fgts_off.storage.reports_disk', 'public');
-            $dirReports   = (string) config('fgts_off.storage.dir_reports', 'fgts-off-reports');
-            $finalPrefix  = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
+            // Excel FINAL (escrita atômica) — config('facta_off.storage.*')
+            $disk         = (string) config('facta_off.storage.reports_disk', 'public');
+            $dirReports   = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
+            $finalPrefix  = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
 
             $ts       = Carbon::now()->format('Ymd_His');
             $fileName = "{$finalPrefix}_{$this->jobId}_{$ts}.xlsx";
@@ -375,10 +375,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $notAuthorizedCount  = count($notAuthorizedMap);
         $failCount           = $invalidCount + count($terminalFailures);
 
-        // Gera Excel com o que temos
-        $disk         = (string) config('fgts_off.storage.reports_disk', 'public');
-        $dirReports   = (string) config('fgts_off.storage.dir_reports', 'fgts-off-reports');
-        $finalPrefix  = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
+        // Gera Excel com o que temos — config('facta_off.storage.*')
+        $disk         = (string) config('facta_off.storage.reports_disk', 'public');
+        $dirReports   = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
+        $finalPrefix  = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
 
         $ts       = Carbon::now()->format('Ymd_His');
         $fileName = "{$finalPrefix}_{$this->jobId}_{$ts}.xlsx";
@@ -450,10 +450,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 ]);
             }
 
-            $disk          = (string) config('fgts_off.storage.reports_disk', 'public');
-            $dirPreviews   = (string) config('fgts_off.storage.dir_previews', 'fgts-off-previews');
-            $finalPrefix   = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
-            $previewSuffix = (string) config('fgts_off.storage.preview_suffix', 'preview');
+            // config('facta_off.storage.*')
+            $disk          = (string) config('facta_off.storage.reports_disk', 'public');
+            $dirPreviews   = (string) config('facta_off.storage.dir_previews', 'fgts-off-previews');
+            $finalPrefix   = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+            $previewSuffix = (string) config('facta_off.storage.preview_suffix', 'preview');
 
             $fileName = "{$finalPrefix}_{$this->jobId}_{$previewSuffix}.xlsx";
             $tmpName  = "{$finalPrefix}_{$this->jobId}_{$previewSuffix}.tmp.xlsx";
