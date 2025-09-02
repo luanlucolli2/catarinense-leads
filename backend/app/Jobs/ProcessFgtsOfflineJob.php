@@ -63,6 +63,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             return;
         }
 
+        $deadlineUtc = $job->scheduled_until ? Carbon::parse($job->scheduled_until, 'UTC') : null;
+
         $job->update([
             'status'     => 'em_progresso',
             'started_at' => Carbon::now(),
@@ -100,14 +102,22 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $job->increment('fail_count', $invalidCount);
             }
 
+            // expiração imediata (janela já ultrapassada)
+            if ($this->isExpired($deadlineUtc)) {
+                $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                return;
+            }
+
             // 2) Tentativas com "teimosinha"
             $prevPendCount = count($pendentes);
 
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
                 if ($this->finishIfCancelled($job)) return;
+                if ($this->isExpired($deadlineUtc)) {
+                    $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                    return;
+                }
                 if (empty($pendentes)) break;
-
-                Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – pendentes: ".count($pendentes)." – chunkSize={$chunkSize}");
 
                 $toTry  = $pendentes;
                 $chunks = array_chunk($toTry, max(1, $chunkSize));
@@ -115,17 +125,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 // Telemetria e controle de backoff
                 $seen429InAttempt    = 0;
                 $retryAfterMax       = 0;
-                $authorizedThisAtt   = 0;
-                $notAuthorizedThisAtt= 0;
-                $failsThisAtt        = 0;
                 $successThisAttempt  = 0;
                 $semRespTotalAttempt = 0;
                 $totalInAttempt      = 0;
 
                 foreach ($chunks as $idx => $chunkCpfs) {
                     if ($this->finishIfCancelled($job)) return;
-
-                    Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – processando chunk #".($idx+1)." (".count($chunkCpfs)." CPFs)");
+                    if ($this->isExpired($deadlineUtc)) {
+                        $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                        return;
+                    }
 
                     // Lote (o service pode ser seq. ou paralelizar internamente)
                     $batchResults = $api->consultaCpfLote($chunkCpfs);
@@ -137,6 +146,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $terminalFailsInChunk = 0;
 
                     foreach ($chunkCpfs as $cpf) {
+                        if ($this->isExpired($deadlineUtc)) {
+                            $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                            return;
+                        }
+
                         $res = $batchResults[$cpf] ?? [
                             'ok'               => false,
                             'mensagem'         => 'Sem resposta do serviço',
@@ -173,11 +187,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                             if ($res['authorized'] === true) {
                                 $authorizedMap[$cpf] = true;
                                 $authorizedInChunk++;
-                                $authorizedThisAtt++;
-                            } else { // false
+                            } else {
                                 $notAuthorizedMap[$cpf] = true;
                                 $notAuthorizedInChunk++;
-                                $notAuthorizedThisAtt++;
                             }
 
                             // remove dos pendentes
@@ -193,7 +205,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                                 $terminalFailures[$cpf] = $msg;
                                 $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                                 $terminalFailsInChunk++;
-                                $failsThisAtt++;
                             } else {
                                 // manter para próxima tentativa
                                 $lastError[$cpf] = $msg;
@@ -201,26 +212,22 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         }
                     }
 
-                    // 🎯 Atualiza contadores "ao vivo"
-                    if ($authorizedInChunk > 0) {
-                        $job->increment('success_count', $authorizedInChunk);
-                    }
-                    if ($notAuthorizedInChunk > 0) {
-                        $job->increment('not_authorized_count', $notAuthorizedInChunk);
-                    }
-                    if ($terminalFailsInChunk > 0) {
-                        $job->increment('fail_count', $terminalFailsInChunk);
-                    }
+                    // contadores "ao vivo"
+                    if ($authorizedInChunk > 0)       $job->increment('success_count', $authorizedInChunk);
+                    if ($notAuthorizedInChunk > 0)    $job->increment('not_authorized_count', $notAuthorizedInChunk);
+                    if ($terminalFailsInChunk > 0)    $job->increment('fail_count', $terminalFailsInChunk);
 
-                    Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – stats chunk #".($idx+1).": ".json_encode($stats));
-
-                    // acumula para decisão de backoff
+                    // acumula para backoff
                     $semRespTotalAttempt += $stats['sem_resposta'];
                     $totalInAttempt      += count($chunkCpfs);
 
-                    // PRÉVIA periódica (tempo)
+                    // PRÉVIA periódica
                     if ($lastPreviewTime->diffInSeconds(Carbon::now()) >= $this->previewIntervalSeconds) {
                         if ($this->finishIfCancelled($job)) return;
+                        if ($this->isExpired($deadlineUtc)) {
+                            $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                            return;
+                        }
                         $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
                         $lastPreviewTime = Carbon::now();
                     }
@@ -229,6 +236,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 if ($this->finishIfCancelled($job)) return;
 
                 // PRÉVIA no fim da tentativa
+                if ($this->isExpired($deadlineUtc)) {
+                    $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                    return;
+                }
                 $this->generatePreview($job, $rows, $pendentes, $terminalFailures);
                 $lastPreviewTime = Carbon::now();
 
@@ -239,7 +250,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
                     Log::warning("[FGTS-OFF] Job {$this->jobId} – muitos sem_resposta (ratio=".round($semRespRatio,2)."). Reduzindo chunk {$old} → {$chunkSize}.");
                 }
-
                 if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
                     $old = $chunkSize;
                     $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
@@ -249,6 +259,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 // Backoff entre tentativas — considera Retry-After parseado pelo service
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job)) return;
+                    if ($this->isExpired($deadlineUtc)) {
+                        $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                        return;
+                    }
 
                     $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
                     $base           = max(1, $retryDelay, $baseRetryAfter);
@@ -261,14 +275,14 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $jitter     = random_int(0, (int) max(1, ceil($withFactor * 0.15))); // +15% máx
                     $sleepSecs  = $withFactor + $jitter;
 
-                    Log::debug("[FGTS-OFF] Job {$this->jobId} – dormindo {$sleepSecs}s (base={$base}, factor={$sleepFactor}, jitter={$jitter}, retryAfterMax={$retryAfterMax}, semRespRatio=".round($semRespRatio,2).").");
+                    Log::debug("[FGTS-OFF] Job {$this->jobId} – dormindo {$sleepSecs}s.");
                     sleep($sleepSecs);
                 }
 
                 // Stall detector
                 $currPendCount = count($pendentes);
                 if ($currPendCount === $prevPendCount && $successThisAttempt === 0 && !empty($pendentes)) {
-                    Log::warning("[FGTS-OFF] Job {$this->jobId} – sem progresso na tentativa {$attempt}. Mantendo backoff e aguardando próximos retries.");
+                    Log::warning("[FGTS-OFF] Job {$this->jobId} – sem progresso na tentativa {$attempt}.");
                 }
                 $prevPendCount = $currPendCount;
             }
@@ -276,6 +290,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             // 3) Falhas não-retriáveis viram linhas (já contamos no fail_count ao vivo)
             foreach ($terminalFailures as $cpf => $msg) {
                 if ($this->finishIfCancelled($job)) return;
+                if ($this->isExpired($deadlineUtc)) {
+                    $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                    return;
+                }
+
                 $row = $this->baseRow($cpf);
                 $row['autorizado']    = null;
                 $row['autorizadoAte'] = null;
@@ -285,29 +304,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $rows[] = $row;
             }
 
-            // 4) Falhas após teimosinha (ainda pendentes) — contam como falha
-            if (!empty($pendentes)) {
-                $job->increment('fail_count', count($pendentes));
-            }
+            // 4) Falhas após teimosinha (ainda pendentes) — **somente** no encerramento normal contam como falha
             foreach ($pendentes as $cpf) {
                 if ($this->finishIfCancelled($job)) return;
-                $row = $this->baseRow($cpf);
-                $row['autorizado']    = null;
-                $row['autorizadoAte'] = null;
-                $row['mensagem']      = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
-                $row['status']        = null;
-                $row['consultadoEm']  = $this->nowBrString();
-                $rows[] = $row;
+                if ($this->isExpired($deadlineUtc)) {
+                    $this->finalizeExpired($job, $rows, $authorizedMap, $notAuthorizedMap, $terminalFailures, $invalidCount);
+                    return;
+                }
             }
 
-            if ($this->isCancelled()) {
-                $job->update(['finished_at' => Carbon::now()]);
-                $this->deletePreview($job);
-                Log::info("[FGTS-OFF] Job {$this->jobId} cancelado na finalização.");
-                return;
-            }
-
-            // Totais exatos (sobrescreve para garantir consistência)
+            // Totais exatos (encerramento normal)
             $authorizedCount     = count($authorizedMap);
             $notAuthorizedCount  = count($notAuthorizedMap);
             $failCount           = $invalidCount + count($terminalFailures) + count($pendentes);
@@ -327,9 +333,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             Storage::disk($disk)->move($tmpPath, $path);
 
             $job->update([
-                'success_count'        => $authorizedCount,         // ✅ autorizado
-                'not_authorized_count' => $notAuthorizedCount,      // ✅ não autorizado
-                'fail_count'           => $failCount,               // ✅ erro
+                'success_count'        => $authorizedCount,
+                'not_authorized_count' => $notAuthorizedCount,
+                'fail_count'           => $failCount,
                 'file_disk'            => $disk,
                 'file_path'            => $path,
                 'file_name'            => $fileName,
@@ -340,12 +346,12 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             Log::info("[FGTS-OFF] Job {$this->jobId} concluído – autorizado: {$authorizedCount}, não autorizado: {$notAuthorizedCount}, falha: {$failCount}");
 
         } catch (Throwable $e) {
-            Log::error("[FGTS-OFF] Job {$this->jobId} falhou: ".$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $job->update([
                 'status'      => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
             $this->deletePreview($job);
+            Log::error("[FGTS-OFF] Job {$this->jobId} falhou: ".$e->getMessage(), ['trace' => $e->getTraceAsString()]);
         }
     }
 
@@ -355,6 +361,47 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         $status = DB::table('fgts_off_consult_jobs')->where('id', $this->jobId)->value('status');
         return $status === 'cancelado';
+    }
+
+    private function isExpired(?Carbon $deadlineUtc): bool
+    {
+        return $deadlineUtc !== null && Carbon::now('UTC')->greaterThan($deadlineUtc);
+    }
+
+    private function finalizeExpired(FgtsOfflineJob $job, array $rows, array $authorizedMap, array $notAuthorizedMap, array $terminalFailures, int $invalidCount): void
+    {
+        // Totais até aqui: pendentes NÃO viram "falha"
+        $authorizedCount     = count($authorizedMap);
+        $notAuthorizedCount  = count($notAuthorizedMap);
+        $failCount           = $invalidCount + count($terminalFailures);
+
+        // Gera Excel com o que temos
+        $disk         = (string) config('fgts_off.storage.reports_disk', 'public');
+        $dirReports   = (string) config('fgts_off.storage.dir_reports', 'fgts-off-reports');
+        $finalPrefix  = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
+
+        $ts       = Carbon::now()->format('Ymd_His');
+        $fileName = "{$finalPrefix}_{$this->jobId}_{$ts}.xlsx";
+        $tmpName  = "{$finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
+        $path     = "{$dirReports}/{$fileName}";
+        $tmpPath  = "{$dirReports}/{$tmpName}";
+
+        Excel::store(new FgtsOfflineExport($rows), $tmpPath, $disk);
+        Storage::disk($disk)->move($tmpPath, $path);
+
+        $job->update([
+            'success_count'        => $authorizedCount,
+            'not_authorized_count' => $notAuthorizedCount,
+            'fail_count'           => $failCount,
+            'file_disk'            => $disk,
+            'file_path'            => $path,
+            'file_name'            => $fileName,
+            'status'               => 'expirado',     // 👈 novo status
+            'finished_at'          => Carbon::now(),
+        ]);
+
+        $this->deletePreview($job);
+        Log::warning("[FGTS-OFF] Job {$this->jobId} expirado – autorizado: {$authorizedCount}, não autorizado: {$notAuthorizedCount}, falha: {$failCount}");
     }
 
     private function finishIfCancelled(FgtsOfflineJob $job): bool
