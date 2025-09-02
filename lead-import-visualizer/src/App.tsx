@@ -13,6 +13,7 @@ import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
+import FGTSOfflineConsultaPage from "./pages/FGTSOfflineConsultaPage"; // 👈 nova página FGTS OFF
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -65,6 +66,12 @@ const App = () => (
                 <Route
                   path="clt/consulta"
                   element={<CLTConsultaPage />}
+                />
+
+                {/* consulta FGTS (Base Offline) */}
+                <Route
+                  path="fgts-off/consulta"
+                  element={<FGTSOfflineConsultaPage />}
                 />
               </Route>
 

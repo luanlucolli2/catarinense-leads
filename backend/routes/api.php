@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
+use App\Http\Controllers\Api\FgtsOfflineController; // 👈 novo
 
 /*--------------------------------------------------
 | Rotas Públicas
@@ -22,7 +23,7 @@ Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 |--------------------------------------------------*/
 Route::middleware('auth:sanctum')->group(function () {
 
-    Route::get('/user', fn (Request $request) => $request->user());
+    Route::get('/user', fn(Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
 
     /* Leads */
@@ -46,10 +47,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
-
-    // ✅ Cancelar um job
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
-
-    // ✅ Excluir um job (e seus arquivos)
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
+
+    /* FGTS Offline (Base OFF da FACTA) */
+    Route::get('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'index']);
+    Route::post('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'store']);
+    Route::get('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'show'])->whereNumber('id');
+    Route::get('/fgts-off/consult-jobs/{id}/download', [FgtsOfflineController::class, 'download'])->whereNumber('id');
+    Route::get('/fgts-off/consult-jobs/{id}/preview', [FgtsOfflineController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/fgts-off/consult-jobs/{id}/cancel', [FgtsOfflineController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'destroy'])->whereNumber('id');
 });
