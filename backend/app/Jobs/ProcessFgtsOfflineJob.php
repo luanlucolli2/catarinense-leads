@@ -350,7 +350,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 'status'      => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
-            $this->deletePreview($job);
             Log::error("[FGTS-OFF] Job {$this->jobId} falhou: ".$e->getMessage(), ['trace' => $e->getTraceAsString()]);
         }
     }
