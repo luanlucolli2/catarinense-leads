@@ -14,10 +14,12 @@ class FgtsOfflineJob extends Model
         'file_disk','file_path','file_name',
         'started_at','finished_at',
         'canceled_at','cancel_reason',
-        'scheduled_for',     // início (UTC)
-        'scheduled_until',   // fim (UTC) 👈 novo
+        'scheduled_for',
+        'scheduled_until',
         // prévia
-        'preview_disk','preview_path','preview_name','preview_updated_at',
+        'preview_disk','preview_path','preview_name','preview_updated_at','preview_dirty',
+        // spool
+        'spool_path','spool_cpfs_path','spool_bytes',
     ];
 
     protected $casts = [
@@ -26,7 +28,9 @@ class FgtsOfflineJob extends Model
         'canceled_at'        => 'datetime',
         'preview_updated_at' => 'datetime',
         'scheduled_for'      => 'datetime',
-        'scheduled_until'    => 'datetime', // 👈 novo
+        'scheduled_until'    => 'datetime',
+        'preview_dirty'      => 'boolean',
+        'spool_bytes'        => 'integer',
     ];
 
     public function user()
@@ -43,7 +47,6 @@ class FgtsOfflineJob extends Model
     /** Pode ser cancelado? */
     public function getIsCancelableAttribute(): bool
     {
-        // inclui 'agendado' como cancelável
         return in_array($this->status, ['pendente','em_progresso','agendado'], true);
     }
 
