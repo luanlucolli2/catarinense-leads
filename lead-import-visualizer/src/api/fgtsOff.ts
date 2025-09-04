@@ -28,6 +28,8 @@ export interface FgtsOffConsultJobListItem {
   preview_path?: string | null
   preview_name?: string | null
   preview_updated_at?: string | null
+  // telemetria opcional (pode não vir no index)
+  spool_bytes?: number | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -50,6 +52,7 @@ export interface FgtsOffConsultJobShow {
   has_file: boolean
   has_preview?: boolean
   preview_updated_at?: string | null
+  spool_bytes?: number | null
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
@@ -107,7 +110,7 @@ export async function getFgtsOffConsultJob(id: number): Promise<FgtsOffConsultJo
   return data
 }
 
-/** Faz o download do relatório FINAL (stream) — liberado em 'concluido' ou 'expirado' */
+/** Faz o download do relatório FINAL (stream) — liberado em 'concluido', 'expirado' ou 'falhou' */
 export async function downloadFgtsOffReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
@@ -126,9 +129,10 @@ export async function downloadFgtsOffReport(id: number) {
   window.URL.revokeObjectURL(url)
 }
 
-/** Faz o download da PRÉVIA (enquanto em andamento) */
+/** Faz o download da PRÉVIA (gerada na hora a partir do SPOOL + pendentes) */
 export async function downloadFgtsOffPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
+    params: { refresh: 1 }, // força regenerar a cada clique (alinha com backend)
     responseType: 'blob',
   })
 

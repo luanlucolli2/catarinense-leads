@@ -2,23 +2,18 @@
 
 namespace App\Exports;
 
-use Maatwebsite\Excel\Concerns\FromArray;
+use Generator;
+use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
-class FgtsOfflineExport implements FromArray, WithHeadings, ShouldAutoSize, WithEvents
+class FgtsOfflineExport implements FromGenerator, WithHeadings, ShouldAutoSize, WithEvents
 {
     /**
-     * Linhas vindas do Job (associativas).
-     * @var array<int, array<string, string|int|float|bool|null>>
-     */
-    private array $rows;
-
-    /**
-     * Ordem canônica das colunas geradas.
+     * Ordem canônica das colunas geradas (e também cabeçalho do CSV spool).
      */
     public const COLS = [
         'cpf',
@@ -41,9 +36,48 @@ class FgtsOfflineExport implements FromArray, WithHeadings, ShouldAutoSize, With
         'Consultado em',
     ];
 
-    public function __construct(array $rows)
+    /** @var callable():Generator */
+    private $rowIteratorFactory;
+
+    private function __construct(callable $rowIteratorFactory)
     {
-        $this->rows = $rows;
+        $this->rowIteratorFactory = $rowIteratorFactory;
+    }
+
+    /**
+     * Constrói um export que lê diretamente de um CSV (spool) usando ';' como separador.
+     */
+    public static function fromCsv(string $csvFullPath): self
+    {
+        return new self(function () use ($csvFullPath): Generator {
+            $fh = fopen($csvFullPath, 'r');
+            if ($fh === false) {
+                return;
+            }
+            try {
+                // pula cabeçalho
+                $header = fgetcsv($fh, 0, ';');
+                while (($data = fgetcsv($fh, 0, ';')) !== false) {
+                    $assoc = [];
+                    foreach (self::COLS as $i => $key) {
+                        $assoc[$key] = $data[$i] ?? null;
+                    }
+                    // ❌ yield self::mapRow($assoc);
+                    // ✅ deixe o mapping para generator()
+                    yield $assoc;
+                }
+            } finally {
+                fclose($fh);
+            }
+        });
+    }
+
+    /**
+     * Constrói um export a partir de um gerador custom (ex.: spool + pendentes).
+     */
+    public static function fromGenerator(callable $rowIteratorFactory): self
+    {
+        return new self($rowIteratorFactory);
     }
 
     public function headings(): array
@@ -51,44 +85,49 @@ class FgtsOfflineExport implements FromArray, WithHeadings, ShouldAutoSize, With
         return self::HEADERS;
     }
 
-    public function array(): array
+    public function generator(): Generator
+    {
+        $it = ($this->rowIteratorFactory)();
+        foreach ($it as $row) {
+            yield self::mapRow($row);
+        }
+    }
+
+    /**
+     * Converte uma linha associativa para a ordem do Excel + formatações.
+     * Retorna array indexado na mesma ordem do headings().
+     */
+    private static function mapRow(array $row): array
     {
         $out = [];
-        foreach ($this->rows as $row) {
-            $mapped = [];
-            foreach (self::COLS as $key) {
-                $val = $row[$key] ?? null;
+        foreach (self::COLS as $key) {
+            $val = $row[$key] ?? null;
 
-                // CPF como número (sem zeros à esquerda)
-                if ($key === 'cpf') {
-                    $digits = preg_replace('/\D+/', '', (string) $val);
-                    $digits = ltrim($digits ?? '', '0');
-                    if ($digits === '') {
-                        $digits = '0';
-                    }
-                    // int em 64-bit; float em 32-bit
-                    if (PHP_INT_SIZE >= 8) {
-                        $val = (int) $digits;
-                    } else {
-                        $val = (float) $digits;
-                    }
+            // CPF como número (sem zeros à esquerda)
+            if ($key === 'cpf') {
+                $digits = preg_replace('/\D+/', '', (string) $val);
+                $digits = ltrim($digits ?? '', '0');
+                if ($digits === '') {
+                    $digits = '0';
                 }
-
-                // Autorizado como "Sim"/"Não" (se vier bool ou 0/1)
-                if ($key === 'autorizado') {
-                    if (is_bool($val)) {
-                        $val = $val ? 'Sim' : 'Não';
-                    } elseif ($val === 1 || $val === '1') {
-                        $val = 'Sim';
-                    } elseif ($val === 0 || $val === '0') {
-                        $val = 'Não';
-                    }
-                    // caso venha string já legível, mantém
+                if (PHP_INT_SIZE >= 8) {
+                    $val = (int) $digits;
+                } else {
+                    $val = (float) $digits;
                 }
-
-                $mapped[] = $val;
             }
-            $out[] = $mapped;
+
+            // Autorizado como "Sim"/"Não"
+            if ($key === 'autorizado') {
+                $norm = is_string($val) ? mb_strtolower(trim($val), 'UTF-8') : $val;
+                if ($val === true || $val === 1 || $norm === '1' || $norm === 'sim' || $norm === 'true') {
+                    $val = 'Sim';
+                } elseif ($val === false || $val === 0 || $norm === '0' || $norm === 'nao' || $norm === 'não' || $norm === 'false') {
+                    $val = 'Não';
+                }
+            }
+
+            $out[] = $val;
         }
         return $out;
     }
@@ -104,7 +143,7 @@ class FgtsOfflineExport implements FromArray, WithHeadings, ShouldAutoSize, With
                 $sheet = $event->sheet->getDelegate();
 
                 $highestColumn = $sheet->getHighestColumn();
-                $highestRow    = $sheet->getHighestRow();
+                $highestRow = $sheet->getHighestRow();
 
                 // Estilo geral
                 $fullRange = "A1:{$highestColumn}{$highestRow}";
