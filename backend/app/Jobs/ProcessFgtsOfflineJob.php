@@ -450,37 +450,57 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     }
 
     /** Apende uma linha no SPOOL (CSV), com lock e atualização de bytes / preview_dirty. */
-    private function spoolAppend(FgtsOfflineJob $job, array $row): void
-    {
-        $disk = Storage::disk($this->disk);
-        $path = $job->spool_path ?? '';
-        if ($path === '' || !$disk->exists($path)) {
-            throw new \RuntimeException("Spool ausente para job {$job->id}");
-        }
-
-        $fp = fopen($disk->path($path), 'a');
-        if ($fp === false) {
-            throw new \RuntimeException("Falha ao abrir spool para append: {$path}");
-        }
-        try {
-            if (flock($fp, LOCK_EX)) {
-                $ordered = [];
-                foreach (FgtsOfflineExport::COLS as $key) {
-                    $ordered[] = $row[$key] ?? null;
-                }
-                fputcsv($fp, $ordered, ';');
-                fflush($fp);
-                flock($fp, LOCK_UN);
-            }
-        } finally {
-            fclose($fp);
-        }
-
-        $job->updateQuietly([
-            'spool_bytes'   => $this->fileSizeSafe($this->disk, $path),
-            'preview_dirty' => true,
-        ]);
+private function spoolAppend(FgtsOfflineJob $job, array $row): void
+{
+    $disk = Storage::disk($this->disk);
+    $path = $job->spool_path ?? '';
+    if ($path === '' || !$disk->exists($path)) {
+        throw new \RuntimeException("Spool ausente para job {$job->id}");
     }
+
+    $fp = fopen($disk->path($path), 'a');
+    if ($fp === false) {
+        throw new \RuntimeException("Falha ao abrir spool para append: {$path}");
+    }
+    try {
+        if (flock($fp, LOCK_EX)) {
+            $ordered = [];
+            foreach (FgtsOfflineExport::COLS as $key) {
+                $v = $row[$key] ?? null;
+
+                // 🔧 Normaliza 'autorizado' para '1'/'0' (evita string vazia no CSV)
+                if ($key === 'autorizado') {
+                    if ($v === true || $v === 1 || $v === '1') {
+                        $v = '1';
+                    } elseif ($v === false || $v === 0 || $v === '0') {
+                        $v = '0';
+                    } elseif (is_string($v)) {
+                        $n = mb_strtolower(trim($v), 'UTF-8');
+                        if (in_array($n, ['sim', 's', 'true'], true)) {
+                            $v = '1';
+                        } elseif (in_array($n, ['nao', 'não', 'n', 'false'], true)) {
+                            $v = '0';
+                        }
+                    }
+                    // se continuar null, deixa null (inválido/pendente)
+                }
+
+                $ordered[] = $v;
+            }
+
+            fputcsv($fp, $ordered, ';');
+            fflush($fp);
+            flock($fp, LOCK_UN);
+        }
+    } finally {
+        fclose($fp);
+    }
+
+    $job->updateQuietly([
+        'spool_bytes'   => $this->fileSizeSafe($this->disk, $path),
+        'preview_dirty' => true,
+    ]);
+}
 
     /**
      * Gera XLSX FINAL a partir do SPOOL, grava de forma atômica e atualiza o job.

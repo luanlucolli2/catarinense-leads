@@ -3,14 +3,23 @@
 namespace App\Exports;
 
 use Generator;
+use Illuminate\Support\Carbon;
 use Maatwebsite\Excel\Concerns\FromGenerator;
-use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Events\AfterSheet;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
-class FgtsOfflineExport implements FromGenerator, WithHeadings, ShouldAutoSize, WithEvents
+class FgtsOfflineExport implements
+    FromGenerator,
+    WithHeadings,
+    ShouldAutoSize,
+    WithEvents,
+    WithColumnFormatting
 {
     /**
      * Ordem canônica das colunas geradas (e também cabeçalho do CSV spool).
@@ -62,9 +71,7 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, ShouldAutoSize, 
                     foreach (self::COLS as $i => $key) {
                         $assoc[$key] = $data[$i] ?? null;
                     }
-                    // ❌ yield self::mapRow($assoc);
-                    // ✅ deixe o mapping para generator()
-                    yield $assoc;
+                    yield $assoc; // mapping acontece em generator()
                 }
             } finally {
                 fclose($fh);
@@ -127,6 +134,32 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, ShouldAutoSize, 
                 }
             }
 
+            // ===== Datas → converter para serial numérico do Excel =====
+            // C) autorizadoAte: dd/mm/yyyy
+            if ($key === 'autorizadoAte' && is_string($val) && preg_match('/^\d{2}\/\d{2}\/\d{4}$/', trim($val))) {
+                try {
+                    $dt = Carbon::createFromFormat('d/m/Y', trim($val));
+                    if ($dt instanceof Carbon) {
+                        $val = ExcelDate::PHPToExcel($dt->toDateTime());
+                    }
+                } catch (\Throwable) {
+                    // mantém valor original se não conseguir converter
+                }
+            }
+
+            // F) consultadoEm: dd/mm/yyyy HH:ii:ss
+            if ($key === 'consultadoEm' && is_string($val) && preg_match('/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2}$/', trim($val))) {
+                try {
+                    $dt = Carbon::createFromFormat('d/m/Y H:i:s', trim($val), 'America/Sao_Paulo');
+                    if ($dt instanceof Carbon) {
+                        // Mantemos o horário local; Excel armazena apenas um serial
+                        $val = ExcelDate::PHPToExcel($dt->toDateTime());
+                    }
+                } catch (\Throwable) {
+                    // mantém valor original se não conseguir converter
+                }
+            }
+
             $out[] = $val;
         }
         return $out;
@@ -164,6 +197,19 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, ShouldAutoSize, 
                         ->setFormatCode('0');
                 }
             },
+        ];
+    }
+
+    /**
+     * Formatação de colunas (aplicada quando as células têm valor numérico/serial Excel).
+     */
+    public function columnFormats(): array
+    {
+        return [
+            // C: autorizadoAte → dd/mm/yyyy
+            'C' => NumberFormat::FORMAT_DATE_DDMMYYYY,
+            // F: consultadoEm → dd/mm/yyyy hh:mm:ss
+            'F' => 'dd/mm/yyyy hh:mm:ss',
         ];
     }
 }
