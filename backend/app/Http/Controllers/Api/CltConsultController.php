@@ -3,14 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessCltConsultJob;
 use App\Models\CltConsultJob;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Validator;
+use App\Exports\CltConsultExport;
 
 class CltConsultController extends Controller
 {
@@ -37,7 +40,7 @@ class CltConsultController extends Controller
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
             'fail_count' => $job->fail_count,
-            'not_found_count' => $job->not_found_count, // 👈 novo no payload
+            'not_found_count' => $job->not_found_count,
             'has_file' => $job->file_disk && $job->file_path,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
@@ -45,6 +48,8 @@ class CltConsultController extends Controller
             // prévia
             'has_preview' => $job->preview_disk && $job->preview_path,
             'preview_updated_at' => $job->preview_updated_at,
+            // telemetria do spool (opcional para o front)
+            'spool_bytes' => $job->spool_bytes,
         ]);
     }
 
@@ -91,10 +96,12 @@ class CltConsultController extends Controller
             'total_cpfs' => count($valid) + count($invalid),
             'success_count' => 0,
             'fail_count' => 0,
-            'not_found_count' => 0, // 👈 inicia zerado
+            'not_found_count' => 0,
+            // prévia/spool setados pelo Job
+            'preview_dirty' => false,
         ]);
 
-        ProcessCltConsultJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid);
+        \App\Jobs\ProcessCltConsultJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid);
 
         return response()->json([
             'id' => $job->id,
@@ -136,37 +143,118 @@ class CltConsultController extends Controller
         ]);
     }
 
-    /** ✅ Download da PRÉVIA (enquanto em andamento) */
-    public function downloadPreview(int $id)
+    /**
+     * Download da PRÉVIA sob demanda (gera XLSX a partir do SPOOL e inclui PENDENTES).
+     * Use ?refresh=1 para forçar regeneração.
+     */
+    public function downloadPreview(Request $request, int $id)
     {
         $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (empty($job->preview_disk) || empty($job->preview_path)) {
-            return response()->json(['message' => 'Prévia não disponível.'], Response::HTTP_CONFLICT);
+        // precisa ter spool criado pelo worker
+        if (empty($job->spool_path) || empty($job->spool_cpfs_path)) {
+            return response()->json(['message' => 'Prévia não disponível ainda.'], Response::HTTP_CONFLICT);
         }
 
-        $filename = $job->preview_name ?: "clt-consulta-{$job->id}-preview.xlsx";
+        $diskName = config('cltfacta.storage.reports_disk', 'public');
+        $disk = Storage::disk($diskName);
 
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
-        $disk = Storage::disk($job->preview_disk);
+        if (!$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)) {
+            return response()->json(['message' => 'Prévia não disponível (spool ausente).'], Response::HTTP_CONFLICT);
+        }
 
-        if (!$disk->exists($job->preview_path)) {
-            return response()->json(['message' => 'Arquivo de prévia não encontrado.'], Response::HTTP_NOT_FOUND);
+        $needRefresh = (bool) $request->boolean('refresh', true) // por padrão regenerar
+            || empty($job->preview_disk) || empty($job->preview_path)
+            || !$disk->exists($job->preview_path)
+            || $job->preview_dirty;
+
+        $fileName = ($job->preview_name ?: "clt-consulta_{$job->id}_preview.xlsx");
+        $tmpName = preg_replace('/\.xlsx$/', '.tmp.xlsx', $fileName);
+        $dirPreviews = (string) config('cltfacta.storage.dir_previews', 'clt-previews');
+        $path = "{$dirPreviews}/{$fileName}";
+        $tmpPath = "{$dirPreviews}/{$tmpName}";
+
+        if ($needRefresh) {
+            $spoolReal = $disk->path($job->spool_path);
+            $cpfsReal = $disk->path($job->spool_cpfs_path);
+
+            $iteratorFactory = function () use ($spoolReal, $cpfsReal): \Generator {
+                $done = [];
+
+                // 1) linhas já processadas no spool
+                $fh = fopen($spoolReal, 'r');
+                if ($fh !== false) {
+                    try {
+                        flock($fh, LOCK_SH);
+                        $header = fgetcsv($fh, 0, ';'); // pula cabeçalho
+                        while (($data = fgetcsv($fh, 0, ';')) !== false) {
+                            $assoc = [];
+                            foreach (CltConsultExport::COLS as $i => $key) {
+                                $assoc[$key] = $data[$i] ?? null;
+                            }
+                            $cpf = (string) ($assoc['cpf'] ?? '');
+                            if ($cpf !== '')
+                                $done[$cpf] = true;
+                            yield $assoc;
+                        }
+                    } finally {
+                        flock($fh, LOCK_UN);
+                        fclose($fh);
+                    }
+                }
+
+                // 2) pendentes = CPFs originais que ainda não apareceram no spool
+                $fh2 = fopen($cpfsReal, 'r');
+                if ($fh2 !== false) {
+                    try {
+                        flock($fh2, LOCK_SH);
+                        while (($line = fgets($fh2)) !== false) {
+                            $cpf = trim($line);
+                            if ($cpf === '' || isset($done[$cpf]))
+                                continue;
+
+                            $row = array_fill_keys(CltConsultExport::COLS, null);
+                            $row['cpf'] = $cpf;
+                            $row['numeroVinculos'] = 0;
+                            $row['mensagem'] = 'Em andamento';
+                            yield $row;
+                        }
+                    } finally {
+                        flock($fh2, LOCK_UN);
+                        fclose($fh2);
+                    }
+                }
+            };
+
+            $export = CltConsultExport::fromGenerator($iteratorFactory);
+            Excel::store($export, $tmpPath, $diskName);
+            $disk->move($tmpPath, $path);
+
+            $job->update([
+                'preview_disk' => $diskName,
+                'preview_path' => $path,
+                'preview_name' => $fileName,
+                'preview_updated_at' => Carbon::now(),
+                'preview_dirty' => false,
+            ]);
+        }
+
+        if (!$disk->exists($path)) {
+            return response()->json(['message' => 'Falha ao gerar prévia.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         if (method_exists($disk, 'download')) {
-            return $disk->download($job->preview_path, $filename);
+            return $disk->download($path, $fileName);
         }
 
-        $content = $disk->get($job->preview_path);
-        $mime = $disk->mimeType($job->preview_path)
-            ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        $content = $disk->get($path);
+        $mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
         return response($content, Response::HTTP_OK, [
             'Content-Type' => $mime,
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
         ]);
     }
 
@@ -210,6 +298,7 @@ class CltConsultController extends Controller
                 'preview_path' => null,
                 'preview_name' => null,
                 'preview_updated_at' => null,
+                'preview_dirty' => false,
             ]);
         }
 
@@ -221,7 +310,7 @@ class CltConsultController extends Controller
         ]);
     }
 
-    /** ✅ Excluir job + arquivos (final e prévia). Bloqueia se pendente/em_progresso. */
+    /** ✅ Excluir job + arquivos (final, prévia e spool). Bloqueia se pendente/em_progresso. */
     public function destroy(int $id)
     {
         $job = CltConsultJob::query()
@@ -247,7 +336,7 @@ class CltConsultController extends Controller
             Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
-        // Apaga PRÉVIA, se por acaso ainda existir
+        // Apaga PRÉVIA, se ainda existir
         try {
             if ($job->preview_disk && $job->preview_path) {
                 $disk = Storage::disk($job->preview_disk);
@@ -257,6 +346,20 @@ class CltConsultController extends Controller
             }
         } catch (\Throwable $e) {
             Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): " . $e->getMessage());
+        }
+
+        // Apaga SPOOL e lista de CPFs, se existirem
+        try {
+            $diskName = config('cltfacta.storage.reports_disk', 'public');
+            $disk = Storage::disk($diskName);
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
+                $p = $job->{$field};
+                if ($p && $disk->exists($p)) {
+                    $disk->delete($p);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
         }
 
         $job->delete();
