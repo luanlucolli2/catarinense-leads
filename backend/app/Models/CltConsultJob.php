@@ -8,12 +8,14 @@ class CltConsultJob extends Model
 {
     protected $fillable = [
         'user_id','title','status',
-        'total_cpfs','success_count','fail_count','not_found_count', // 👈 novo campo
+        'total_cpfs','success_count','fail_count','not_found_count',
         'file_disk','file_path','file_name',
         'started_at','finished_at',
         'canceled_at','cancel_reason',
-        // 👇 prévia
-        'preview_disk','preview_path','preview_name','preview_updated_at',
+        // prévia
+        'preview_disk','preview_path','preview_name','preview_updated_at','preview_dirty',
+        // spool
+        'spool_path','spool_cpfs_path','spool_bytes',
     ];
 
     protected $casts = [
@@ -21,6 +23,8 @@ class CltConsultJob extends Model
         'finished_at'        => 'datetime',
         'canceled_at'        => 'datetime',
         'preview_updated_at' => 'datetime',
+        'preview_dirty'      => 'boolean',
+        'spool_bytes'        => 'integer',
     ];
 
     public function user() {

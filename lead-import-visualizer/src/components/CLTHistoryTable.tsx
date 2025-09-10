@@ -104,8 +104,9 @@ export const CLTHistoryTable = ({
   const canDownloadFinal = (i: CltConsultJobListItem) =>
     i.status === "concluido" && Boolean(i.file_path);
 
+  // ✅ PRÉVIA é on-demand: habilita enquanto processa, independentemente de preview_path
   const canDownloadPreview = (i: CltConsultJobListItem) =>
-    (i.status === "pendente" || i.status === "em_progresso") && Boolean(i.preview_path);
+    i.status === "pendente" || i.status === "em_progresso";
 
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -163,7 +164,7 @@ export const CLTHistoryTable = ({
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-center">Total de CPFs</TableHead>
               <TableHead className="text-center">Sucesso</TableHead>
-              <TableHead className="text-center">Não encontrado</TableHead> {/* 👈 novo */}
+              <TableHead className="text-center">Não encontrado</TableHead>
               <TableHead className="text-center">Falhas</TableHead>
               <TableHead className="text-center">Ações</TableHead>
             </TableRow>

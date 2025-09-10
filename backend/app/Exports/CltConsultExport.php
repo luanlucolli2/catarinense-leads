@@ -2,8 +2,9 @@
 
 namespace App\Exports;
 
+use Generator;
 use Illuminate\Support\Carbon;
-use Maatwebsite\Excel\Concerns\FromArray;
+use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Concerns\WithEvents;
@@ -13,17 +14,15 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
-class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithEvents, WithColumnFormatting
+class CltConsultExport implements
+    FromGenerator,
+    WithHeadings,
+    ShouldAutoSize,
+    WithEvents,
+    WithColumnFormatting
 {
     /**
-     * Linhas vindas do Job (associativas).
-     * @var array<int, array<string, string|int|float|null>>
-     */
-    private array $rows;
-
-    /**
      * Chaves canônicas (ordem exata dos dados exportados).
-     * Nomes das chaves devem bater com o que o Job preenche.
      */
     public const COLS = [
         'cpf',
@@ -92,9 +91,46 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         'Mensagem',
     ];
 
-    public function __construct(array $rows)
+    /** @var callable():Generator */
+    private $rowIteratorFactory;
+
+    private function __construct(callable $rowIteratorFactory)
     {
-        $this->rows = $rows;
+        $this->rowIteratorFactory = $rowIteratorFactory;
+    }
+
+    /**
+     * Lê diretamente de um CSV (spool) usando ';' como separador.
+     */
+    public static function fromCsv(string $csvFullPath): self
+    {
+        return new self(function () use ($csvFullPath): Generator {
+            $fh = fopen($csvFullPath, 'r');
+            if ($fh === false) {
+                return;
+            }
+            try {
+                // pula cabeçalho
+                $header = fgetcsv($fh, 0, ';');
+                while (($data = fgetcsv($fh, 0, ';')) !== false) {
+                    $assoc = [];
+                    foreach (self::COLS as $i => $key) {
+                        $assoc[$key] = $data[$i] ?? null;
+                    }
+                    yield $assoc;
+                }
+            } finally {
+                fclose($fh);
+            }
+        });
+    }
+
+    /**
+     * Constrói a partir de um Generator custom (spool + pendentes).
+     */
+    public static function fromGenerator(callable $rowIteratorFactory): self
+    {
+        return new self($rowIteratorFactory);
     }
 
     public function headings(): array
@@ -102,70 +138,51 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
         return self::HEADERS;
     }
 
-    public function array(): array
+    public function generator(): Generator
     {
-        $out = [];
-        foreach ($this->rows as $row) {
-            $mapped = [];
-            foreach (self::COLS as $key) {
-                $val = $row[$key] ?? null;
-
-                // CPF → numérico (sem zeros à esquerda)
-                if ($key === 'cpf') {
-                    $digits = preg_replace('/\D+/', '', (string) $val);
-                    $digits = ltrim($digits ?? '', '0');
-                    if ($digits === '') {
-                        $digits = '0';
-                    }
-                    $val = PHP_INT_SIZE >= 8 ? (int) $digits : (float) $digits;
-                }
-
-                // Datas → converter para serial Excel
-                if (in_array($key, ['dataNascimento', 'dataAdmissao', 'dataDesligamento', 'dataInicioAtividadeEmpregador'], true)) {
-                    $val = $this->toExcelDate($val);
-                }
-
-                $mapped[] = $val;
-            }
-            $out[] = $mapped;
+        $it = ($this->rowIteratorFactory)();
+        foreach ($it as $row) {
+            yield self::mapRow($row);
         }
-        return $out;
     }
 
     /**
-     * Converte strings "dd/mm/yyyy" ou objetos DateTime/Carbon em serial Excel.
-     * Retorna null se inválido.
-     *
-     * @param mixed $value
-     * @return float|int|null
+     * Converte linha associativa para a ordem do Excel + formatações.
      */
-    private function toExcelDate(mixed $value): float|int|null
+    private static function mapRow(array $row): array
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
+        $out = [];
+        foreach (self::COLS as $key) {
+            $val = $row[$key] ?? null;
 
-        // Já veio como DateTime/Carbon?
-        if ($value instanceof \DateTimeInterface) {
-            return ExcelDate::PHPToExcel($value);
-        }
+            // CPF → numérico (sem zeros à esquerda)
+            if ($key === 'cpf') {
+                $digits = preg_replace('/\D+/', '', (string) $val);
+                $digits = ltrim($digits ?? '', '0');
+                if ($digits === '')
+                    $digits = '0';
+                $val = PHP_INT_SIZE >= 8 ? (int) $digits : (float) $digits;
+            }
 
-        // String "dd/mm/yyyy"
-        if (is_string($value)) {
-            $v = trim($value);
-            if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $v)) {
+            // Datas dd/mm/yyyy → serial Excel
+            if (
+                in_array($key, ['dataNascimento', 'dataAdmissao', 'dataDesligamento', 'dataInicioAtividadeEmpregador'], true)
+                && is_string($val)
+                && preg_match('/^\d{2}\/\d{2}\/\d{4}$/', trim($val))
+            ) {
                 try {
-                    $dt = Carbon::createFromFormat('d/m/Y', $v);
+                    $dt = Carbon::createFromFormat('d/m/Y', trim($val));
                     if ($dt instanceof Carbon) {
-                        return ExcelDate::PHPToExcel($dt->toDateTime());
+                        $val = ExcelDate::PHPToExcel($dt->toDateTime());
                     }
                 } catch (\Throwable) {
-                    // deixa cair para null
+                    // mantém o valor original se falhar
                 }
             }
-        }
 
-        return null;
+            $out[] = $val;
+        }
+        return $out;
     }
 
     /**
@@ -178,7 +195,7 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
                 $sheet = $event->sheet->getDelegate();
 
                 $highestColumn = $sheet->getHighestColumn();
-                $highestRow    = $sheet->getHighestRow();
+                $highestRow = $sheet->getHighestRow();
 
                 // Estilo geral
                 $fullRange = "A1:{$highestColumn}{$highestRow}";
@@ -203,7 +220,7 @@ class CltConsultExport implements FromArray, WithHeadings, ShouldAutoSize, WithE
     }
 
     /**
-     * Formatação das colunas de data.
+     * Colunas de data.
      * D = dataNascimento
      * G = dataAdmissao
      * S = dataDesligamento
