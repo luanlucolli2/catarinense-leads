@@ -13,6 +13,7 @@ import {
 } from "@/api/clt";
 import { useCltJobPolling } from "@/hooks/useCltJobPolling";
 import { toast } from "sonner";
+import type { AxiosError } from "axios";
 
 function formatDateTimeBR(iso: string | null | undefined) {
   if (!iso) return "-";
@@ -127,12 +128,18 @@ const CLTConsultaPage = () => {
   const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
     try {
       if (opts?.preview) {
-        await downloadCltPreview(id);
+        // 🔁 força regeneração baseada no spool atual
+        await downloadCltPreview(id, { refresh: true });
       } else {
         await downloadCltReport(id);
       }
     } catch (e: any) {
-      toast.error(e?.message ?? "Falha no download");
+      const ax = e as AxiosError;
+      if (opts?.preview && ax?.response?.status === 409) {
+        toast.info("A prévia ainda não está disponível. Tente novamente em alguns segundos.");
+        return;
+      }
+      toast.error((ax?.response as any)?.data?.message ?? e?.message ?? "Falha no download");
     }
   };
 

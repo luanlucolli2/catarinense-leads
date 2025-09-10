@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -82,10 +82,9 @@ class FactaApiService
                 'Authorization' => 'Basic ' . $this->basicAuth,
                 'Accept' => 'application/json',
             ])
-                ->timeout(20)
-                ->connectTimeout(10)
-                ->retry(max(2, $this->httpRetry), max(300, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
-
+                ->timeout(max(1, $this->httpTimeout))
+                ->connectTimeout(max(1, $this->httpConnectTimeout))
+                ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
                 ->get($this->baseUrl . '/gera-token');
 
             if (!$resp->ok()) {
@@ -138,7 +137,7 @@ class FactaApiService
             ])
                 ->timeout($this->httpTimeout)
                 ->connectTimeout($this->httpConnectTimeout)
-                ->retry($this->httpRetry, $this->httpRetryDelayMs, fn($e) => $e instanceof ConnectionException)
+                ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
                 ->get($this->baseUrl . '/consignado-trabalhador/autoriza-consulta', [
                     'cpf' => $cpf,
                 ]);
@@ -217,7 +216,7 @@ class FactaApiService
                         ->withHeaders($headers)
                         ->timeout($this->httpTimeout)
                         ->connectTimeout($this->httpConnectTimeout)
-                        ->retry($this->httpRetry, $this->httpRetryDelayMs, fn($e) => $e instanceof ConnectionException)
+                        ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
                         ->get($url, ['cpf' => $cpf]);
                 }
                 return $reqs;
@@ -261,7 +260,7 @@ class FactaApiService
                             ->withHeaders($headers2)
                             ->timeout($this->httpTimeout)
                             ->connectTimeout($this->httpConnectTimeout)
-                            ->retry($this->httpRetry, $this->httpRetryDelayMs, fn($e) => $e instanceof ConnectionException)
+                            ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
                             ->get($url, ['cpf' => $cpf]);
                     }
                     return $reqs;
@@ -290,7 +289,7 @@ class FactaApiService
                             ->withHeaders($headers)
                             ->timeout($this->httpSecondTimeout)
                             ->connectTimeout($this->httpSecondConnectTimeout)
-                            ->retry($this->httpRetry, $this->httpRetryDelayMs, fn($e) => $e instanceof ConnectionException)
+                            ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
                             ->get($url, ['cpf' => $cpf]);
                     }
                     return $reqs;
@@ -361,7 +360,7 @@ class FactaApiService
             ];
         }
 
-        // --- 👇 NOVO: mensagem com HTML (ex.: "403 Forbidden" em uma página) → retriável
+        // Mensagem HTML → tratar como temporário
         $msgRaw = (string) ($json['mensagem'] ?? $json['message'] ?? '');
         if ($msgRaw !== '' && $this->looksLikeHtml($msgRaw)) {
             $short = $this->summarizeHtml($msgRaw);
@@ -369,13 +368,12 @@ class FactaApiService
                 'ok' => false,
                 'mensagem' => $short,
                 'vinculos' => null,
-                'retriable' => true,   // tratar como temporário (retriável)
+                'retriable' => true,
                 'not_found' => false,
-                'http_status' => $status, // pode ser 200, mesmo com HTML
+                'http_status' => $status,
                 'retry_after' => $retryAfter,
             ];
         }
-        // --- 👆 NOVO
 
         if (!empty($json['erro'])) {
             $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');

@@ -11,6 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -25,8 +26,6 @@ class ProcessCltConsultJob implements ShouldQueue
     public int $timeout;
 
     private int $jobId;
-    private int $userId;
-    private string $title;
 
     /** @var string[] CPFs válidos (11 dígitos) */
     private array $cpfs;
@@ -37,16 +36,15 @@ class ProcessCltConsultJob implements ShouldQueue
     /** Storage / Spool */
     private string $disk;
     private string $dirReports;
-    private string $dirPreviews;
     private string $dirSpool;
     private string $finalPrefix;
-    private string $previewSuffix;
 
-    public function __construct(int $jobId, int $userId, string $title, array $cpfs, array $invalidCpfs = [])
+    /**
+     * Nova assinatura mais enxuta: apenas o ID do job e os CPFs.
+     */
+    public function __construct(int $jobId, array $cpfs, array $invalidCpfs = [])
     {
         $this->jobId = $jobId;
-        $this->userId = $userId;
-        $this->title = $title;
         $this->cpfs = array_values(array_unique($cpfs));
         $this->invalidCpfs = array_values(array_unique($invalidCpfs));
 
@@ -54,12 +52,10 @@ class ProcessCltConsultJob implements ShouldQueue
 
         // Configs
         $this->timeout = (int) config('cltfacta.job.timeout_seconds', 18000); // 5h
-        $this->disk = (string) config('cltfacta.storage.reports_disk', 'public');
+        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
-        $this->dirPreviews = (string) config('cltfacta.storage.dir_previews', 'clt-previews');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
         $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
-        $this->previewSuffix = (string) config('cltfacta.storage.preview_suffix', 'preview');
     }
 
     public function handle(FactaApiService $facta): void
@@ -93,19 +89,16 @@ class ProcessCltConsultJob implements ShouldQueue
         $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
         $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
         $chunkSize = (int) config('cltfacta.job.chunk', 20);
-        $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 5));
+        $minChunk  = max(1, (int) config('cltfacta.job.min_chunk', 5));
         $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
 
-        $pendentes = $this->cpfs;
+        $pendentes   = $this->cpfs;
         $invalidCount = count($this->invalidCpfs);
 
         // acumuladores de telemetria
-        $successMap = [];
         $lastError = [];
         $terminalFailures = [];
-
-        // 👇 contador "não encontrado"
-        $notFoundTotal = 0;
+        $notFoundTotal = 0; // apenas para log
 
         try {
             // 1) CPFs inválidos já entram no SPOOL e contam como falha
@@ -123,25 +116,22 @@ class ProcessCltConsultJob implements ShouldQueue
             $prevPendCount = count($pendentes);
 
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                if ($this->finishIfCancelled($job))
-                    return;
-                if (empty($pendentes))
-                    break;
+                if ($this->finishIfCancelled($job)) return;
+                if (empty($pendentes)) break;
 
                 Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes) . " – chunkSize={$chunkSize}");
 
-                $toTry = $pendentes;
+                $toTry  = $pendentes;
                 $chunks = array_chunk($toTry, max(1, $chunkSize));
 
-                $seen429InAttempt = 0;
-                $retryAfterMax = 0;
+                $seen429InAttempt   = 0;
+                $retryAfterMax      = 0;
                 $successThisAttempt = 0;
                 $semRespTotalAttempt = 0;
-                $totalInAttempt = 0;
+                $totalInAttempt     = 0;
 
                 foreach ($chunks as $idx => $chunkCpfs) {
-                    if ($this->finishIfCancelled($job))
-                        return;
+                    if ($this->finishIfCancelled($job)) return;
 
                     Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – disparando chunk #" . ($idx + 1) . " (" . count($chunkCpfs) . " CPFs)");
 
@@ -149,8 +139,8 @@ class ProcessCltConsultJob implements ShouldQueue
 
                     // Telemetria do chunk
                     $stats = ['2xx' => 0, '401' => 0, '429' => 0, '5xx' => 0, 'outros' => 0, 'sem_resposta' => 0];
-                    $successInChunk = 0;
-                    $notFoundInChunk = 0;
+                    $successInChunk   = 0;   // agregado de sucesso no chunk
+                    $notFoundInChunk  = 0;
 
                     foreach ($chunkCpfs as $cpf) {
                         $res = $batchResults[$cpf] ?? [
@@ -164,19 +154,12 @@ class ProcessCltConsultJob implements ShouldQueue
                         ];
 
                         $http = $res['http_status'] ?? null;
-                        if ($http === 200)
-                            $stats['2xx']++;
-                        elseif ($http === 401)
-                            $stats['401']++;
-                        elseif ($http === 429) {
-                            $stats['429']++;
-                            $seen429InAttempt++;
-                        } elseif (is_int($http) && $http >= 500)
-                            $stats['5xx']++;
-                        elseif ($http === null)
-                            $stats['sem_resposta']++;
-                        else
-                            $stats['outros']++;
+                        if     ($http === 200) $stats['2xx']++;
+                        elseif ($http === 401) $stats['401']++;
+                        elseif ($http === 429) { $stats['429']++; $seen429InAttempt++; }
+                        elseif (is_int($http) && $http >= 500) $stats['5xx']++;
+                        elseif ($http === null) $stats['sem_resposta']++;
+                        else $stats['outros']++;
 
                         if (!empty($res['retry_after'])) {
                             $retryAfterMax = max($retryAfterMax, (int) $res['retry_after']);
@@ -239,7 +222,7 @@ class ProcessCltConsultJob implements ShouldQueue
                                 $this->spoolAppend($job, $row);
                             }
 
-                            $successMap[$cpf] = true;
+                            // Remove pendente e atualiza acumuladores
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                             $successInChunk++;
                             $successThisAttempt++;
@@ -276,20 +259,21 @@ class ProcessCltConsultJob implements ShouldQueue
                         }
                     }
 
-                    if ($successInChunk > 0)
+                    if ($successInChunk > 0) {
                         $job->increment('success_count', $successInChunk);
-                    if ($notFoundInChunk > 0)
+                    }
+                    if ($notFoundInChunk > 0) {
                         $job->increment('not_found_count', $notFoundInChunk);
+                    }
 
                     Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – stats chunk #" . ($idx + 1) . ": " . json_encode($stats));
 
                     // Acumula tentativa
                     $semRespTotalAttempt += $stats['sem_resposta'];
-                    $totalInAttempt += count($chunkCpfs);
+                    $totalInAttempt      += count($chunkCpfs);
                 }
 
-                if ($this->finishIfCancelled($job))
-                    return;
+                if ($this->finishIfCancelled($job)) return;
 
                 // --- Ajustes de chunk/backoff (inalterados)
                 if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
@@ -309,20 +293,17 @@ class ProcessCltConsultJob implements ShouldQueue
                 }
 
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
-                    if ($this->finishIfCancelled($job))
-                        return;
+                    if ($this->finishIfCancelled($job)) return;
 
                     $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
                     $base = max(1, $retryDelay, $baseRetryAfter);
 
                     $sleepFactor = 1.0;
-                    if ($semRespRatio >= 0.90)
-                        $sleepFactor = 2.0;
-                    elseif ($semRespRatio >= 0.50)
-                        $sleepFactor = 1.5;
+                    if ($semRespRatio >= 0.90)      $sleepFactor = 2.0;
+                    elseif ($semRespRatio >= 0.50)  $sleepFactor = 1.5;
 
                     $withFactor = (int) ceil($base * $sleepFactor);
-                    $jitter = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
+                    $jitter    = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
                     $sleepSecs = $withFactor + $jitter;
 
                     Log::debug("[CLT] Job {$this->jobId} – dormindo {$sleepSecs}s.");
@@ -345,8 +326,7 @@ class ProcessCltConsultJob implements ShouldQueue
             // 4) Falhas após teimosinha → grava uma linha por CPF remanescente
             if (!empty($pendentes)) {
                 foreach ($pendentes as $cpf) {
-                    if ($this->finishIfCancelled($job))
-                        return;
+                    if ($this->finishIfCancelled($job)) return;
                     $row = $this->baseRow($cpf);
                     $row['numeroVinculos'] = 0;
                     $row['mensagem'] = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
@@ -367,16 +347,29 @@ class ProcessCltConsultJob implements ShouldQueue
             $finalOk = $this->generateFinalFromSpool($job);
             if ($finalOk) {
                 $this->cleanupSpool($job);
+
+                $job->update([
+                    'status' => 'concluido',
+                    'finished_at' => Carbon::now(),
+                ]);
+
+                // ✅ apagar a PRÉVIA logo após gerar a FINAL (com recarregamento + lock)
+                $this->deletePreview($job);
+
+                $job->refresh();
+                Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$job->success_count}, não encontrado: {$job->not_found_count}, falha: {$job->fail_count}");
+                return;
             }
 
+            // ❌ Não conseguiu gerar FINAL — marca como falhou (não limpa spool para análise)
             $job->update([
-                'status' => 'concluido',
+                'status' => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
             $this->deletePreview($job);
+            Log::error("[CLT] Job {$this->jobId} não conseguiu gerar FINAL (mantido spool para análise).");
+            return;
 
-            $job->refresh();
-            Log::info("[CLT] Job {$this->jobId} concluído – sucesso: " . count($successMap) . ", não encontrado: {$notFoundTotal}, falha: " . ($invalidCount + count($terminalFailures) + count($pendentes)));
         } catch (Throwable $e) {
             // Tenta gerar FINAL com o que temos; limpa spool somente se o FINAL existir
             $finalOk = false;
@@ -428,11 +421,11 @@ class ProcessCltConsultJob implements ShouldQueue
         return $row;
     }
 
-    /** Inicializa diretórios do storage se necessário. */
+    /** Inicializa diretórios do storage se necessário (sem prévias; controller cuida delas). */
     private function initStorageDirs(): void
     {
         $disk = Storage::disk($this->disk);
-        foreach ([$this->dirReports, $this->dirPreviews, $this->dirSpool] as $dir) {
+        foreach ([$this->dirReports, $this->dirSpool] as $dir) {
             if (!$disk->exists($dir)) {
                 $disk->makeDirectory($dir);
             }
@@ -518,10 +511,19 @@ class ProcessCltConsultJob implements ShouldQueue
             fclose($fp);
         }
 
-        $job->updateQuietly([
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $path),
-            'preview_dirty' => true,
-        ]);
+        // Atualiza bytes e SEMPRE "sujamos" a prévia no BANCO (evita cache do modelo em memória)
+        $bytes = $this->fileSizeSafe($this->disk, $path);
+
+        DB::table('clt_consult_jobs')
+            ->where('id', $job->id)
+            ->update([
+                'spool_bytes'   => $bytes,
+                'preview_dirty' => true,
+            ]);
+
+        // Mantém o objeto em memória coerente (não depende disso para persistir)
+        $job->spool_bytes = $bytes;
+        $job->preview_dirty = true;
     }
 
     /**
@@ -594,25 +596,69 @@ class ProcessCltConsultJob implements ShouldQueue
         }
     }
 
+    /**
+     * Apaga a PRÉVIA de forma robusta:
+     * - Recarrega os campos mais recentes direto do banco (evita estado velho em memória)
+     * - Usa o mesmo lock do controller para não colidir com geração de prévia concorrente
+     * - Zera os campos no banco via DB::table()->update()
+     */
     private function deletePreview(CltConsultJob $job): void
     {
+        $jobId = $job->id;
+
         try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
+            // Serializa com o controller/downloadPreview (mesma chave de lock)
+            $lock = Cache::lock("clt_preview_{$jobId}", 30);
+
+            try {
+                // espera breve; se não conseguir, segue assim mesmo para não travar o worker
+                $lock->block(5);
+            } catch (Throwable $e) {
+                // segue sem lock se não conseguir no prazo
+            }
+
+            // Busca os paths mais atuais direto do banco
+            $row = DB::table('clt_consult_jobs')
+                ->select('preview_disk', 'preview_path')
+                ->where('id', $jobId)
+                ->first();
+
+            $diskName = $row->preview_disk ?? null;
+            $path     = $row->preview_path ?? null;
+
+            if ($diskName && $path) {
+                try {
+                    $disk = Storage::disk($diskName);
+                    if ($disk->exists($path)) {
+                        $disk->delete($path);
+                    }
+                } catch (Throwable $e) {
+                    Log::warning("[CLT] Job {$this->jobId} falha ao apagar arquivo de prévia: " . $e->getMessage());
                 }
             }
+
+            optional($lock)->release();
+
         } catch (Throwable $e) {
-            Log::warning("[CLT] Job {$this->jobId} falha ao apagar prévia: " . $e->getMessage());
+            Log::warning("[CLT] Job {$this->jobId} falha ao coordenar lock da prévia: " . $e->getMessage());
         } finally {
-            $job->updateQuietly([
-                'preview_disk' => null,
-                'preview_path' => null,
-                'preview_name' => null,
-                'preview_updated_at' => null,
-                'preview_dirty' => false,
-            ]);
+            // Zera campos no banco (não depende do objeto em memória)
+            DB::table('clt_consult_jobs')
+                ->where('id', $jobId)
+                ->update([
+                    'preview_disk'        => null,
+                    'preview_path'        => null,
+                    'preview_name'        => null,
+                    'preview_updated_at'  => null,
+                    'preview_dirty'       => false,
+                ]);
+
+            // Mantém objeto em memória coerente (opcional)
+            $job->preview_disk = null;
+            $job->preview_path = null;
+            $job->preview_name = null;
+            $job->preview_updated_at = null;
+            $job->preview_dirty = false;
         }
     }
 
@@ -677,9 +723,7 @@ class ProcessCltConsultJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk($diskName);
-            $real = $disk->path($relativePath);
-            clearstatcache(true, $real);
-            return file_exists($real) ? (int) filesize($real) : 0;
+            return $disk->exists($relativePath) ? (int) $disk->size($relativePath) : 0;
         } catch (\Throwable $e) {
             return 0;
         }

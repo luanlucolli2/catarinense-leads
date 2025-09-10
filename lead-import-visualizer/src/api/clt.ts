@@ -12,7 +12,7 @@ export interface CltConsultJobListItem {
   total_cpfs: number
   success_count: number
   fail_count: number
-  not_found_count: number       // 👈 novo
+  not_found_count: number
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
@@ -37,7 +37,7 @@ export interface CltConsultJobShow {
   total_cpfs: number
   success_count: number
   fail_count: number
-  not_found_count: number       // 👈 novo
+  not_found_count: number
   has_file: boolean
   has_preview?: boolean
   preview_updated_at?: string | null
@@ -105,10 +105,11 @@ export async function downloadCltReport(id: number) {
   window.URL.revokeObjectURL(url)
 }
 
-/** Faz o download da PRÉVIA (enquanto em andamento) */
-export async function downloadCltPreview(id: number) {
+/** Faz o download da PRÉVIA (on-demand) */
+export async function downloadCltPreview(id: number, opts?: { refresh?: boolean }) {
   const resp = await axiosClient.get(`/clt/consult-jobs/${id}/preview`, {
     responseType: 'blob',
+    params: opts?.refresh ? { refresh: 1 } : undefined,
   })
 
   const cd = resp.headers['content-disposition'] || ''
@@ -135,12 +136,9 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
   return data
 }
 
-/** Exclui definitivamente um job e seus arquivos */
-export async function deleteCltConsultJob(id: number) {
-  const { data } = await axiosClient.delete<{ success: boolean; id: number }>(
-    `/clt/consult-jobs/${id}`
-  )
-  return data
+/** Exclui definitivamente um job e seus arquivos (204 No Content) */
+export async function deleteCltConsultJob(id: number): Promise<void> {
+  await axiosClient.delete(`/clt/consult-jobs/${id}`)
 }
 
 function parseContentDispositionFilename(contentDisposition: string): string | null {
