@@ -1,3 +1,4 @@
+// src/pages/CLTConsultaPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { CLTControls } from "@/components/CLTControls";
 import { CLTHistoryTable } from "@/components/CLTHistoryTable";
@@ -7,6 +8,8 @@ import {
   createCltConsultJob,
   downloadCltReport,
   downloadCltPreview,
+  pauseCltConsultJob,
+  resumeCltConsultJob,
   cancelCltConsultJob,
   deleteCltConsultJob,
   CltConsultJobListItem,
@@ -82,7 +85,13 @@ const CLTConsultaPage = () => {
   }, []);
 
   const hasOpen = useMemo(
-    () => items.some((i) => i.status === "pendente" || i.status === "em_progresso"),
+    () =>
+      items.some(
+        (i) =>
+          i.status === "pendente" ||
+          i.status === "em_progresso" ||
+          i.status === "pausado"
+      ),
     [items]
   );
 
@@ -143,6 +152,29 @@ const CLTConsultaPage = () => {
     }
   };
 
+  const handlePause = async (id: number) => {
+    const niceTitle = titleOf(id);
+    try {
+      await pauseCltConsultJob(id);
+      toast.warning(`Consulta "${niceTitle}" pausada.`);
+      await fetchPage(page);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Não foi possível pausar");
+    }
+  };
+
+  const handleResume = async (id: number) => {
+    const niceTitle = titleOf(id);
+    try {
+      await resumeCltConsultJob(id);
+      setWatchingJobId(id); // volta a observar este job
+      toast.success(`Consulta "${niceTitle}" retomada.`);
+      await fetchPage(page);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Não foi possível retomar");
+    }
+  };
+
   const handleCancel = async (id: number, reason?: string) => {
     const niceTitle = titleOf(id);
     try {
@@ -196,6 +228,8 @@ const CLTConsultaPage = () => {
           items={filteredItems}
           loading={loading}
           onDownload={handleDownload}
+          onPause={handlePause}
+          onResume={handleResume}
           onCancel={handleCancel}
           onDelete={handleDelete}
           onRefresh={() => fetchPage(page)}

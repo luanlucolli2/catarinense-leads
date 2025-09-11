@@ -2,7 +2,13 @@
 import axiosClient from './axiosClient'
 
 /** Estados do job no backend */
-export type CltJobStatus = 'pendente' | 'em_progresso' | 'concluido' | 'falhou' | 'cancelado'
+export type CltJobStatus =
+  | 'pendente'
+  | 'em_progresso'
+  | 'pausado'
+  | 'concluido'
+  | 'falhou'
+  | 'cancelado'
 
 /** DTO básico (index) */
 export interface CltConsultJobListItem {
@@ -123,6 +129,22 @@ export async function downloadCltPreview(id: number, opts?: { refresh?: boolean 
   a.click()
   a.remove()
   window.URL.revokeObjectURL(url)
+}
+
+/** Pausa um job */
+export async function pauseCltConsultJob(id: number) {
+  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
+    `/clt/consult-jobs/${id}/pause`
+  )
+  return data
+}
+
+/** Retoma um job */
+export async function resumeCltConsultJob(id: number) {
+  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
+    `/clt/consult-jobs/${id}/resume`
+  )
+  return data
 }
 
 /** Cancela um job (opcionalmente com motivo) */

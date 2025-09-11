@@ -45,6 +45,7 @@ class CltConsultController extends Controller
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
+            'paused_at' => $job->paused_at, // 👈 novo
             // prévia
             'has_preview' => $job->has_preview,
             'preview_updated_at' => $job->preview_updated_at,
@@ -70,9 +71,8 @@ class CltConsultController extends Controller
 
         foreach ($tokens as $t) {
             $norm = Cpf::normalize((string) $t);
-            if ($norm === null) {
-                continue;
-            }
+            if ($norm === null) continue;
+
             if (Cpf::isValid($norm)) {
                 $valid[] = $norm;
             } else {
@@ -97,11 +97,8 @@ class CltConsultController extends Controller
             'success_count' => 0,
             'fail_count' => 0,
             'not_found_count' => 0,
-            // prévia/spool serão setados pelo Job
-            // preview_dirty -> default false via migration
         ]);
 
-        // ✔️ nova assinatura do Job: (int $jobId, array $cpfs, array $invalidCpfs = [])
         \App\Jobs\ProcessCltConsultJob::dispatch($job->id, $valid, $invalid);
 
         return response()->json([
@@ -154,7 +151,6 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        // precisa ter spool criado pelo worker
         if (empty($job->spool_path) || empty($job->spool_cpfs_path)) {
             return response()->json(['message' => 'Prévia não disponível ainda.'], Response::HTTP_CONFLICT);
         }
@@ -176,13 +172,10 @@ class CltConsultController extends Controller
         $path = "{$dirPreviews}/{$fileName}";
         $tmpPath = "{$dirPreviews}/{$tmpName}";
 
-        // Lock simples para evitar dupla geração concorrente
         $lock = Cache::lock("clt_preview_{$job->id}", 30);
         try {
-            // espera até 10s por outro processo
             $lock->block(10);
 
-            // 🔄 RECARREGA o job e recalcula a necessidade de refresh dentro do lock
             $job->refresh();
 
             $needRefresh = (bool) $request->boolean('refresh', false)
@@ -197,21 +190,18 @@ class CltConsultController extends Controller
                 $iteratorFactory = function () use ($spoolReal, $cpfsReal): \Generator {
                     $done = [];
 
-                    // 1) linhas já processadas no spool
                     $fh = fopen($spoolReal, 'r');
                     if ($fh !== false) {
                         try {
                             flock($fh, LOCK_SH);
-                            $header = fgetcsv($fh, 0, ';'); // pula cabeçalho
+                            $header = fgetcsv($fh, 0, ';');
                             while (($data = fgetcsv($fh, 0, ';')) !== false) {
                                 $assoc = [];
                                 foreach (CltConsultExport::COLS as $i => $key) {
                                     $assoc[$key] = $data[$i] ?? null;
                                 }
                                 $cpf = (string) ($assoc['cpf'] ?? '');
-                                if ($cpf !== '') {
-                                    $done[$cpf] = true;
-                                }
+                                if ($cpf !== '') $done[$cpf] = true;
                                 yield $assoc;
                             }
                         } finally {
@@ -220,15 +210,13 @@ class CltConsultController extends Controller
                         }
                     }
 
-                    // 2) pendentes = CPFs originais que ainda não apareceram no spool
                     $fh2 = fopen($cpfsReal, 'r');
                     if ($fh2 !== false) {
                         try {
                             flock($fh2, LOCK_SH);
                             while (($line = fgets($fh2)) !== false) {
                                 $cpf = trim($line);
-                                if ($cpf === '' || isset($done[$cpf]))
-                                    continue;
+                                if ($cpf === '' || isset($done[$cpf])) continue;
 
                                 $row = array_fill_keys(CltConsultExport::COLS, null);
                                 $row['cpf'] = $cpf;
@@ -279,6 +267,59 @@ class CltConsultController extends Controller
         ]);
     }
 
+    /** ✅ Pausar job (apenas em_progresso) */
+    public function pause(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'em_progresso') {
+            return response()->json([
+                'message' => 'Só é possível pausar quando o job está em andamento.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pausado',
+            'paused_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'paused_at' => $job->paused_at,
+        ], Response::HTTP_OK);
+    }
+
+    /** ✅ Retomar job pausado (re-despacha) */
+    public function resume(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Job não está pausado.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        // volta para pendente e re-despacha; o worker detecta spool existente e retoma dos pendentes
+        $job->update([
+            'status' => 'pendente',
+        ]);
+
+        \App\Jobs\ProcessCltConsultJob::dispatch($job->id, [], []);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => 'pendente',
+        ], Response::HTTP_ACCEPTED);
+    }
+
     /** ✅ Cancelar job (apaga a PRÉVIA imediatamente) */
     public function cancel(Request $request, int $id)
     {
@@ -303,7 +344,6 @@ class CltConsultController extends Controller
             'cancel_reason' => $data['reason'] ?? null,
         ]);
 
-        // apaga PRÉVIA imediatamente
         try {
             if ($job->preview_disk && $job->preview_path) {
                 $disk = Storage::disk($job->preview_disk);
@@ -345,7 +385,6 @@ class CltConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        // Apaga arquivo FINAL, se houver
         try {
             if ($job->file_disk && $job->file_path) {
                 $disk = Storage::disk($job->file_disk);
@@ -357,7 +396,6 @@ class CltConsultController extends Controller
             Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
-        // Apaga PRÉVIA, se ainda existir
         try {
             if ($job->preview_disk && $job->preview_path) {
                 $disk = Storage::disk($job->preview_disk);
@@ -369,7 +407,6 @@ class CltConsultController extends Controller
             Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): " . $e->getMessage());
         }
 
-        // Apaga SPOOL e lista de CPFs, se existirem
         try {
             $diskName = (string) config('cltfacta.storage.reports_disk');
             $disk = Storage::disk($diskName);
@@ -385,6 +422,6 @@ class CltConsultController extends Controller
 
         $job->delete();
 
-        return response()->noContent(); // 204
+        return response()->noContent();
     }
 }

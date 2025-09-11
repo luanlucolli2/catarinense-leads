@@ -5,8 +5,10 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  XCircle,
-  ShieldAlert,
+  MoreVertical,
+  Play,
+  Pause,
+  X,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,11 +32,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type Props = {
   items: CltConsultJobListItem[];
   loading?: boolean;
+
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
+  onPause: (id: number) => Promise<void>;
+  onResume: (id: number) => Promise<void>;
   onCancel: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
@@ -63,6 +75,12 @@ function StatusBadge({ status }: { status: CltConsultJobListItem["status"] }) {
           <span className="leading-none">Em andamento</span>
         </Badge>
       );
+    case "pausado":
+      return (
+        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
+          Pausado
+        </Badge>
+      );
     case "falhou":
       return (
         <Badge className="bg-red-100 text-red-800 border-red-200">
@@ -85,6 +103,8 @@ export const CLTHistoryTable = ({
   items,
   loading,
   onDownload,
+  onPause,
+  onResume,
   onCancel,
   onDelete,
   page,
@@ -98,20 +118,23 @@ export const CLTHistoryTable = ({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] = useState<CltConsultJobListItem | null>(null);
 
+  const [pausingId, setPausingId] = useState<number | null>(null);
+  const [resumingId, setResumingId] = useState<number | null>(null);
+
   const handlePrev = () => onPageChange(Math.max(1, page - 1));
   const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
 
   const canDownloadFinal = (i: CltConsultJobListItem) =>
     i.status === "concluido" && Boolean(i.file_path);
 
-  // ✅ PRÉVIA é on-demand: habilita enquanto processa, independentemente de preview_path
+  // ✅ PRÉVIA é on-demand: habilita enquanto processa ou pausado, independentemente de preview_path
   const canDownloadPreview = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
   const canCancel = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
-  // pode excluir quando NÃO está em processamento (inclui concluído/falhou/cancelado)
+  // pode excluir quando NÃO está em processamento (inclui pausado)
   const canDelete = (i: CltConsultJobListItem) =>
     !(i.status === "pendente" || i.status === "em_progresso");
 
@@ -144,6 +167,26 @@ export const CLTHistoryTable = ({
     } finally {
       setDeletingId(null);
       setConfirmDeleteJob(null);
+    }
+  };
+
+  const doPause = async (i: CltConsultJobListItem) => {
+    if (pausingId !== null) return;
+    try {
+      setPausingId(i.id);
+      await onPause(i.id);
+    } finally {
+      setPausingId(null);
+    }
+  };
+
+  const doResume = async (i: CltConsultJobListItem) => {
+    if (resumingId !== null) return;
+    try {
+      setResumingId(i.id);
+      await onResume(i.id);
+    } finally {
+      setResumingId(null);
     }
   };
 
@@ -189,7 +232,11 @@ export const CLTHistoryTable = ({
               items.map((i) => {
                 const finalReady = canDownloadFinal(i);
                 const previewReady = canDownloadPreview(i);
+                const showDownload = i.status !== "cancelado" && (finalReady || previewReady);
                 const downloadDisabled = !finalReady && !previewReady;
+
+                const isPausing = pausingId === i.id;
+                const isResuming = resumingId === i.id;
 
                 return (
                   <TableRow key={i.id} className="hover:bg-gray-50">
@@ -214,67 +261,108 @@ export const CLTHistoryTable = ({
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {/* Cancelar */}
-                        <Button
-                          onClick={() => openCancelDialog(i)}
-                          disabled={!canCancel(i) || cancelingId === i.id}
-                          variant="outline"
-                          size="icon"
-                          className={cn(
-                            "border-red-300 text-red-600 hover:bg-red-50",
-                            (!canCancel(i) || cancelingId === i.id) && "opacity-50 cursor-not-allowed"
-                          )}
-                          title={canCancel(i) ? "Cancelar consulta" : "Cancelar indisponível"}
-                        >
-                          {cancelingId === i.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <XCircle className="w-4 h-4" />
-                          )}
-                        </Button>
+                        {/* === Botão de Download (final ou prévia), como no protótipo === */}
+                        {showDownload && (
+                          <Button
+                            onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
+                            disabled={downloadDisabled}
+                            variant="outline"
+                            size="sm"
+                            className={cn(
+                              "flex items-center gap-2 px-3",
+                              !downloadDisabled
+                                ? "border-blue-300 text-blue-700 hover:bg-blue-50"
+                                : "opacity-50 cursor-not-allowed"
+                            )}
+                            title={
+                              finalReady
+                                ? "Baixar planilha final"
+                                : previewReady
+                                  ? "Baixar planilha (prévia)"
+                                  : "Baixar indisponível"
+                            }
+                          >
+                            <Download className="w-4 h-4" />
+                            {i.status === "em_progresso" && <span className="ml-1">Prévia</span>}
+                            {i.status === "pausado" && <span className="ml-1">Prévia</span>}
+                          </Button>
+                        )}
 
-                        {/* Download (final ou prévia) */}
-                        <Button
-                          onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "flex items-center gap-2 px-3",
-                            !downloadDisabled
-                              ? "border-blue-300 text-blue-700 hover:bg-blue-50"
-                              : "opacity-50 cursor-not-allowed"
-                          )}
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Baixar planilha (prévia)"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {finalReady ? "Baixar planilha" : previewReady ? "Baixar planilha (prévia)" : "Baixar planilha"}
-                        </Button>
+                        {/* === Dropdown de Ações (Pausar/Retomar/Cancelar/Excluir) === */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent"
+                              aria-label="Mais ações"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {i.status === "em_progresso" && (
+                              <DropdownMenuItem
+                                onClick={() => void doPause(i)}
+                                className={cn(
+                                  "text-yellow-600",
+                                  isPausing && "opacity-60 pointer-events-none"
+                                )}
+                              >
+                                {isPausing ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Pause className="w-4 h-4 mr-2" />
+                                )}
+                                Pausar
+                              </DropdownMenuItem>
+                            )}
 
-                        {/* Excluir */}
-                        <Button
-                          onClick={() => openDeleteDialog(i)}
-                          disabled={!canDelete(i) || deletingId === i.id}
-                          variant="destructive"
-                          size="icon"
-                          className={cn(
-                            "bg-red-600 hover:bg-red-700 text-white",
-                            (!canDelete(i) || deletingId === i.id) && "opacity-50 cursor-not-allowed"
-                          )}
-                          title={canDelete(i) ? "Excluir definitivamente" : "Excluir indisponível enquanto processa"}
-                        >
-                          {deletingId === i.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </Button>
+                            {i.status === "pausado" && (
+                              <DropdownMenuItem
+                                onClick={() => void doResume(i)}
+                                className={cn(
+                                  "text-blue-600",
+                                  isResuming && "opacity-60 pointer-events-none"
+                                )}
+                              >
+                                {isResuming ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Play className="w-4 h-4 mr-2" />
+                                )}
+                                Retomar
+                              </DropdownMenuItem>
+                            )}
+
+                            {(i.status === "em_progresso" || i.status === "pausado" || i.status === "pendente") && (
+                              <DropdownMenuItem
+                                onClick={() => openCancelDialog(i)}
+                                className={cn(
+                                  "text-orange-600",
+                                  cancelingId === i.id && "opacity-60 pointer-events-none"
+                                )}
+                              >
+                                {cancelingId === i.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <X className="w-4 h-4 mr-2" />
+                                )}
+                                Cancelar
+                              </DropdownMenuItem>
+                            )}
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => openDeleteDialog(i)}
+                              className={i.status === "em_progresso" ? "text-gray-400 cursor-not-allowed" : "text-red-600"}
+                              disabled={i.status === "em_progresso"}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Excluir
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -320,7 +408,6 @@ export const CLTHistoryTable = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <ShieldAlert className="h-6 w-6" />
               Cancelar consulta?
             </AlertDialogTitle>
           </AlertDialogHeader>
@@ -365,7 +452,6 @@ export const CLTHistoryTable = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-6 w-6" />
               Excluir definitivamente?
             </AlertDialogTitle>
           </AlertDialogHeader>
