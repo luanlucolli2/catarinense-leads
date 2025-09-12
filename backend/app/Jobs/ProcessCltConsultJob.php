@@ -24,7 +24,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /** Exclusividade por jobId (evita múltiplos enfileiramentos/execuções simultâneas). */
-    public int $uniqueFor = 18300; // 5h + margem
+    public int $uniqueFor = 115260; 
 
     public function uniqueId(): string
     {

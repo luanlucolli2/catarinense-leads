@@ -61,7 +61,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'job' => [
-        'timeout_seconds'        => (int) env('FGTS_OFF_JOB_TIMEOUT', 18000), // 5h
+        'timeout_seconds'        => (int) env('FGTS_OFF_JOB_TIMEOUT', 115260), // 5h
         'max_attempts'           => (int) env('FGTS_OFF_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds'    => (int) env('FGTS_OFF_CONSULT_RETRY_DELAY_SECONDS', 30),
         'chunk'                  => (int) env('FGTS_OFF_HTTP_CHUNK', 6),
