@@ -7,6 +7,8 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
 use Throwable;
 
 class FactaApiService
@@ -29,6 +31,39 @@ class FactaApiService
     private bool $httpSecondTry;
     private int $httpSecondTimeout;
     private int $httpSecondConnectTimeout;
+
+    /** Loga headers e trecho do corpo em respostas 403, com redaction e truncamento. */
+    private function logForbidden(HttpResponse $resp, ?string $cpf = null): void
+    {
+        try {
+            // Headers (array<string, array<string>>)
+            $all = $resp->headers();
+            $safe = [];
+            foreach ($all as $k => $vals) {
+                $key = (string) $k;
+                // Redação de itens sensíveis
+                if (stripos($key, 'authorization') === 0 || stripos($key, 'cookie') === 0 || stripos($key, 'set-cookie') === 0) {
+                    $safe[$key] = ['REDACTED'];
+                } else {
+                    $safe[$key] = array_map('strval', (array) $vals);
+                }
+            }
+
+            // Corpo (trecho)
+            $body = (string) $resp->body();
+            $snippet = $this->truncate($body, 4000);
+
+            Log::warning(
+                '[FACTA] 403 Forbidden'
+                . ($cpf ? " (cpf={$cpf})" : '')
+                . ' — headers=' . json_encode($safe, JSON_UNESCAPED_UNICODE)
+                . ' body_snippet=' . $snippet
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[FACTA] Falha ao logar 403: ' . $e->getMessage());
+        }
+    }
+
 
     public function __construct()
     {
@@ -146,9 +181,16 @@ class FactaApiService
         try {
             $resp = $doRequest();
 
+            if ($resp->status() === 403) {
+                $this->logForbidden($resp, $cpf);
+            }
+
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $resp = $doRequest();
+                if ($resp->status() === 403) {
+                    $this->logForbidden($resp, $cpf);
+                }
             }
 
             return $this->parseAutorizaResponse($resp);
@@ -164,6 +206,7 @@ class FactaApiService
             ];
         }
     }
+
 
     /**
      * Consulta em lote concorrente; retorna [cpf => resultado]
@@ -190,7 +233,7 @@ class FactaApiService
                     'ok' => false,
                     'mensagem' => $msg,
                     'vinculos' => null,
-                    'retriable' => true,   // <- importante: deixa o job retriar
+                    'retriable' => true,
                     'not_found' => false,
                     'http_status' => null,
                     'retry_after' => null,
@@ -318,13 +361,22 @@ class FactaApiService
                 ];
                 continue;
             }
+
+            // 👉 LOG 403 com headers + corpo (por CPF)
+            if ($resp->status() === 403) {
+                $this->logForbidden($resp, $cpf);
+            }
+
             $out[$cpf] = $this->parseAutorizaResponse($resp);
         }
 
         return $out;
     }
 
+
     /** --------- Helpers --------- */
+
+    // App\Services\FactaApiService.php
 
     private function parseAutorizaResponse(HttpResponse $resp): array
     {
@@ -332,8 +384,21 @@ class FactaApiService
         $retryAfter = $this->getRetryAfterSeconds($resp);
 
         if (!$resp->ok()) {
+            // 👉 Tornar 403 retriable (comportamento típico de WAF/edge temporário)
+            // Mantém 401/408/429/5xx como já estava.
             $mensagem = $this->responseMessage($resp);
-            $retriable = in_array($status, [401, 408, 429], true) || $status >= 500;
+
+            // Se vier HTML, já tratamos como temporário; manter coerência:
+            $looksHtml = false;
+            try {
+                $body = (string) $resp->body();
+                $looksHtml = ($body !== '') && $this->looksLikeHtml($body);
+            } catch (\Throwable $e) {
+                // ignore
+            }
+
+            $retriable = in_array($status, [401, 403, 408, 429], true) || $status >= 500 || $looksHtml;
+
             return [
                 'ok' => false,
                 'mensagem' => $mensagem ?: "HTTP {$status}",
@@ -347,7 +412,7 @@ class FactaApiService
 
         $json = $resp->json();
 
-        // Resposta 200 mas não-JSON → falha temporária
+        // 200 mas corpo inválido → temporário
         if (!is_array($json)) {
             return [
                 'ok' => false,
@@ -360,7 +425,7 @@ class FactaApiService
             ];
         }
 
-        // Mensagem HTML → tratar como temporário
+        // Mensagem HTML em 'mensagem' → tratar como temporário
         $msgRaw = (string) ($json['mensagem'] ?? $json['message'] ?? '');
         if ($msgRaw !== '' && $this->looksLikeHtml($msgRaw)) {
             $short = $this->summarizeHtml($msgRaw);
@@ -420,6 +485,7 @@ class FactaApiService
             'retry_after' => null,
         ];
     }
+
 
     private function looksLikeHtml(string $s): bool
     {

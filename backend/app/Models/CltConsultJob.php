@@ -12,6 +12,7 @@ class CltConsultJob extends Model
         'file_disk','file_path','file_name',
         'started_at','finished_at',
         'canceled_at','cancel_reason',
+        'paused_at', // 👈 novo
         // prévia
         'preview_disk','preview_path','preview_name','preview_updated_at','preview_dirty',
         // spool
@@ -22,6 +23,7 @@ class CltConsultJob extends Model
         'started_at'         => 'datetime',
         'finished_at'        => 'datetime',
         'canceled_at'        => 'datetime',
+        'paused_at'          => 'datetime',   // 👈 novo
         'preview_updated_at' => 'datetime',
         'preview_dirty'      => 'boolean',
         'spool_bytes'        => 'integer',
