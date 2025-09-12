@@ -33,7 +33,7 @@ services:
 
   queue:
     image: sail-8.4/app
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --memory=512 --tries=1
+    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=512
     environment:
       <<: *app-environment
     volumes:
@@ -43,8 +43,10 @@ services:
     networks:
       - sail
     restart: unless-stopped
+    # ✅ dá tempo do worker finalizar ao receber SIGTERM e evitar truncamentos de arquivos
+    stop_grace_period: 120s
 
-  # ===== SERVIÇO FRONTEND (Indentação Corrigida) =====
+  # ===== SERVIÇO FRONTEND =====
   frontend:
     build:
       context: ../lead-import-visualizer
@@ -61,7 +63,7 @@ services:
     depends_on:
       - laravel.test
 
-  # ===== SERVIÇO MYSQL (Indentação Corrigida) =====
+  # ===== SERVIÇO MYSQL =====
   mysql:
     image: 'mysql/mysql-server:8.0'
     ports:
@@ -90,6 +92,7 @@ services:
 networks:
   sail:
     driver: bridge
+
 volumes:
   sail-mysql:
     driver: local

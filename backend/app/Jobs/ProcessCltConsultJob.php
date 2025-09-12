@@ -6,6 +6,7 @@ use App\Exports\CltConsultExport;
 use App\Models\CltConsultJob;
 use App\Services\FactaApiService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -18,9 +19,17 @@ use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
 
-class ProcessCltConsultJob implements ShouldQueue
+class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /** Exclusividade por jobId (evita múltiplos enfileiramentos/execuções simultâneas). */
+    public int $uniqueFor = 18300; // 5h + margem
+
+    public function uniqueId(): string
+    {
+        return (string) $this->jobId;
+    }
 
     /** Timeout por job (segundos). */
     public int $timeout;
@@ -48,372 +57,379 @@ class ProcessCltConsultJob implements ShouldQueue
         $this->onQueue('default');
 
         // Configs
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 18000); // 5h
-        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
+        $this->timeout    = (int) config('cltfacta.job.timeout_seconds', 18000); // 5h
+        $this->disk       = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
-        $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
-        $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        $this->dirSpool   = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $this->finalPrefix= (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
     }
 
-public function handle(FactaApiService $facta): void
-{
-    /** @var CltConsultJob $job */
-    $job = CltConsultJob::query()->whereKey($this->jobId)->firstOrFail();
+    public function handle(FactaApiService $facta): void
+    {
+        /** @var CltConsultJob $job */
+        $job = CltConsultJob::query()->whereKey($this->jobId)->firstOrFail();
 
-    if ($this->isCancelled()) {
-        Log::info("[CLT] Job {$this->jobId} já cancelado antes do início.");
-        $this->deletePreview($job);
-        return;
-    }
-    if ($this->isPaused()) {
-        Log::info("[CLT] Job {$this->jobId} está pausado antes de iniciar processamento.");
-        return;
-    }
-
-    // Diretórios base
-    $this->initStorageDirs();
-    $disk = Storage::disk($this->disk);
-
-    // Detecta se é retomada (spool já existe)
-    $spoolExists = !empty($job->spool_path) && !empty($job->spool_cpfs_path)
-        && $disk->exists($job->spool_path) && $disk->exists($job->spool_cpfs_path);
-
-    $spoolPath = $job->spool_path;
-    $cpfsPath  = $job->spool_cpfs_path;
-    $freshStart = false;
-
-    if (!$spoolExists) {
-        // Primeiro start: criamos spool e lista de CPFs
-        [$spoolPath, $cpfsPath] = $this->initSpoolFiles($job);
-        $freshStart = true;
-    }
-
-    // Entrando em progresso
-    if ($freshStart) {
-        $job->update([
-            'status' => 'em_progresso',
-            'started_at' => $job->started_at ?? Carbon::now(),
-            'total_cpfs' => count($this->cpfs) + count($this->invalidCpfs),
-            'spool_path' => $spoolPath,
-            'spool_cpfs_path' => $cpfsPath,
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
-            'preview_dirty' => false,
-        ]);
-    } else {
-        // Retomando: apenas marca em progresso e atualiza bytes
-        $job->update([
-            'status' => 'em_progresso',
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
-        ]);
-    }
-
-    Log::info("[CLT] Job {$this->jobId} ".($freshStart ? 'iniciado' : 'retomado')." – total: {$job->total_cpfs}");
-
-    // Params de execução
-    $maxAttempts   = (int) config('cltfacta.job.max_attempts', 5);
-    $retryDelay    = (int) config('cltfacta.job.retry_delay_seconds', 60);
-    $chunkSize     = (int) config('cltfacta.job.chunk', 20);
-    $minChunk      = max(1, (int) config('cltfacta.job.min_chunk', 5));
-    $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
-
-    // Define pendentes conforme “fresh” ou “resume mode”
-    if ($freshStart) {
-        $pendentes    = $this->cpfs;
-        $invalidCount = count($this->invalidCpfs);
-
-        // 1) CPFs inválidos: vão direto para o spool
-        if ($invalidCount > 0) {
-            foreach ($this->invalidCpfs as $cpfInv) {
-                $row = $this->baseRow($cpfInv);
-                $row['numeroVinculos'] = 0;
-                $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
-                $this->spoolAppend($job, $row);
-            }
-            $job->increment('fail_count', $invalidCount);
-        }
-    } else {
-        // Resume: carrega pendentes a partir do SPOOL
-        [$pendentes, $doneCount] = $this->computePendingCpfs($disk->path($spoolPath), $disk->path($cpfsPath));
-        Log::info("[CLT] Job {$this->jobId} retomado – já processados: {$doneCount}, pendentes: ".count($pendentes));
-    }
-
-    $lastError = [];
-    $notFoundTotal = 0;
-
-    try {
-        if ($this->finishIfStopped($job)) return;
-
-        $prevPendCount = count($pendentes);
-
-        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-            if ($this->finishIfStopped($job)) return;
-            if (empty($pendentes)) break;
-
-            Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes) . " – chunkSize={$chunkSize}");
-
-            $toTry  = $pendentes;
-            $chunks = array_chunk($toTry, max(1, $chunkSize));
-
-            $seen429InAttempt   = 0;
-            $retryAfterMax      = 0;
-            $successThisAttempt = 0;
-            $semRespTotalAttempt = 0;
-            $totalInAttempt     = 0;
-
-            foreach ($chunks as $idx => $chunkCpfs) {
-                if ($this->finishIfStopped($job)) return;
-
-                Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – disparando chunk #" . ($idx + 1) . " (" . count($chunkCpfs) . " CPFs)");
-
-                $batchResults = $facta->autorizaConsultaLote($chunkCpfs);
-
-                $stats = ['2xx' => 0, '401' => 0, '429' => 0, '5xx' => 0, 'outros' => 0, 'sem_resposta' => 0];
-                $successInChunk   = 0;
-                $notFoundInChunk  = 0;
-                $failInChunkTerm  = 0; // ✅ NOVO: falhas terminais por chunk
-
-                foreach ($chunkCpfs as $cpf) {
-                    $res = $batchResults[$cpf] ?? [
-                        'ok' => false,
-                        'mensagem' => 'Sem resposta do serviço',
-                        'vinculos' => null,
-                        'retriable' => true,
-                        'not_found' => false,
-                        'http_status' => null,
-                        'retry_after' => null,
-                    ];
-
-                    $http = $res['http_status'] ?? null;
-                    if     ($http === 200) $stats['2xx']++;
-                    elseif ($http === 401) $stats['401']++;
-                    elseif ($http === 429) { $stats['429']++; $seen429InAttempt++; }
-                    elseif (is_int($http) && $http >= 500) $stats['5xx']++;
-                    elseif ($http === null) $stats['sem_resposta']++;
-                    else $stats['outros']++;
-
-                    if (!empty($res['retry_after'])) {
-                        $retryAfterMax = max($retryAfterMax, (int) $res['retry_after']);
-                    }
-
-                    if ($res['ok'] === true) {
-                        $vinculos = $res['vinculos'] ?? [];
-                        $total = is_array($vinculos) ? count($vinculos) : 0;
-
-                        if ($total > 0) {
-                            foreach ($vinculos as $v) {
-                                $row = $this->baseRow($cpf);
-                                $row['numeroVinculos'] = $total;
-
-                                // Núcleo
-                                $row['elegivel'] = $v['elegivel'] ?? null;
-                                $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
-                                $row['valorMaximoPrestacao'] = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
-                                $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
-                                $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
-
-                                // Vínculo/empregador
-                                $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
-                                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
-                                $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
-                                $row['matricula'] = $v['matricula'] ?? null;
-                                $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
-                                $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
-                                $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
-                                $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
-
-                                // Contexto
-                                $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
-                                $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
-                                $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
-                                $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
-
-                                // Alertas
-                                $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
-                                $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
-                                $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
-                                $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
-
-                                // Identificação
-                                $row['nome'] = $v['nome'] ?? null;
-                                $row['dataNascimento'] = $v['dataNascimento'] ?? null;
-                                $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
-                                $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
-
-                                // Meta/status (da FACTA, não HTTP)
-                                $row['status_code'] = $v['status_code'] ?? null;
-                                $row['mensagem'] = $res['mensagem'] ?? 'OK';
-
-                                $this->spoolAppend($job, $row);
-                            }
-                        } else {
-                            $row = $this->baseRow($cpf);
-                            $row['numeroVinculos'] = 0;
-                            $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
-                            $this->spoolAppend($job, $row);
-                        }
-
-                        $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
-                        $successInChunk++;
-                        $successThisAttempt++;
-                    } else {
-                        $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
-
-                        if (!empty($res['not_found'])) {
-                            $row = $this->baseRow($cpf);
-                            $row['numeroVinculos'] = 0;
-                            $row['mensagem'] = $msg;
-                            $this->spoolAppend($job, $row);
-
-                            $notFoundInChunk++;
-                            $notFoundTotal++;
-
-                            $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
-                            continue;
-                        }
-
-                        if (isset($res['retriable']) && $res['retriable'] === false) {
-                            // ✅ falha terminal: já conta agora (por chunk) para não “perder” na pausa
-                            $row = $this->baseRow($cpf);
-                            $row['numeroVinculos'] = 0;
-                            $row['mensagem'] = $msg;
-                            $this->spoolAppend($job, $row);
-
-                            $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
-                            $failInChunkTerm++; // ✅ conta falha terminal no chunk
-                        } else {
-                            $lastError[$cpf] = $msg;
-                        }
-                    }
-                }
-
-                if ($successInChunk > 0) {
-                    $job->increment('success_count', $successInChunk);
-                }
-                if ($notFoundInChunk > 0) {
-                    $job->increment('not_found_count', $notFoundInChunk);
-                }
-                if ($failInChunkTerm > 0) {
-                    $job->increment('fail_count', $failInChunkTerm); // ✅ NOVO
-                }
-
-                Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – stats chunk #" . ($idx + 1) . ": " . json_encode($stats));
-
-                $semRespTotalAttempt += $stats['sem_resposta'];
-                $totalInAttempt      += count($chunkCpfs);
-            }
-
-            if ($this->finishIfStopped($job)) return;
-
-            if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
-                $ratio429 = count($toTry) > 0 ? $seen429InAttempt / count($toTry) : 0.0;
-                if ($ratio429 >= 0.20) {
-                    $old = $chunkSize;
-                    $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    Log::warning("[CLT] Job {$this->jobId} – muitos 429 (ratio=" . round($ratio429, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
-                }
-            }
-
-            $semRespRatio = $totalInAttempt > 0 ? ($semRespTotalAttempt / $totalInAttempt) : 0.0;
-            if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
-                $old = $chunkSize;
-                $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                Log::warning("[CLT] Job {$this->jobId} – muitos sem_resposta (ratio=" . round($semRespRatio, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
-            }
-
-            if (!empty($pendentes) && $attempt < $maxAttempts) {
-                if ($this->finishIfStopped($job)) return;
-
-                $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
-                $base = max(1, $retryDelay, $baseRetryAfter);
-
-                $sleepFactor = 1.0;
-                if ($semRespRatio >= 0.90)      $sleepFactor = 2.0;
-                elseif ($semRespRatio >= 0.50)  $sleepFactor = 1.5;
-
-                $withFactor = (int) ceil($base * $sleepFactor);
-                $jitter    = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
-                $sleepSecs = $withFactor + $jitter;
-
-                Log::debug("[CLT] Job {$this->jobId} – dormindo {$sleepSecs}s.");
-                sleep($sleepSecs);
-            }
-
-            $currPendCount = count($pendentes);
-            if ($currPendCount === $prevPendCount && $successThisAttempt === 0 && !empty($pendentes)) {
-                Log::warning("[CLT] Job {$this->jobId} – sem progresso na tentativa {$attempt}.");
-            }
-            $prevPendCount = $currPendCount;
+        // Idempotência básica: estados terminais
+        if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
+            Log::info("[CLT] Job {$this->jobId} ignorado – status atual: {$job->status}.");
+            return;
         }
 
-        // (removido o incremento tardio de falhas terminais — agora é por chunk)
-
-        if (!empty($pendentes)) {
-            foreach ($pendentes as $cpf) {
-                if ($this->finishIfStopped($job)) return;
-                $row = $this->baseRow($cpf);
-                $row['numeroVinculos'] = 0;
-                $row['mensagem'] = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
-                $this->spoolAppend($job, $row);
-            }
-            $job->increment('fail_count', count($pendentes));
-        }
-
+        // Cancelado/pausado antes de começar
         if ($this->isCancelled()) {
-            $job->update(['finished_at' => Carbon::now()]);
+            Log::info("[CLT] Job {$this->jobId} já cancelado antes do início.");
             $this->deletePreview($job);
-            $this->cleanupSpool($job);
-            Log::info("[CLT] Job {$this->jobId} cancelado na finalização (spool removido).");
             return;
         }
         if ($this->isPaused()) {
-            Log::info("[CLT] Job {$this->jobId} pausado na finalização de ciclo – saindo sem limpar spool/prévia.");
+            Log::info("[CLT] Job {$this->jobId} está pausado antes de iniciar processamento.");
             return;
         }
 
-        $finalOk = $this->generateFinalFromSpool($job);
-        if ($finalOk) {
-            $this->cleanupSpool($job);
+        // Diretórios base
+        $this->initStorageDirs();
+        $disk = Storage::disk($this->disk);
+
+        // Detecta retomada
+        $spoolExists = !empty($job->spool_path) && !empty($job->spool_cpfs_path)
+            && $disk->exists($job->spool_path) && $disk->exists($job->spool_cpfs_path);
+
+        $spoolPath  = $job->spool_path;
+        $cpfsPath   = $job->spool_cpfs_path;
+        $freshStart = false;
+
+        if (!$spoolExists) {
+            // Guard-rail: evita reinit sem payload (retomada com arrays vazios)
+            $inputTotal = count($this->cpfs) + count($this->invalidCpfs);
+            if ($inputTotal === 0) {
+                Log::warning("[CLT] Job {$this->jobId} sem payload de CPFs e sem spool — evitando reinit para não zerar total/spool.");
+                return;
+            }
+
+            // Primeiro start: cria spool e lista de CPFs
+            [$spoolPath, $cpfsPath] = $this->initSpoolFiles($job);
+            $freshStart = true;
+        }
+
+        // Entrando/retomando em progresso (sem zerar total_cpfs)
+        if ($freshStart) {
+            $inputTotal = count($this->cpfs) + count($this->invalidCpfs);
+            $safeTotal  = $inputTotal > 0 ? $inputTotal : (int) ($job->total_cpfs ?? 0);
 
             $job->update([
-                'status' => 'concluido',
+                'status'           => 'em_progresso',
+                'started_at'       => $job->started_at ?? Carbon::now(),
+                'total_cpfs'       => $safeTotal, // nunca escrever 0 se já havia > 0
+                'spool_path'       => $spoolPath,
+                'spool_cpfs_path'  => $cpfsPath,
+                'spool_bytes'      => $this->fileSizeSafe($this->disk, $spoolPath),
+                'preview_dirty'    => false,
+            ]);
+        } else {
+            $job->update([
+                'status'      => 'em_progresso',
+                'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
+            ]);
+        }
+
+        Log::info("[CLT] Job {$this->jobId} ".($freshStart ? 'iniciado' : 'retomado')." – total: {$job->total_cpfs}");
+
+        // Params de execução
+        $maxAttempts   = (int) config('cltfacta.job.max_attempts', 5);
+        $retryDelay    = (int) config('cltfacta.job.retry_delay_seconds', 60);
+        $chunkSize     = (int) config('cltfacta.job.chunk', 20);
+        $minChunk      = max(1, (int) config('cltfacta.job.min_chunk', 5));
+        $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
+
+        // Define pendentes
+        if ($freshStart) {
+            $pendentes    = $this->cpfs;
+            $invalidCount = count($this->invalidCpfs);
+
+            // CPFs inválidos direto no spool
+            if ($invalidCount > 0) {
+                foreach ($this->invalidCpfs as $cpfInv) {
+                    $row = $this->baseRow($cpfInv);
+                    $row['numeroVinculos'] = 0;
+                    $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
+                    $this->spoolAppend($job, $row);
+                }
+                $job->increment('fail_count', $invalidCount);
+            }
+        } else {
+            // Resume: a partir do SPOOL
+            [$pendentes, $doneCount] = $this->computePendingCpfs($disk->path($spoolPath), $disk->path($cpfsPath));
+            Log::info("[CLT] Job {$this->jobId} retomado – já processados: {$doneCount}, pendentes: ".count($pendentes));
+        }
+
+        $lastError = [];
+        $notFoundTotal = 0;
+
+        try {
+            if ($this->finishIfStopped($job)) return;
+
+            $prevPendCount = count($pendentes);
+
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                if ($this->finishIfStopped($job)) return;
+                if (empty($pendentes)) break;
+
+                Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes) . " – chunkSize={$chunkSize}");
+
+                $toTry  = $pendentes;
+                $chunks = array_chunk($toTry, max(1, $chunkSize));
+
+                $seen429InAttempt    = 0;
+                $retryAfterMax       = 0;
+                $successThisAttempt  = 0;
+                $semRespTotalAttempt = 0;
+                $totalInAttempt      = 0;
+
+                foreach ($chunks as $idx => $chunkCpfs) {
+                    if ($this->finishIfStopped($job)) return;
+
+                    Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – disparando chunk #" . ($idx + 1) . " (" . count($chunkCpfs) . " CPFs)");
+
+                    $batchResults = $facta->autorizaConsultaLote($chunkCpfs);
+
+                    $stats = ['2xx' => 0, '401' => 0, '429' => 0, '5xx' => 0, 'outros' => 0, 'sem_resposta' => 0];
+                    $successInChunk  = 0;
+                    $notFoundInChunk = 0;
+                    $failInChunkTerm = 0;
+
+                    foreach ($chunkCpfs as $cpf) {
+                        $res = $batchResults[$cpf] ?? [
+                            'ok' => false,
+                            'mensagem' => 'Sem resposta do serviço',
+                            'vinculos' => null,
+                            'retriable' => true,
+                            'not_found' => false,
+                            'http_status' => null,
+                            'retry_after' => null,
+                        ];
+
+                        $http = $res['http_status'] ?? null;
+                        if     ($http === 200) $stats['2xx']++;
+                        elseif ($http === 401) $stats['401']++;
+                        elseif ($http === 429) { $stats['429']++; $seen429InAttempt++; }
+                        elseif (is_int($http) && $http >= 500) $stats['5xx']++;
+                        elseif ($http === null) $stats['sem_resposta']++;
+                        else $stats['outros']++;
+
+                        if (!empty($res['retry_after'])) {
+                            $retryAfterMax = max($retryAfterMax, (int) $res['retry_after']);
+                        }
+
+                        if ($res['ok'] === true) {
+                            $vinculos = $res['vinculos'] ?? [];
+                            $total    = is_array($vinculos) ? count($vinculos) : 0;
+
+                            if ($total > 0) {
+                                foreach ($vinculos as $v) {
+                                    $row = $this->baseRow($cpf);
+                                    $row['numeroVinculos'] = $total;
+
+                                    // Núcleo
+                                    $row['elegivel'] = $v['elegivel'] ?? null;
+                                    $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
+                                    $row['valorMaximoPrestacao'] = $this->computeValorMaximoPrestacao($v['valorMargemDisponivel'] ?? null);
+                                    $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
+                                    $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
+
+                                    // Vínculo/empregador
+                                    $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
+                                    $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
+                                    $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
+                                    $row['matricula'] = $v['matricula'] ?? null;
+                                    $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
+                                    $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataDesligamento'] ?? null, $v['dataAdmissao'] ?? null);
+                                    $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
+                                    $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
+
+                                    // Contexto
+                                    $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
+                                    $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
+                                    $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
+                                    $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
+
+                                    // Alertas
+                                    $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
+                                    $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
+                                    $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
+                                    $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
+
+                                    // Identificação
+                                    $row['nome'] = $v['nome'] ?? null;
+                                    $row['dataNascimento'] = $v['dataNascimento'] ?? null;
+                                    $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
+                                    $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
+
+                                    // Meta/status (FACTA)
+                                    $row['status_code'] = $v['status_code'] ?? null;
+                                    $row['mensagem'] = $res['mensagem'] ?? 'OK';
+
+                                    $this->spoolAppend($job, $row);
+                                }
+                            } else {
+                                $row = $this->baseRow($cpf);
+                                $row['numeroVinculos'] = 0;
+                                $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
+                                $this->spoolAppend($job, $row);
+                            }
+
+                            $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
+                            $successInChunk++;
+                            $successThisAttempt++;
+                        } else {
+                            $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
+
+                            if (!empty($res['not_found'])) {
+                                $row = $this->baseRow($cpf);
+                                $row['numeroVinculos'] = 0;
+                                $row['mensagem'] = $msg;
+                                $this->spoolAppend($job, $row);
+
+                                $notFoundInChunk++;
+                                $notFoundTotal++;
+
+                                $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
+                                continue;
+                            }
+
+                            if (isset($res['retriable']) && $res['retriable'] === false) {
+                                $row = $this->baseRow($cpf);
+                                $row['numeroVinculos'] = 0;
+                                $row['mensagem'] = $msg;
+                                $this->spoolAppend($job, $row);
+
+                                $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
+                                $failInChunkTerm++;
+                            } else {
+                                $lastError[$cpf] = $msg;
+                            }
+                        }
+                    }
+
+                    if ($successInChunk > 0)   $job->increment('success_count', $successInChunk);
+                    if ($notFoundInChunk > 0)  $job->increment('not_found_count', $notFoundInChunk);
+                    if ($failInChunkTerm > 0)  $job->increment('fail_count', $failInChunkTerm);
+
+                    Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – stats chunk #" . ($idx + 1) . ": " . json_encode($stats));
+
+                    $semRespTotalAttempt += $stats['sem_resposta'];
+                    $totalInAttempt      += count($chunkCpfs);
+                }
+
+                if ($this->finishIfStopped($job)) return;
+
+                // Ajustes de ritmo
+                if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
+                    $ratio429 = count($toTry) > 0 ? $seen429InAttempt / count($toTry) : 0.0;
+                    if ($ratio429 >= 0.20) {
+                        $old = $chunkSize;
+                        $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
+                        Log::warning("[CLT] Job {$this->jobId} – muitos 429 (ratio=" . round($ratio429, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
+                    }
+                }
+
+                $semRespRatio = $totalInAttempt > 0 ? ($semRespTotalAttempt / $totalInAttempt) : 0.0;
+                if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
+                    $old = $chunkSize;
+                    $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
+                    Log::warning("[CLT] Job {$this->jobId} – muitos sem_resposta (ratio=" . round($semRespRatio, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
+                }
+
+                if (!empty($pendentes) && $attempt < $maxAttempts) {
+                    if ($this->finishIfStopped($job)) return;
+
+                    $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
+                    $base = max(1, $retryDelay, $baseRetryAfter);
+
+                    $sleepFactor = 1.0;
+                    if      ($semRespRatio >= 0.90) $sleepFactor = 2.0;
+                    elseif  ($semRespRatio >= 0.50) $sleepFactor = 1.5;
+
+                    $withFactor = (int) ceil($base * $sleepFactor);
+                    $jitter    = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
+                    $sleepSecs = $withFactor + $jitter;
+
+                    Log::debug("[CLT] Job {$this->jobId} – dormindo {$sleepSecs}s (cooperativo).");
+                    if ($this->cooperativeSleep($sleepSecs, $job)) return;
+                }
+
+                $currPendCount = count($pendentes);
+                if ($currPendCount === $prevPendCount && $successThisAttempt === 0 && !empty($pendentes)) {
+                    Log::warning("[CLT] Job {$this->jobId} – sem progresso na tentativa {$attempt}.");
+                }
+                $prevPendCount = $currPendCount;
+            }
+
+            // Fecha pendentes restantes (após tentativas)
+            if (!empty($pendentes)) {
+                foreach ($pendentes as $cpf) {
+                    if ($this->finishIfStopped($job)) return;
+                    $row = $this->baseRow($cpf);
+                    $row['numeroVinculos'] = 0;
+                    $row['mensagem'] = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
+                    $this->spoolAppend($job, $row);
+                }
+                $job->increment('fail_count', count($pendentes));
+            }
+
+            // Finalização
+            if ($this->isCancelled()) {
+                $job->update(['finished_at' => Carbon::now()]);
+                $this->deletePreview($job);
+                $this->cleanupSpool($job);
+                Log::info("[CLT] Job {$this->jobId} cancelado na finalização (spool removido).");
+                return;
+            }
+            if ($this->isPaused()) {
+                Log::info("[CLT] Job {$this->jobId} pausado na finalização de ciclo – saindo sem limpar spool/prévia.");
+                return;
+            }
+
+            $finalOk = $this->generateFinalFromSpool($job);
+            if ($finalOk) {
+                $this->cleanupSpool($job);
+
+                $job->update([
+                    'status'      => 'concluido',
+                    'finished_at' => Carbon::now(),
+                ]);
+
+                $this->deletePreview($job);
+
+                $job->refresh();
+                Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$job->success_count}, não encontrado: {$job->not_found_count}, falha: {$job->fail_count}");
+                return;
+            }
+
+            $job->update([
+                'status'      => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
-
             $this->deletePreview($job);
+            Log::error("[CLT] Job {$this->jobId} não conseguiu gerar FINAL (mantido spool para análise).");
+        } catch (Throwable $e) {
+            $finalOk = false;
+            try {
+                $finalOk = $this->generateFinalFromSpool($job);
+            } catch (\Throwable $e2) {
+                Log::warning("[CLT] Job {$this->jobId} falhou e não conseguiu gerar FINAL: " . $e2->getMessage());
+            }
+            if ($finalOk) {
+                $this->cleanupSpool($job);
+            }
 
-            $job->refresh();
-            Log::info("[CLT] Job {$this->jobId} concluído – sucesso: {$job->success_count}, não encontrado: {$job->not_found_count}, falha: {$job->fail_count}");
-            return;
+            $job->update([
+                'status'      => 'falhou',
+                'finished_at' => Carbon::now(),
+            ]);
+            $this->deletePreview($job);
+            Log::error("[CLT] Job {$this->jobId} falhou: " . $e->getMessage());
         }
-
-        $job->update([
-            'status' => 'falhou',
-            'finished_at' => Carbon::now(),
-        ]);
-        $this->deletePreview($job);
-        Log::error("[CLT] Job {$this->jobId} não conseguiu gerar FINAL (mantido spool para análise).");
-        return;
-
-    } catch (Throwable $e) {
-        $finalOk = false;
-        try {
-            $finalOk = $this->generateFinalFromSpool($job);
-        } catch (\Throwable $e2) {
-            Log::warning("[CLT] Job {$this->jobId} falhou e não conseguiu gerar FINAL: " . $e2->getMessage());
-        }
-        if ($finalOk) {
-            $this->cleanupSpool($job);
-        }
-
-        $job->update([
-            'status' => 'falhou',
-            'finished_at' => Carbon::now(),
-        ]);
-        $this->deletePreview($job);
-        Log::error("[CLT] Job {$this->jobId} falhou: " . $e->getMessage());
     }
-}
-
 
     /** ----------------------- Helpers ----------------------- */
 
@@ -432,44 +448,38 @@ public function handle(FactaApiService $facta): void
         return $this->getStatus() === 'pausado';
     }
 
-   private function finishIfStopped(CltConsultJob $job): bool
-{
-    $status = $this->getStatus();
+    private function finishIfStopped(CltConsultJob $job): bool
+    {
+        $status = $this->getStatus();
 
-    // Interrompe imediatamente em caso de cancelamento
-    if ($status === 'cancelado') {
-        $job->update(['finished_at' => Carbon::now()]);
-        $this->deletePreview($job);
-        $this->cleanupSpool($job);
-        Log::info("[CLT] Job {$this->jobId} interrompido por cancelamento (spool removido).");
-        return true;
-    }
-
-    // Pausado: sai sem limpar nada (será retomado depois)
-    if ($status === 'pausado') {
-        Log::info("[CLT] Job {$this->jobId} detectou pausa – saindo sem limpar nada.");
-        return true;
-    }
-
-    // Se chegamos aqui, o worker segue ativo. Garanta que o status reflita isso.
-    // Promove para 'em_progresso' caso esteja diferente (ex.: 'pendente' ou ficou 'pausado' por pouco tempo).
-    if ($status !== 'em_progresso') {
-        // Evita sobrescrever estados terminais ou de pausa por corrida
-        $updated = DB::table('clt_consult_jobs')
-            ->where('id', $this->jobId)
-            ->whereNotIn('status', ['cancelado', 'pausado', 'concluido', 'falhou'])
-            ->update(['status' => 'em_progresso']);
-
-        if ($updated) {
-            // Mantém o objeto em memória coerente e registra telemetria
-            $job->status = 'em_progresso';
-            Log::info("[CLT] Job {$this->jobId} sincronizado para 'em_progresso' (auto).");
+        if ($status === 'cancelado') {
+            $job->update(['finished_at' => Carbon::now()]);
+            $this->deletePreview($job);
+            $this->cleanupSpool($job);
+            Log::info("[CLT] Job {$this->jobId} interrompido por cancelamento (spool removido).");
+            return true;
         }
+
+        if ($status === 'pausado') {
+            Log::info("[CLT] Job {$this->jobId} detectou pausa – saindo sem limpar nada.");
+            return true;
+        }
+
+        // Auto-sync para 'em_progresso' (sem sobrescrever estados finais/pausa)
+        if ($status !== 'em_progresso') {
+            $updated = DB::table('clt_consult_jobs')
+                ->where('id', $this->jobId)
+                ->whereNotIn('status', ['cancelado', 'pausado', 'concluido', 'falhou'])
+                ->update(['status' => 'em_progresso']);
+
+            if ($updated) {
+                $job->status = 'em_progresso';
+                Log::info("[CLT] Job {$this->jobId} sincronizado para 'em_progresso' (auto).");
+            }
+        }
+
+        return false;
     }
-
-    return false;
-}
-
 
     private function baseRow(string $cpf): array
     {
@@ -517,7 +527,7 @@ public function handle(FactaApiService $facta): void
             fclose($fp);
         }
 
-        // Arquivo CPFs (todos: válidos + inválidos) — um por linha
+        // Arquivo de CPFs originais (válidos + inválidos)
         $allCpfs = array_values(array_unique(array_merge($this->cpfs, $this->invalidCpfs)));
         $fp2 = fopen($disk->path($cpfsPath), 'c+');
         if ($fp2 === false) {
@@ -564,7 +574,7 @@ public function handle(FactaApiService $facta): void
         $pendentes = [];
         $doneCount = count($done);
 
-        // Lê a lista original e pega os que não estão no spool
+        // Lê lista original e pega os que não estão no spool
         $fh2 = fopen($cpfsReal, 'r');
         if ($fh2 !== false) {
             try {
@@ -633,11 +643,11 @@ public function handle(FactaApiService $facta): void
                 return false;
             }
 
-            $ts = Carbon::now()->format('Ymd_His');
-            $fileName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.xlsx";
-            $tmpName  = "{$this->finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
-            $path     = "{$this->dirReports}/{$fileName}";
-            $tmpPath  = "{$this->dirReports}/{$tmpName}";
+            $ts      = Carbon::now()->format('Ymd_His');
+            $fileName= "{$this->finalPrefix}_{$this->jobId}_{$ts}.xlsx";
+            $tmpName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
+            $path    = "{$this->dirReports}/{$fileName}";
+            $tmpPath = "{$this->dirReports}/{$tmpName}";
 
             $export = \App\Exports\CltConsultExport::fromCsv($disk->path($spoolPath));
             Excel::store($export, $tmpPath, $this->disk);
@@ -661,6 +671,27 @@ public function handle(FactaApiService $facta): void
         }
     }
 
+    /**
+     * Dorme de forma cooperativa verificando pausa/cancelamento.
+     * @return bool true se abortou por pausa/cancelamento; false se dormiu até o fim.
+     */
+    private function cooperativeSleep(int $seconds, CltConsultJob $job): bool
+    {
+        $remaining = max(0, $seconds);
+        $tick = 1;
+
+        while ($remaining > 0) {
+            if ($this->finishIfStopped($job)) {
+                return true;
+            }
+            $slice = min($tick, $remaining);
+            sleep($slice);
+            $remaining -= $slice;
+        }
+
+        return $this->finishIfStopped($job);
+    }
+
     private function cleanupSpool(CltConsultJob $job): void
     {
         try {
@@ -678,9 +709,9 @@ public function handle(FactaApiService $facta): void
             }
         } finally {
             $job->updateQuietly([
-                'spool_path' => null,
+                'spool_path'      => null,
                 'spool_cpfs_path' => null,
-                'spool_bytes' => 0,
+                'spool_bytes'     => 0,
             ]);
         }
     }
@@ -725,11 +756,11 @@ public function handle(FactaApiService $facta): void
             DB::table('clt_consult_jobs')
                 ->where('id', $jobId)
                 ->update([
-                    'preview_disk'        => null,
-                    'preview_path'        => null,
-                    'preview_name'        => null,
-                    'preview_updated_at'  => null,
-                    'preview_dirty'       => false,
+                    'preview_disk'       => null,
+                    'preview_path'       => null,
+                    'preview_name'       => null,
+                    'preview_updated_at' => null,
+                    'preview_dirty'      => false,
                 ]);
 
             $job->preview_disk = null;
