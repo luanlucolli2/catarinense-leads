@@ -25,7 +25,7 @@ services:
       <<: *app-environment
     volumes:
       - '.:/var/www/html'
-      - './docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini'
+      - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
     networks:
       - sail
     depends_on:

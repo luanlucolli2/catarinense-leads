@@ -16,47 +16,84 @@ class RollbackService
 {
     /**
      * Roda o rollback do job fornecido.
+     *
+     * Estratégia:
+     *  - Descobrir leads inseridos no job (preferência pelo backup.was_new, com fallback na pivot).
+     *  - Remover dependências desses leads (pivot e contratos) antes de deletá-los.
+     *  - Restaurar estado dos leads atualizados a partir do snapshot.
+     *  - Remover contratos inseridos em leads pré-existentes.
+     *  - Remover vendors criados que ficaram sem contratos.
+     *  - Marcar job como revertido e limpar resíduos (pivot/backups).
      */
     public function rollback(ImportJob $job): void
     {
         DB::transaction(function () use ($job) {
-            // 1. Deleta leads que foram *inseridos* nesse job
-            $leadIdsToDelete = LeadImport::where('import_job_id', $job->id)
+            // -----------------------------------------------
+            // 0) Descobrir leads que foram INSERIDOS no job
+            // -----------------------------------------------
+            $insertedByBackup = LeadBackup::where('import_job_id', $job->id)
+                ->where('was_new', true)
+                ->pluck('lead_id')
+                ->all();
+
+            // fallback: caso exista algum lead "insert" sem backup por algum motivo
+            $insertedByPivot = LeadImport::where('import_job_id', $job->id)
                 ->where('action', 'insert')
                 ->pluck('lead_id')
                 ->all();
 
+            $leadIdsToDelete = array_values(array_unique(array_merge($insertedByBackup, $insertedByPivot)));
+
+            // -----------------------------------------------
+            // 1) Remover dependências dos leads inseridos
+            //    (ordem importa p/ não violar FKs)
+            // -----------------------------------------------
+            if (!empty($leadIdsToDelete)) {
+                // 1.1) remover pivot do próprio job (e de outros por segurança, se existirem)
+                LeadImport::whereIn('lead_id', $leadIdsToDelete)->delete();
+
+                // 1.2) remover contratos associados a esses leads
+                LeadContract::whereIn('lead_id', $leadIdsToDelete)->delete();
+            }
+
+            // -----------------------------------------------
+            // 2) Deletar leads inseridos
+            // -----------------------------------------------
             if (!empty($leadIdsToDelete)) {
                 Lead::whereIn('id', $leadIdsToDelete)->delete();
             }
 
-            // 2. Restaura dados de leads *atualizados*
-            $backups = LeadBackup::where('import_job_id', $job->id)->get();
+            // -----------------------------------------------
+            // 3) Restaurar dados dos leads ATUALIZADOS
+            // -----------------------------------------------
+            $backups = LeadBackup::where('import_job_id', $job->id)
+                ->where('was_new', false)
+                ->get();
+
             foreach ($backups as $bkp) {
-                if (!$bkp->was_new) {
-                    Lead::whereKey($bkp->lead_id)
-                        ->update([
-                            'cpf' => $bkp->cpf,
-                            'nome' => $bkp->nome,
-                            'data_nascimento' => $bkp->data_nascimento,
-                            'fone1' => $bkp->fone1,
-                            'classe_fone1' => $bkp->classe_fone1,
-                            'fone2' => $bkp->fone2,
-                            'classe_fone2' => $bkp->classe_fone2,
-                            'fone3' => $bkp->fone3,
-                            'classe_fone3' => $bkp->classe_fone3,
-                            'fone4' => $bkp->fone4,
-                            'classe_fone4' => $bkp->classe_fone4,
-                            'consulta' => $bkp->consulta,
-                            'data_atualizacao' => $bkp->data_atualizacao,
-                            'saldo' => $bkp->saldo,
-                            'libera' => $bkp->libera,
-                            'updated_at' => now(),
-                        ]);
-                }
+                Lead::whereKey($bkp->lead_id)->update([
+                    'cpf'              => $bkp->cpf,
+                    'nome'             => $bkp->nome,
+                    'data_nascimento'  => $bkp->data_nascimento,
+                    'fone1'            => $bkp->fone1,
+                    'classe_fone1'     => $bkp->classe_fone1,
+                    'fone2'            => $bkp->fone2,
+                    'classe_fone2'     => $bkp->classe_fone2,
+                    'fone3'            => $bkp->fone3,
+                    'classe_fone3'     => $bkp->classe_fone3,
+                    'fone4'            => $bkp->fone4,
+                    'classe_fone4'     => $bkp->classe_fone4,
+                    'consulta'         => $bkp->consulta,
+                    'data_atualizacao' => $bkp->data_atualizacao,
+                    'saldo'            => $bkp->saldo,
+                    'libera'           => $bkp->libera,
+                    'updated_at'       => now(),
+                ]);
             }
 
-            // 3. Remove contratos que foram *inseridos*
+            // -----------------------------------------------
+            // 4) Remover contratos inseridos (de leads pré-existentes)
+            // -----------------------------------------------
             $contractIdsToDelete = LeadContractBackup::where('import_job_id', $job->id)
                 ->where('action', 'insert')
                 ->pluck('lead_contract_id')
@@ -66,7 +103,9 @@ class RollbackService
                 LeadContract::whereIn('id', $contractIdsToDelete)->delete();
             }
 
-            // 4. Remove vendors criados nesse job, desde que não tenham mais contratos
+            // -----------------------------------------------
+            // 5) Remover vendors criados no job que ficaram sem contratos
+            // -----------------------------------------------
             $vendorIds = VendorBackup::where('import_job_id', $job->id)
                 ->pluck('vendor_id')
                 ->all();
@@ -77,13 +116,15 @@ class RollbackService
                     ->delete();
             }
 
-            // 5. Marca o job como rollback feito
+            // -----------------------------------------------
+            // 6) Marcar job revertido e limpar resíduos
+            // -----------------------------------------------
             $job->update([
-                'status' => 'revertido',   // 👍 novo
+                'status'         => 'revertido',
                 'rolled_back_at' => now(),
             ]);
-            
-            // 6. Limpa registros de pivot e backups
+
+            // Limpa registros de pivot e backups do job (restante)
             LeadImport::where('import_job_id', $job->id)->delete();
             LeadBackup::where('import_job_id', $job->id)->delete();
             LeadContractBackup::where('import_job_id', $job->id)->delete();
