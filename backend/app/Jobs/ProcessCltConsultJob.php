@@ -242,7 +242,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                     $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
                                     $row['matricula'] = $v['matricula'] ?? null;
                                     $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
-                                    $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataDesligamento'] ?? null, $v['dataAdmissao'] ?? null);
+                                    $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
                                     $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
                                     $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
 
