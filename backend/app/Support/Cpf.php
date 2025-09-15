@@ -7,16 +7,21 @@ class Cpf
     /**
      * Normaliza um CPF:
      * - mantém apenas dígitos
-     * - se tiver entre 8 e 10 dígitos, completa com zeros à esquerda até 11
-     * - se tiver 11 dígitos, mantém
-     * - caso contrário, retorna null
+     * - aceita entradas de 1 a 11 dígitos
+     * - completa com zeros à esquerda até 11
+     * - se não houver dígitos ou houver mais de 11, retorna null
+     *
+     * Exemplos:
+     *  '8944199'       -> '00008944199'
+     *  '123'           -> '00000000123'
+     *  '00000000000'   -> '00000000000' (normalizado, mas inválido em isValid)
      */
     public static function normalize(?string $input): ?string
     {
         $d = preg_replace('/\D+/', '', (string) $input);
         $len = strlen($d);
 
-        if ($len < 8 || $len > 11) {
+        if ($len < 1 || $len > 11) {
             return null;
         }
 
@@ -37,7 +42,7 @@ class Cpf
             return false;
         }
 
-        // rejeita sequências
+        // rejeita sequências (000..., 111..., etc.)
         if (preg_match('/^(\\d)\\1{10}$/', $cpf)) {
             return false;
         }

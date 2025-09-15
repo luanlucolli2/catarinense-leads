@@ -41,16 +41,15 @@ class Lead extends Model
 
     public function importJobs(): BelongsToMany
     {
-        // CORREÇÃO FINAL: Usamos o nome completo da tabela 'lead_imports' para a ordenação.
+        // Usa o Pivot model (mesmo sem timestamps automáticos)
         return $this->belongsToMany(ImportJob::class, 'lead_imports')
+            ->using(LeadImport::class)
             ->withPivot('action', 'created_at')
             ->orderBy('lead_imports.created_at', 'asc');
     }
 
-    // app/Models/Lead.php
     public function backups(): HasMany
     {
         return $this->hasMany(\App\Models\Backup\LeadBackup::class);
     }
-
 }
