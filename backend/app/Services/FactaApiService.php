@@ -93,57 +93,90 @@ class FactaApiService
     /**
      * Obtém token com lock para evitar thundering herd
      */
-    public function getToken(): ?string
-    {
+ public function getToken(): ?string
+{
+    // cache quente
+    $cached = Cache::get('facta_token');
+    if (is_string($cached) && $cached !== '') {
+        return $cached;
+    }
+
+    $lock = Cache::lock('facta_token_lock', $this->tokenLockTtl);
+    $lock->block($this->tokenLockWait);
+
+    try {
+        // re-check após adquirir o lock
         $cached = Cache::get('facta_token');
         if (is_string($cached) && $cached !== '') {
             return $cached;
         }
 
-        $lock = Cache::lock('facta_token_lock', $this->tokenLockTtl);
-        $lock->block($this->tokenLockWait);
-
-        try {
-            $cached = Cache::get('facta_token');
-            if (is_string($cached) && $cached !== '') {
-                return $cached;
-            }
-
-            if (!$this->basicAuth) {
-                throw new \RuntimeException('FACTA_BASIC_AUTH not configured');
-            }
-
-            $resp = Http::withHeaders([
-                'Authorization' => 'Basic ' . $this->basicAuth,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(max(1, $this->httpTimeout))
-                ->connectTimeout(max(1, $this->httpConnectTimeout))
-                ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
-                ->get($this->baseUrl . '/gera-token');
-
-            if (!$resp->ok()) {
-                throw new \RuntimeException("FACTA token error: HTTP {$resp->status()}");
-            }
-
-            $json = $resp->json();
-            if (!is_array($json) || !empty($json['erro'])) {
-                throw new \RuntimeException('FACTA token error: ' . ($json['mensagem'] ?? 'Unknown'));
-            }
-
-            $token = $json['token'] ?? null;
-            if (!$token) {
-                throw new \RuntimeException('FACTA token error: token ausente na resposta');
-            }
-
-            $ttl = max(30, $this->tokenTtl - $this->tokenTtlSkew);
-            Cache::put('facta_token', $token, $ttl);
-
-            return $token;
-        } finally {
-            optional($lock)->release();
+        if (!$this->basicAuth) {
+            throw new \RuntimeException('FACTA token error: credencial BASIC ausente (FACTA_BASIC_AUTH)');
         }
+
+        // 1ª chamada
+        $resp = Http::withHeaders([
+                'Authorization' => 'Basic '.$this->basicAuth,
+                'Accept'        => 'application/json',
+            ])
+            ->timeout(max(1, $this->httpTimeout))
+            ->connectTimeout(max(1, $this->httpConnectTimeout))
+            ->retry(
+                max(0, $this->httpRetry),
+                max(0, $this->httpRetryDelayMs),
+                fn ($e, $request) =>
+                    $e instanceof ConnectionException
+                    || optional($request->response())->status() === 429
+                    || optional($request->response())->serverError()
+            )
+            ->get($this->baseUrl.'/gera-token');
+
+        if ($resp->status() === 403) {
+            $this->logForbidden($resp, null);
+        }
+
+        if (!$resp->ok()) {
+            $msg = $this->responseMessage($resp); // pega message/mensagem ou resume HTML
+            throw new \RuntimeException("FACTA token error: {$msg}");
+        }
+
+        // Tenta decodificar JSON
+        $json = $resp->json();
+
+        if (!is_array($json)) {
+            // corpo 200 porém não-JSON (HTML, texto, etc.)
+            $msg = $this->responseMessage($resp);
+            throw new \RuntimeException("FACTA token error: {$msg}");
+        }
+
+        // Alguns backends usam 'message' em vez de 'mensagem'
+        $erroFlag = (bool) ($json['erro'] ?? false);
+        if ($erroFlag) {
+            $msg = trim((string) ($json['mensagem'] ?? $json['message'] ?? 'Erro no /gera-token'));
+            if ($msg === '') {
+                $msg = $this->responseMessage($resp);
+            }
+            throw new \RuntimeException("FACTA token error: {$msg}");
+        }
+
+        $token = $json['token'] ?? null;
+        if (!is_string($token) || $token === '') {
+            // 200 sem 'token' → trata como falha com mensagem decente
+            $msg = trim((string) ($json['mensagem'] ?? $json['message'] ?? 'token ausente na resposta'));
+            throw new \RuntimeException("FACTA token error: {$msg}");
+        }
+
+        // Cacheia com skew
+        $ttl = max(30, $this->tokenTtl - $this->tokenTtlSkew);
+        Cache::put('facta_token', $token, $ttl);
+
+        return $token;
+    } finally {
+        optional($lock)->release();
     }
+}
+
 
     /**
      * Consulta unitária (fallback/compat)

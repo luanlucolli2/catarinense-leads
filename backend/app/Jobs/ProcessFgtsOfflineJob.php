@@ -50,14 +50,15 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $this->cpfs = array_values(array_unique($cpfs));
         $this->invalidCpfs = array_values(array_unique($invalidCpfs));
 
-        $this->onQueue('default');
+        // DE: $this->onQueue('default');
+        $this->onQueue((string) config('facta_off.job.queue', 'fgts')); // 👈 AGORA VAI PRA FILA 'fgts'
 
         // Configs
-        $this->timeout     = (int) config('facta_off.job.timeout_seconds', 18000); // 5h
-        $this->disk        = (string) config('facta_off.storage.reports_disk', 'public');
-        $this->dirReports  = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
+        $this->timeout = (int) config('facta_off.job.timeout_seconds', 115200); // 5h
+        $this->disk = (string) config('facta_off.storage.reports_disk', 'public');
+        $this->dirReports = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
         $this->dirPreviews = (string) config('facta_off.storage.dir_previews', 'fgts-off-previews');
-        $this->dirSpool    = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool'); // novo
+        $this->dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool'); // novo
         $this->finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
         $this->previewSuffix = (string) config('facta_off.storage.preview_suffix', 'preview');
     }
@@ -80,35 +81,35 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         [$spoolPath, $cpfsPath] = $this->initSpoolFiles($job);
 
         $job->update([
-            'status'       => 'em_progresso',
-            'started_at'   => Carbon::now(),
-            'total_cpfs'   => count($this->cpfs) + count($this->invalidCpfs),
-            'spool_path'   => $spoolPath,
+            'status' => 'em_progresso',
+            'started_at' => Carbon::now(),
+            'total_cpfs' => count($this->cpfs) + count($this->invalidCpfs),
+            'spool_path' => $spoolPath,
             'spool_cpfs_path' => $cpfsPath,
-            'spool_bytes'  => $this->fileSizeSafe($this->disk, $spoolPath),
-            'preview_dirty'=> false,
+            'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
+            'preview_dirty' => false,
         ]);
 
-        Log::info("[FGTS-OFF] Job {$this->jobId} iniciado – válidos: ".count($this->cpfs).", inválidos: ".count($this->invalidCpfs).", total: ".$job->total_cpfs);
+        Log::info("[FGTS-OFF] Job {$this->jobId} iniciado – válidos: " . count($this->cpfs) . ", inválidos: " . count($this->invalidCpfs) . ", total: " . $job->total_cpfs);
 
         // Knobs de execução
-        $maxAttempts   = (int) config('facta_off.job.max_attempts', 5);
-        $retryDelay    = (int) config('facta_off.job.retry_delay_seconds', 30);
-        $chunkSize     = (int) config('facta_off.job.chunk', 6);
-        $minChunk      = max(1, (int) config('facta_off.job.min_chunk', 2));
+        $maxAttempts = (int) config('facta_off.job.max_attempts', 5);
+        $retryDelay = (int) config('facta_off.job.retry_delay_seconds', 30);
+        $chunkSize = (int) config('facta_off.job.chunk', 6);
+        $minChunk = max(1, (int) config('facta_off.job.min_chunk', 2));
         $retryAfterCap = (int) config('facta_off.job.retry_after_max', 120);
 
-        $pendentes   = $this->cpfs;
+        $pendentes = $this->cpfs;
         $invalidCount = count($this->invalidCpfs);
 
         try {
             // 1) Inválidos já entram no SPOOL (e contam como falha)
             foreach ($this->invalidCpfs as $cpfInv) {
                 $row = $this->baseRow($cpfInv);
-                $row['autorizado']   = null;
-                $row['autorizadoAte']= null;
-                $row['mensagem']     = 'CPF inválido (dígitos verificadores)';
-                $row['status']       = null;
+                $row['autorizado'] = null;
+                $row['autorizadoAte'] = null;
+                $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
+                $row['status'] = null;
                 $row['consultadoEm'] = $this->nowBrString();
                 $this->spoolAppend($job, $row);
             }
@@ -125,14 +126,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $prevPendCount = count($pendentes);
 
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                if ($this->finishIfCancelled($job)) return;
+                if ($this->finishIfCancelled($job))
+                    return;
                 if ($this->isExpired($deadlineUtc)) {
                     $this->finalizeExpired($job);
                     return;
                 }
-                if (empty($pendentes)) break;
+                if (empty($pendentes))
+                    break;
 
-                $toTry  = $pendentes;
+                $toTry = $pendentes;
                 $chunks = array_chunk($toTry, max(1, $chunkSize));
                 $chunkIndex = 0;
 
@@ -142,14 +145,15 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $semRespTotalAttempt = 0;
                 $totalInAttempt = 0;
 
-                Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – pendentes: ".count($pendentes)." – chunkSize={$chunkSize}");
+                Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes) . " – chunkSize={$chunkSize}");
 
                 foreach ($chunks as $chunkCpfs) {
                     $chunkIndex++;
                     $chunkCount = count($chunkCpfs);
                     $t0 = microtime(true);
 
-                    if ($this->finishIfCancelled($job)) return;
+                    if ($this->finishIfCancelled($job))
+                        return;
                     if ($this->isExpired($deadlineUtc)) {
                         $this->finalizeExpired($job);
                         return;
@@ -159,7 +163,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                     $batchResults = $api->consultaCpfLote($chunkCpfs);
 
-                    $stats = ['2xx'=>0,'401'=>0,'429'=>0,'5xx'=>0,'outros'=>0,'sem_resposta'=>0];
+                    $stats = ['2xx' => 0, '401' => 0, '429' => 0, '5xx' => 0, 'outros' => 0, 'sem_resposta' => 0];
                     $authorizedInChunk = 0;
                     $notAuthorizedInChunk = 0;
                     $terminalFailsInChunk = 0;
@@ -171,23 +175,30 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         }
 
                         $res = $batchResults[$cpf] ?? [
-                            'ok'=>false,
-                            'mensagem'=>'Sem resposta do serviço',
-                            'authorized'=>null,
-                            'authorized_until'=>null,
-                            'retriable'=>true,
-                            'http_status'=>null,
-                            'retry_after'=>null,
-                            'consultado_at'=>$this->nowBrString(),
+                            'ok' => false,
+                            'mensagem' => 'Sem resposta do serviço',
+                            'authorized' => null,
+                            'authorized_until' => null,
+                            'retriable' => true,
+                            'http_status' => null,
+                            'retry_after' => null,
+                            'consultado_at' => $this->nowBrString(),
                         ];
 
                         $http = $res['http_status'] ?? null;
-                        if ($http === 200) $stats['2xx']++;
-                        elseif ($http === 401) $stats['401']++;
-                        elseif ($http === 429) { $stats['429']++; $seen429InAttempt++; }
-                        elseif (is_int($http) && $http >= 500) $stats['5xx']++;
-                        elseif ($http === null) $stats['sem_resposta']++;
-                        else $stats['outros']++;
+                        if ($http === 200)
+                            $stats['2xx']++;
+                        elseif ($http === 401)
+                            $stats['401']++;
+                        elseif ($http === 429) {
+                            $stats['429']++;
+                            $seen429InAttempt++;
+                        } elseif (is_int($http) && $http >= 500)
+                            $stats['5xx']++;
+                        elseif ($http === null)
+                            $stats['sem_resposta']++;
+                        else
+                            $stats['outros']++;
 
                         if (!empty($res['retry_after'])) {
                             $retryAfterMax = max($retryAfterMax, (int) $res['retry_after']);
@@ -195,15 +206,17 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                         if (!empty($res['ok'])) {
                             $row = $this->baseRow($cpf);
-                            $row['autorizado']    = $res['authorized'] ?? null;
+                            $row['autorizado'] = $res['authorized'] ?? null;
                             $row['autorizadoAte'] = $res['authorized_until'] ?? null;
-                            $row['mensagem']      = $res['mensagem'] ?? null;
-                            $row['status']        = $res['http_status'] ?? 200;
-                            $row['consultadoEm']  = $res['consultado_at'] ?? $this->nowBrString();
+                            $row['mensagem'] = $res['mensagem'] ?? null;
+                            $row['status'] = $res['http_status'] ?? 200;
+                            $row['consultadoEm'] = $res['consultado_at'] ?? $this->nowBrString();
                             $this->spoolAppend($job, $row);
 
-                            if ($res['authorized'] === true) $authorizedInChunk++;
-                            else $notAuthorizedInChunk++;
+                            if ($res['authorized'] === true)
+                                $authorizedInChunk++;
+                            else
+                                $notAuthorizedInChunk++;
 
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                             $successThisAttempt++;
@@ -213,11 +226,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                             if ($retriable === false) {
                                 $row = $this->baseRow($cpf);
-                                $row['autorizado']    = null;
+                                $row['autorizado'] = null;
                                 $row['autorizadoAte'] = null;
-                                $row['mensagem']      = $msg;
-                                $row['status']        = $res['http_status'] ?? null;
-                                $row['consultadoEm']  = $res['consultado_at'] ?? $this->nowBrString();
+                                $row['mensagem'] = $msg;
+                                $row['status'] = $res['http_status'] ?? null;
+                                $row['consultadoEm'] = $res['consultado_at'] ?? $this->nowBrString();
                                 $this->spoolAppend($job, $row);
 
                                 $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
@@ -228,31 +241,35 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         }
                     }
 
-                    if ($authorizedInChunk > 0)    $job->increment('success_count', $authorizedInChunk);
-                    if ($notAuthorizedInChunk > 0) $job->increment('not_authorized_count', $notAuthorizedInChunk);
-                    if ($terminalFailsInChunk > 0) $job->increment('fail_count', $terminalFailsInChunk);
+                    if ($authorizedInChunk > 0)
+                        $job->increment('success_count', $authorizedInChunk);
+                    if ($notAuthorizedInChunk > 0)
+                        $job->increment('not_authorized_count', $notAuthorizedInChunk);
+                    if ($terminalFailsInChunk > 0)
+                        $job->increment('fail_count', $terminalFailsInChunk);
 
                     $semRespTotalAttempt += $stats['sem_resposta'];
-                    $totalInAttempt      += $chunkCount;
+                    $totalInAttempt += $chunkCount;
 
                     $elapsed = max(0.001, microtime(true) - $t0);
                     $rps = $chunkCount / $elapsed;
                     Log::debug(
-                        "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – chunk #{$chunkIndex} ".
-                        "size={$chunkCount} stats=".json_encode($stats).
-                        " auth={$authorizedInChunk} nao_auth={$notAuthorizedInChunk} fail_term={$terminalFailsInChunk} ".
-                        "pend_rest=".count($pendentes)." ".
-                        "elapsed=".number_format($elapsed,3)."s rps=".number_format($rps,2)
+                        "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – chunk #{$chunkIndex} " .
+                        "size={$chunkCount} stats=" . json_encode($stats) .
+                        " auth={$authorizedInChunk} nao_auth={$notAuthorizedInChunk} fail_term={$terminalFailsInChunk} " .
+                        "pend_rest=" . count($pendentes) . " " .
+                        "elapsed=" . number_format($elapsed, 3) . "s rps=" . number_format($rps, 2)
                     );
                 }
 
-                if ($this->finishIfCancelled($job)) return;
+                if ($this->finishIfCancelled($job))
+                    return;
 
                 $semRespRatio = $totalInAttempt > 0 ? ($semRespTotalAttempt / $totalInAttempt) : 0.0;
                 if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
                     $old = $chunkSize;
                     $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    Log::warning("[FGTS-OFF] Job {$this->jobId} – muitos sem_resposta (ratio=".round($semRespRatio,2)."). Reduzindo chunk {$old} → {$chunkSize}.");
+                    Log::warning("[FGTS-OFF] Job {$this->jobId} – muitos sem_resposta (ratio=" . round($semRespRatio, 2) . "). Reduzindo chunk {$old} → {$chunkSize}.");
                 }
                 if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
                     $old = $chunkSize;
@@ -261,14 +278,15 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 }
 
                 Log::debug(
-                    "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – resumo: ".
-                    "pendentes=".count($pendentes).
-                    " sem_resp_ratio=".number_format($semRespRatio,2).
+                    "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – resumo: " .
+                    "pendentes=" . count($pendentes) .
+                    " sem_resp_ratio=" . number_format($semRespRatio, 2) .
                     " seen429={$seen429InAttempt} retry_after_max={$retryAfterMax} chunkSizeAtual={$chunkSize}"
                 );
 
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
-                    if ($this->finishIfCancelled($job)) return;
+                    if ($this->finishIfCancelled($job))
+                        return;
                     if ($this->isExpired($deadlineUtc)) {
                         $this->finalizeExpired($job);
                         return;
@@ -278,12 +296,14 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $base = max(1, $retryDelay, $baseRetryAfter);
 
                     $sleepFactor = 1.0;
-                    if ($semRespRatio >= 0.90) $sleepFactor = 2.0;
-                    elseif ($semRespRatio >= 0.50) $sleepFactor = 1.5;
+                    if ($semRespRatio >= 0.90)
+                        $sleepFactor = 2.0;
+                    elseif ($semRespRatio >= 0.50)
+                        $sleepFactor = 1.5;
 
                     $withFactor = (int) ceil($base * $sleepFactor);
-                    $jitter     = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
-                    $sleepSecs  = $withFactor + $jitter;
+                    $jitter = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
+                    $sleepSecs = $withFactor + $jitter;
 
                     Log::debug("[FGTS-OFF] Job {$this->jobId} – dormindo {$sleepSecs}s.");
                     sleep($sleepSecs);
@@ -316,7 +336,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             try {
                 $finalOk = $this->generateFinalFromSpool($job);
             } catch (\Throwable $e2) {
-                Log::warning("[FGTS-OFF] Job {$this->jobId} falhou e não conseguiu gerar FINAL: ".$e2->getMessage());
+                Log::warning("[FGTS-OFF] Job {$this->jobId} falhou e não conseguiu gerar FINAL: " . $e2->getMessage());
             }
             if ($finalOk) {
                 $this->cleanupSpool($job);
@@ -327,7 +347,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 'finished_at' => Carbon::now(),
             ]);
             $job->refresh();
-            Log::error("[FGTS-OFF] Job {$this->jobId} falhou – autorizado: {$job->success_count}, não autorizado: {$job->not_authorized_count}, falha: {$job->fail_count}. Erro: ".$e->getMessage());
+            Log::error("[FGTS-OFF] Job {$this->jobId} falhou – autorizado: {$job->success_count}, não autorizado: {$job->not_authorized_count}, falha: {$job->fail_count}. Erro: " . $e->getMessage());
         }
     }
 
@@ -406,10 +426,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $disk = Storage::disk($this->disk);
 
         $spoolName = "{$this->finalPrefix}_{$this->jobId}.spool.csv";
-        $cpfsName  = "{$this->finalPrefix}_{$this->jobId}.cpfs.txt";
+        $cpfsName = "{$this->finalPrefix}_{$this->jobId}.cpfs.txt";
 
         $spoolPath = "{$this->dirSpool}/{$spoolName}";
-        $cpfsPath  = "{$this->dirSpool}/{$cpfsName}";
+        $cpfsPath = "{$this->dirSpool}/{$cpfsName}";
 
         // Spool CSV com cabeçalho
         $fp = fopen($disk->path($spoolPath), 'c+');
@@ -450,57 +470,57 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     }
 
     /** Apende uma linha no SPOOL (CSV), com lock e atualização de bytes / preview_dirty. */
-private function spoolAppend(FgtsOfflineJob $job, array $row): void
-{
-    $disk = Storage::disk($this->disk);
-    $path = $job->spool_path ?? '';
-    if ($path === '' || !$disk->exists($path)) {
-        throw new \RuntimeException("Spool ausente para job {$job->id}");
-    }
+    private function spoolAppend(FgtsOfflineJob $job, array $row): void
+    {
+        $disk = Storage::disk($this->disk);
+        $path = $job->spool_path ?? '';
+        if ($path === '' || !$disk->exists($path)) {
+            throw new \RuntimeException("Spool ausente para job {$job->id}");
+        }
 
-    $fp = fopen($disk->path($path), 'a');
-    if ($fp === false) {
-        throw new \RuntimeException("Falha ao abrir spool para append: {$path}");
-    }
-    try {
-        if (flock($fp, LOCK_EX)) {
-            $ordered = [];
-            foreach (FgtsOfflineExport::COLS as $key) {
-                $v = $row[$key] ?? null;
+        $fp = fopen($disk->path($path), 'a');
+        if ($fp === false) {
+            throw new \RuntimeException("Falha ao abrir spool para append: {$path}");
+        }
+        try {
+            if (flock($fp, LOCK_EX)) {
+                $ordered = [];
+                foreach (FgtsOfflineExport::COLS as $key) {
+                    $v = $row[$key] ?? null;
 
-                // 🔧 Normaliza 'autorizado' para '1'/'0' (evita string vazia no CSV)
-                if ($key === 'autorizado') {
-                    if ($v === true || $v === 1 || $v === '1') {
-                        $v = '1';
-                    } elseif ($v === false || $v === 0 || $v === '0') {
-                        $v = '0';
-                    } elseif (is_string($v)) {
-                        $n = mb_strtolower(trim($v), 'UTF-8');
-                        if (in_array($n, ['sim', 's', 'true'], true)) {
+                    // 🔧 Normaliza 'autorizado' para '1'/'0' (evita string vazia no CSV)
+                    if ($key === 'autorizado') {
+                        if ($v === true || $v === 1 || $v === '1') {
                             $v = '1';
-                        } elseif (in_array($n, ['nao', 'não', 'n', 'false'], true)) {
+                        } elseif ($v === false || $v === 0 || $v === '0') {
                             $v = '0';
+                        } elseif (is_string($v)) {
+                            $n = mb_strtolower(trim($v), 'UTF-8');
+                            if (in_array($n, ['sim', 's', 'true'], true)) {
+                                $v = '1';
+                            } elseif (in_array($n, ['nao', 'não', 'n', 'false'], true)) {
+                                $v = '0';
+                            }
                         }
+                        // se continuar null, deixa null (inválido/pendente)
                     }
-                    // se continuar null, deixa null (inválido/pendente)
+
+                    $ordered[] = $v;
                 }
 
-                $ordered[] = $v;
+                fputcsv($fp, $ordered, ';');
+                fflush($fp);
+                flock($fp, LOCK_UN);
             }
-
-            fputcsv($fp, $ordered, ';');
-            fflush($fp);
-            flock($fp, LOCK_UN);
+        } finally {
+            fclose($fp);
         }
-    } finally {
-        fclose($fp);
-    }
 
-    $job->updateQuietly([
-        'spool_bytes'   => $this->fileSizeSafe($this->disk, $path),
-        'preview_dirty' => true,
-    ]);
-}
+        $job->updateQuietly([
+            'spool_bytes' => $this->fileSizeSafe($this->disk, $path),
+            'preview_dirty' => true,
+        ]);
+    }
 
     /**
      * Gera XLSX FINAL a partir do SPOOL, grava de forma atômica e atualiza o job.
@@ -519,9 +539,9 @@ private function spoolAppend(FgtsOfflineJob $job, array $row): void
 
             $ts = Carbon::now()->format('Ymd_His');
             $fileName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.xlsx";
-            $tmpName  = "{$this->finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
-            $path     = "{$this->dirReports}/{$fileName}";
-            $tmpPath  = "{$this->dirReports}/{$tmpName}";
+            $tmpName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
+            $path = "{$this->dirReports}/{$fileName}";
+            $tmpPath = "{$this->dirReports}/{$tmpName}";
 
             $export = FgtsOfflineExport::fromCsv($disk->path($spoolPath));
             Excel::store($export, $tmpPath, $this->disk);
@@ -542,7 +562,7 @@ private function spoolAppend(FgtsOfflineJob $job, array $row): void
 
             return true;
         } catch (\Throwable $e) {
-            Log::error("[FGTS-OFF] Job {$this->jobId} – erro gerando FINAL: ".$e->getMessage());
+            Log::error("[FGTS-OFF] Job {$this->jobId} – erro gerando FINAL: " . $e->getMessage());
             return false;
         }
     }
@@ -559,15 +579,15 @@ private function spoolAppend(FgtsOfflineJob $job, array $row): void
                     try {
                         $disk->delete($p);
                     } catch (\Throwable $e) {
-                        Log::warning("[FGTS-OFF] Job {$this->jobId} – falha ao deletar {$field}: ".$e->getMessage());
+                        Log::warning("[FGTS-OFF] Job {$this->jobId} – falha ao deletar {$field}: " . $e->getMessage());
                     }
                 }
             }
         } finally {
             $job->updateQuietly([
-                'spool_path'       => null,
-                'spool_cpfs_path'  => null,
-                'spool_bytes'      => 0,
+                'spool_path' => null,
+                'spool_cpfs_path' => null,
+                'spool_bytes' => 0,
             ]);
         }
     }
@@ -582,14 +602,14 @@ private function spoolAppend(FgtsOfflineJob $job, array $row): void
                 }
             }
         } catch (Throwable $e) {
-            Log::warning("[FGTS-OFF] Job {$this->jobId} falha ao apagar prévia: ".$e->getMessage());
+            Log::warning("[FGTS-OFF] Job {$this->jobId} falha ao apagar prévia: " . $e->getMessage());
         } finally {
             $job->updateQuietly([
-                'preview_disk'       => null,
-                'preview_path'       => null,
-                'preview_name'       => null,
+                'preview_disk' => null,
+                'preview_path' => null,
+                'preview_name' => null,
                 'preview_updated_at' => null,
-                'preview_dirty'      => false,
+                'preview_dirty' => false,
             ]);
         }
     }

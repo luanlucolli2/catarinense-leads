@@ -54,14 +54,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->cpfs = array_values(array_unique($cpfs));
         $this->invalidCpfs = array_values(array_unique($invalidCpfs));
 
-        $this->onQueue('default');
+        // DE: $this->onQueue('default');
+        $this->onQueue((string) config('cltfacta.job.queue', 'clt')); // 👈 AGORA VAI PRA FILA 'clt'
 
         // Configs
-        $this->timeout    = (int) config('cltfacta.job.timeout_seconds', 18000); // 5h
-        $this->disk       = (string) config('cltfacta.storage.reports_disk', 'local');
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200); // 5h
+        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
-        $this->dirSpool   = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
-        $this->finalPrefix= (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
     }
 
     public function handle(FactaApiService $facta): void
@@ -94,8 +95,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $spoolExists = !empty($job->spool_path) && !empty($job->spool_cpfs_path)
             && $disk->exists($job->spool_path) && $disk->exists($job->spool_cpfs_path);
 
-        $spoolPath  = $job->spool_path;
-        $cpfsPath   = $job->spool_cpfs_path;
+        $spoolPath = $job->spool_path;
+        $cpfsPath = $job->spool_cpfs_path;
         $freshStart = false;
 
         if (!$spoolExists) {
@@ -114,36 +115,36 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // Entrando/retomando em progresso (sem zerar total_cpfs)
         if ($freshStart) {
             $inputTotal = count($this->cpfs) + count($this->invalidCpfs);
-            $safeTotal  = $inputTotal > 0 ? $inputTotal : (int) ($job->total_cpfs ?? 0);
+            $safeTotal = $inputTotal > 0 ? $inputTotal : (int) ($job->total_cpfs ?? 0);
 
             $job->update([
-                'status'           => 'em_progresso',
-                'started_at'       => $job->started_at ?? Carbon::now(),
-                'total_cpfs'       => $safeTotal, // nunca escrever 0 se já havia > 0
-                'spool_path'       => $spoolPath,
-                'spool_cpfs_path'  => $cpfsPath,
-                'spool_bytes'      => $this->fileSizeSafe($this->disk, $spoolPath),
-                'preview_dirty'    => false,
+                'status' => 'em_progresso',
+                'started_at' => $job->started_at ?? Carbon::now(),
+                'total_cpfs' => $safeTotal, // nunca escrever 0 se já havia > 0
+                'spool_path' => $spoolPath,
+                'spool_cpfs_path' => $cpfsPath,
+                'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
+                'preview_dirty' => false,
             ]);
         } else {
             $job->update([
-                'status'      => 'em_progresso',
+                'status' => 'em_progresso',
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $spoolPath),
             ]);
         }
 
-        Log::info("[CLT] Job {$this->jobId} ".($freshStart ? 'iniciado' : 'retomado')." – total: {$job->total_cpfs}");
+        Log::info("[CLT] Job {$this->jobId} " . ($freshStart ? 'iniciado' : 'retomado') . " – total: {$job->total_cpfs}");
 
         // Params de execução
-        $maxAttempts   = (int) config('cltfacta.job.max_attempts', 5);
-        $retryDelay    = (int) config('cltfacta.job.retry_delay_seconds', 60);
-        $chunkSize     = (int) config('cltfacta.job.chunk', 20);
-        $minChunk      = max(1, (int) config('cltfacta.job.min_chunk', 5));
+        $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
+        $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
+        $chunkSize = (int) config('cltfacta.job.chunk', 20);
+        $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 5));
         $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
 
         // Define pendentes
         if ($freshStart) {
-            $pendentes    = $this->cpfs;
+            $pendentes = $this->cpfs;
             $invalidCount = count($this->invalidCpfs);
 
             // CPFs inválidos direto no spool
@@ -159,41 +160,45 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         } else {
             // Resume: a partir do SPOOL
             [$pendentes, $doneCount] = $this->computePendingCpfs($disk->path($spoolPath), $disk->path($cpfsPath));
-            Log::info("[CLT] Job {$this->jobId} retomado – já processados: {$doneCount}, pendentes: ".count($pendentes));
+            Log::info("[CLT] Job {$this->jobId} retomado – já processados: {$doneCount}, pendentes: " . count($pendentes));
         }
 
         $lastError = [];
         $notFoundTotal = 0;
 
         try {
-            if ($this->finishIfStopped($job)) return;
+            if ($this->finishIfStopped($job))
+                return;
 
             $prevPendCount = count($pendentes);
 
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                if ($this->finishIfStopped($job)) return;
-                if (empty($pendentes)) break;
+                if ($this->finishIfStopped($job))
+                    return;
+                if (empty($pendentes))
+                    break;
 
                 Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – pendentes: " . count($pendentes) . " – chunkSize={$chunkSize}");
 
-                $toTry  = $pendentes;
+                $toTry = $pendentes;
                 $chunks = array_chunk($toTry, max(1, $chunkSize));
 
-                $seen429InAttempt    = 0;
-                $retryAfterMax       = 0;
-                $successThisAttempt  = 0;
+                $seen429InAttempt = 0;
+                $retryAfterMax = 0;
+                $successThisAttempt = 0;
                 $semRespTotalAttempt = 0;
-                $totalInAttempt      = 0;
+                $totalInAttempt = 0;
 
                 foreach ($chunks as $idx => $chunkCpfs) {
-                    if ($this->finishIfStopped($job)) return;
+                    if ($this->finishIfStopped($job))
+                        return;
 
                     Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – disparando chunk #" . ($idx + 1) . " (" . count($chunkCpfs) . " CPFs)");
 
                     $batchResults = $facta->autorizaConsultaLote($chunkCpfs);
 
                     $stats = ['2xx' => 0, '401' => 0, '429' => 0, '5xx' => 0, 'outros' => 0, 'sem_resposta' => 0];
-                    $successInChunk  = 0;
+                    $successInChunk = 0;
                     $notFoundInChunk = 0;
                     $failInChunkTerm = 0;
 
@@ -209,12 +214,19 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         ];
 
                         $http = $res['http_status'] ?? null;
-                        if     ($http === 200) $stats['2xx']++;
-                        elseif ($http === 401) $stats['401']++;
-                        elseif ($http === 429) { $stats['429']++; $seen429InAttempt++; }
-                        elseif (is_int($http) && $http >= 500) $stats['5xx']++;
-                        elseif ($http === null) $stats['sem_resposta']++;
-                        else $stats['outros']++;
+                        if ($http === 200)
+                            $stats['2xx']++;
+                        elseif ($http === 401)
+                            $stats['401']++;
+                        elseif ($http === 429) {
+                            $stats['429']++;
+                            $seen429InAttempt++;
+                        } elseif (is_int($http) && $http >= 500)
+                            $stats['5xx']++;
+                        elseif ($http === null)
+                            $stats['sem_resposta']++;
+                        else
+                            $stats['outros']++;
 
                         if (!empty($res['retry_after'])) {
                             $retryAfterMax = max($retryAfterMax, (int) $res['retry_after']);
@@ -222,7 +234,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                         if ($res['ok'] === true) {
                             $vinculos = $res['vinculos'] ?? [];
-                            $total    = is_array($vinculos) ? count($vinculos) : 0;
+                            $total = is_array($vinculos) ? count($vinculos) : 0;
 
                             if ($total > 0) {
                                 foreach ($vinculos as $v) {
@@ -310,17 +322,21 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         }
                     }
 
-                    if ($successInChunk > 0)   $job->increment('success_count', $successInChunk);
-                    if ($notFoundInChunk > 0)  $job->increment('not_found_count', $notFoundInChunk);
-                    if ($failInChunkTerm > 0)  $job->increment('fail_count', $failInChunkTerm);
+                    if ($successInChunk > 0)
+                        $job->increment('success_count', $successInChunk);
+                    if ($notFoundInChunk > 0)
+                        $job->increment('not_found_count', $notFoundInChunk);
+                    if ($failInChunkTerm > 0)
+                        $job->increment('fail_count', $failInChunkTerm);
 
                     Log::debug("[CLT] Job {$this->jobId} tentativa {$attempt} – stats chunk #" . ($idx + 1) . ": " . json_encode($stats));
 
                     $semRespTotalAttempt += $stats['sem_resposta'];
-                    $totalInAttempt      += count($chunkCpfs);
+                    $totalInAttempt += count($chunkCpfs);
                 }
 
-                if ($this->finishIfStopped($job)) return;
+                if ($this->finishIfStopped($job))
+                    return;
 
                 // Ajustes de ritmo
                 if ($seen429InAttempt > 0 && $chunkSize > $minChunk) {
@@ -340,21 +356,25 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
-                    if ($this->finishIfStopped($job)) return;
+                    if ($this->finishIfStopped($job))
+                        return;
 
                     $baseRetryAfter = $retryAfterMax > 0 ? min($retryAfterMax, $retryAfterCap) : 0;
                     $base = max(1, $retryDelay, $baseRetryAfter);
 
                     $sleepFactor = 1.0;
-                    if      ($semRespRatio >= 0.90) $sleepFactor = 2.0;
-                    elseif  ($semRespRatio >= 0.50) $sleepFactor = 1.5;
+                    if ($semRespRatio >= 0.90)
+                        $sleepFactor = 2.0;
+                    elseif ($semRespRatio >= 0.50)
+                        $sleepFactor = 1.5;
 
                     $withFactor = (int) ceil($base * $sleepFactor);
-                    $jitter    = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
+                    $jitter = random_int(0, (int) max(1, ceil($withFactor * 0.15)));
                     $sleepSecs = $withFactor + $jitter;
 
                     Log::debug("[CLT] Job {$this->jobId} – dormindo {$sleepSecs}s (cooperativo).");
-                    if ($this->cooperativeSleep($sleepSecs, $job)) return;
+                    if ($this->cooperativeSleep($sleepSecs, $job))
+                        return;
                 }
 
                 $currPendCount = count($pendentes);
@@ -367,7 +387,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             // Fecha pendentes restantes (após tentativas)
             if (!empty($pendentes)) {
                 foreach ($pendentes as $cpf) {
-                    if ($this->finishIfStopped($job)) return;
+                    if ($this->finishIfStopped($job))
+                        return;
                     $row = $this->baseRow($cpf);
                     $row['numeroVinculos'] = 0;
                     $row['mensagem'] = $lastError[$cpf] ?? 'Não foi possível consultar após múltiplas tentativas';
@@ -394,7 +415,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $this->cleanupSpool($job);
 
                 $job->update([
-                    'status'      => 'concluido',
+                    'status' => 'concluido',
                     'finished_at' => Carbon::now(),
                 ]);
 
@@ -406,7 +427,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             $job->update([
-                'status'      => 'falhou',
+                'status' => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
             $this->deletePreview($job);
@@ -423,7 +444,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             $job->update([
-                'status'      => 'falhou',
+                'status' => 'falhou',
                 'finished_at' => Carbon::now(),
             ]);
             $this->deletePreview($job);
@@ -506,10 +527,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $disk = Storage::disk($this->disk);
 
         $spoolName = "{$this->finalPrefix}_{$this->jobId}.spool.csv";
-        $cpfsName  = "{$this->finalPrefix}_{$this->jobId}.cpfs.txt";
+        $cpfsName = "{$this->finalPrefix}_{$this->jobId}.cpfs.txt";
 
         $spoolPath = "{$this->dirSpool}/{$spoolName}";
-        $cpfsPath  = "{$this->dirSpool}/{$cpfsName}";
+        $cpfsPath = "{$this->dirSpool}/{$cpfsName}";
 
         // Spool CSV com cabeçalho
         $fp = fopen($disk->path($spoolPath), 'c+');
@@ -562,7 +583,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 while (($data = fgetcsv($fh, 0, ';')) !== false) {
                     $cpf = $data[0] ?? null; // primeira coluna é 'cpf' em COLS
                     if ($cpf !== null && $cpf !== '') {
-                        $done[(string)$cpf] = true;
+                        $done[(string) $cpf] = true;
                     }
                 }
             } finally {
@@ -581,7 +602,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 flock($fh2, LOCK_SH);
                 while (($line = fgets($fh2)) !== false) {
                     $cpf = trim($line);
-                    if ($cpf === '' || isset($done[$cpf])) continue;
+                    if ($cpf === '' || isset($done[$cpf]))
+                        continue;
                     $pendentes[] = $cpf;
                 }
             } finally {
@@ -624,7 +646,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         DB::table('clt_consult_jobs')
             ->where('id', $job->id)
             ->update([
-                'spool_bytes'   => $bytes,
+                'spool_bytes' => $bytes,
                 'preview_dirty' => true,
             ]);
 
@@ -643,10 +665,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 return false;
             }
 
-            $ts      = Carbon::now()->format('Ymd_His');
-            $fileName= "{$this->finalPrefix}_{$this->jobId}_{$ts}.xlsx";
+            $ts = Carbon::now()->format('Ymd_His');
+            $fileName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.xlsx";
             $tmpName = "{$this->finalPrefix}_{$this->jobId}_{$ts}.tmp.xlsx";
-            $path    = "{$this->dirReports}/{$fileName}";
+            $path = "{$this->dirReports}/{$fileName}";
             $tmpPath = "{$this->dirReports}/{$tmpName}";
 
             $export = \App\Exports\CltConsultExport::fromCsv($disk->path($spoolPath));
@@ -709,9 +731,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         } finally {
             $job->updateQuietly([
-                'spool_path'      => null,
+                'spool_path' => null,
                 'spool_cpfs_path' => null,
-                'spool_bytes'     => 0,
+                'spool_bytes' => 0,
             ]);
         }
     }
@@ -735,7 +757,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ->first();
 
             $diskName = $row->preview_disk ?? null;
-            $path     = $row->preview_path ?? null;
+            $path = $row->preview_path ?? null;
 
             if ($diskName && $path) {
                 try {
@@ -756,11 +778,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             DB::table('clt_consult_jobs')
                 ->where('id', $jobId)
                 ->update([
-                    'preview_disk'       => null,
-                    'preview_path'       => null,
-                    'preview_name'       => null,
+                    'preview_disk' => null,
+                    'preview_path' => null,
+                    'preview_name' => null,
                     'preview_updated_at' => null,
-                    'preview_dirty'      => false,
+                    'preview_dirty' => false,
                 ]);
 
             $job->preview_disk = null;
@@ -774,7 +796,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function computeValorMaximoPrestacao($valorMargemDisponivel): ?string
     {
         $f = $this->toFloatPtBr($valorMargemDisponivel);
-        if ($f === null) return null;
+        if ($f === null)
+            return null;
         $calc = $f * 0.70;
         return $this->formatPtBrMoney($calc);
     }
@@ -788,15 +811,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function computeTempoAdmissaoMeses(?string $dataAdmissao, ?string $dataDesligamento): ?int
     {
         $ini = $this->parseDateBr($dataAdmissao);
-        if (!$ini) return null;
+        if (!$ini)
+            return null;
         $fim = $this->parseDateBr($dataDesligamento) ?? Carbon::now();
-        if ($fim->lt($ini)) return 0;
+        if ($fim->lt($ini))
+            return 0;
         return $ini->diffInMonths($fim);
     }
 
     private function parseDateBr(?string $s): ?Carbon
     {
-        if (!$s) return null;
+        if (!$s)
+            return null;
         try {
             return Carbon::createFromFormat('d/m/Y', trim($s))->startOfDay();
         } catch (\Throwable $e) {
@@ -806,12 +832,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function toFloatPtBr($v): ?float
     {
-        if ($v === null) return null;
-        if (is_numeric($v)) return (float) $v;
+        if ($v === null)
+            return null;
+        if (is_numeric($v))
+            return (float) $v;
         $s = preg_replace('/[^\d,\-\.]/', '', (string) $v);
-        if ($s === '' || $s === '-') return null;
+        if ($s === '' || $s === '-')
+            return null;
         $s = str_replace(['.', ','], ['', '.'], $s);
-        if (!is_numeric($s)) return null;
+        if (!is_numeric($s))
+            return null;
         return (float) $s;
     }
 
