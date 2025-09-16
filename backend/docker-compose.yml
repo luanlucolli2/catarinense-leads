@@ -3,7 +3,7 @@
 # Âncora para reutilizar a configuração de ambiente
 x-app-environment: &app-environment
   WWWUSER: '${WWWUSER}'
-  WWWGROUP: '${WWWGROUP:-1000}' 
+  WWWGROUP: '${WWWGROUP:-1000}'
   LARAVEL_SAIL: 1
   XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
   XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
@@ -31,9 +31,40 @@ services:
     depends_on:
       - mysql
 
-  queue:
+  # ===== WORKER DEDICADO: FILA CLT =====
+  queue-clt:
     image: sail-8.4/app
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=512
+    command: "php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+    networks:
+      - sail
+    restart: unless-stopped
+    stop_grace_period: 120s
+
+  # ===== WORKER DEDICADO: FILA FGTS OFF =====
+  queue-fgts:
+    image: sail-8.4/app
+    command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+    networks:
+      - sail
+    restart: unless-stopped
+    stop_grace_period: 120s
+
+  # ===== WORKER GENÉRICO (opcional) =====
+  queue-default:
+    image: sail-8.4/app
+    command: "php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=512"
     environment:
       <<: *app-environment
     volumes:

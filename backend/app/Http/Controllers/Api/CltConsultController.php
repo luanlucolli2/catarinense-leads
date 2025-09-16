@@ -6,6 +6,7 @@ use App\Exports\CltConsultExport;
 use App\Http\Controllers\Controller;
 use App\Models\CltConsultJob;
 use App\Support\Cpf;
+use App\Jobs\ProcessCltConsultJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -71,7 +72,8 @@ class CltConsultController extends Controller
 
         foreach ($tokens as $t) {
             $norm = Cpf::normalize((string) $t);
-            if ($norm === null) continue;
+            if ($norm === null)
+                continue;
 
             if (Cpf::isValid($norm)) {
                 $valid[] = $norm;
@@ -99,7 +101,7 @@ class CltConsultController extends Controller
             'not_found_count' => 0,
         ]);
 
-        \App\Jobs\ProcessCltConsultJob::dispatch($job->id, $valid, $invalid);
+        ProcessCltConsultJob::dispatch($job->id, $valid, $invalid);
 
         return response()->json([
             'id' => $job->id,
@@ -201,7 +203,8 @@ class CltConsultController extends Controller
                                     $assoc[$key] = $data[$i] ?? null;
                                 }
                                 $cpf = (string) ($assoc['cpf'] ?? '');
-                                if ($cpf !== '') $done[$cpf] = true;
+                                if ($cpf !== '')
+                                    $done[$cpf] = true;
                                 yield $assoc;
                             }
                         } finally {
@@ -216,7 +219,8 @@ class CltConsultController extends Controller
                             flock($fh2, LOCK_SH);
                             while (($line = fgets($fh2)) !== false) {
                                 $cpf = trim($line);
-                                if ($cpf === '' || isset($done[$cpf])) continue;
+                                if ($cpf === '' || isset($done[$cpf]))
+                                    continue;
 
                                 $row = array_fill_keys(CltConsultExport::COLS, null);
                                 $row['cpf'] = $cpf;
@@ -312,7 +316,7 @@ class CltConsultController extends Controller
             'status' => 'pendente',
         ]);
 
-        \App\Jobs\ProcessCltConsultJob::dispatch($job->id, [], []);
+        ProcessCltConsultJob::dispatch($job->id, [], []);
 
         return response()->json([
             'id' => $job->id,
