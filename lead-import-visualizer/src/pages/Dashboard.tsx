@@ -76,6 +76,12 @@ const Dashboard = () => {
     "dashboard:vendorsFilter",
     []
   );
+  /* 🎂 meses de aniversário */
+  const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>(
+    "dashboard:birthMonthFilter",
+    []
+  );
+
   /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -84,7 +90,6 @@ const Dashboard = () => {
   const {
     data: filterOptions,
     isLoading: loadingOptions,
-    isError: errorOptions,
   } = useQuery({
     queryKey: ["leadsFilters"],
     queryFn: fetchLeadsFilters,
@@ -114,6 +119,7 @@ const Dashboard = () => {
       namesMassFilter,
       phonesMassFilter,
       vendorsFilter,
+      birthMonthFilter, // 👈 inclui no cache key
     ],
     queryFn: () =>
       fetchLeads({
@@ -131,6 +137,7 @@ const Dashboard = () => {
         names: namesMassFilter,
         phones: phonesMassFilter,
         vendors: vendorsFilter,
+        birth_month: birthMonthFilter, // 👈 envia para API
       }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
@@ -197,6 +204,7 @@ const Dashboard = () => {
     setNamesMassFilter("")
     setPhonesMassFilter("")
     setVendorsFilter([])
+    setBirthMonthFilter([]) // 👈 limpa meses
     setCurrentPage(1)
     toast.info("Filtros limpos.")
   }
@@ -215,11 +223,11 @@ const Dashboard = () => {
     namesMassFilter ||
     phonesMassFilter ||
     higienizacaoFilter.length ||
-    vendorsFilter.length
+    vendorsFilter.length ||
+    birthMonthFilter.length // 👈 considera no indicador
 
   // monta objeto de filtros pra export
   const collectFilters = () => ({
-    // não envia page para exportar todas as páginas
     search: searchValue || undefined,
     status: statusFilter !== "todos" ? statusFilter : undefined,
     motivos: motivosFilter.length ? motivosFilter : undefined,
@@ -233,6 +241,7 @@ const Dashboard = () => {
     names: namesMassFilter || undefined,
     phones: phonesMassFilter || undefined,
     vendors: vendorsFilter.length ? vendorsFilter : undefined,
+    birth_month: birthMonthFilter.length ? birthMonthFilter : undefined, // 👈 export
   })
 
   // handler de exportação efetiva
@@ -246,7 +255,6 @@ const Dashboard = () => {
       toast.error("Falha ao exportar. Tente novamente.")
     }
   }
-
 
   /* ---------- render ---------- */
   if (isError)
@@ -297,6 +305,9 @@ const Dashboard = () => {
         onNamesMassFilterChange={setNamesMassFilter}
         phonesMassFilter={phonesMassFilter}
         onPhonesMassFilterChange={setPhonesMassFilter}
+        /* 🎂 meses de aniversário */
+        birthMonthFilter={birthMonthFilter}
+        onBirthMonthFilterChange={setBirthMonthFilter}
         /* ações */
         onApplyFilters={handleApplyFilters}
         onClearFilters={handleClearFilters}
@@ -304,8 +315,8 @@ const Dashboard = () => {
         availableMotivos={filterOptions?.motivos ?? []}
         availableOrigens={filterOptions?.origens ?? []}
         availableHigienizacoes={filterOptions?.origens_hig ?? []}
-        vendorsFilter={vendorsFilter}                          // ← adicionar
-        onVendorsFilterChange={setVendorsFilter}               // ← adicionar
+        vendorsFilter={vendorsFilter}
+        onVendorsFilterChange={setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
       />

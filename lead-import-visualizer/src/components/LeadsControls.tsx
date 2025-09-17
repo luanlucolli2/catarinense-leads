@@ -1,4 +1,3 @@
-
 import { Search, Upload, Download, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +30,10 @@ interface LeadsControlsProps {
   onDateFromFilterChange: (value: string) => void;
   dateToFilter: string;
   onDateToFilterChange: (value: string) => void;
+  /* 🎂 meses de aniversário */
+  birthMonthFilter: string[];
+  onBirthMonthFilterChange: (values: string[]) => void;
+
   onApplyFilters: () => void;
   onClearFilters: () => void;
   availableMotivos: string[];
@@ -69,6 +72,9 @@ export const LeadsControls = ({
   onDateFromFilterChange,
   dateToFilter,
   onDateToFilterChange,
+  /* 🎂 */
+  birthMonthFilter,
+  onBirthMonthFilterChange,
   onApplyFilters,
   onClearFilters,
   availableMotivos,
@@ -185,9 +191,12 @@ export const LeadsControls = ({
         onDateFromFilterChange={onDateFromFilterChange}
         dateToFilter={dateToFilter}
         onDateToFilterChange={onDateToFilterChange}
-        vendorsFilter={vendorsFilter}                     // ← adicionar
-        onVendorsFilterChange={onVendorsFilterChange}     // ← adicionar
+        vendorsFilter={vendorsFilter}
+        onVendorsFilterChange={onVendorsFilterChange}
         availableVendors={availableVendors}
+        /* 🎂 */
+        birthMonthFilter={birthMonthFilter}
+        onBirthMonthFilterChange={onBirthMonthFilterChange}
         onApplyFilters={onApplyFilters}
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}
