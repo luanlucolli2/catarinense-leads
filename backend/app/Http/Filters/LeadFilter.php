@@ -4,6 +4,7 @@ namespace App\Http\Filters;
 
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;  // 👈 para DB::raw em filtro de mês
 use App\Models\Lead;
 use App\Models\Vendor;
 
@@ -52,10 +53,8 @@ class LeadFilter
         // 2) Status (elegíveis / não-elegíveis)
         if ($r->filled('status') && $r->status !== 'todos') {
             if ($r->status === 'elegiveis') {
-                // Elegível: consulta == 'Saldo FACTA' e libera_num > 0
                 $query->whereRaw("$isElegivel = 1");
             } else {
-                // Não-elegível: complemento da regra acima (cobre NULL/strings vazias/não numéricos)
                 $query->whereRaw("$isElegivel = 0");
             }
         }
@@ -111,6 +110,20 @@ class LeadFilter
             $query->whereHas('contracts.vendor', function (Builder $q) use ($clean) {
                 $q->whereIn('name_clean', $clean);
             });
+        }
+
+        // 9) 🎂 Mês de aniversário (1..12, aceita múltiplos: "3,9,12")
+        if ($r->filled('birth_month')) {
+            $months = array_values(array_filter(array_map(function ($m) {
+                // normaliza "03" -> 3
+                $m = (int) trim($m);
+                return ($m >= 1 && $m <= 12) ? $m : null;
+            }, explode(',', $r->input('birth_month')))));
+
+            if (!empty($months)) {
+                // Observação: usa MONTH(coluna); para grandes volumes, um índice funcional ajudaria.
+                $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
+            }
         }
 
         return $query->latest('updated_at');

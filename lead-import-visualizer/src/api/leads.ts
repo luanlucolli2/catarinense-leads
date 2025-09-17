@@ -40,8 +40,8 @@ export interface LeadDetailFromApi {
     data_atualizacao: string | null
     saldo: string | null
     libera: string | null
-    created_at: string | null           // 🆕
-    updated_at: string | null           // 🆕
+    created_at: string | null
+    updated_at: string | null
     contracts: {
         id: number
         data_contrato: string
@@ -49,6 +49,7 @@ export interface LeadDetailFromApi {
     }[]
     importJobs: { id: number; origin: string; type: string; created_at: string }[]
 }
+
 export interface PaginatedLeadsResponse {
     data: LeadFromApi[]
     current_page: number
@@ -66,14 +67,15 @@ export interface LeadFilters {
     date_to?: string
     contract_from?: string
     contract_to?: string
-    cpf?: string      // agora pode conter vírgulas, ; ou quebras
+    cpf?: string
     names?: string
     phones?: string
     origens_hig?: string[]
     vendors?: string[]
+    /** 🎂 meses de aniversário (1..12 como strings) */
+    birth_month?: string[]
 }
 
-// src/api/leads.ts
 /* ---------- Helpers ---------- */
 const splitAndNormalize = (raw: string, stripNonDigits = true): string[] =>
     raw
@@ -86,13 +88,13 @@ const buildQueryParams = (f: LeadFilters) => {
 
     // filtros básicos
     if (f.page) p.set("page", String(f.page))
-    // 1) busca geral: normaliza CPF/telefone
     if (f.search) {
         const raw = f.search.trim()
         const hasLetters = /[A-Za-zÀ-ú]/.test(raw)
         const normalized = hasLetters ? raw : raw.replace(/\D/g, "")
         p.set("search", normalized)
-    } if (f.status && f.status !== "todos") p.set("status", f.status)
+    }
+    if (f.status && f.status !== "todos") p.set("status", f.status)
     if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
     if (f.origens?.length) p.set("origens", f.origens.join(","))
     if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
@@ -117,8 +119,19 @@ const buildQueryParams = (f: LeadFilters) => {
     if (f.vendors?.length) {
         p.set("vendors", f.vendors.join(","))
     }
+
+    // 🎂 mês(es) de aniversário
+    if (f.birth_month?.length) {
+        // garante apenas valores 1..12 como string
+        const months = f.birth_month
+            .map(m => String(parseInt(m, 10)))
+            .filter(m => /^\d+$/.test(m) && +m >= 1 && +m <= 12)
+        if (months.length) p.set("birth_month", months.join(","))
+    }
+
     return p
 }
+
 /* ---------- Endpoints ---------- */
 export async function fetchLeads(filters: LeadFilters) {
     const params = buildQueryParams(filters)
@@ -127,37 +140,36 @@ export async function fetchLeads(filters: LeadFilters) {
     })
     return data
 }
+
 export async function fetchLeadDetail(id: number) {
     const { data } = await axiosClient.get<LeadDetailFromApi>(`/leads/${id}`)
     return data
 }
+
 export interface FiltersOptionsDTO {
     motivos: string[]
     origens: string[]
     origens_hig: string[]
     vendors: { id: number; name: string }[]
 }
+
 export async function fetchLeadsFilters() {
     const { data } = await axiosClient.get<FiltersOptionsDTO>("/leads/filters")
     return data
 }
+
 export async function exportLeads(
     filters: LeadFilters,
     columns: string[]
 ): Promise<void> {
-    // payload JSON com filtros e colunas
     const payload = { ...filters, columns }
-
-    // faz POST esperando blob
     const response = await axiosClient.post("/leads/export", payload, {
         responseType: "blob",
     })
 
-    // cria URL do blob e força download
     const blob = new Blob([response.data], { type: response.headers["content-type"] })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement("a")
-    // tenta extrair filename do header, fallback:
     const cd = response.headers["content-disposition"]
     let filename = "leads_export.xlsx"
     if (cd) {

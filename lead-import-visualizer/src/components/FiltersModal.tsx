@@ -28,6 +28,8 @@ interface FiltersModalProps {
   phonesMassFilter: string
   dateFromFilter: string
   dateToFilter: string
+  higienizacaoFilter: string[];
+  vendorsFilter: string[];
 
   /* setters que afetam o Dashboard (só no Apply!) */
   onSearchChange: (v: string) => void
@@ -43,6 +45,12 @@ interface FiltersModalProps {
   onPhonesMassFilterChange: (v: string) => void
   onDateFromFilterChange: (v: string) => void
   onDateToFilterChange: (v: string) => void
+  onHigienizacaoFilterChange: (values: string[]) => void
+  onVendorsFilterChange: (values: string[]) => void
+
+  /* 🎂 meses de aniversário */
+  birthMonthFilter: string[]
+  onBirthMonthFilterChange: (values: string[]) => void
 
   /* callbacks utilitários */
   onApplyFilters: () => void
@@ -51,12 +59,34 @@ interface FiltersModalProps {
   /* listas */
   availableMotivos: string[]
   availableOrigens: string[]
-  higienizacaoFilter: string[];
-  onHigienizacaoFilterChange: (values: string[]) => void;
-  availableHigienizacoes: string[];
-  vendorsFilter: string[];
-  onVendorsFilterChange: (values: string[]) => void;
-  availableVendors: { id: number; name: string }[];
+  availableHigienizacoes: string[]
+  availableVendors: { id: number; name: string }[]
+}
+
+/* ===== Helpers: Meses (label ⇄ número) ===== */
+const MONTH_LABELS: Record<string, string> = {
+  "1": "Janeiro (1)",
+  "2": "Fevereiro (2)",
+  "3": "Março (3)",
+  "4": "Abril (4)",
+  "5": "Maio (5)",
+  "6": "Junho (6)",
+  "7": "Julho (7)",
+  "8": "Agosto (8)",
+  "9": "Setembro (9)",
+  "10": "Outubro (10)",
+  "11": "Novembro (11)",
+  "12": "Dezembro (12)",
+}
+const monthNumToLabel = (m: string) => MONTH_LABELS[String(parseInt(m, 10))] ?? m
+const monthLabelToNum = (label: string) => {
+  const m = label.match(/\((\d{1,2})\)\s*$/)
+  const num = m?.[1] ?? label.replace(/\D/g, "")
+  return String(parseInt(num || "0", 10))
+}
+const isValidMonth = (m: string) => {
+  const n = parseInt(m, 10)
+  return !Number.isNaN(n) && n >= 1 && n <= 12
 }
 
 export const FiltersModal = ({
@@ -75,6 +105,8 @@ export const FiltersModal = ({
   phonesMassFilter,
   dateFromFilter,
   dateToFilter,
+  higienizacaoFilter,
+  vendorsFilter,
 
   /* setters */
   onSearchChange,
@@ -88,16 +120,18 @@ export const FiltersModal = ({
   onPhonesMassFilterChange,
   onDateFromFilterChange,
   onDateToFilterChange,
+  onHigienizacaoFilterChange,
+  onVendorsFilterChange,
+
+  /* 🎂 */
+  birthMonthFilter,
+  onBirthMonthFilterChange,
 
   onApplyFilters,
   onClearFilters,
   availableMotivos,
   availableOrigens,
-  higienizacaoFilter,
-  onHigienizacaoFilterChange,
   availableHigienizacoes,
-  vendorsFilter,
-  onVendorsFilterChange,
   availableVendors,
 }: FiltersModalProps) => {
   /* ------------------------------------------------------------------
@@ -120,6 +154,11 @@ export const FiltersModal = ({
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
   const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
+  // meses armazenados como **labels** no estado local
+  const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(
+    birthMonthFilter.map(monthNumToLabel)
+  )
+
   /* ------------------------------------------------------------------
    * 2.  Sincroniza quando modal abre
    * -----------------------------------------------------------------*/
@@ -138,6 +177,7 @@ export const FiltersModal = ({
     setLocalDateTo(dateToFilter)
     setLocalHigienizacao(higienizacaoFilter)
     setLocalVendors(vendorsFilter)
+    setLocalBirthMonths(birthMonthFilter.map(monthNumToLabel))
   }, [
     isOpen,
     searchValue,
@@ -153,6 +193,7 @@ export const FiltersModal = ({
     dateToFilter,
     higienizacaoFilter,
     vendorsFilter,
+    birthMonthFilter,
   ])
 
   useEffect(() => {
@@ -165,10 +206,15 @@ export const FiltersModal = ({
       document.body.style.overflow = '';
     };
   }, [isOpen]);
+
   /* ------------------------------------------------------------------
    * 3.  Commit – envia tudo para o Dashboard
    * -----------------------------------------------------------------*/
   const commitAndApply = () => {
+    const normalizedMonths = localBirthMonths
+      .map(monthLabelToNum)
+      .filter(isValidMonth)
+
     onSearchChange(localSearch.trim())
     onEligibleFilterChange(localEligible)
     onContractDateFromFilterChange(localContractFrom)
@@ -182,15 +228,22 @@ export const FiltersModal = ({
     onDateToFilterChange(localDateTo)
     onHigienizacaoFilterChange(localHigienizacao)
     onVendorsFilterChange(localVendors)
+    onBirthMonthFilterChange(normalizedMonths) // 🎂 sobe como números (string)
     onApplyFilters()
     onClose()
   }
 
   if (!isOpen) return null
 
+  // opções fixas de meses – exibidas como "Nome (nº)"
+  const MONTH_OPTIONS = Object.values(MONTH_LABELS)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
+      {/* CSS local para colorir checkboxes (inclui os do MultiSelect) */}
+
+
+      <div className="filters-modal max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
         {/* ---------- Cabeçalho ---------- */}
         <header className="flex items-center justify-between border-b p-6">
           <div className="flex items-center space-x-2">
@@ -248,7 +301,6 @@ export const FiltersModal = ({
                 </Select>
               </div>
 
-
               {/* Motivos */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -259,6 +311,8 @@ export const FiltersModal = ({
                   selected={localMotivos}
                   onChange={setLocalMotivos}
                   placeholder="Selecionar motivos..."
+                  checkedClasses="bg-blue-600 border-blue-600 text-white"
+                  uncheckedClasses="border-blue-600 opacity-50 [&_svg]:invisible"
                 />
               </div>
 
@@ -287,6 +341,7 @@ export const FiltersModal = ({
                   placeholder="Selecionar origens..."
                 />
               </div>
+
               {/* Vendedores */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -299,6 +354,20 @@ export const FiltersModal = ({
                   placeholder="Selecionar vendedores..."
                 />
               </div>
+
+              {/* 🎂 Mês(es) de aniversário – labels "Nome (nº)" */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Mês de Aniversário
+                </label>
+                <MultiSelect
+                  options={MONTH_OPTIONS}
+                  selected={localBirthMonths}
+                  onChange={setLocalBirthMonths}
+                  placeholder="Selecione os meses…"
+                />
+              </div>
+
               {/* Período de contrato */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -316,8 +385,8 @@ export const FiltersModal = ({
                     onChange={(e) => setLocalContractTo(e.target.value)}
                   />
                 </div>
-
               </div>
+
               {/* Período de atualização */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -380,16 +449,17 @@ export const FiltersModal = ({
         </main>
 
         {/* ---------- Rodapé ---------- */}
-        <footer className="flex flex-wrap items-center justify-end gap-2 border-t px-4 sm:px-6 py-4">          <Button
-          variant="outline"
-          className="border-gray-300 text-gray-700 hover:bg-gray-50"
-          onClick={() => {
-            onClearFilters()
-            onClose()
-          }}
-        >
-          Limpar Filtros
-        </Button>
+        <footer className="flex items-center justify-end gap-2 border-t px-4 sm:px-6 py-4">
+          <Button
+            variant="outline"
+            className="border-gray-300 text-gray-700 hover:bg-gray-50"
+            onClick={() => {
+              onClearFilters()
+              onClose()
+            }}
+          >
+            Limpar Filtros
+          </Button>
 
           <Button
             variant="outline"
