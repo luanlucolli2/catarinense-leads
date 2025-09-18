@@ -4,7 +4,7 @@ namespace App\Http\Filters;
 
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;  // 👈 para DB::raw em filtro de mês
+use Illuminate\Support\Facades\DB;
 use App\Models\Lead;
 use App\Models\Vendor;
 
@@ -13,14 +13,9 @@ class LeadFilter
     public static function apply(Request $r): Builder
     {
         // Extrai número de 'libera' (TEXT) removendo símbolos, trocando vírgula por ponto e CAST para DECIMAL.
-        // MySQL 8+: REGEXP_REPLACE disponível.
         $liberaExpr = "CAST(REPLACE(REGEXP_REPLACE(COALESCE(leads.libera, ''), '[^0-9.,-]', ''), ',', '.') AS DECIMAL(20,2))";
 
-        // 'consulta' alinhada à regra de negócio: TRIM para evitar espaços indesejados.
         $consultaSaldoFacta = "TRIM(leads.consulta) = 'Saldo FACTA'";
-
-        // Expressão booleana normalizada de elegibilidade:
-        // Elegível SE consulta == 'Saldo FACTA' E libera_num > 0; caso contrário, não-elegível.
         $isElegivel = "CASE WHEN ($consultaSaldoFacta AND $liberaExpr > 0) THEN 1 ELSE 0 END";
 
         $query = Lead::query()
@@ -29,11 +24,11 @@ class LeadFilter
             ->addSelect([
                 'primeira_origem' => function ($q) {
                     $q->select('origin')
-                      ->from('import_jobs')
-                      ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
-                      ->whereColumn('lead_imports.lead_id', 'leads.id')
-                      ->orderBy('lead_imports.created_at')
-                      ->limit(1);
+                        ->from('import_jobs')
+                        ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
+                        ->whereColumn('lead_imports.lead_id', 'leads.id')
+                        ->orderBy('lead_imports.created_at')
+                        ->limit(1);
                 },
             ]);
 
@@ -42,44 +37,46 @@ class LeadFilter
             $term = '%' . $r->input('search') . '%';
             $query->where(function (Builder $q) use ($term) {
                 $q->where('nome', 'like', $term)
-                  ->orWhere('cpf', 'like', $term)
-                  ->orWhere('fone1', 'like', $term)
-                  ->orWhere('fone2', 'like', $term)
-                  ->orWhere('fone3', 'like', $term)
-                  ->orWhere('fone4', 'like', $term);
+                    ->orWhere('cpf', 'like', $term)
+                    ->orWhere('fone1', 'like', $term)
+                    ->orWhere('fone2', 'like', $term)
+                    ->orWhere('fone3', 'like', $term)
+                    ->orWhere('fone4', 'like', $term);
             });
         }
 
         // 2) Status (elegíveis / não-elegíveis)
         if ($r->filled('status') && $r->status !== 'todos') {
-            if ($r->status === 'elegiveis') {
-                $query->whereRaw("$isElegivel = 1");
-            } else {
-                $query->whereRaw("$isElegivel = 0");
-            }
+            $query->whereRaw($r->status === 'elegiveis' ? "$isElegivel = 1" : "$isElegivel = 0");
         }
 
         // 3) Motivos (consulta)
         if ($r->filled('motivos')) {
-            $motivos = explode(',', $r->motivos);
-            $query->whereIn('consulta', $motivos);
+            $motivos = self::toArray($r->input('motivos'));
+            if ($motivos) {
+                $query->whereIn('consulta', $motivos);
+            }
         }
 
         // 4) Origem cadastramento
         if ($r->filled('origens')) {
-            $origens = explode(',', $r->origens);
-            $query->whereHas('importJobs', function (Builder $q) use ($origens) {
-                $q->whereIn('import_jobs.origin', $origens);
-            });
+            $origens = self::toArray($r->input('origens'));
+            if ($origens) {
+                $query->whereHas('importJobs', function (Builder $q) use ($origens) {
+                    $q->whereIn('import_jobs.origin', $origens);
+                });
+            }
         }
 
         // 4b) Origens de higienização
         if ($r->filled('origens_hig')) {
-            $origHig = explode(',', $r->origens_hig);
-            $query->whereHas('importJobs', function (Builder $q) use ($origHig) {
-                $q->where('import_jobs.type', 'higienizacao')
-                  ->whereIn('import_jobs.origin', $origHig);
-            });
+            $origHig = self::toArray($r->input('origens_hig'));
+            if ($origHig) {
+                $query->whereHas('importJobs', function (Builder $q) use ($origHig) {
+                    $q->where('import_jobs.type', 'higienizacao')
+                        ->whereIn('import_jobs.origin', $origHig);
+                });
+            }
         }
 
         // 5) Data de atualização FGTS
@@ -98,30 +95,32 @@ class LeadFilter
             });
         }
 
-        // 7) Filtros massivos: CPF, nomes e telefones
+        // 7) Filtros massivos: CPF, nomes e telefones (agora aceitam array OU string)
         self::applyMassFilter($query, $r, 'cpf',   ['cpf']);
         self::applyMassFilter($query, $r, 'names', ['nome']);
         self::applyMassFilter($query, $r, 'phones',['fone1','fone2','fone3','fone4']);
 
-        // 8) Filtro por vendors (se existir)
+        // 8) Filtro por vendors
         if ($r->filled('vendors')) {
-            $vendors = explode(',', $r->vendors);
-            $clean   = array_map(fn($n) => Vendor::clean($n), $vendors);
-            $query->whereHas('contracts.vendor', function (Builder $q) use ($clean) {
-                $q->whereIn('name_clean', $clean);
-            });
+            $vendors = self::toArray($r->input('vendors'));
+            if ($vendors) {
+                $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
+                $query->whereHas('contracts.vendor', function (Builder $q) use ($clean) {
+                    $q->whereIn('name_clean', $clean);
+                });
+            }
         }
 
-        // 9) 🎂 Mês de aniversário (1..12, aceita múltiplos: "3,9,12")
+        // 9) 🎂 Mês de aniversário (aceita string "3,9,12" OU array [3,9,12])
         if ($r->filled('birth_month')) {
+            $monthsRaw = $r->input('birth_month');
+            $months = is_array($monthsRaw) ? $monthsRaw : explode(',', (string)$monthsRaw);
             $months = array_values(array_filter(array_map(function ($m) {
-                // normaliza "03" -> 3
-                $m = (int) trim($m);
+                $m = (int) trim((string)$m);
                 return ($m >= 1 && $m <= 12) ? $m : null;
-            }, explode(',', $r->input('birth_month')))));
+            }, $months)));
 
-            if (!empty($months)) {
-                // Observação: usa MONTH(coluna); para grandes volumes, um índice funcional ajudaria.
+            if ($months) {
                 $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
             }
         }
@@ -129,15 +128,36 @@ class LeadFilter
         return $query->latest('updated_at');
     }
 
+    /** Converte string CSV OU array (com quebras, vírgulas, ; ) em array limpo */
+    private static function toArray($value): array
+    {
+        if (is_array($value)) {
+            $arr = $value;
+        } else {
+            $str = (string) $value;
+            $arr = preg_split('/[\s,;]+/', $str);
+        }
+
+        return array_values(array_filter(array_map(fn($v) => trim((string)$v), $arr), fn($v) => $v !== ''));
+    }
+
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
     {
-        if (! $r->filled($key)) {
+        if (!$r->filled($key)) {
             return;
         }
 
-        $values = array_values(array_filter(array_unique(
-            preg_split('/[\s,;]+/', $r->input($key))
-        )));
+        $raw = $r->input($key);
+
+        // aceita array OU string
+        $values = is_array($raw)
+            ? $raw
+            : preg_split('/[\s,;]+/', (string)$raw);
+
+        $values = array_values(array_filter(array_unique(array_map(
+            fn($v) => trim((string)$v),
+            $values
+        ))));
 
         if (empty($values)) {
             return;
