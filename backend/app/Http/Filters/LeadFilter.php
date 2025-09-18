@@ -10,29 +10,99 @@ use App\Models\Vendor;
 
 class LeadFilter
 {
-    public static function apply(Request $r): Builder
+    /**
+     * @param Request     $r
+     * @param array|null  $columnsForExport  Quando informado, ativamos seleção mínima p/ export
+     */
+    public static function apply(Request $r, ?array $columnsForExport = null): Builder
     {
-        // Extrai número de 'libera' (TEXT) removendo símbolos, trocando vírgula por ponto e CAST para DECIMAL.
         $liberaExpr = "CAST(REPLACE(REGEXP_REPLACE(COALESCE(leads.libera, ''), '[^0-9.,-]', ''), ',', '.') AS DECIMAL(20,2))";
-
         $consultaSaldoFacta = "TRIM(leads.consulta) = 'Saldo FACTA'";
         $isElegivel = "CASE WHEN ($consultaSaldoFacta AND $liberaExpr > 0) THEN 1 ELSE 0 END";
 
-        $query = Lead::query()
-            ->select('leads.*')
-            ->withCount('contracts')
-            ->addSelect([
-                'primeira_origem' => function ($q) {
-                    $q->select('origin')
-                        ->from('import_jobs')
-                        ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
-                        ->whereColumn('lead_imports.lead_id', 'leads.id')
-                        ->orderBy('lead_imports.created_at')
-                        ->limit(1);
-                },
-            ]);
+        $exportMode = is_array($columnsForExport);
 
-        // 1) Pesquisa livre
+        if ($exportMode) {
+            // base mínima
+            $select = ['leads.id'];
+
+            // colunas exportáveis diretamente da tabela leads
+            $allowedLeadCols = [
+                'cpf',
+                'nome',
+                'data_nascimento',
+                'fone1',
+                'fone2',
+                'fone3',
+                'fone4',
+                'classe_fone1',
+                'classe_fone2',
+                'classe_fone3',
+                'classe_fone4',
+                'consulta',
+                'saldo',
+                'libera',
+                'data_atualizacao',
+            ];
+
+            foreach ($columnsForExport as $col) {
+                if (in_array($col, $allowedLeadCols, true)) {
+                    $select[] = "leads.$col";
+                }
+                if ($col === 'id' && !in_array('leads.id', $select, true)) {
+                    $select[] = 'leads.id';
+                }
+            }
+
+            $query = Lead::query()->select($select);
+
+            // primeira origem (só se solicitada)
+            if (in_array('primeira_origem', $columnsForExport, true)) {
+                $query->addSelect([
+                    'primeira_origem' => function ($q) {
+                        $q->select('origin')
+                            ->from('import_jobs')
+                            ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
+                            ->whereColumn('lead_imports.lead_id', 'leads.id')
+                            ->orderBy('lead_imports.created_at')
+                            ->limit(1);
+                    },
+                ]);
+            }
+
+            // status flag SQL (só se solicitada a coluna 'status')
+            if (in_array('status', $columnsForExport, true)) {
+                // garante que consulta/libera estão disponíveis (p/ fallback no map)
+                if (!in_array('leads.consulta', $select, true))
+                    $query->addSelect('leads.consulta');
+                if (!in_array('leads.libera', $select, true))
+                    $query->addSelect('leads.libera');
+
+                $query->addSelect(DB::raw("$isElegivel AS status_flag"));
+            }
+
+            // contagem de contratos (só se solicitada)
+            if (in_array('contracts_count', $columnsForExport, true)) {
+                $query->withCount('contracts');
+            }
+        } else {
+            // comportamento do dashboard
+            $query = Lead::query()
+                ->select('leads.*')
+                ->withCount('contracts')
+                ->addSelect([
+                    'primeira_origem' => function ($q) {
+                        $q->select('origin')
+                            ->from('import_jobs')
+                            ->join('lead_imports', 'import_jobs.id', '=', 'lead_imports.import_job_id')
+                            ->whereColumn('lead_imports.lead_id', 'leads.id')
+                            ->orderBy('lead_imports.created_at')
+                            ->limit(1);
+                    },
+                ]);
+        }
+
+        // ---------- Filtros ----------
         if ($r->filled('search')) {
             $term = '%' . $r->input('search') . '%';
             $query->where(function (Builder $q) use ($term) {
@@ -45,100 +115,73 @@ class LeadFilter
             });
         }
 
-        // 2) Status (elegíveis / não-elegíveis)
         if ($r->filled('status') && $r->status !== 'todos') {
-            $query->whereRaw($r->status === 'elegiveis' ? "$isElegivel = 1" : "$isElegivel = 0");
+            if ($r->status === 'elegiveis') {
+                $query->whereRaw("$isElegivel = 1");
+            } else {
+                $query->whereRaw("$isElegivel = 0");
+            }
         }
 
-        // 3) Motivos (consulta)
         if ($r->filled('motivos')) {
-            $motivos = self::toArray($r->input('motivos'));
-            if ($motivos) {
-                $query->whereIn('consulta', $motivos);
-            }
+            $motivos = explode(',', (string) $r->motivos);
+            $query->whereIn('consulta', $motivos);
         }
 
-        // 4) Origem cadastramento
         if ($r->filled('origens')) {
-            $origens = self::toArray($r->input('origens'));
-            if ($origens) {
-                $query->whereHas('importJobs', function (Builder $q) use ($origens) {
-                    $q->whereIn('import_jobs.origin', $origens);
-                });
-            }
+            $origens = explode(',', (string) $r->origens);
+            $query->whereHas('importJobs', function (Builder $q) use ($origens) {
+                $q->whereIn('import_jobs.origin', $origens);
+            });
         }
 
-        // 4b) Origens de higienização
         if ($r->filled('origens_hig')) {
-            $origHig = self::toArray($r->input('origens_hig'));
-            if ($origHig) {
-                $query->whereHas('importJobs', function (Builder $q) use ($origHig) {
-                    $q->where('import_jobs.type', 'higienizacao')
-                        ->whereIn('import_jobs.origin', $origHig);
-                });
-            }
+            $origHig = explode(',', (string) $r->origens_hig);
+            $query->whereHas('importJobs', function (Builder $q) use ($origHig) {
+                $q->where('import_jobs.type', 'higienizacao')
+                    ->whereIn('import_jobs.origin', $origHig);
+            });
         }
 
-        // 5) Data de atualização FGTS
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
-            $to   = $r->input('date_to', now()->toDateString());
+            $to = $r->input('date_to', now()->toDateString());
             $query->whereBetween('data_atualizacao', ["{$from} 00:00:00", "{$to} 23:59:59"]);
         }
 
-        // 6) Período de contratos
         if ($r->filled('contract_from') || $r->filled('contract_to')) {
             $from = $r->input('contract_from', '1900-01-01');
-            $to   = $r->input('contract_to', now()->toDateString());
+            $to = $r->input('contract_to', now()->toDateString());
             $query->whereHas('contracts', function (Builder $q) use ($from, $to) {
                 $q->whereBetween('data_contrato', [$from, $to]);
             });
         }
 
-        // 7) Filtros massivos: CPF, nomes e telefones (agora aceitam array OU string)
-        self::applyMassFilter($query, $r, 'cpf',   ['cpf']);
+        self::applyMassFilter($query, $r, 'cpf', ['cpf']);
         self::applyMassFilter($query, $r, 'names', ['nome']);
-        self::applyMassFilter($query, $r, 'phones',['fone1','fone2','fone3','fone4']);
+        self::applyMassFilter($query, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);
 
-        // 8) Filtro por vendors
         if ($r->filled('vendors')) {
-            $vendors = self::toArray($r->input('vendors'));
-            if ($vendors) {
-                $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
-                $query->whereHas('contracts.vendor', function (Builder $q) use ($clean) {
-                    $q->whereIn('name_clean', $clean);
-                });
-            }
+            $vendors = explode(',', (string) $r->vendors);
+            $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
+            $query->whereHas('contracts.vendor', function (Builder $q) use ($clean) {
+                $q->whereIn('name_clean', $clean);
+            });
         }
 
-        // 9) 🎂 Mês de aniversário (aceita string "3,9,12" OU array [3,9,12])
+        // 🎂 Mês de aniversário
         if ($r->filled('birth_month')) {
-            $monthsRaw = $r->input('birth_month');
-            $months = is_array($monthsRaw) ? $monthsRaw : explode(',', (string)$monthsRaw);
             $months = array_values(array_filter(array_map(function ($m) {
-                $m = (int) trim((string)$m);
+                $m = (int) trim((string) $m);
                 return ($m >= 1 && $m <= 12) ? $m : null;
-            }, $months)));
+            }, explode(',', (string) $r->input('birth_month')))));
 
-            if ($months) {
+            if (!empty($months)) {
                 $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
             }
         }
 
         return $query->latest('updated_at');
-    }
-
-    /** Converte string CSV OU array (com quebras, vírgulas, ; ) em array limpo */
-    private static function toArray($value): array
-    {
-        if (is_array($value)) {
-            $arr = $value;
-        } else {
-            $str = (string) $value;
-            $arr = preg_split('/[\s,;]+/', $str);
-        }
-
-        return array_values(array_filter(array_map(fn($v) => trim((string)$v), $arr), fn($v) => $v !== ''));
     }
 
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
@@ -147,17 +190,9 @@ class LeadFilter
             return;
         }
 
-        $raw = $r->input($key);
-
-        // aceita array OU string
-        $values = is_array($raw)
-            ? $raw
-            : preg_split('/[\s,;]+/', (string)$raw);
-
-        $values = array_values(array_filter(array_unique(array_map(
-            fn($v) => trim((string)$v),
-            $values
-        ))));
+        $values = array_values(array_filter(array_unique(
+            preg_split('/[\s,;]+/', (string) $r->input($key))
+        )));
 
         if (empty($values)) {
             return;
