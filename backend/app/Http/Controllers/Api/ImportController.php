@@ -9,10 +9,10 @@ use App\Jobs\ProcessLeadImportJob;
 use App\Imports\CadastralImport;
 use App\Imports\HigienizacaoImport;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Exception as ReaderException;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\UploadedFile;
 use Maatwebsite\Excel\HeadingRowImport;
@@ -41,7 +41,7 @@ class ImportController extends Controller
         $file = $validated['file'];
         $type = $validated['type'];
 
-        // 2) Validação de cabeçalhos (alinhada ao WithHeadingRow), passando explicitamente o reader type
+        // 2) Validação de cabeçalhos
         $importerClass   = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
         $requiredHeaders = $importerClass::REQUIRED_HEADERS;
 
@@ -53,7 +53,7 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // 3) Contagem de linhas na primeira planilha (forçando o reader pelo tipo)
+        // 3) Contagem de linhas reais (baseada na coluna CPF)
         try {
             $ext = strtolower($file->getClientOriginalExtension());
             $readerName = $ext === 'xls' ? 'Xls' : 'Xlsx';
@@ -63,7 +63,42 @@ class ImportController extends Controller
 
             $spreadsheet = $reader->load($file->getPathname());
             $sheet = $spreadsheet->getSheet(0);
-            $totalRows = max($sheet->getHighestDataRow() - 1, 0);
+
+            // encontra o índice da coluna do "cpfcliente" pela linha de cabeçalho (linha 1 pelo WithHeadingRow)
+            $headerRow = 1;
+            $highestColIndex = Coordinate::columnIndexFromString($sheet->getHighestDataColumn());
+            $cpfColIndex = null;
+
+            for ($col = 1; $col <= $highestColIndex; $col++) {
+                $val = $sheet->getCellByColumnAndRow($col, $headerRow)->getValue();
+                $slug = is_string($val) ? Str::slug($val, '_') : '';
+                if ($slug === 'cpfcliente') {
+                    $cpfColIndex = $col;
+                    break;
+                }
+            }
+
+            // fallback seguro se não achar (não deve acontecer pois já validamos headers)
+            if ($cpfColIndex === null) {
+                $totalRows = max($sheet->getHighestDataRow() - 1, 0);
+            } else {
+                $highestRow = $sheet->getHighestDataRow();
+                $count = 0;
+                for ($row = $headerRow + 1; $row <= $highestRow; $row++) {
+                    $v = $sheet->getCellByColumnAndRow($cpfColIndex, $row)->getValue();
+                    if ($v === null) {
+                        continue;
+                    }
+                    $str = trim(is_string($v) ? $v : (string) $v);
+                    // considera real apenas se tem dígitos (evita espaços/formatos vazios)
+                    $digits = preg_replace('/\D+/', '', $str);
+                    if ($digits !== '') {
+                        $count++;
+                    }
+                }
+                $totalRows = $count;
+            }
+
             unset($spreadsheet, $sheet);
         } catch (ReaderException $e) {
             return response()->json([
@@ -72,17 +107,16 @@ class ImportController extends Controller
         }
 
         // 4) Salva arquivo SEMPRE no disco 'local' e cria ImportJob
-        $disk = 'local';
-        $path = $file->store('imports', $disk);
+        $path = $file->store('imports', 'local');
 
         $importJob = ImportJob::create([
             'user_id'        => Auth::id(),
             'type'           => $type,
             'origin'         => $validated['origin'] ?? 'Upload Padrão',
             'file_name'      => $file->getClientOriginalName(),
-            'file_path'      => $path,  // relativo ao disco
+            'file_path'      => $path,
             'status'         => 'pendente',
-            'total_rows'     => $totalRows,
+            'total_rows'     => (int) $totalRows,
             'processed_rows' => 0,
         ]);
 
