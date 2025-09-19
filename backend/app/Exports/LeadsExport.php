@@ -142,20 +142,44 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         return ExcelDate::dateTimeToExcel($dt);
     }
 
-    /** Converte "R$ 1.234,56" -> 1234.56 (float), strings vazias -> null */
+    /**
+     * Converte strings numéricas com ponto/vírgula para float.
+     * Exemplos aceitos: "R$ 1.234,56", "1.234,56", "1,234.56", "1234,56", "1234.56".
+     */
     private function toFloat($val): ?float
     {
         if ($val === null || $val === '') return null;
 
-        $clean = preg_replace('/[^0-9.,-]/', '', (string) $val);
-        if ($clean === '' || $clean === null) return null;
+        // Mantém somente dígitos, sinais e separadores . ,
+        $s = preg_replace('/[^0-9.,-]/', '', (string) $val);
+        if ($s === '' || $s === null) return null;
 
-        $normalized = str_replace(',', '.', $clean);
+        // Descobre qual é o último separador presente → esse será o separador decimal
+        $lastDot   = strrpos($s, '.');
+        $lastComma = strrpos($s, ',');
 
+        if ($lastDot === false && $lastComma === false) {
+            return is_numeric($s) ? (float) $s : null;
+        }
+
+        if ($lastDot !== false && $lastComma !== false) {
+            $decimalSep = ($lastDot > $lastComma) ? '.' : ',';
+        } elseif ($lastDot !== false) {
+            $decimalSep = '.';
+        } else {
+            $decimalSep = ',';
+        }
+
+        $thousandSep = ($decimalSep === '.') ? ',' : '.';
+
+        // Remove separadores de milhar e normaliza o separador decimal para ponto
+        $normalized = str_replace($thousandSep, '', $s);
+        $normalized = str_replace($decimalSep, '.', $normalized);
+
+        // Se por algum motivo sobraram múltiplos pontos, mantém só o último como decimal
         if (substr_count($normalized, '.') > 1) {
-            $last = strrpos($normalized, '.');
-            $normalized = str_replace('.', '', $normalized);
-            $normalized = substr_replace($normalized, '.', $last - (substr_count($clean, '.') - 1), 0);
+            // remove todos os '.' que tenham outro '.' à direita (mantém o último)
+            $normalized = preg_replace('/\.(?=.*\.)/', '', $normalized);
         }
 
         return is_numeric($normalized) ? (float) $normalized : null;
