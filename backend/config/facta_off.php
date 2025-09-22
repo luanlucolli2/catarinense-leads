@@ -6,16 +6,10 @@ return [
     | FACTA OFF – API (FGTS Base Offline)
     |--------------------------------------------------------------------------
     */
-    // Base URL do serviço FGTS Base Offline (homolog/prod)
     'base_url' => env('FACTA_OFF_BASE_URL', 'https://fgtsoff.facta.com.br'),
-
-    // Credenciais em Basic Auth (user:pass base64)
     'basic_auth' => env('FACTA_OFF_BASIC_AUTH'),
-
-    // TTL (segundos) do token Bearer retornado pelo /gera-token
     'token_ttl' => (int) env('FACTA_OFF_TOKEN_TTL_SECONDS', 3600),
 
-    // Parâmetros do lock/TTL do token (anti-thundering herd)
     'token' => [
         'lock_ttl' => (int) env('FACTA_OFF_TOKEN_LOCK_TTL', 10),
         'lock_wait' => (int) env('FACTA_OFF_TOKEN_LOCK_WAIT', 5),
@@ -57,11 +51,11 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | JOB (teimosinha / backoff / janela)
+    | JOB (teimosinha / backoff / janela) – consultas FGTS OFF
     |--------------------------------------------------------------------------
     */
     'job' => [
-        'queue' => env('FGTS_OFF_JOB_QUEUE', 'fgts'), // 👈 NOVO
+        'queue' => env('FGTS_OFF_JOB_QUEUE', 'fgts'),
         'timeout_seconds' => (int) env('FGTS_OFF_JOB_TIMEOUT', 18000),
         'max_attempts' => (int) env('FGTS_OFF_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('FGTS_OFF_CONSULT_RETRY_DELAY_SECONDS', 30),
@@ -71,6 +65,15 @@ return [
         'preview_interval_seconds' => (int) env('FGTS_OFF_PREVIEW_INTERVAL_SECONDS', 60),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | PRÉVIA – fila dedicada (relatórios/prévias on-demand)
+    |--------------------------------------------------------------------------
+    */
+    'preview' => [
+        // fila onde o Job de geração de PRÉVIA rodará
+        'queue' => env('PREVIEW_JOB_QUEUE', 'reports'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -78,14 +81,11 @@ return [
     |--------------------------------------------------------------------------
     */
     'storage' => [
-        // Disco do Filesystem (ex.: public, local, s3)
         'reports_disk' => env('FGTS_OFF_REPORTS_DISK', 'public'),
 
-        // Diretórios e nomes
         'dir_reports' => env('FGTS_OFF_REPORTS_DIR', 'fgts-off-reports'),
         'dir_previews' => env('FGTS_OFF_PREVIEWS_DIR', 'fgts-off-previews'),
 
-        // Padrões de nome de arquivo
         'final_prefix' => env('FGTS_OFF_FINAL_PREFIX', 'fgts-offline'),
         'preview_suffix' => env('FGTS_OFF_PREVIEW_SUFFIX', 'preview'),
     ],

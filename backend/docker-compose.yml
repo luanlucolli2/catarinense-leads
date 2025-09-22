@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
 
-  # ===== WORKER DEDICADO: FILA FGTS OFF =====
+  # ===== WORKER DEDICADO: FILA FGTS OFF (consultas) =====
   queue-fgts:
     image: sail-8.4/app
     command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
@@ -59,6 +59,23 @@ services:
     networks:
       - sail
     restart: unless-stopped
+    stop_grace_period: 120s
+
+  # ===== WORKER DEDICADO: RELATÓRIOS / PRÉVIAS =====
+  queue-reports:
+    image: sail-8.4/app
+    # fila exclusiva para geração de prévias/relatórios
+    command: "php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=320"
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+    networks:
+      - sail
+    restart: unless-stopped
+    # dá tempo para concluir escrita de XLSX ao parar
     stop_grace_period: 120s
 
   # ===== WORKER GENÉRICO (opcional) =====
@@ -74,7 +91,6 @@ services:
     networks:
       - sail
     restart: unless-stopped
-    # ✅ dá tempo do worker finalizar ao receber SIGTERM e evitar truncamentos de arquivos
     stop_grace_period: 120s
 
   # ===== SERVIÇO FRONTEND =====

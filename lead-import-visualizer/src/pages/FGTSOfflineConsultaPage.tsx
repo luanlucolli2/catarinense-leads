@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FgtsOffControls } from "@/components/FgtsOffControls";
 import { FgtsOffHistoryTable } from "@/components/FgtsOffHistoryTable";
 import { NewFgtsOffConsultModal } from "@/components/NewFGTSOffConsultModal";
@@ -10,6 +10,8 @@ import {
   cancelFgtsOffConsultJob,
   deleteFgtsOffConsultJob,
   FgtsOffConsultJobListItem,
+  getFgtsOffConsultJob,
+  requestFgtsOffPreview,
 } from "@/api/fgtsOff";
 import { useFgtsOffJobPolling } from "@/hooks/useFgtsOffJobPolling";
 import { toast } from "sonner";
@@ -25,6 +27,8 @@ function formatDateTimeBR(iso: string | null | undefined) {
     minute: "2-digit",
   });
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const FGTSOfflineConsultaPage = () => {
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
@@ -43,6 +47,9 @@ const FGTSOfflineConsultaPage = () => {
     intervalMs: 3000,
     stopOn: ["concluido", "falhou", "cancelado", "expirado"],
   });
+
+  // 🔒 evita cliques repetidos (um lock por jobId)
+  const inFlight = useRef<Set<number>>(new Set());
 
   const titleOf = (id: number) =>
     items.find((i) => i.id === id)?.title ?? `#${id}`;
@@ -142,15 +149,105 @@ const FGTSOfflineConsultaPage = () => {
     }
   };
 
-  const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
-    try {
-      if (opts?.preview) {
-        await downloadFgtsOffPreview(id);
-      } else {
+  /** Polling ad-hoc até prévia pronta (ou final pronto). */
+  /** Polling ad-hoc até prévia pronta (ou final pronto). */
+  const pollPreviewAndDownload = async (id: number) => {
+    const toastId = toast.info("Gerando prévia…", { description: "Aguarde enquanto preparamos o XLSX." });
+    let sawQueuedOrRunning = false;
+
+    // até ~3 min (60 * 3s)
+    for (let i = 0; i < 60; i++) {
+      const j = await getFgtsOffConsultJob(id);
+
+      if (j.has_file) {
+        toast.dismiss(toastId);
         await downloadFgtsOffReport(id);
+        return;
       }
+
+      if (j.preview_status === "queued" || j.preview_status === "running") {
+        sawQueuedOrRunning = true;
+      }
+
+      if (j.preview_status === "ready") {
+        if (sawQueuedOrRunning) {
+          // ✅ só mostra sucesso se de fato veio de uma fila
+          toast.success("Prévia pronta! Baixando planilha…", { id: toastId });
+        } else {
+          toast.dismiss(toastId);
+        }
+        await downloadFgtsOffPreview(id);
+        return;
+      }
+
+      if (["concluido", "falhou", "cancelado", "expirado"].includes(j.status)) {
+        toast.dismiss(toastId);
+        if (j.has_file) await downloadFgtsOffReport(id);
+        else toast.error("Job finalizado sem arquivo disponível.");
+        return;
+      }
+
+      await sleep(3000);
+    }
+
+    toast.error("Tempo de espera esgotado ao gerar a prévia.", { id: toastId });
+  };
+
+
+  /** Botão único: decide final vs. prévia sob demanda (fila). */
+  const handleDownload = async (id: number) => {
+    // 🔒 idempotência por job: bloqueia cliques repetidos
+    if (inFlight.current.has(id)) {
+      toast.warning("Já estamos gerando/baixando para este job.");
+      return;
+    }
+    inFlight.current.add(id);
+    try {
+      const j = await getFgtsOffConsultJob(id);
+
+      if (j.preview_status === "error") {
+        const msg = j.preview_error ? ` Detalhe: ${j.preview_error}` : "";
+        toast.error(`Falha na última geração de prévia.${msg}`);
+      }
+
+      if (j.has_file) {
+        await downloadFgtsOffReport(id);
+        return;
+      }
+
+      if (j.preview_status === "queued" || j.preview_status === "running") {
+        await pollPreviewAndDownload(id);
+        return;
+      }
+
+      const status = await requestFgtsOffPreview(id);
+
+      if (status === 202) {
+        await pollPreviewAndDownload(id);
+        return;
+      }
+
+      if (status === 200) {
+        await downloadFgtsOffPreview(id);
+        return;
+      }
+
+      if (status === 409) {
+        await pollPreviewAndDownload(id);
+        return;
+      }
+
+      if (j.has_preview) {
+        await downloadFgtsOffPreview(id);
+        return;
+      }
+
+      toast.error("Não foi possível solicitar a geração da prévia.");
     } catch (e: any) {
-      toast.error(e?.message ?? "Falha no download");
+      const apiMsg = e?.response?.data?.message || e?.message;
+      toast.error(apiMsg ?? "Falha no download");
+    } finally {
+      inFlight.current.delete(id);
     }
   };
 

@@ -11,6 +11,9 @@ export type FgtsOffJobStatus =
   | 'agendado'
   | 'expirado'
 
+/** Estados da PRÉVIA (alinhado ao backend) */
+export type PreviewStatus = 'none' | 'queued' | 'running' | 'ready' | 'error'
+
 /** DTO básico (index) */
 export interface FgtsOffConsultJobListItem {
   id: number
@@ -50,9 +53,22 @@ export interface FgtsOffConsultJobShow {
   not_authorized_count: number
   fail_count: number
   has_file: boolean
+
+  // PRÉVIA
   has_preview?: boolean
+  preview_status?: PreviewStatus
   preview_updated_at?: string | null
+  preview_requested_at?: string | null
+  preview_started_at?: string | null
+  preview_finished_at?: string | null
+  preview_size_bytes?: number | null
+  preview_rows?: number | null
+  preview_error?: string | null
+
+  // telemetria
   spool_bytes?: number | null
+
+  // datas
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
@@ -76,7 +92,7 @@ export async function ensureCsrfCookie() {
   await axiosClient.get('/sanctum/csrf-cookie')
 }
 
-/** Base de rotas do módulo FGTS OFF — ajuste caso seu backend use outro prefixo */
+/** Base de rotas do módulo FGTS OFF */
 const BASE = '/fgts-off/consult-jobs'
 
 /** Lista os jobs do usuário autenticado */
@@ -110,6 +126,18 @@ export async function getFgtsOffConsultJob(id: number): Promise<FgtsOffConsultJo
   return data
 }
 
+/** Solicita geração da PRÉVIA (assíncrono). 202=aceita/andando, 200=já pronta, 409=spool ausente/indisponível. */
+export async function requestFgtsOffPreview(id: number): Promise<number> {
+  const resp = await axiosClient.post(
+    `${BASE}/${id}/preview/generate`,
+    null,
+    {
+      validateStatus: (s) => (s >= 200 && s < 300) || s === 409
+    }
+  )
+  return resp.status
+}
+
 /** Faz o download do relatório FINAL (stream) — liberado em 'concluido', 'expirado' ou 'falhou' */
 export async function downloadFgtsOffReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
@@ -129,10 +157,9 @@ export async function downloadFgtsOffReport(id: number) {
   window.URL.revokeObjectURL(url)
 }
 
-/** Faz o download da PRÉVIA (gerada na hora a partir do SPOOL + pendentes) */
+/** Faz o download da PRÉVIA já pronta (NÃO força regeneração) */
 export async function downloadFgtsOffPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
-    params: { refresh: 1 }, // força regenerar a cada clique (alinha com backend)
     responseType: 'blob',
   })
 
@@ -160,12 +187,9 @@ export async function cancelFgtsOffConsultJob(id: number, reason?: string) {
   return data
 }
 
-/** Exclui definitivamente um job e seus arquivos */
-export async function deleteFgtsOffConsultJob(id: number) {
-  const { data } = await axiosClient.delete<{ success: boolean; id: number }>(
-    `${BASE}/${id}`
-  )
-  return data
+/** Exclui definitivamente um job e seus arquivos (backend retorna 204 No Content) */
+export async function deleteFgtsOffConsultJob(id: number): Promise<void> {
+  await axiosClient.delete(`${BASE}/${id}`)
 }
 
 function parseContentDispositionFilename(contentDisposition: string): string | null {
