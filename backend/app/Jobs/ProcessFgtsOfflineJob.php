@@ -50,15 +50,14 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $this->cpfs = array_values(array_unique($cpfs));
         $this->invalidCpfs = array_values(array_unique($invalidCpfs));
 
-        // DE: $this->onQueue('default');
-        $this->onQueue((string) config('facta_off.job.queue', 'fgts')); // 👈 AGORA VAI PRA FILA 'fgts'
+        $this->onQueue((string) config('facta_off.job.queue', 'fgts'));
 
         // Configs
         $this->timeout = (int) config('facta_off.job.timeout_seconds', 115200); // 5h
         $this->disk = (string) config('facta_off.storage.reports_disk', 'public');
         $this->dirReports = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
         $this->dirPreviews = (string) config('facta_off.storage.dir_previews', 'fgts-off-previews');
-        $this->dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool'); // novo
+        $this->dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
         $this->finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
         $this->previewSuffix = (string) config('facta_off.storage.preview_suffix', 'preview');
     }
@@ -235,8 +234,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                                 $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                                 $terminalFailsInChunk++;
-                            } else {
-                                // mantém para próxima tentativa
                             }
                         }
                     }
@@ -253,13 +250,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                     $elapsed = max(0.001, microtime(true) - $t0);
                     $rps = $chunkCount / $elapsed;
-                    Log::debug(
-                        "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – chunk #{$chunkIndex} " .
-                        "size={$chunkCount} stats=" . json_encode($stats) .
+                    Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – chunk #{$chunkIndex} size={$chunkCount} stats=" . json_encode($stats) .
                         " auth={$authorizedInChunk} nao_auth={$notAuthorizedInChunk} fail_term={$terminalFailsInChunk} " .
-                        "pend_rest=" . count($pendentes) . " " .
-                        "elapsed=" . number_format($elapsed, 3) . "s rps=" . number_format($rps, 2)
-                    );
+                        "pend_rest=" . count($pendentes) . " elapsed=" . number_format($elapsed, 3) . "s rps=" . number_format($rps, 2));
                 }
 
                 if ($this->finishIfCancelled($job))
@@ -277,12 +270,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     Log::warning("[FGTS-OFF] Job {$this->jobId} – 429 vistos. Reduzindo chunk {$old} → {$chunkSize}.");
                 }
 
-                Log::debug(
-                    "[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – resumo: " .
-                    "pendentes=" . count($pendentes) .
+                Log::debug("[FGTS-OFF] Job {$this->jobId} tentativa {$attempt} – resumo: pendentes=" . count($pendentes) .
                     " sem_resp_ratio=" . number_format($semRespRatio, 2) .
-                    " seen429={$seen429InAttempt} retry_after_max={$retryAfterMax} chunkSizeAtual={$chunkSize}"
-                );
+                    " seen429={$seen429InAttempt} retry_after_max={$retryAfterMax} chunkSizeAtual={$chunkSize}");
 
                 if (!empty($pendentes) && $attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job))
@@ -331,7 +321,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $job->refresh();
             Log::info("[FGTS-OFF] Job {$this->jobId} concluído – autorizado: {$job->success_count}, não autorizado: {$job->not_authorized_count}, falha: {$job->fail_count}");
         } catch (Throwable $e) {
-            // Tenta gerar FINAL com o que temos; limpa spool somente se o FINAL existir
             $finalOk = false;
             try {
                 $finalOk = $this->generateFinalFromSpool($job);
@@ -366,7 +355,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
     private function finalizeExpired(FgtsOfflineJob $job): void
     {
-        // Gera Excel com o que temos; limpa spool somente se o FINAL existir
         $finalOk = $this->generateFinalFromSpool($job);
         if ($finalOk) {
             $this->cleanupSpool($job);
@@ -386,7 +374,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     private function finishIfCancelled(FgtsOfflineJob $job): bool
     {
         if ($this->isCancelled()) {
-            // cancelamento: não gera FINAL, apenas encerra e limpa prévia + spool
             $job->update(['finished_at' => Carbon::now()]);
             $this->deletePreview($job);
             $this->cleanupSpool($job);
@@ -447,7 +434,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             fclose($fp);
         }
 
-        // Arquivo CPFs (todos: válidos + inválidos) — um por linha
+        // Arquivo CPFs (todos: válidos + inválidos)
         $allCpfs = array_values(array_unique(array_merge($this->cpfs, $this->invalidCpfs)));
         $fp2 = fopen($disk->path($cpfsPath), 'c+');
         if ($fp2 === false) {
@@ -469,7 +456,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return [$spoolPath, $cpfsPath];
     }
 
-    /** Apende uma linha no SPOOL (CSV), com lock e atualização de bytes / preview_dirty. */
+    /** Apende uma linha no SPOOL (CSV) e marca preview suja (à prova de condição de corrida). */
     private function spoolAppend(FgtsOfflineJob $job, array $row): void
     {
         $disk = Storage::disk($this->disk);
@@ -488,7 +475,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 foreach (FgtsOfflineExport::COLS as $key) {
                     $v = $row[$key] ?? null;
 
-                    // 🔧 Normaliza 'autorizado' para '1'/'0' (evita string vazia no CSV)
                     if ($key === 'autorizado') {
                         if ($v === true || $v === 1 || $v === '1') {
                             $v = '1';
@@ -502,7 +488,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                                 $v = '0';
                             }
                         }
-                        // se continuar null, deixa null (inválido/pendente)
                     }
 
                     $ordered[] = $v;
@@ -516,16 +501,22 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             fclose($fp);
         }
 
-        $job->updateQuietly([
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $path),
-            'preview_dirty' => true,
-        ]);
+        $bytes = $this->fileSizeSafe($this->disk, $path);
+
+        // ⛏ UPDATE direto para evitar “lost update”/instância stale
+        DB::table('fgts_off_consult_jobs')
+            ->where('id', $job->id)
+            ->update([
+                'spool_bytes' => $bytes,
+                'preview_dirty' => true,
+                'updated_at' => Carbon::now(),
+            ]);
+
+        // Mantém consistência na instância em memória (opcional)
+        $job->spool_bytes = $bytes;
+        $job->preview_dirty = true;
     }
 
-    /**
-     * Gera XLSX FINAL a partir do SPOOL, grava de forma atômica e atualiza o job.
-     * @return bool true se gerou e moveu com sucesso; false caso contrário.
-     */
     private function generateFinalFromSpool(FgtsOfflineJob $job): bool
     {
         try {
@@ -546,7 +537,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $export = FgtsOfflineExport::fromCsv($disk->path($spoolPath));
             Excel::store($export, $tmpPath, $this->disk);
 
-            // move atômico dentro do mesmo disco
             $disk->move($tmpPath, $path);
 
             if (!$disk->exists($path)) {
@@ -567,7 +557,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         }
     }
 
-    /** Remove spool CSV/TXT com segurança e limpa campos no banco. */
     private function cleanupSpool(FgtsOfflineJob $job): void
     {
         try {
@@ -614,7 +603,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         }
     }
 
-    /** Horário de Brasília formatado (para a planilha). */
     private function nowBrString(): string
     {
         return Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');

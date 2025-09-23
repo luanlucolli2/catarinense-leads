@@ -67,7 +67,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 160m
-    cpus: "0.10"
+    cpus: "0.08"   # ↓ (antes 0.10)
 
   queue-clt:
     image: leads-backend
@@ -103,7 +103,26 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 384m
-    cpus: "0.20"
+    cpus: "0.18"   # ↓ (antes 0.20)
+
+  # 🔁 worker dedicado para PRÉVIAS/relatórios
+  queue-reports:
+    image: leads-backend
+    container_name: leads-queue-reports
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=256
+    env_file: .env.staging
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/var/www/html
+      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql]
+    networks: [sail]
+    restart: unless-stopped
+    stop_grace_period: 120s
+    mem_limit: 256m
+    cpus: "0.10"
 
   frontend:
     build:
@@ -116,7 +135,7 @@ services:
     networks: [sail]
     depends_on: [laravel]
     mem_limit: 64m
-    cpus: "0.05"
+    cpus: "0.04"   # ↓ (antes 0.05)
 
 networks:
   sail:

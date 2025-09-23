@@ -252,7 +252,7 @@ export const FgtsOffHistoryTable = ({
                           )}
                         </Button>
 
-                        {/* Download (final ou prévia) */}
+                        {/* Download (final ou prévia sob demanda) */}
                         <Button
                           onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
                           disabled={downloadDisabled}
@@ -268,7 +268,7 @@ export const FgtsOffHistoryTable = ({
                             finalReady
                               ? "Baixar planilha final"
                               : previewReady
-                                ? "Baixar planilha (prévia gerada do progresso atual)"
+                                ? "Gerar & baixar prévia"
                                 : "Baixar indisponível"
                           }
                         >

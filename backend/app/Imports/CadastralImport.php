@@ -60,15 +60,19 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         // Alinha chaves caso planilha venha com underscores/variações
         $row = $this->normalizeRowKeys($row);
 
+        // 🔕 Skip silencioso se a linha for realmente vazia (evita erros e I/O desnecessário)
+        if ($this->isEffectivelyEmptyRow($row)) {
+            return null;
+        }
+
         DB::transaction(function () use ($row) {
             try {
-                // 1) Validações iniciais
-                $validator = Validator::make($row, [
-                    'cpfcliente'   => ['required'],
-                    'nomecliente'  => ['required', 'string'],
+                // 1) Validação mínima: CPF obrigatório para localizar/identificar
+                $validatorCpf = Validator::make($row, [
+                    'cpfcliente' => ['required'],
                 ]);
-                if ($validator->fails()) {
-                    throw new ValidationException($validator);
+                if ($validatorCpf->fails()) {
+                    throw new ValidationException($validatorCpf);
                 }
 
                 // 2) CPF: normaliza (zeros à esquerda) e valida DV
@@ -77,22 +81,39 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                     throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
                 }
 
-                // 3) Busca/cria Lead
+                // 3) Busca/cria Lead (ainda sem salvar)
                 $lead   = Lead::firstOrNew(['cpf' => $cpf]);
                 $action = $lead->exists ? 'update' : 'insert';
 
-                // 4) Backup do estado anterior (apenas quando update) – snapshot antes de alterar
+                // 4) INSERT exige nome; UPDATE não exige
+                if ($action === 'insert') {
+                    $validatorNome = Validator::make($row, [
+                        'nomecliente' => ['required', 'string'],
+                    ]);
+                    if ($validatorNome->fails()) {
+                        throw new ValidationException($validatorNome);
+                    }
+                }
+
+                // 5) Backup do estado anterior (apenas quando update)
                 if (
                     $action === 'update'
                     && !$lead->backups()->where('import_job_id', $this->importJob->id)->exists()
                 ) {
-                    // ainda 1-a-1 (melhorias futuras podem agrupar por chunk)
                     $this->backup->bulkBackupLeads(collect([$lead]), $this->importJob);
                 }
 
-                // 5) Normalização de campos (inclui telefones)
+                // 6) Normalização de campos
+                $normalizedNameForInsert = null;
+                if ($action === 'insert') {
+                    $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
+                    if ($normalizedNameForInsert === null) {
+                        throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
+                    }
+                }
+
                 $dataFromSheet = [
-                    'nome'             => $this->normalizeName($row['nomecliente']),
+                    'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
                     'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
 
                     'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
@@ -108,13 +129,13 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                     'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
                 ];
 
-                // 6) Reconciliador de telefones (preserva "Quente")
+                // 7) Reconciliador de telefones (preserva "Quente")
                 $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
                 foreach ($mergedPhones as $field => $value) {
                     $dataFromSheet[$field] = $value;
                 }
 
-                // 7) Aplica apenas campos não-nulos
+                // 8) Aplica apenas campos não-nulos/vazios (updates parciais)
                 foreach ($dataFromSheet as $field => $value) {
                     if (!is_null($value) && $value !== '') {
                         $lead->{$field} = $value;
@@ -122,12 +143,12 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                 }
                 $lead->save();
 
-                // 8) Backup marca lead novo (para eventual rollback)
+                // 9) Backup marca lead novo
                 if ($action === 'insert') {
                     $this->backup->backupNewLead($lead, $this->importJob);
                 }
 
-                // 9) Contratos + vendedor
+                // 10) Contratos + vendedor (opcional)
                 if (!empty($row['datacontrato'])) {
                     $contractDate = $this->transformDate($row['datacontrato']);
                     if (!$contractDate) {
@@ -150,8 +171,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                     }
                 }
 
-                // 10) Registra pivot idempotente SEM timestamps extras (evita 'updated_at')
-                //     - Insere uma vez por (lead_id, import_job_id) e ignora duplicatas
+                // 11) Registra pivot idempotente SEM timestamps extras
                 DB::table('lead_imports')->insertOrIgnore([[
                     'lead_id'       => $lead->id,
                     'import_job_id' => $this->importJob->id,
@@ -199,28 +219,10 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         }
     }
 
-    private function isValidCpfLegacy(string $cpf): bool
-    {
-        // (mantido apenas como referência; usamos App\Support\Cpf)
-        if (strlen($cpf) != 11 || preg_match('/(\d)\1{10}/', $cpf)) {
-            return false;
-        }
-        for ($t = 9; $t < 11; $t++) {
-            for ($d = 0, $c = 0; $c < $t; $c++) {
-                $d += $cpf[$c] * (($t + 1) - $c);
-            }
-            $d = ((10 * $d) % 11) % 10;
-            if ($cpf[$c] != $d) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private function normalizeName(?string $name): ?string
     {
-        if (empty($name)) {
-            return null;
+        if ($name === null || $name === '') {
+            return null; // updates parciais não obrigam nome
         }
         $name = trim($name);
         $name = preg_replace('/[^\p{L}\p{N} \'\-]/u', '', $name);
@@ -303,7 +305,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
     private function normalizePhone(?string $phone, string $column): ?string
     {
-        if (empty($phone)) {
+        if ($phone === null || $phone === '') {
             return null;
         }
         $digits = preg_replace('/\D/', '', $phone);
@@ -318,7 +320,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
     private function normalizeClasse($classe): ?string
     {
-        if (empty($classe)) return null;
+        if ($classe === null || $classe === '') return null;
         return ucfirst(strtolower(trim($classe)));
     }
 
@@ -339,7 +341,6 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                         'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$increment . ', total_rows)')
                     ]);
 
-                // evita manter instância stale
                 $this->importJob->refresh();
             },
 
@@ -354,7 +355,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
     }
 
     /**
-     * Aceita aliases com underscore conforme HeadingRow (sem mudar suas chaves canônicas).
+     * Aceita aliases com underscore conforme HeadingRow (sem mudar chaves canônicas).
      * Ex.: data_nascimento → datanascimento
      */
     private function normalizeRowKeys(array $row): array
@@ -377,6 +378,20 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             }
         }
         return $row;
+    }
+
+    /** Linha realmente vazia (todas as colunas canônicas sem conteúdo) */
+    private function isEffectivelyEmptyRow(array $row): bool
+    {
+        foreach (self::REQUIRED_HEADERS as $key) {
+            if (array_key_exists($key, $row)) {
+                $v = $row[$key];
+                if ($v !== null && trim((string)$v) !== '') {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -403,11 +418,9 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                 ['name' => $cleanedVendorName]
             );
         } catch (\Throwable $t) {
-            // fallback para corrida: alguém inseriu no intervalo
             $vendor = Vendor::where('name_clean', $key)->firstOrFail();
         }
 
-        // backup somente se recém criado neste fluxo
         if ($vendor->wasRecentlyCreated ?? false) {
             $this->backup->backupVendorIfNew($vendor, $this->importJob);
         }

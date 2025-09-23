@@ -47,8 +47,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
-    Route::post('/clt/consult-jobs/{id}/pause', [CltConsultController::class, 'pause'])->whereNumber('id');   // 👈 novo
-    Route::post('/clt/consult-jobs/{id}/resume', [CltConsultController::class, 'resume'])->whereNumber('id'); // 👈 novo
+    Route::post('/clt/consult-jobs/{id}/pause', [CltConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/clt/consult-jobs/{id}/resume', [CltConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
 
@@ -57,7 +57,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'store']);
     Route::get('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'show'])->whereNumber('id');
     Route::get('/fgts-off/consult-jobs/{id}/download', [FgtsOfflineController::class, 'download'])->whereNumber('id');
+
+    // 🔁 PRÉVIA: gerar (assíncrono) + baixar
+    Route::post('/fgts-off/consult-jobs/{id}/preview/generate', [FgtsOfflineController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/fgts-off/consult-jobs/{id}/preview', [FgtsOfflineController::class, 'downloadPreview'])->whereNumber('id');
+
     Route::post('/fgts-off/consult-jobs/{id}/cancel', [FgtsOfflineController::class, 'cancel'])->whereNumber('id');
     Route::delete('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'destroy'])->whereNumber('id');
 });
