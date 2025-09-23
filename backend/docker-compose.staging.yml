@@ -49,8 +49,9 @@ services:
     networks: [sail]
     restart: unless-stopped
     mem_limit: 320m
-    cpus: "0.25"
+    cpus: "0.20"
 
+  # Worker genérico (baixa prioridade)
   queue:
     image: leads-backend
     container_name: leads-queue
@@ -67,8 +68,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 160m
-    cpus: "0.08"   # ↓ (antes 0.10)
+    cpus: "0.05"
 
+  # CLT (prioridade média)
   queue-clt:
     image: leads-backend
     container_name: leads-queue-clt
@@ -85,8 +87,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 256m
-    cpus: "0.15"
+    cpus: "0.12"
 
+  # FGTS OFF (prioridade alta)
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
@@ -103,13 +106,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 384m
-    cpus: "0.18"   # ↓ (antes 0.20)
+    cpus: "0.20"
 
-  # 🔁 worker dedicado para PRÉVIAS/relatórios
+  # RELATÓRIOS/PRÉVIAS (prioridade alta)
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=256
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=256 --tries=1 --backoff=30
     env_file: .env.staging
     environment:
       <<: *app-env
@@ -122,7 +125,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 256m
-    cpus: "0.10"
+    cpus: "0.15"
 
   frontend:
     build:
@@ -135,7 +138,7 @@ services:
     networks: [sail]
     depends_on: [laravel]
     mem_limit: 64m
-    cpus: "0.04"   # ↓ (antes 0.05)
+    cpus: "0.03"
 
 networks:
   sail:
