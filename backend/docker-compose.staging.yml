@@ -23,8 +23,11 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
+    # Memória: segura para 2GB de host (deixe espaço pro SO/Docker)
     mem_limit: 512m
-    cpus: "0.25"
+    mem_reservation: 384m
+    # CPU: deixa disputar, mas com peso alto
+    cpu_shares: 1024
 
   laravel:
     build:
@@ -42,52 +45,56 @@ services:
       APP_DEBUG: "false"
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - ./docker/php-fpm.ini:/etc/php/8.4/fpm/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
-    mem_limit: 320m
-    cpus: "0.20"
+    mem_limit: 160m
+    mem_reservation: 128m
+    cpu_shares: 768
 
   # Worker genérico (baixa prioridade)
   queue:
     image: leads-backend
     container_name: leads-queue
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=115200 --memory=128 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=115200 --memory=100 --tries=3 --backoff=60
     env_file: .env.staging
     environment:
       <<: *app-env
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 160m
-    cpus: "0.05"
+    mem_limit: 128m
+    mem_reservation: 96m
+    cpu_shares: 512
 
   # CLT (prioridade média)
   queue-clt:
     image: leads-backend
     container_name: leads-queue-clt
-    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=192 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=160 --tries=3 --backoff=60
     env_file: .env.staging
     environment:
       <<: *app-env
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.clt.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 256m
-    cpus: "0.12"
+    mem_limit: 192m
+    mem_reservation: 160m
+    cpu_shares: 1024
+    memswap_limit: 768m
 
   # FGTS OFF (prioridade alta)
   queue-fgts:
@@ -99,33 +106,37 @@ services:
       <<: *app-env
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.fgts.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 384m
-    cpus: "0.20"
+    mem_reservation: 320m
+    memswap_limit: 1g
+    # Dá prioridade real de CPU ao FGTS
+    cpu_shares: 2048
 
   # RELATÓRIOS/PRÉVIAS (prioridade alta)
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=256 --tries=1 --backoff=30
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=160 --tries=1 --backoff=30
     env_file: .env.staging
     environment:
       <<: *app-env
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.reports.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 256m
-    cpus: "0.15"
+    mem_limit: 192m
+    mem_reservation: 160m
+    cpu_shares: 1024
 
   frontend:
     build:
@@ -137,8 +148,9 @@ services:
       - "8080:80"
     networks: [sail]
     depends_on: [laravel]
-    mem_limit: 64m
-    cpus: "0.03"
+    mem_limit: 32m
+    mem_reservation: 24m
+    cpu_shares: 128
 
 networks:
   sail:
