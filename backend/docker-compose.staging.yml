@@ -23,10 +23,8 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
-    # Memória: segura para 2GB de host (deixe espaço pro SO/Docker)
     mem_limit: 512m
     mem_reservation: 384m
-    # CPU: deixa disputar, mas com peso alto
     cpu_shares: 1024
 
   laravel:
@@ -75,11 +73,11 @@ services:
     mem_reservation: 96m
     cpu_shares: 512
 
-  # CLT (prioridade média)
+  # CLT (prioridade média) – mais folga que antes
   queue-clt:
     image: leads-backend
     container_name: leads-queue-clt
-    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=160 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=192 --tries=3 --backoff=60
     env_file: .env.staging
     environment:
       <<: *app-env
@@ -91,16 +89,16 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 192m
-    mem_reservation: 160m
+    mem_limit: 256m          # ↑ (era 192m)
+    mem_reservation: 192m
+    memswap_limit: "768m"
     cpu_shares: 1024
-    memswap_limit: 768m
 
-  # FGTS OFF (prioridade alta)
+  # FGTS OFF (prioridade alta) – muita folga, sem ser “ilimitado”
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=320 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=512 --tries=3 --backoff=60
     env_file: .env.staging
     environment:
       <<: *app-env
@@ -112,13 +110,12 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 384m
+    mem_limit: 640m          # ↑ (era 384m)
     mem_reservation: 320m
-    memswap_limit: 1g
-    # Dá prioridade real de CPU ao FGTS
+    memswap_limit: "1g"
     cpu_shares: 2048
 
-  # RELATÓRIOS/PRÉVIAS (prioridade alta)
+  # RELATÓRIOS/PRÉVIAS (prioridade alta) – mantém limites
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
