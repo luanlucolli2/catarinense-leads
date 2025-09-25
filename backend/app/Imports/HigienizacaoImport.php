@@ -6,7 +6,7 @@ use App\Models\Lead;
 use App\Models\ImportJob;
 use App\Models\ImportError;
 use App\Services\BackupService;
-use App\Support\Cpf; // ✅ passa a usar o helper de CPF
+use App\Support\Cpf;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
@@ -19,7 +19,8 @@ use PhpOffice\PhpSpreadsheet\Shared\Date;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterChunk;
 use Maatwebsite\Excel\Events\AfterImport;
-use Illuminate\Support\Facades\DB; // ✅ para updates atômicos e pivot idempotente
+use Maatwebsite\Excel\Events\BeforeImport;
+use Illuminate\Support\Facades\DB;
 
 class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
@@ -36,6 +37,8 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
     protected ImportJob $importJob;
     protected BackupService $backup;
 
+    protected int $rowsInCurrentChunk = 0;
+
     public function __construct(ImportJob $importJob, BackupService $backup)
     {
         $this->importJob = $importJob;
@@ -44,62 +47,53 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
 
     public function model(array $row)
     {
-        try {
-            // 1) Validação dos campos de entrada
-            $validator = Validator::make($row, [
-                'cpfcliente'     => ['required'],
-                'consulta'       => ['required', 'string'],
-                'dataatualizacao'=> ['required'],
-                'saldo'          => ['required'],
-                'libera'         => ['required'],
-            ]);
+        // contador real por CPF com dígitos
+        $cpfRaw = $row['cpfcliente'] ?? null;
+        $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string)$cpfRaw) : '';
+        if ($digits === '') {
+            return null;
+        }
+        $this->rowsInCurrentChunk++;
 
+        try {
+            // 1) validação
+            $validator = Validator::make($row, [
+                'cpfcliente'      => ['required'],
+                'consulta'        => ['required', 'string'],
+                'dataatualizacao' => ['required'],
+                'saldo'           => ['required'],
+                'libera'          => ['required'],
+            ]);
             if ($validator->fails()) {
                 throw new ValidationException($validator);
             }
 
             $data = $validator->validated();
 
-            // 2) CPF: normaliza (zeros à esquerda) e valida DV com App\Support\Cpf
+            // 2) CPF
             $cpf = Cpf::normalize($data['cpfcliente'] ?? null);
             if (!$cpf || !Cpf::isValid($cpf)) {
-                throw new \Exception(
-                    "CPF inválido.",
-                    0,
-                    new \Exception('cpfcliente')
-                );
+                throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
             }
 
-            // 3) Lead deve existir (higienização só atualiza)
+            // 3) Lead existente
             $lead = Lead::where('cpf', $cpf)->first();
             if (!$lead) {
-                throw new \Exception(
-                    "Lead com CPF não encontrado na base de dados.",
-                    0,
-                    new \Exception('cpfcliente')
-                );
+                throw new \Exception("Lead com CPF não encontrado na base de dados.", 0, new \Exception('cpfcliente'));
             }
 
-            // 4) Backup antes de atualizar (snapshot único por import/lead)
-            $alreadyBackedUp = \App\Models\Backup\LeadBackup::where('lead_id', $lead->id)
-                ->where('import_job_id', $this->importJob->id)
-                ->exists();
-
-            if (!$alreadyBackedUp) {
-                $this->backup->bulkBackupLeads(collect([$lead]), $this->importJob);
+            // 4) backup antes de atualizar (snapshot único por import/lead)
+            if (!$lead->backups()->where('import_job_id', $this->importJob->id)->exists()) {
+                $this->backup->backupExistingLead($lead, $this->importJob);
             }
 
-            // 5) Data/hora: aceita “dd/mm/aaaa hh:mm:ss” ou serial Excel; converte BRT→UTC
+            // 5) data/hora
             $dt = $this->transformDateTime($data['dataatualizacao']);
             if (!$dt) {
-                throw new \Exception(
-                    "Formato de data inválido. Use dd/mm/aaaa hh:mm:ss.",
-                    0,
-                    new \Exception('dataatualizacao')
-                );
+                throw new \Exception("Formato de data inválido. Use dd/mm/aaaa hh:mm:ss.", 0, new \Exception('dataatualizacao'));
             }
 
-            // 6) Atualização do Lead
+            // 6) update Lead
             $lead->update([
                 'consulta'         => $data['consulta'],
                 'data_atualizacao' => $dt,
@@ -107,7 +101,7 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 'libera'           => (string) $data['libera'],
             ]);
 
-            // 7) Pivot lead_imports idempotente (evita duplicate key e não usa updated_at)
+            // 7) pivot idempotente
             DB::table('lead_imports')->insertOrIgnore([[
                 'lead_id'       => $lead->id,
                 'import_job_id' => $this->importJob->id,
@@ -125,9 +119,7 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 ]);
             }
         } catch (\Exception $e) {
-            $col = $e->getPrevious()
-                ? $e->getPrevious()->getMessage()
-                : 'Geral';
+            $col = $e->getPrevious() ? $e->getPrevious()->getMessage() : 'Geral';
             ImportError::create([
                 'import_job_id' => $this->importJob->id,
                 'row_number'    => $this->getRowNumber(),
@@ -144,39 +136,18 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         return 1000;
     }
 
-    /**
-     * Transforma a data/hora da planilha (dd/mm/aaaa hh:mm:ss ou serial do Excel)
-     * interpretando em America/Sao_Paulo e persistindo em UTC ("Y-m-d H:i:s").
-     */
     private function transformDateTime($value): ?string
     {
-        if (empty($value)) {
-            return null;
-        }
+        if (empty($value)) return null;
 
         try {
             if (is_numeric($value)) {
-                // 1) Converte serial para DateTime nativo
                 $phpDate = Date::excelToDateTimeObject($value);
-                // 2) Formata temporariamente
-                $brString = $phpDate->format('d/m/Y H:i:s');
-                // 3) Reparse como BRT
-                $carbon = Carbon::createFromFormat(
-                    'd/m/Y H:i:s',
-                    $brString,
-                    new \DateTimeZone('America/Sao_Paulo')
-                );
+                $carbon  = Carbon::instance($phpDate)->setTimezone('America/Sao_Paulo');
             } else {
-                // String no formato "dd/mm/yyyy hh:mm:ss", já em BRT
-                $carbon = Carbon::createFromFormat(
-                    'd/m/Y H:i:s',
-                    trim($value),
-                    new \DateTimeZone('America/Sao_Paulo')
-                );
+                $carbon = Carbon::createFromFormat('d/m/Y H:i:s', trim($value), 'America/Sao_Paulo');
             }
-
-            // 4) Converte para UTC
-            return $carbon->setTimezone('UTC')->format('Y-m-d H:i:s');
+            return $carbon->clone()->setTimezone('UTC')->format('Y-m-d H:i:s');
         } catch (\Exception $e) {
             return null;
         }
@@ -185,25 +156,25 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
     public function registerEvents(): array
     {
         return [
-            // Incremento atômico e capado para evitar percent > 100% com múltiplos workers
+            BeforeImport::class => function () {
+                $this->backup->purgeOldBackups();
+                $this->rowsInCurrentChunk = 0;
+            },
+
             AfterChunk::class => function () {
-                $remaining = max($this->importJob->total_rows - $this->importJob->processed_rows, 0);
-                if ($remaining <= 0) {
+                if ($this->rowsInCurrentChunk <= 0) {
                     return;
                 }
-
-                $increment = min($this->chunkSize(), $remaining);
-
                 DB::table('import_jobs')
                     ->where('id', $this->importJob->id)
                     ->update([
-                        'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$increment . ', total_rows)')
+                        'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$this->rowsInCurrentChunk . ', total_rows)')
                     ]);
-
-                $this->importJob->refresh();
+                $this->rowsInCurrentChunk = 0;
             },
 
             AfterImport::class => function () {
+                $this->rowsInCurrentChunk = 0;
                 $this->importJob->update([
                     'processed_rows' => $this->importJob->total_rows,
                     'status'         => 'concluido',

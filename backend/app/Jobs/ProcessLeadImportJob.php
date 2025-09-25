@@ -15,7 +15,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
-use App\Services\BackupService;
 
 class ProcessLeadImportJob implements ShouldQueue
 {
@@ -36,14 +35,12 @@ class ProcessLeadImportJob implements ShouldQueue
         ]);
 
         try {
-            // 1) Tenta no disco 'local' (onde salvamos no controller)
             $disk = 'local';
             $path = $this->importJob->file_path;
 
             $exists = Storage::disk($disk)->exists($path);
             $fullPath = $exists ? Storage::disk($disk)->path($path) : null;
 
-            // 2) Fallback: caso algum ambiente tenha salvo em 'public'
             if (!$exists) {
                 if (Storage::disk('public')->exists($path)) {
                     $disk = 'public';
@@ -56,19 +53,13 @@ class ProcessLeadImportJob implements ShouldQueue
                 throw new \RuntimeException('Arquivo de importação não encontrado ou ilegível: ' . ($fullPath ?? $path));
             }
 
-            /** @var BackupService $backup */
-            $backup = app(BackupService::class);
-            $backup->purgeOldBackups();
-
             $importer = $this->importJob->type === 'cadastral'
-                ? new CadastralImport($this->importJob, $backup)
-                : new HigienizacaoImport($this->importJob, $backup);
+                ? new CadastralImport($this->importJob, app(\App\Services\BackupService::class))
+                : new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class));
 
-            // Define o readerType a partir da extensão original
             $ext = strtolower(pathinfo($this->importJob->file_name ?? $fullPath, PATHINFO_EXTENSION));
             $readerType = $ext === 'xls' ? ExcelReaderType::XLS : ExcelReaderType::XLSX;
 
-            // Importa informando explicitamente o tipo
             Excel::import($importer, $fullPath, null, $readerType);
 
         } catch (Throwable $e) {
@@ -76,7 +67,7 @@ class ProcessLeadImportJob implements ShouldQueue
                 'status'      => 'falhou',
                 'finished_at' => now(),
             ]);
-            Log::error("Falha na importação do Job ID {$this->importJob->id}: " . $e->getMessage());
+            Log::error("Falha na importação do Job ID {$this->importJob->id}", ['exception' => $e]);
         }
     }
 }

@@ -1,6 +1,5 @@
 # docker-compose.yml
 
-# Âncora para reutilizar a configuração de ambiente
 x-app-environment: &app-environment
   WWWUSER: '${WWWUSER}'
   WWWGROUP: '${WWWGROUP:-1000}'
@@ -30,6 +29,7 @@ services:
       - sail
     depends_on:
       - mysql
+      - redis
 
   # ===== WORKER DEDICADO: FILA CLT =====
   queue-clt:
@@ -41,6 +41,7 @@ services:
       - .:/var/www/html
     depends_on:
       - mysql
+      - redis
     networks:
       - sail
     restart: unless-stopped
@@ -56,6 +57,7 @@ services:
       - .:/var/www/html
     depends_on:
       - mysql
+      - redis
     networks:
       - sail
     restart: unless-stopped
@@ -64,7 +66,6 @@ services:
   # ===== WORKER DEDICADO: RELATÓRIOS / PRÉVIAS =====
   queue-reports:
     image: sail-8.4/app
-    # fila exclusiva para geração de prévias/relatórios
     command: "php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=320"
     environment:
       <<: *app-environment
@@ -72,10 +73,10 @@ services:
       - .:/var/www/html
     depends_on:
       - mysql
+      - redis
     networks:
       - sail
     restart: unless-stopped
-    # dá tempo para concluir escrita de XLSX ao parar
     stop_grace_period: 120s
 
   # ===== WORKER GENÉRICO (opcional) =====
@@ -88,6 +89,7 @@ services:
       - .:/var/www/html
     depends_on:
       - mysql
+      - redis
     networks:
       - sail
     restart: unless-stopped
@@ -128,13 +130,25 @@ services:
     networks:
       - sail
     healthcheck:
-      test:
-        - CMD
-        - mysqladmin
-        - ping
-        - '-p${DB_PASSWORD}'
+      test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
       retries: 3
       timeout: 5s
+
+  # ===== SERVIÇO REDIS =====
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - sail
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 networks:
   sail:
@@ -142,4 +156,6 @@ networks:
 
 volumes:
   sail-mysql:
+    driver: local
+  redis-data:
     driver: local
