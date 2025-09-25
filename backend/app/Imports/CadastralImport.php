@@ -19,6 +19,7 @@ use Maatwebsite\Excel\Concerns\RemembersRowNumber;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterChunk;
 use Maatwebsite\Excel\Events\AfterImport;
+use Maatwebsite\Excel\Events\BeforeImport;
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use App\Services\BackupService;
@@ -46,8 +47,10 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
     protected ImportJob $importJob;
     protected BackupService $backup;
 
-    /** Cache simples de vendors por import (name_clean => id) */
     protected array $vendorCache = [];
+
+    /** contador real deste chunk */
+    protected int $rowsInCurrentChunk = 0;
 
     public function __construct(ImportJob $importJob, BackupService $backup)
     {
@@ -57,144 +60,143 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
     public function model(array $row)
     {
-        // Alinha chaves caso planilha venha com underscores/variações
+        // normaliza chaves
         $row = $this->normalizeRowKeys($row);
 
-        // 🔕 Skip silencioso se a linha for realmente vazia (evita erros e I/O desnecessário)
+        // cpf com dígitos?
+        $cpfRaw = $row['cpfcliente'] ?? null;
+        $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string)$cpfRaw) : '';
+        if ($digits === '') {
+            return null; // ignora linha sem CPF
+        }
+        $this->rowsInCurrentChunk++;
+
+        // skip linha realmente vazia por segurança
         if ($this->isEffectivelyEmptyRow($row)) {
             return null;
         }
 
-        DB::transaction(function () use ($row) {
-            try {
-                // 1) Validação mínima: CPF obrigatório para localizar/identificar
-                $validatorCpf = Validator::make($row, [
-                    'cpfcliente' => ['required'],
-                ]);
-                if ($validatorCpf->fails()) {
-                    throw new ValidationException($validatorCpf);
-                }
-
-                // 2) CPF: normaliza (zeros à esquerda) e valida DV
-                $cpf = Cpf::normalize($row['cpfcliente'] ?? null);
-                if (!$cpf || !Cpf::isValid($cpf)) {
-                    throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
-                }
-
-                // 3) Busca/cria Lead (ainda sem salvar)
-                $lead   = Lead::firstOrNew(['cpf' => $cpf]);
-                $action = $lead->exists ? 'update' : 'insert';
-
-                // 4) INSERT exige nome; UPDATE não exige
-                if ($action === 'insert') {
-                    $validatorNome = Validator::make($row, [
-                        'nomecliente' => ['required', 'string'],
-                    ]);
-                    if ($validatorNome->fails()) {
-                        throw new ValidationException($validatorNome);
-                    }
-                }
-
-                // 5) Backup do estado anterior (apenas quando update)
-                if (
-                    $action === 'update'
-                    && !$lead->backups()->where('import_job_id', $this->importJob->id)->exists()
-                ) {
-                    $this->backup->bulkBackupLeads(collect([$lead]), $this->importJob);
-                }
-
-                // 6) Normalização de campos
-                $normalizedNameForInsert = null;
-                if ($action === 'insert') {
-                    $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
-                    if ($normalizedNameForInsert === null) {
-                        throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
-                    }
-                }
-
-                $dataFromSheet = [
-                    'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
-                    'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
-
-                    'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
-                    'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
-
-                    'fone2'            => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
-                    'classe_fone2'     => $this->normalizeClasse($row['classefone2'] ?? null),
-
-                    'fone3'            => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
-                    'classe_fone3'     => $this->normalizeClasse($row['classefone3'] ?? null),
-
-                    'fone4'            => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
-                    'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
-                ];
-
-                // 7) Reconciliador de telefones (preserva "Quente")
-                $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
-                foreach ($mergedPhones as $field => $value) {
-                    $dataFromSheet[$field] = $value;
-                }
-
-                // 8) Aplica apenas campos não-nulos/vazios (updates parciais)
-                foreach ($dataFromSheet as $field => $value) {
-                    if (!is_null($value) && $value !== '') {
-                        $lead->{$field} = $value;
-                    }
-                }
-                $lead->save();
-
-                // 9) Backup marca lead novo
-                if ($action === 'insert') {
-                    $this->backup->backupNewLead($lead, $this->importJob);
-                }
-
-                // 10) Contratos + vendedor (opcional)
-                if (!empty($row['datacontrato'])) {
-                    $contractDate = $this->transformDate($row['datacontrato']);
-                    if (!$contractDate) {
-                        throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
-                    }
-
-                    $vendorId = null;
-                    if (!empty($row['vendedor'])) {
-                        $cleanedVendorName = $this->normalizeName($row['vendedor']);
-                        $vendorId = $this->resolveVendorId($cleanedVendorName);
-                    }
-
-                    $contract = LeadContract::updateOrCreate(
-                        ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
-                        ['vendor_id' => $vendorId]
-                    );
-
-                    if ($contract->wasRecentlyCreated) {
-                        $this->backup->backupInsertedContract($contract, $this->importJob);
-                    }
-                }
-
-                // 11) Registra pivot idempotente SEM timestamps extras
-                DB::table('lead_imports')->insertOrIgnore([[
-                    'lead_id'       => $lead->id,
-                    'import_job_id' => $this->importJob->id,
-                    'action'        => $action,
-                    'created_at'    => now(),
-                ]]);
-
-            } catch (\Exception $e) {
-                $columnName = 'Geral';
-                if ($e instanceof ValidationException) {
-                    $columnName = array_key_first($e->errors());
-                } elseif ($e->getPrevious()) {
-                    $columnName = $e->getPrevious()->getMessage();
-                }
-
-                ImportError::create([
-                    'import_job_id' => $this->importJob->id,
-                    'row_number'    => $this->getRowNumber(),
-                    'column_name'   => $columnName,
-                    'error_message' => $e->getMessage(),
-                ]);
+        try {
+            // 1) valida cpf requerido
+            $validatorCpf = Validator::make($row, ['cpfcliente' => ['required']]);
+            if ($validatorCpf->fails()) {
+                throw new ValidationException($validatorCpf);
             }
-        });
+
+            // 2) normaliza/valida cpf
+            $cpf = Cpf::normalize($row['cpfcliente'] ?? null);
+            if (!$cpf || !Cpf::isValid($cpf)) {
+                throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
+            }
+
+            // 3) busca/cria lead
+            $lead   = Lead::firstOrNew(['cpf' => $cpf]);
+            $action = $lead->exists ? 'update' : 'insert';
+
+            // 4) insert exige nome
+            if ($action === 'insert') {
+                $validatorNome = Validator::make($row, ['nomecliente' => ['required', 'string']]);
+                if ($validatorNome->fails()) {
+                    throw new ValidationException($validatorNome);
+                }
+            }
+
+            // 5) backup antes de atualizar
+            if ($action === 'update' && !$lead->backups()->where('import_job_id', $this->importJob->id)->exists()) {
+                $this->backup->backupExistingLead($lead, $this->importJob);
+            }
+
+            // 6) normalização de campos
+            $normalizedNameForInsert = null;
+            if ($action === 'insert') {
+                $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
+                if ($normalizedNameForInsert === null) {
+                    throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
+                }
+            }
+
+            $dataFromSheet = [
+                'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
+                'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
+
+                'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
+                'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
+
+                'fone2'            => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
+                'classe_fone2'     => $this->normalizeClasse($row['classefone2'] ?? null),
+
+                'fone3'            => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
+                'classe_fone3'     => $this->normalizeClasse($row['classefone3'] ?? null),
+
+                'fone4'            => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
+                'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
+            ];
+
+            // 7) merge de telefones
+            $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
+            foreach ($mergedPhones as $field => $value) {
+                $dataFromSheet[$field] = $value;
+            }
+
+            // 8) aplica somente campos não vazios
+            foreach ($dataFromSheet as $field => $value) {
+                if (!is_null($value) && $value !== '') {
+                    $lead->{$field} = $value;
+                }
+            }
+            $lead->save();
+
+            // 9) backup de lead novo
+            if ($action === 'insert') {
+                $this->backup->backupNewLead($lead, $this->importJob);
+            }
+
+            // 10) contratos + vendedor
+            if (!empty($row['datacontrato'])) {
+                $contractDate = $this->transformDate($row['datacontrato']);
+                if (!$contractDate) {
+                    throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
+                }
+
+                $vendorId = null;
+                if (!empty($row['vendedor'])) {
+                    $cleanedVendorName = $this->normalizeName($row['vendedor']);
+                    $vendorId = $this->resolveVendorId($cleanedVendorName);
+                }
+
+                $contract = LeadContract::updateOrCreate(
+                    ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
+                    ['vendor_id' => $vendorId]
+                );
+
+                if ($contract->wasRecentlyCreated) {
+                    $this->backup->backupInsertedContract($contract, $this->importJob);
+                }
+            }
+
+            // 11) pivot idempotente
+            DB::table('lead_imports')->insertOrIgnore([[
+                'lead_id'       => $lead->id,
+                'import_job_id' => $this->importJob->id,
+                'action'        => $action,
+                'created_at'    => now(),
+            ]]);
+
+        } catch (\Exception $e) {
+            $columnName = 'Geral';
+            if ($e instanceof ValidationException) {
+                $columnName = array_key_first($e->errors());
+            } elseif ($e->getPrevious()) {
+                $columnName = $e->getPrevious()->getMessage();
+            }
+
+            ImportError::create([
+                'import_job_id' => $this->importJob->id,
+                'row_number'    => $this->getRowNumber(),
+                'column_name'   => $columnName,
+                'error_message' => $e->getMessage(),
+            ]);
+        }
 
         return null;
     }
@@ -222,7 +224,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
     private function normalizeName(?string $name): ?string
     {
         if ($name === null || $name === '') {
-            return null; // updates parciais não obrigam nome
+            return null;
         }
         $name = trim($name);
         $name = preg_replace('/[^\p{L}\p{N} \'\-]/u', '', $name);
@@ -261,7 +263,6 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
             $class = $slot['class'];
 
-            // já existe?
             $idxExisting = array_search($phone, array_column($result, 'phone'), true);
             if ($idxExisting !== false) {
                 if ($class === 'Quente' && $result[$idxExisting]['class'] !== 'Quente') {
@@ -271,20 +272,16 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             }
 
             if ($class === 'Quente') {
-                // tenta slot vazio
                 $freeIdx = null;
                 foreach ($result as $i => $s) {
                     if (empty($s['phone'])) { $freeIdx = $i; break; }
                 }
                 if (!is_null($freeIdx)) { $result[$freeIdx] = $slot; continue; }
 
-                // substitui primeiro "Frio"
                 foreach ($result as $i => $s) {
                     if ($s['class'] === 'Frio') { $result[$i] = $slot; continue 2; }
                 }
-                // todos Quente → descarta
             } else {
-                // Frio só entra em slot livre
                 foreach ($result as $i => $s) {
                     if (empty($s['phone'])) { $result[$i] = $slot; break; }
                 }
@@ -327,24 +324,28 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
     public function registerEvents(): array
     {
         return [
-            // Incremento atômico capado em total_rows (tolerante a múltiplos workers)
+            BeforeImport::class => function () {
+                // limpa backups antigos no início do import
+                $this->backup->purgeOldBackups();
+                $this->rowsInCurrentChunk = 0;
+            },
+
             AfterChunk::class => function () {
-                $remaining = max($this->importJob->total_rows - $this->importJob->processed_rows, 0);
-                if ($remaining <= 0) {
+                if ($this->rowsInCurrentChunk <= 0) {
                     return;
                 }
-                $increment = min($this->chunkSize(), $remaining);
 
                 DB::table('import_jobs')
                     ->where('id', $this->importJob->id)
                     ->update([
-                        'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$increment . ', total_rows)')
+                        'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$this->rowsInCurrentChunk . ', total_rows)')
                     ]);
 
-                $this->importJob->refresh();
+                $this->rowsInCurrentChunk = 0;
             },
 
             AfterImport::class => function () {
+                $this->rowsInCurrentChunk = 0;
                 $this->importJob->update([
                     'processed_rows' => $this->importJob->total_rows,
                     'status'         => 'concluido',
@@ -354,10 +355,6 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         ];
     }
 
-    /**
-     * Aceita aliases com underscore conforme HeadingRow (sem mudar chaves canônicas).
-     * Ex.: data_nascimento → datanascimento
-     */
     private function normalizeRowKeys(array $row): array
     {
         $aliases = [
@@ -380,7 +377,6 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         return $row;
     }
 
-    /** Linha realmente vazia (todas as colunas canônicas sem conteúdo) */
     private function isEffectivelyEmptyRow(array $row): bool
     {
         foreach (self::REQUIRED_HEADERS as $key) {
@@ -394,9 +390,6 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         return true;
     }
 
-    /**
-     * Resolve vendor id com cache + tolerância a corrida de unicidade.
-     */
     private function resolveVendorId(string $cleanedVendorName): ?int
     {
         $key = Vendor::clean($cleanedVendorName);
@@ -404,14 +397,12 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             return $this->vendorCache[$key];
         }
 
-        // 1) tenta localizar
         $vendor = Vendor::where('name_clean', $key)->first();
         if ($vendor) {
             $this->vendorCache[$key] = $vendor->id;
             return $vendor->id;
         }
 
-        // 2) tenta criar; se bater corrida, lê novamente
         try {
             $vendor = Vendor::firstOrCreate(
                 ['name_clean' => $key],

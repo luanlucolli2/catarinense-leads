@@ -151,27 +151,55 @@ const FGTSOfflineConsultaPage = () => {
 
   /** Polling ad-hoc até prévia pronta (ou final pronto). */
   /** Polling ad-hoc até prévia pronta (ou final pronto). */
+  // substitui TODO o pollPreviewAndDownload atual por este:
+
   const pollPreviewAndDownload = async (id: number) => {
     const toastId = toast.info("Gerando prévia…", { description: "Aguarde enquanto preparamos o XLSX." });
+
     let sawQueuedOrRunning = false;
+    let lastPreviewStatus: string | null = null;
+    let lastJobStatus: string | null = null;
 
-    // até ~3 min (60 * 3s)
-    for (let i = 0; i < 60; i++) {
-      const j = await getFgtsOffConsultJob(id);
+    // backoff: 2s,3s,4s… até 15s (reinicia quando houver mudança de estado)
+    let delayMs = 2000;
+    const nextDelay = () => {
+      delayMs = Math.min(delayMs + 1000, 15000);
+      return delayMs;
+    };
+    const resetDelay = () => (delayMs = 2000);
 
+    // loop “até dar boa ou ruim”
+    while (true) {
+      let j: Awaited<ReturnType<typeof getFgtsOffConsultJob>>;
+      try {
+        j = await getFgtsOffConsultJob(id);
+      } catch (e: any) {
+        // falha transitória de rede → espera e tenta de novo
+        await sleep(nextDelay());
+        continue;
+      }
+
+      // mudança de estado → acelera próximo tick
+      if (j.preview_status !== lastPreviewStatus || j.status !== lastJobStatus) {
+        resetDelay();
+        lastPreviewStatus = j.preview_status;
+        lastJobStatus = j.status;
+      }
+
+      // FINAL pronto
       if (j.has_file) {
         toast.dismiss(toastId);
         await downloadFgtsOffReport(id);
         return;
       }
 
+      // PRÉVIA estados
       if (j.preview_status === "queued" || j.preview_status === "running") {
         sawQueuedOrRunning = true;
       }
 
       if (j.preview_status === "ready") {
         if (sawQueuedOrRunning) {
-          // ✅ só mostra sucesso se de fato veio de uma fila
           toast.success("Prévia pronta! Baixando planilha…", { id: toastId });
         } else {
           toast.dismiss(toastId);
@@ -180,17 +208,25 @@ const FGTSOfflineConsultaPage = () => {
         return;
       }
 
-      if (["concluido", "falhou", "cancelado", "expirado"].includes(j.status)) {
-        toast.dismiss(toastId);
-        if (j.has_file) await downloadFgtsOffReport(id);
-        else toast.error("Job finalizado sem arquivo disponível.");
+      if (j.preview_status === "error") {
+        toast.error(j.preview_error ? `Falha ao gerar prévia: ${j.preview_error}` : "Falha ao gerar prévia.", { id: toastId });
         return;
       }
 
-      await sleep(3000);
-    }
+      // estados terminais do job
+      if (["concluido", "falhou", "cancelado", "expirado"].includes(j.status)) {
+        toast.dismiss(toastId);
+        if (j.has_file) {
+          await downloadFgtsOffReport(id);
+        } else {
+          toast.error("Job finalizado sem arquivo disponível.");
+        }
+        return;
+      }
 
-    toast.error("Tempo de espera esgotado ao gerar a prévia.", { id: toastId });
+      // ainda em andamento → espera com backoff incremental
+      await sleep(nextDelay());
+    }
   };
 
 

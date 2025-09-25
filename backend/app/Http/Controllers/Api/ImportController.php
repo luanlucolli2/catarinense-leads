@@ -9,28 +9,19 @@ use App\Jobs\ProcessLeadImportJob;
 use App\Imports\CadastralImport;
 use App\Imports\HigienizacaoImport;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Exception as ReaderException;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\UploadedFile;
-use Maatwebsite\Excel\HeadingRowImport;
 use Maatwebsite\Excel\Excel as ExcelReaderType;
 
 class ImportController extends Controller
 {
     public function store(Request $request)
     {
-        // 0) Mutex simples
-        $inProgress = ImportJob::whereIn('status', ['pendente', 'em_progresso'])->exists();
-        if ($inProgress) {
-            return response()->json([
-                'message' => 'Já existe uma importação em andamento. Aguarde a conclusão antes de iniciar outra.'
-            ], Response::HTTP_CONFLICT);
-        }
-
-        // 1) Validação
         $validated = $request->validate([
             'file'   => ['required', 'file', 'mimes:xlsx,xls'],
             'type'   => ['required', 'string', 'in:cadastral,higienizacao'],
@@ -40,12 +31,13 @@ class ImportController extends Controller
         /** @var UploadedFile $file */
         $file = $validated['file'];
         $type = $validated['type'];
+        $ext  = strtolower($file->getClientOriginalExtension());
+        $readerName = $ext === 'xls' ? 'Xls' : 'Xlsx';
 
-        // 2) Validação de cabeçalhos
-        $importerClass   = $type === 'cadastral' ? CadastralImport::class : HigienizacaoImport::class;
-        $requiredHeaders = $importerClass::REQUIRED_HEADERS;
-
-        $missing = $this->getMissingHeadersFromFile($file, $requiredHeaders);
+        // 2) Cabeçalhos (linha 1)
+        $headers = $this->readHeaders($file->getPathname(), $readerName);
+        $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
+        $missing = $this->diffMissingHeaders($headers, $requiredHeaders);
         if (!empty($missing)) {
             return response()->json([
                 'message' => 'Planilha inválida. Cabeçalhos ausentes.',
@@ -53,77 +45,50 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // 3) Contagem de linhas reais (baseada na coluna CPF)
+        // 3) Conta linhas válidas por coluna CPF (streaming)
         try {
-            $ext = strtolower($file->getClientOriginalExtension());
-            $readerName = $ext === 'xls' ? 'Xls' : 'Xlsx';
-
-            $reader = IOFactory::createReader($readerName);
-            $reader->setReadDataOnly(true);
-
-            $spreadsheet = $reader->load($file->getPathname());
-            $sheet = $spreadsheet->getSheet(0);
-
-            // encontra o índice da coluna do "cpfcliente" pela linha de cabeçalho (linha 1 pelo WithHeadingRow)
-            $headerRow = 1;
-            $highestColIndex = Coordinate::columnIndexFromString($sheet->getHighestDataColumn());
-            $cpfColIndex = null;
-
-            for ($col = 1; $col <= $highestColIndex; $col++) {
-                $val = $sheet->getCellByColumnAndRow($col, $headerRow)->getValue();
-                $slug = is_string($val) ? Str::slug($val, '_') : '';
-                if ($slug === 'cpfcliente') {
-                    $cpfColIndex = $col;
-                    break;
-                }
-            }
-
-            // fallback seguro se não achar (não deve acontecer pois já validamos headers)
-            if ($cpfColIndex === null) {
-                $totalRows = max($sheet->getHighestDataRow() - 1, 0);
-            } else {
-                $highestRow = $sheet->getHighestDataRow();
-                $count = 0;
-                for ($row = $headerRow + 1; $row <= $highestRow; $row++) {
-                    $v = $sheet->getCellByColumnAndRow($cpfColIndex, $row)->getValue();
-                    if ($v === null) {
-                        continue;
-                    }
-                    $str = trim(is_string($v) ? $v : (string) $v);
-                    // considera real apenas se tem dígitos (evita espaços/formatos vazios)
-                    $digits = preg_replace('/\D+/', '', $str);
-                    if ($digits !== '') {
-                        $count++;
-                    }
-                }
-                $totalRows = $count;
-            }
-
-            unset($spreadsheet, $sheet);
+            $cpfColIndex = $this->findCpfColumnIndex($headers); // 1-based
+            $totalRows   = $this->countRowsByCpfColumn($file->getPathname(), $readerName, $cpfColIndex);
         } catch (ReaderException $e) {
             return response()->json([
                 'message' => 'Não foi possível ler o arquivo. Verifique se o formato é válido e se não está corrompido.'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // 4) Salva arquivo SEMPRE no disco 'local' e cria ImportJob
-        $path = $file->store('imports', 'local');
+        // 4) Mutex atômico
+        $locked = DB::selectOne('SELECT GET_LOCK(?, ? ) AS l', ['imports_mutex', 5]);
+        if (!$locked || (int)$locked->l !== 1) {
+            return response()->json([
+                'message' => 'Outro processo de importação está iniciando. Tente novamente.'
+            ], Response::HTTP_CONFLICT);
+        }
 
-        $importJob = ImportJob::create([
-            'user_id'        => Auth::id(),
-            'type'           => $type,
-            'origin'         => $validated['origin'] ?? 'Upload Padrão',
-            'file_name'      => $file->getClientOriginalName(),
-            'file_path'      => $path,
-            'status'         => 'pendente',
-            'total_rows'     => (int) $totalRows,
-            'processed_rows' => 0,
-        ]);
+        try {
+            $inProgress = ImportJob::whereIn('status', ['pendente', 'em_progresso'])->exists();
+            if ($inProgress) {
+                return response()->json([
+                    'message' => 'Já existe uma importação em andamento. Aguarde a conclusão antes de iniciar outra.'
+                ], Response::HTTP_CONFLICT);
+            }
 
-        // 5) Dispara o processamento
+            $path = $file->store('imports', 'local');
+
+            $importJob = ImportJob::create([
+                'user_id'        => Auth::id(),
+                'type'           => $type,
+                'origin'         => $validated['origin'] ?? 'Upload Padrão',
+                'file_name'      => $file->getClientOriginalName(),
+                'file_path'      => $path,
+                'status'         => 'pendente',
+                'total_rows'     => (int)$totalRows,
+                'processed_rows' => 0,
+            ]);
+        } finally {
+            DB::select('SELECT RELEASE_LOCK(?) AS r', ['imports_mutex']);
+        }
+
         ProcessLeadImportJob::dispatch($importJob);
 
-        // 6) 202
         return response()->json([
             'message' => 'Arquivo recebido. A importação será processada em segundo plano.',
             'job_id'  => $importJob->id,
@@ -135,14 +100,14 @@ class ImportController extends Controller
         $errors = $importJob->errors()->count();
 
         $percent = $importJob->total_rows
-            ? (int) floor($importJob->processed_rows / $importJob->total_rows * 100)
+            ? (int) floor($importJob->processed_rows / max($importJob->total_rows, 1) * 100)
             : 0;
 
         return response()->json([
             'status'          => $importJob->status,
             'processed_rows'  => (int) $importJob->processed_rows,
             'total_rows'      => (int) $importJob->total_rows,
-            'percent'         => $percent,
+            'percent'         => min($percent, 100),
             'errors'          => $errors,
         ]);
     }
@@ -195,32 +160,129 @@ class ImportController extends Controller
         }, $filename, ['Content-Type' => 'text/csv']);
     }
 
-    /**
-     * Lê os headers com HeadingRowImport, informando explicitamente o reader type (XLSX/XLS).
-     */
-    private function getMissingHeadersFromFile(UploadedFile $file, array $requiredHeaders): array
+    /* ===================== helpers de leitura streaming ===================== */
+
+    private function readHeaders(string $fullPath, string $readerName): array
     {
-        $ext = strtolower($file->getClientOriginalExtension());
-        $readerType = $ext === 'xls' ? ExcelReaderType::XLS : ExcelReaderType::XLSX;
+        $reader = IOFactory::createReader($readerName);
+        $reader->setReadDataOnly(true);
+        $reader->setReadFilter(new HeaderRowReadFilter(1));
 
-        $arrays = (new HeadingRowImport)->toArray($file->getPathname(), null, $readerType);
-        $present = array_map(
-            fn ($h) => is_string($h) ? Str::slug($h, '_') : $h,
-            ($arrays[0][0] ?? [])
-        );
+        $spreadsheet = $reader->load($fullPath);
+        $sheet = $spreadsheet->getSheet(0);
 
-        $normalizedRequired = array_map(
-            fn ($h) => Str::slug($h, '_'),
-            $requiredHeaders
-        );
+        $highestColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
+        $headers = [];
+        for ($col = 1; $col <= $highestColIndex; $col++) {
+            $val = $sheet->getCellByColumnAndRow($col, 1)->getValue();
+            $headers[$col] = is_string($val) ? Str::slug($val, '_') : '';
+        }
+
+        $spreadsheet->disconnectWorksheets();
+        unset($sheet, $spreadsheet);
+
+        return $headers;
+    }
+
+    private function findCpfColumnIndex(array $headers): int
+    {
+        foreach ($headers as $idx => $slug) {
+            if ($slug === 'cpfcliente') {
+                return (int)$idx;
+            }
+        }
+        return 0;
+    }
+
+    private function countRowsByCpfColumn(string $fullPath, string $readerName, int $cpfColIndex): int
+    {
+        if ($cpfColIndex <= 0) {
+            // fallback: totalRows bruto - 1
+            $readerInfo = $readerName === 'Xls'
+                ? new \PhpOffice\PhpSpreadsheet\Reader\Xls()
+                : new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+            $info = $readerInfo->listWorksheetInfo($fullPath);
+            $total = max(($info[0]['totalRows'] ?? 1) - 1, 0);
+            return (int)$total;
+        }
+
+        // pega highestRow barato
+        $readerInfo = $readerName === 'Xls'
+            ? new \PhpOffice\PhpSpreadsheet\Reader\Xls()
+            : new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+        $info = $readerInfo->listWorksheetInfo($fullPath);
+        $highestRow = (int)($info[0]['totalRows'] ?? 1);
+
+        if ($highestRow <= 1) return 0;
+
+        // lê apenas a coluna do CPF, das linhas 2..highestRow
+        $reader = IOFactory::createReader($readerName);
+        $reader->setReadDataOnly(true);
+        $reader->setReadFilter(new SingleColumnReadFilter($cpfColIndex, 2, $highestRow));
+
+        $spreadsheet = $reader->load($fullPath);
+        $sheet = $spreadsheet->getSheet(0);
+
+        $count = 0;
+        for ($row = 2; $row <= $highestRow; $row++) {
+            $v = $sheet->getCellByColumnAndRow($cpfColIndex, $row)->getValue();
+            if ($v === null) continue;
+            $str = trim(is_string($v) ? $v : (string)$v);
+            $digits = preg_replace('/\D+/', '', $str);
+            if ($digits !== '') $count++;
+        }
+
+        $spreadsheet->disconnectWorksheets();
+        unset($sheet, $spreadsheet);
+
+        return $count;
+    }
+
+    private function diffMissingHeaders(array $presentByIndex, array $requiredOriginal): array
+    {
+        $present = array_values($presentByIndex);
+        $normalizedRequired = array_map(fn ($h) => Str::slug($h, '_'), $requiredOriginal);
 
         $missing = [];
         foreach ($normalizedRequired as $i => $slugReq) {
             if (!in_array($slugReq, $present, true)) {
-                $missing[] = $requiredHeaders[$i];
+                $missing[] = $requiredOriginal[$i];
             }
         }
-
         return $missing;
+    }
+}
+
+/* ===================== ReadFilters ===================== */
+
+class HeaderRowReadFilter implements IReadFilter
+{
+    private int $row;
+
+    public function __construct(int $row = 1) { $this->row = $row; }
+
+    public function readCell($column, $row, $worksheetName = '')
+    {
+        return $row === $this->row;
+    }
+}
+
+class SingleColumnReadFilter implements IReadFilter
+{
+    private int $colIndex1Based;
+    private int $startRow;
+    private int $endRow;
+
+    public function __construct(int $colIndex1Based, int $startRow, int $endRow)
+    {
+        $this->colIndex1Based = $colIndex1Based;
+        $this->startRow = $startRow;
+        $this->endRow = $endRow;
+    }
+
+    public function readCell($column, $row, $worksheetName = '')
+    {
+        $idx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($column);
+        return $idx === $this->colIndex1Based && $row >= $this->startRow && $row <= $this->endRow;
     }
 }

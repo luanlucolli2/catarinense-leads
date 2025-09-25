@@ -84,25 +84,18 @@ class FgtsOfflineController extends Controller
 
         $data = $validator->validated();
 
-        $cpfs = $data['cpfs'];
-        $tokens = is_string($cpfs)
-            ? (preg_split('/[\s,;]+/u', $cpfs, -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            : (is_array($cpfs) ? $cpfs : []);
+        $tokens = is_string($data['cpfs'])
+            ? (preg_split('/[\s,;]+/u', $data['cpfs'], -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            : (is_array($data['cpfs']) ? $data['cpfs'] : []);
 
         $valid = [];
         $invalid = [];
-
         foreach ($tokens as $t) {
             $norm = Cpf::normalize((string) $t);
-            if ($norm === null)
-                continue;
-
-            if (Cpf::isValid($norm))
-                $valid[] = $norm;
-            else
-                $invalid[] = $norm;
+            if ($norm === null) continue;
+            if (Cpf::isValid($norm)) $valid[] = $norm;
+            else $invalid[] = $norm;
         }
-
         $valid = array_values(array_unique($valid));
         $invalid = array_values(array_diff(array_unique($invalid), $valid));
 
@@ -112,57 +105,50 @@ class FgtsOfflineController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $tz = $data['timezone'] ?? 'America/Sao_Paulo';
+        $tz    = $data['timezone'] ?? 'America/Sao_Paulo';
         $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $tz) : null;
         $endAt = isset($data['end_at']) ? Carbon::parse($data['end_at'], $tz) : null;
 
-        if ($runAt && $runAt->greaterThan(Carbon::now($tz))) {
-            $runAtUtc = $runAt->clone()->setTimezone('UTC');
-            $endAtUtc = $endAt->clone()->setTimezone('UTC');
+        // Cria registro do job
+        $job = FgtsOfflineJob::create([
+            'user_id'               => $request->user()->id,
+            'title'                 => $data['title'],
+            'status'                => $runAt && $runAt->greaterThan(Carbon::now($tz)) ? 'agendado' : 'pendente',
+            'total_cpfs'            => count($valid) + count($invalid),
+            'success_count'         => 0,
+            'not_authorized_count'  => 0,
+            'fail_count'            => 0,
+            'scheduled_for'         => $runAt ? $runAt->clone()->setTimezone('UTC') : null,
+            'scheduled_until'       => $endAt ? $endAt->clone()->setTimezone('UTC') : null,
+            'preview_dirty'         => false,
+            'preview_status'        => 'none',
+        ]);
 
-            $job = FgtsOfflineJob::create([
-                'user_id' => $request->user()->id,
-                'title' => $data['title'],
-                'status' => 'agendado',
-                'total_cpfs' => count($valid) + count($invalid),
-                'success_count' => 0,
-                'not_authorized_count' => 0,
-                'fail_count' => 0,
-                'scheduled_for' => $runAtUtc,
-                'scheduled_until' => $endAtUtc,
-                'preview_dirty' => false,
-                'preview_status' => 'none',
-            ]);
+        // Pré-cria spool e arquivo de CPFs no disco de relatórios
+        [$spoolPath, $cpfsPath, $spoolBytes] = $this->createInitialSpool($job->id, array_merge($valid, $invalid));
 
-            ProcessFgtsOfflineJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid)
-                ->delay($runAtUtc);
+        $job->update([
+            'spool_path'      => $spoolPath,
+            'spool_cpfs_path' => $cpfsPath,
+            'spool_bytes'     => $spoolBytes,
+        ]);
 
+        // Enfileira somente com o ID (sem payload de CPFs)
+        if ($job->status === 'agendado') {
+            ProcessFgtsOfflineJob::dispatch($job->id)
+                ->delay($job->scheduled_for);
             return response()->json([
-                'id' => $job->id,
-                'status' => $job->status,
-                'scheduled_for' => $job->scheduled_for,
-                'scheduled_until' => $job->scheduled_until,
+                'id'               => $job->id,
+                'status'           => $job->status,
+                'scheduled_for'    => $job->scheduled_for,
+                'scheduled_until'  => $job->scheduled_until,
             ], Response::HTTP_ACCEPTED);
         }
 
-        $job = FgtsOfflineJob::create([
-            'user_id' => $request->user()->id,
-            'title' => $data['title'],
-            'status' => 'pendente',
-            'total_cpfs' => count($valid) + count($invalid),
-            'success_count' => 0,
-            'not_authorized_count' => 0,
-            'fail_count' => 0,
-            'scheduled_for' => null,
-            'scheduled_until' => null,
-            'preview_dirty' => false,
-            'preview_status' => 'none',
-        ]);
-
-        ProcessFgtsOfflineJob::dispatch($job->id, $request->user()->id, $job->title, $valid, $invalid);
+        ProcessFgtsOfflineJob::dispatch($job->id);
 
         return response()->json([
-            'id' => $job->id,
+            'id'     => $job->id,
             'status' => $job->status,
         ], Response::HTTP_ACCEPTED);
     }
@@ -221,7 +207,7 @@ class FgtsOfflineController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
-    /** 📥 Download da PRÉVIA (não gera inline). */
+    /** 📥 Download da PRÉVIA (streaming) */
     public function downloadPreview(Request $request, int $id)
     {
         $job = FgtsOfflineJob::query()
@@ -245,17 +231,20 @@ class FgtsOfflineController extends Controller
             return $disk->download($job->preview_path, $fileName);
         }
 
-        $content = $disk->get($job->preview_path);
-        // XLSX MIME conhecido; evita falso-positivo do analisador em mimeType()
-        $mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        $stream = $disk->readStream($job->preview_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Falha ao abrir arquivo.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
 
-        return response($content, Response::HTTP_OK, [
-            'Content-Type' => $mime,
-            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
+        return response()->streamDownload(function () use ($stream) {
+            fpassthru($stream);
+            if (is_resource($stream)) fclose($stream);
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
 
-    /** Download do relatório FINAL */
+    /** Download do relatório FINAL (streaming) */
     public function download(int $id)
     {
         $job = FgtsOfflineJob::query()
@@ -278,13 +267,16 @@ class FgtsOfflineController extends Controller
             return $disk->download($job->file_path, $filename);
         }
 
-        $content = $disk->get($job->file_path);
-        // idem acima
-        $mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        $stream = $disk->readStream($job->file_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Falha ao abrir arquivo.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
 
-        return response($content, Response::HTTP_OK, [
-            'Content-Type' => $mime,
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        return response()->streamDownload(function () use ($stream) {
+            fpassthru($stream);
+            if (is_resource($stream)) fclose($stream);
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
 
@@ -319,10 +311,7 @@ class FgtsOfflineController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning(
-                "[FGTS-OFF] Erro ao apagar prévia no cancel (job {$job->id}): " . $e->getMessage(),
-                ['exception' => $e]
-            );
+            Log::warning("[FGTS-OFF] Erro ao apagar prévia no cancel (job {$job->id}): ".$e->getMessage(), ['exception' => $e]);
         } finally {
             $job->update([
                 'preview_disk' => null,
@@ -338,6 +327,21 @@ class FgtsOfflineController extends Controller
                 'preview_rows' => 0,
                 'preview_error' => null,
             ]);
+        }
+
+        // Spool é apagado pelo Process job ao detectar cancelamento,
+        // mas tentamos limpar aqui também por segurança.
+        try {
+            $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+            $disk = Storage::disk($diskName);
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
+                $p = $job->{$field};
+                if ($p && $disk->exists($p)) {
+                    $disk->delete($p);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[FGTS-OFF] Erro ao apagar spool no cancel (job {$job->id}): ".$e->getMessage());
         }
 
         return response()->json([
@@ -369,7 +373,7 @@ class FgtsOfflineController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
+            Log::warning("[FGTS-OFF] Erro ao apagar arquivo final (job {$job->id}): ".$e->getMessage());
         }
 
         try {
@@ -380,7 +384,7 @@ class FgtsOfflineController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Erro ao apagar arquivo de prévia (job {$job->id}): " . $e->getMessage());
+            Log::warning("[FGTS-OFF] Erro ao apagar arquivo de prévia (job {$job->id}): ".$e->getMessage());
         }
 
         try {
@@ -393,7 +397,7 @@ class FgtsOfflineController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
+            Log::warning("[FGTS-OFF] Erro ao apagar spool (job {$job->id}): ".$e->getMessage());
         }
 
         $job->delete();
@@ -404,5 +408,69 @@ class FgtsOfflineController extends Controller
     private function finalPrefix(): string
     {
         return (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+    }
+
+    /**
+     * Cria spool inicial (CSV com cabeçalho) e arquivo de CPFs (um por linha).
+     * Retorna [spoolPath, cpfsPath, spoolBytes].
+     */
+    private function createInitialSpool(int $jobId, array $allCpfs): array
+    {
+        $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+        $disk = Storage::disk($diskName);
+
+        $dirSpool   = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
+        $finalPref  = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+
+        if (!$disk->exists($dirSpool)) {
+            $disk->makeDirectory($dirSpool);
+        }
+
+        $spoolName = "{$finalPref}_{$jobId}.spool.csv";
+        $cpfsName  = "{$finalPref}_{$jobId}.cpfs.txt";
+
+        $spoolPath = "{$dirSpool}/{$spoolName}";
+        $cpfsPath  = "{$dirSpool}/{$cpfsName}";
+
+        // Spool CSV com cabeçalho
+        $fp = fopen($disk->path($spoolPath), 'c+');
+        if ($fp === false) {
+            throw new \RuntimeException("Não foi possível criar spool em {$spoolPath}");
+        }
+        try {
+            if (flock($fp, LOCK_EX)) {
+                ftruncate($fp, 0);
+                fputcsv($fp, \App\Exports\FgtsOfflineExport::COLS, ';');
+                fflush($fp);
+                flock($fp, LOCK_UN);
+            }
+        } finally {
+            fclose($fp);
+        }
+
+        // Arquivo CPFs (um por linha; válidos + inválidos deduplicados)
+        $uniq = array_values(array_unique(array_map(fn($c) => preg_replace('/\D+/', '', (string) $c), $allCpfs)));
+        $fp2 = fopen($disk->path($cpfsPath), 'c+');
+        if ($fp2 === false) {
+            throw new \RuntimeException("Não foi possível criar cpfs em {$cpfsPath}");
+        }
+        try {
+            if (flock($fp2, LOCK_EX)) {
+                ftruncate($fp2, 0);
+                foreach ($uniq as $cpf) {
+                    if ($cpf === '' || strlen($cpf) !== 11) continue;
+                    fwrite($fp2, $cpf."\n");
+                }
+                fflush($fp2);
+                flock($fp2, LOCK_UN);
+            }
+        } finally {
+            fclose($fp2);
+        }
+
+        $bytes = 0;
+        try { $bytes = (int) $disk->size($spoolPath); } catch (\Throwable) {}
+
+        return [$spoolPath, $cpfsPath, $bytes];
     }
 }

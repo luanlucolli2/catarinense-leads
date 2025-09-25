@@ -21,12 +21,12 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Timeout (segundos) — gerar XLSX pode ser pesado, mas previsível */
+    /** Timeout (segundos) */
     public int $timeout = 7200;
 
     public function __construct(public int $consultJobId)
     {
-        // Fila dedicada a relatórios/prévias
+        // Fila dedicada (relatórios/prévias)
         $this->onQueue((string) config('facta_off.preview.queue', 'reports'));
     }
 
@@ -34,14 +34,15 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
     {
         /** @var FgtsOfflineJob|null $job */
         $job = FgtsOfflineJob::query()->whereKey($this->consultJobId)->first();
-
         if (!$job) {
+            Log::warning("[FGTS-OFF][PREVIEW] Job {$this->consultJobId} não encontrado.");
             return;
         }
 
-        // Se o job foi cancelado/excluído, não faz sentido gerar prévia
+        // Cancelado: não gera
         $statusNow = DB::table('fgts_off_consult_jobs')->where('id', $job->id)->value('status');
-        if (in_array($statusNow, ['cancelado'], true)) {
+        if ($statusNow === 'cancelado') {
+            Log::info("[FGTS-OFF][PREVIEW] Job {$job->id} cancelado antes da geração de prévia.");
             $this->markNone($job);
             return;
         }
@@ -50,18 +51,14 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
         /** @var FilesystemAdapter $disk */
         $disk = Storage::disk($diskName);
 
-        if (
-            empty($job->spool_path) || empty($job->spool_cpfs_path) ||
-            !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)
-        ) {
+        if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
+            Log::warning("[FGTS-OFF][PREVIEW] Job {$job->id} sem spool; prévia indisponível.");
             $this->markError($job, 'Prévia indisponível: spool ausente.');
             return;
         }
 
-        // Captura o spool_bytes atual para atualização condicional ao final
         $spoolBytesAtStart = (int) ($job->spool_bytes ?? 0);
 
-        // Sinaliza execução
         $job->update([
             'preview_status' => 'running',
             'preview_started_at' => Carbon::now(),
@@ -72,68 +69,52 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
             $finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
             $dirPreviews = (string) config('facta_off.storage.dir_previews', 'fgts-off-previews');
 
-            // garante diretório de prévias (primeira execução/ambiente novo)
             if (!$disk->exists($dirPreviews)) {
                 $disk->makeDirectory($dirPreviews);
             }
 
             $fileName = $job->preview_name ?: "{$finalPrefix}_{$job->id}_preview.xlsx";
             $tmpName = preg_replace('/\.xlsx$/', '.tmp.xlsx', $fileName);
-
             $path = "{$dirPreviews}/{$fileName}";
             $tmpPath = "{$dirPreviews}/{$tmpName}";
 
             $spoolReal = $disk->path($job->spool_path);
-            $cpfsReal = $disk->path($job->spool_cpfs_path);
 
+            Log::info("[FGTS-OFF][PREVIEW] Iniciando geração (job={$job->id}) spool={$job->spool_path} bytes={$spoolBytesAtStart}");
+
+            // Generator: SOMENTE linhas processadas do spool
             $processedCount = 0;
-            $pendingCount = 0;
+            $logEvery = (int) max(5000, env('FGTS_OFF_PREVIEW_LOG_EVERY', 20000)); // logs de progresso a cada N linhas
 
-            $iteratorFactory = function () use ($spoolReal, $cpfsReal, &$processedCount, &$pendingCount): \Generator {
-                $done = [];
-
+            $iteratorFactory = function () use ($spoolReal, &$processedCount, $logEvery, $job): \Generator {
                 $fh = fopen($spoolReal, 'r');
-                if ($fh !== false) {
-                    try {
-                        flock($fh, LOCK_SH);
-                        fgetcsv($fh, 0, ';'); // cabeçalho
-                        while (($data = fgetcsv($fh, 0, ';')) !== false) {
-                            $assoc = [];
-                            foreach (\App\Exports\FgtsOfflineExport::COLS as $i => $key) {
-                                $assoc[$key] = $data[$i] ?? null;
-                            }
-                            $cpf = (string) ($assoc['cpf'] ?? '');
-                            if ($cpf !== '')
-                                $done[$cpf] = true;
-                            $processedCount++;
-                            yield $assoc;
-                        }
-                    } finally {
-                        flock($fh, LOCK_UN);
-                        fclose($fh);
-                    }
+                if ($fh === false) {
+                    Log::warning("[FGTS-OFF][PREVIEW] Job {$job->id} falha ao abrir spool para leitura.");
+                    return;
                 }
-
-                $fh2 = fopen($cpfsReal, 'r');
-                if ($fh2 !== false) {
-                    try {
-                        flock($fh2, LOCK_SH);
-                        while (($line = fgets($fh2)) !== false) {
-                            $cpf = trim($line);
-                            if ($cpf === '' || isset($done[$cpf]))
-                                continue;
-
-                            $row = array_fill_keys(\App\Exports\FgtsOfflineExport::COLS, null);
-                            $row['cpf'] = $cpf;
-                            $row['mensagem'] = 'Em andamento';
-                            $row['consultadoEm'] = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
-                            $pendingCount++;
-                            yield $row;
+                $t0 = microtime(true);
+                try {
+                    flock($fh, LOCK_SH);
+                    // pula cabeçalho
+                    fgetcsv($fh, 0, ';');
+                    while (($data = fgetcsv($fh, 0, ';')) !== false) {
+                        $assoc = [];
+                        foreach (FgtsOfflineExport::COLS as $i => $key) {
+                            $assoc[$key] = $data[$i] ?? null;
                         }
-                    } finally {
-                        flock($fh2, LOCK_UN);
-                        fclose($fh2);
+                        $processedCount++;
+
+                        if (($processedCount % $logEvery) === 0) {
+                            $elapsed = max(0.001, microtime(true) - $t0);
+                            $rps = number_format($processedCount / $elapsed, 1);
+                            Log::debug("[FGTS-OFF][PREVIEW] job={$job->id} progresso={$processedCount} linhas, ~{$rps} lps");
+                        }
+
+                        yield $assoc;
                     }
+                } finally {
+                    flock($fh, LOCK_UN);
+                    fclose($fh);
                 }
             };
 
@@ -152,6 +133,7 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
                     $disk->delete($path);
                 } catch (Throwable) {
                 }
+                Log::info("[FGTS-OFF][PREVIEW] Job {$job->id} cancelado durante a geração; descartando arquivo.");
                 $this->markNone($job);
                 return;
             }
@@ -162,7 +144,6 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
             } catch (Throwable) {
             }
 
-            // Atualiza campos da prévia (sem tocar em preview_dirty aqui)
             $job->update([
                 'preview_disk' => $diskName,
                 'preview_path' => $path,
@@ -171,11 +152,11 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
                 'preview_status' => 'ready',
                 'preview_finished_at' => Carbon::now(),
                 'preview_size_bytes' => $sizeBytes,
-                'preview_rows' => ($processedCount + $pendingCount),
+                'preview_rows' => $processedCount, // somente processados
                 'preview_error' => null,
             ]);
 
-            // ✅ Só limpamos o preview_dirty se o spool NÃO mudou desde o início
+            // Limpa preview_dirty se spool não mudou
             DB::table('fgts_off_consult_jobs')
                 ->where('id', $job->id)
                 ->where('spool_bytes', $spoolBytesAtStart)
@@ -184,8 +165,9 @@ class GenerateFgtsOffPreviewJob implements ShouldQueue
                     'updated_at' => Carbon::now(),
                 ]);
 
+            Log::info("[FGTS-OFF][PREVIEW] Concluída (job={$job->id}) linhas={$processedCount} size={$sizeBytes}B path={$path}");
         } catch (Throwable $e) {
-            Log::warning("[FGTS-OFF] Prévia (job {$job->id}) falhou: " . $e->getMessage());
+            Log::warning("[FGTS-OFF][PREVIEW] Job {$job->id} falhou: " . $e->getMessage());
             $this->markError($job, $e->getMessage());
         }
     }
