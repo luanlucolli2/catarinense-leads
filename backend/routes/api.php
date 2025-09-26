@@ -11,24 +11,19 @@ use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
 
-/*--------------------------------------------------
-| Rotas Públicas
-|--------------------------------------------------*/
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/login-token', [AuthController::class, 'loginToken']);
 Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 
-/*--------------------------------------------------
-| Rotas Protegidas (Sanctum)
-|--------------------------------------------------*/
 Route::middleware('auth:sanctum')->group(function () {
-
     Route::get('/user', fn(Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
     Route::apiResource('leads', LeadController::class);
+    // ✅ evita 431: mesma listagem, mas via POST (body JSON) para filtros massivos
+    Route::post('/leads/search', [LeadController::class, 'search']);
 
     /* Importação (FGTS) */
     Route::post('/import', [ImportController::class, 'store']);
@@ -41,7 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     /* Rollback da última importação */
     Route::post('/import/{importJob}/rollback', [RollbackController::class, 'store'])->whereNumber('importJob');
 
-    /* Consulta CLT (Consignado do Trabalhador) */
+    /* CLT */
     Route::get('/clt/consult-jobs', [CltConsultController::class, 'index']);
     Route::post('/clt/consult-jobs', [CltConsultController::class, 'store']);
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
@@ -52,16 +47,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
 
-    /* FGTS Offline (Base OFF da FACTA) */
+    /* FGTS Offline */
     Route::get('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'index']);
     Route::post('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'store']);
     Route::get('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'show'])->whereNumber('id');
     Route::get('/fgts-off/consult-jobs/{id}/download', [FgtsOfflineController::class, 'download'])->whereNumber('id');
-
-    // 🔁 PRÉVIA: gerar (assíncrono) + baixar
     Route::post('/fgts-off/consult-jobs/{id}/preview/generate', [FgtsOfflineController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/fgts-off/consult-jobs/{id}/preview', [FgtsOfflineController::class, 'downloadPreview'])->whereNumber('id');
-
     Route::post('/fgts-off/consult-jobs/{id}/cancel', [FgtsOfflineController::class, 'cancel'])->whereNumber('id');
     Route::delete('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'destroy'])->whereNumber('id');
 });

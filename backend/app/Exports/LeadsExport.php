@@ -52,7 +52,8 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
             'contracts_count'   => 'Qtde de Contratos',
         ];
 
-        return array_map(fn($c) => $map[$c], $this->columns);
+        // request já valida colunas; evitar undefined index por segurança defensiva
+        return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);
     }
 
     public function map($lead): array
@@ -62,7 +63,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         foreach ($this->columns as $col) {
             switch ($col) {
                 case 'cpf':
-                    // 👉 CPF como número (sem zeros à esquerda)
+                    // CPF como número (sem zeros à esquerda)
                     $row[] = $this->cpfToNumber($lead->cpf);
                     break;
 
@@ -75,12 +76,10 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                     break;
 
                 case 'data_atualizacao':
-                    // Data/hora → serial Excel (formatada como data)
                     $row[] = $this->toExcelDate($lead->data_atualizacao);
                     break;
 
                 case 'data_nascimento':
-                    // Data (somente dia) → serial Excel
                     $row[] = $this->toExcelDate($lead->data_nascimento, true);
                     break;
 
@@ -108,18 +107,16 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         foreach ($this->columns as $idx => $col) {
             $colIndex = Coordinate::stringFromColumnIndex($idx + 1);
 
-            // 💰 números com 2 casas para saldo/libera
             if (in_array($col, ['saldo', 'libera'], true)) {
                 $formats[$colIndex] = NumberFormat::FORMAT_NUMBER_00;
             }
 
-            // 📅 datas
             if (in_array($col, ['data_atualizacao', 'data_nascimento'], true)) {
                 $formats[$colIndex] = NumberFormat::FORMAT_DATE_DDMMYYYY;
             }
 
-            // 🆔 CPF como inteiro (sem separador, sem zeros à esquerda)
             if ($col === 'cpf') {
+                // inteiro “puro” sem separador; evita notação científica na UI do Excel
                 $formats[$colIndex] = '0';
             }
         }
@@ -131,15 +128,20 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
     {
         if (empty($value)) return null;
 
-        $dt = $value instanceof \DateTimeInterface
-            ? Carbon::instance($value)
-            : Carbon::parse($value);
+        try {
+            $dt = $value instanceof \DateTimeInterface
+                ? Carbon::instance($value)
+                : Carbon::parse((string)$value);
 
-        if ($isDateOnly) {
-            $dt = $dt->startOfDay();
+            if ($isDateOnly) {
+                $dt = $dt->startOfDay();
+            }
+
+            return ExcelDate::dateTimeToExcel($dt);
+        } catch (\Throwable $e) {
+            // data inválida → célula vazia
+            return null;
         }
-
-        return ExcelDate::dateTimeToExcel($dt);
     }
 
     /**
@@ -150,54 +152,45 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
     {
         if ($val === null || $val === '') return null;
 
-        // Mantém somente dígitos, sinais e separadores . ,
-        $s = preg_replace('/[^0-9.,-]/', '', (string) $val);
-        if ($s === '' || $s === null) return null;
+        $s = preg_replace('/[^0-9.,-]/', '', (string)$val);
+        if ($s === '') return null;
 
-        // Descobre qual é o último separador presente → esse será o separador decimal
         $lastDot   = strrpos($s, '.');
         $lastComma = strrpos($s, ',');
 
         if ($lastDot === false && $lastComma === false) {
-            return is_numeric($s) ? (float) $s : null;
+            return is_numeric($s) ? (float)$s : null;
         }
 
-        if ($lastDot !== false && $lastComma !== false) {
-            $decimalSep = ($lastDot > $lastComma) ? '.' : ',';
-        } elseif ($lastDot !== false) {
-            $decimalSep = '.';
-        } else {
-            $decimalSep = ',';
-        }
+        $decimalSep  = ($lastDot !== false && $lastComma !== false)
+            ? (($lastDot > $lastComma) ? '.' : ',')
+            : (($lastDot !== false) ? '.' : ',');
 
         $thousandSep = ($decimalSep === '.') ? ',' : '.';
 
-        // Remove separadores de milhar e normaliza o separador decimal para ponto
         $normalized = str_replace($thousandSep, '', $s);
         $normalized = str_replace($decimalSep, '.', $normalized);
 
-        // Se por algum motivo sobraram múltiplos pontos, mantém só o último como decimal
         if (substr_count($normalized, '.') > 1) {
-            // remove todos os '.' que tenham outro '.' à direita (mantém o último)
             $normalized = preg_replace('/\.(?=.*\.)/', '', $normalized);
         }
 
-        return is_numeric($normalized) ? (float) $normalized : null;
+        return is_numeric($normalized) ? (float)$normalized : null;
     }
 
-    /** CPF -> número (sem zeros à esquerda); 32-bit cai para float */
+    /** CPF -> número (sem zeros à esquerda); 32-bit retorna float para evitar overflow */
     private function cpfToNumber($val): int|float|null
     {
         if ($val === null || $val === '') return null;
 
-        $digits = preg_replace('/\D+/', '', (string) $val) ?? '';
+        $digits = preg_replace('/\D+/', '', (string)$val) ?? '';
         $digits = ltrim($digits, '0');
         if ($digits === '') $digits = '0';
 
-        // evita overflow em arquiteturas 32-bit
         if (PHP_INT_SIZE >= 8) {
-            return (int) $digits;
+            return (int)$digits;
         }
-        return (float) $digits;
+        // 32-bit: retorna float simples (11 dígitos cabem sem perda)
+        return (float)$digits;
     }
 }
