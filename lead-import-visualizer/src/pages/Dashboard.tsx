@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useQuery, keepPreviousData } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { usePersistedState } from "@/hooks/usePersistedState";
@@ -21,85 +21,42 @@ import {
   formatPhone,
 } from "@/lib/formatters"
 
-/* ---------- estado de filtros ---------- */
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
 
-  const [searchValue, setSearchValue] = usePersistedState<string>(
-    "dashboard:searchValue",
-    ""
-  );
-  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>(
-    "dashboard:statusFilter",
-    "todos"
-  );
-  const [motivosFilter, setMotivosFilter] = usePersistedState<string[]>(
-    "dashboard:motivosFilter",
-    []
-  );
-  const [origemFilter, setOrigemFilter] = usePersistedState<string[]>(
-    "dashboard:origemFilter",
-    []
-  );
-  const [higienizacaoFilter, setHigienizacaoFilter] = usePersistedState<
-    string[]
-  >("dashboard:higienizacaoFilter", []);
-  const [dateFromFilter, setDateFromFilter] = usePersistedState<string>(
-    "dashboard:dateFromFilter",
-    ""
-  );
-  const [dateToFilter, setDateToFilter] = usePersistedState<string>(
-    "dashboard:dateToFilter",
-    ""
-  );
-  /* período de contratos */
-  const [contractDateFromFilter, setContractDateFromFilter] =
-    usePersistedState<string>("dashboard:contractDateFromFilter", "");
-  const [contractDateToFilter, setContractDateToFilter] =
-    usePersistedState<string>("dashboard:contractDateToFilter", "");
-  /* filtros “massa” */
-  const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>(
-    "dashboard:cpfMassFilter",
-    ""
-  );
-  const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>(
-    "dashboard:namesMassFilter",
-    ""
-  );
-  const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>(
-    "dashboard:phonesMassFilter",
-    ""
-  );
-  const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>(
-    "dashboard:vendorsFilter",
-    []
-  );
-  /* 🎂 meses de aniversário */
-  const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>(
-    "dashboard:birthMonthFilter",
-    []
-  );
+  const [searchValue, setSearchValue] = usePersistedState<string>("dashboard:searchValue", "")
+  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>("dashboard:statusFilter", "todos")
+  const [motivosFilter, setMotivosFilter] = usePersistedState<string[]>("dashboard:motivosFilter", [])
+  const [origemFilter, setOrigemFilter] = usePersistedState<string[]>("dashboard:origemFilter", [])
+  const [higienizacaoFilter, setHigienizacaoFilter] = usePersistedState<string[]>("dashboard:higienizacaoFilter", [])
+  const [dateFromFilter, setDateFromFilter] = usePersistedState<string>("dashboard:dateFromFilter", "")
+  const [dateToFilter, setDateToFilter] = usePersistedState<string>("dashboard:dateToFilter", "")
+  const [contractDateFromFilter, setContractDateFromFilter] = usePersistedState<string>("dashboard:contractDateFromFilter", "")
+  const [contractDateToFilter, setContractDateToFilter] = usePersistedState<string>("dashboard:contractDateToFilter", "")
+  const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>("dashboard:cpfMassFilter", "")
+  const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>("dashboard:namesMassFilter", "")
+  const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
+  const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
+  const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
-  /* modais */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
-  /* ---------- opções (motivos & origens) ---------- */
   const {
     data: filterOptions,
     isLoading: loadingOptions,
   } = useQuery({
     queryKey: ["leadsFilters"],
     queryFn: fetchLeadsFilters,
-    staleTime: 1000 * 60 * 5, // 5 min
+    staleTime: 1000 * 60 * 5,
   })
 
-  /* ---------- fetch dos leads ---------- */
   const {
     data: paginatedData,
     isLoading,
+    isFetching,
     isError,
     refetch,
   } = useQuery<PaginatedLeadsResponse>({
@@ -119,7 +76,7 @@ const Dashboard = () => {
       namesMassFilter,
       phonesMassFilter,
       vendorsFilter,
-      birthMonthFilter, // 👈 inclui no cache key
+      birthMonthFilter,
     ],
     queryFn: () =>
       fetchLeads({
@@ -137,27 +94,21 @@ const Dashboard = () => {
         names: namesMassFilter,
         phones: phonesMassFilter,
         vendors: vendorsFilter,
-        birth_month: birthMonthFilter, // 👈 envia para API
+        birth_month: birthMonthFilter,
       }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
   })
 
-  /* ---------- transformação p/ tabela ---------- */
   const processedLeads: ProcessedLead[] = useMemo(() => {
     if (!paginatedData?.data) return []
-
     return paginatedData.data.map((lead: LeadFromApi) => {
       const liberaIsNumeric =
         lead.libera && !isNaN(parseFloat(lead.libera.replace(",", ".")))
-      const liberaValue = liberaIsNumeric
-        ? parseFloat(lead.libera!.replace(",", "."))
-        : 0
+      const liberaValue = liberaIsNumeric ? parseFloat(lead.libera!.replace(",", ".")) : 0
 
       const status: "Elegível" | "Inelegível" =
-        lead.consulta === "Saldo FACTA" && liberaValue > 0
-          ? "Elegível"
-          : "Inelegível"
+        lead.consulta === "Saldo FACTA" && liberaValue > 0 ? "Elegível" : "Inelegível"
 
       const telefones = [
         { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
@@ -183,10 +134,47 @@ const Dashboard = () => {
     })
   }, [paginatedData])
 
-  /* ---------- handlers de filtros ---------- */
+  /* ---------- toasts controlados ---------- */
+  const [awaitingFetch, setAwaitingFetch] = useState<null | "apply" | "clear">(null)
+  const [pendingToastId, setPendingToastId] = useState<string | number | null>(null)
+
+  useEffect(() => {
+    if (!awaitingFetch) return
+    // enquanto estiver buscando, garantimos um loading visível
+    if ((isFetching || isLoading) && !pendingToastId) {
+      const id = toast.loading(
+        awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
+      )
+      setPendingToastId(id)
+      return
+    }
+
+    if (isFetching || isLoading) return
+
+    // terminou: fecha loading e mostra sucesso/erro
+    if (pendingToastId) {
+      toast.dismiss(pendingToastId)
+      setPendingToastId(null)
+    }
+
+    if (isError) {
+      toast.error("Falha ao aplicar filtros. Tente novamente.")
+    } else {
+      if (awaitingFetch === "apply") toast.success("Filtros aplicados.")
+      if (awaitingFetch === "clear") toast.info("Filtros limpos.")
+    }
+    setAwaitingFetch(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFetching, isLoading, isError, awaitingFetch, pendingToastId])
+
+  /* ---------- handlers ---------- */
   const handleApplyFilters = () => {
     setCurrentPage(1)
-    toast.success("Filtros aplicados.")
+    setAwaitingFetch("apply")
+    // dispara loading imediatamente (não precisa esperar effect rodar)
+    if (pendingToastId) toast.dismiss(pendingToastId)
+    const id = toast.loading("Aplicando filtros…")
+    setPendingToastId(id)
   }
 
   const handleClearFilters = () => {
@@ -204,12 +192,15 @@ const Dashboard = () => {
     setNamesMassFilter("")
     setPhonesMassFilter("")
     setVendorsFilter([])
-    setBirthMonthFilter([]) // 👈 limpa meses
+    setBirthMonthFilter([])
     setCurrentPage(1)
-    toast.info("Filtros limpos.")
+
+    setAwaitingFetch("clear")
+    if (pendingToastId) toast.dismiss(pendingToastId)
+    const id = toast.loading("Limpando filtros…")
+    setPendingToastId(id)
   }
 
-  /* ---------- flags ---------- */
   const hasActiveFilters =
     searchValue ||
     statusFilter !== "todos" ||
@@ -224,9 +215,8 @@ const Dashboard = () => {
     phonesMassFilter ||
     higienizacaoFilter.length ||
     vendorsFilter.length ||
-    birthMonthFilter.length // 👈 considera no indicador
+    birthMonthFilter.length
 
-  // monta objeto de filtros pra export
   const collectFilters = () => ({
     search: searchValue || undefined,
     status: statusFilter !== "todos" ? statusFilter : undefined,
@@ -241,10 +231,9 @@ const Dashboard = () => {
     names: namesMassFilter || undefined,
     phones: phonesMassFilter || undefined,
     vendors: vendorsFilter.length ? vendorsFilter : undefined,
-    birth_month: birthMonthFilter.length ? birthMonthFilter : undefined, // 👈 export
+    birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
   })
 
-  // handler de exportação efetiva
   const handleExport = async (columns: string[]) => {
     toast.info("Exportação iniciada.")
     try {
@@ -256,7 +245,6 @@ const Dashboard = () => {
     }
   }
 
-  /* ---------- render ---------- */
   if (isError)
     return (
       <div className="p-6 text-center text-red-500">
@@ -278,12 +266,10 @@ const Dashboard = () => {
       <LeadsControls
         onImportClick={() => setIsImportModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
-        /* busca rápida e elegibilidade */
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         eligibleFilter={statusFilter}
         onEligibleFilterChange={setStatusFilter}
-        /* filtros avançados */
         motivosFilter={motivosFilter}
         onMotivosFilterChange={setMotivosFilter}
         origemFilter={origemFilter}
@@ -298,20 +284,16 @@ const Dashboard = () => {
         onContractDateFromFilterChange={setContractDateFromFilter}
         contractDateToFilter={contractDateToFilter}
         onContractDateToFilterChange={setContractDateToFilter}
-        /* filtros “massa” (placeholder) */
         cpfMassFilter={cpfMassFilter}
         onCpfMassFilterChange={setCpfMassFilter}
         namesMassFilter={namesMassFilter}
         onNamesMassFilterChange={setNamesMassFilter}
         phonesMassFilter={phonesMassFilter}
         onPhonesMassFilterChange={setPhonesMassFilter}
-        /* 🎂 meses de aniversário */
         birthMonthFilter={birthMonthFilter}
         onBirthMonthFilterChange={setBirthMonthFilter}
-        /* ações */
         onApplyFilters={handleApplyFilters}
         onClearFilters={handleClearFilters}
-        /* opções dinâmicas */
         availableMotivos={filterOptions?.motivos ?? []}
         availableOrigens={filterOptions?.origens ?? []}
         availableHigienizacoes={filterOptions?.origens_hig ?? []}
@@ -329,7 +311,6 @@ const Dashboard = () => {
         isLoading={isLoading || loadingOptions}
       />
 
-      {/* Modais */}
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
@@ -339,7 +320,8 @@ const Dashboard = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        onExport={handleExport} />
+        onExport={handleExport}
+      />
     </div>
   )
 }

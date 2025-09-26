@@ -67,9 +67,9 @@ export interface LeadFilters {
   date_to?: string
   contract_from?: string
   contract_to?: string
-  cpf?: string
-  names?: string
-  phones?: string
+  cpf?: string          // textarea (CSV/linhas)
+  names?: string        // textarea
+  phones?: string       // textarea
   origens_hig?: string[]
   vendors?: string[]
   /** 🎂 meses de aniversário (1..12 como strings) */
@@ -82,6 +82,11 @@ const splitAndNormalize = (raw: string, stripNonDigits = true): string[] =>
     .split(/[\n,;]+/)
     .map((s) => (stripNonDigits ? s.replace(/\D/g, "") : s.trim()))
     .filter(Boolean)
+
+const normalizeMonths = (arr?: string[]) =>
+  (arr ?? [])
+    .map((m) => String(parseInt(m, 10)))
+    .filter((m) => /^\d+$/.test(m) && +m >= 1 && +m <= 12)
 
 const buildQueryParams = (f: LeadFilters) => {
   const p = new URLSearchParams()
@@ -103,7 +108,7 @@ const buildQueryParams = (f: LeadFilters) => {
   if (f.contract_from) p.set("contract_from", f.contract_from)
   if (f.contract_to) p.set("contract_to", f.contract_to)
 
-  // filtros em massa
+  // filtros em massa (GET -> CSV)
   if (f.cpf) {
     const list = splitAndNormalize(f.cpf, true)
     if (list.length) p.set("cpf", list.join(","))
@@ -116,24 +121,61 @@ const buildQueryParams = (f: LeadFilters) => {
     const list = splitAndNormalize(f.phones, true)
     if (list.length) p.set("phones", list.join(","))
   }
-  if (f.vendors?.length) {
-    p.set("vendors", f.vendors.join(","))
-  }
+  if (f.vendors?.length) p.set("vendors", f.vendors.join(","))
 
   // 🎂 mês(es) de aniversário
-  if (f.birth_month?.length) {
-    // garante apenas valores 1..12 como string
-    const months = f.birth_month
-      .map((m) => String(parseInt(m, 10)))
-      .filter((m) => /^\d+$/.test(m) && +m >= 1 && +m <= 12)
-    if (months.length) p.set("birth_month", months.join(","))
-  }
+  const months = normalizeMonths(f.birth_month)
+  if (months.length) p.set("birth_month", months.join(","))
 
   return p
 }
 
+const shouldUsePost = (filters: LeadFilters) => {
+  // Heurística: se URL prevista > ~1500 chars OU listas muito grandes, usa POST
+  const params = buildQueryParams(filters)
+  const urlPreview = `/leads?${params.toString()}`
+  if (urlPreview.length > 1500) return true
+
+  const cpfCount = filters.cpf ? splitAndNormalize(filters.cpf, true).length : 0
+  const namesCount = filters.names ? splitAndNormalize(filters.names, false).length : 0
+  const phonesCount = filters.phones ? splitAndNormalize(filters.phones, true).length : 0
+  const totalMass = cpfCount + namesCount + phonesCount
+  return totalMass > 200 // ajustável
+}
+
 /* ---------- Endpoints ---------- */
 export async function fetchLeads(filters: LeadFilters) {
+  if (shouldUsePost(filters)) {
+    // POST /leads/search com arrays; page vai na query (paginator do Laravel)
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      // básicos
+      search: filters.search?.trim() || undefined,
+      status: filters.status && filters.status !== "todos" ? filters.status : undefined,
+      motivos: filters.motivos?.length ? filters.motivos : undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      contract_from: filters.contract_from || undefined,
+      contract_to: filters.contract_to || undefined,
+      vendors: filters.vendors?.length ? filters.vendors : undefined,
+      birth_month: months.length ? months : undefined,
+      // massa como arrays
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+    }
+
+    const { data } = await axiosClient.post<PaginatedLeadsResponse>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined } // mantém paginação
+    )
+    return data
+  }
+
+  // GET normal
   const params = buildQueryParams(filters)
   const { data } = await axiosClient.get<PaginatedLeadsResponse>("/leads", {
     params,
@@ -161,17 +203,7 @@ export async function fetchLeadsFilters() {
 /** Normaliza filtros críticos para o POST do export (mantém compatibilidade com o backend) */
 function normalizeFiltersForExport(filters: LeadFilters): LeadFilters {
   const normalized: LeadFilters = { ...filters }
-
-  // 🎂 birth_month -> apenas valores 1..12 como string
-  if (filters.birth_month?.length) {
-    normalized.birth_month = filters.birth_month
-      .map((m) => String(parseInt(m, 10)))
-      .filter((m) => /^\d+$/.test(m) && +m >= 1 && +m <= 12)
-  }
-
-  // vendors / motivos / origens / origens_hig já são string[] no front
-  // cpf/names/phones vão como string (backend já normaliza CRLF -> vírgula)
-
+  normalized.birth_month = normalizeMonths(filters.birth_month)
   return normalized
 }
 
@@ -189,7 +221,6 @@ export async function exportLeads(
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement("a")
 
-  // tenta filename*= (RFC 5987) e fallback para filename=
   const cd = response.headers["content-disposition"] as string | undefined
   let filename = "leads_export.xlsx"
   if (cd) {
@@ -197,10 +228,9 @@ export async function exportLeads(
     if (star?.[1]) {
       try {
         const v = star[1].trim()
-        // exemplo: UTF-8''leads_export.xlsx
         const parts = v.split("''")
         filename = decodeURIComponent(parts.pop() || filename)
-      } catch {}
+      } catch { }
     } else {
       const simple = cd.match(/filename="?([^"]+)"?/i)
       if (simple?.[1]) filename = simple[1]
