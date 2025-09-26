@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use App\Models\Lead;
 use App\Models\Vendor;
+use App\Support\Cpf;
 
 class LeadFilter
 {
@@ -70,9 +71,8 @@ class LeadFilter
                 ]);
             }
 
-            // status flag SQL (só se solicitada a coluna 'status')
+            // status flag SQL (só se solicitada)
             if (in_array('status', $columnsForExport, true)) {
-                // garante que consulta/libera estão disponíveis (p/ fallback no map)
                 if (!in_array('leads.consulta', $select, true))
                     $query->addSelect('leads.consulta');
                 if (!in_array('leads.libera', $select, true))
@@ -104,14 +104,28 @@ class LeadFilter
 
         // ---------- Filtros ----------
         if ($r->filled('search')) {
-            $term = '%' . $r->input('search') . '%';
-            $query->where(function (Builder $q) use ($term) {
-                $q->where('nome', 'like', $term)
-                    ->orWhere('cpf', 'like', $term)
-                    ->orWhere('fone1', 'like', $term)
-                    ->orWhere('fone2', 'like', $term)
-                    ->orWhere('fone3', 'like', $term)
-                    ->orWhere('fone4', 'like', $term);
+            $termRaw = (string) $r->input('search');
+            $termLike = '%' . $termRaw . '%';
+            $digits = preg_replace('/\D+/', '', $termRaw) ?: '';
+
+            $query->where(function (Builder $q) use ($termLike, $digits) {
+                // nome e telefones por LIKE
+                $q->where('nome', 'like', $termLike)
+                    ->orWhere('fone1', 'like', $termLike)
+                    ->orWhere('fone2', 'like', $termLike)
+                    ->orWhere('fone3', 'like', $termLike)
+                    ->orWhere('fone4', 'like', $termLike);
+
+                // CPF: tenta match exato normalizado e, de fallback, LIKE só dos dígitos
+                if ($digits !== '') {
+                    $norm = Cpf::normalize($digits);
+                    if ($norm) {
+                        $q->orWhere('cpf', $norm);
+                    }
+                    $q->orWhere('cpf', 'like', '%' . $digits . '%');
+                } else {
+                    $q->orWhere('cpf', 'like', $termLike);
+                }
             });
         }
 
@@ -157,9 +171,9 @@ class LeadFilter
             });
         }
 
-        self::applyMassFilter($query, $r, 'cpf', ['cpf']);
+        self::applyMassFilter($query, $r, 'cpf', ['cpf']);                              // normaliza CPF
         self::applyMassFilter($query, $r, 'names', ['nome']);
-        self::applyMassFilter($query, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);
+        self::applyMassFilter($query, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);   // normaliza fones
 
         if ($r->filled('vendors')) {
             $vendors = explode(',', (string) $r->vendors);
@@ -184,28 +198,73 @@ class LeadFilter
         return $query->latest('updated_at');
     }
 
+    /**
+     * Filtro em massa:
+     * - 'names': LIKE parcial por termo.
+     * - 'cpf'  : normaliza para 11 dígitos e aplica WHERE IN em chunks.
+     * - 'phones': remove não-dígitos, corta DDI 55, mantém 10–11, chunks.
+     * - outros : WHERE IN direto em chunks.
+     */
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
     {
         if (!$r->filled($key)) {
             return;
         }
 
-        $values = array_values(array_filter(array_unique(
-            preg_split('/[\s,;]+/', (string) $r->input($key))
-        )));
+        $raw = preg_split('/[\s,;]+/', (string) $r->input($key));
+        $raw = array_values(array_filter($raw, fn($v) => $v !== '' && $v !== null));
+        if (empty($raw)) {
+            return;
+        }
+
+        if ($key === 'names') {
+            $values = array_values(array_unique($raw));
+            $q->where(function ($sub) use ($columns, $values) {
+                foreach ($columns as $col) {
+                    foreach ($values as $v) {
+                        $sub->orWhere($col, 'like', "%{$v}%");
+                    }
+                }
+            });
+            return;
+        }
+
+        if ($key === 'cpf') {
+            $normalized = [];
+            foreach ($raw as $v) {
+                $n = Cpf::normalize((string) $v);
+                if ($n !== null)
+                    $normalized[] = $n;
+            }
+            $values = array_values(array_unique($normalized));
+        } elseif ($key === 'phones') {
+            // normalização mínima de telefone similar ao import
+            $normPhones = [];
+            foreach ($raw as $v) {
+                $d = preg_replace('/\D+/', '', (string) $v);
+                if (strlen($d) > 11 && substr($d, 0, 2) === '55') {
+                    $d = substr($d, 2);
+                }
+                if (strlen($d) === 10 || strlen($d) === 11) {
+                    $normPhones[] = $d;
+                }
+            }
+            $values = array_values(array_unique($normPhones));
+        } else {
+            $values = array_values(array_unique($raw));
+        }
 
         if (empty($values)) {
             return;
         }
 
-        $q->where(function ($sub) use ($columns, $values, $key) {
+        $chunkSize = 1000;
+        $chunks = array_chunk($values, $chunkSize);
+
+        $q->where(function ($sub) use ($columns, $chunks) {
             foreach ($columns as $col) {
-                if ($key === 'names') {
-                    foreach ($values as $v) {
-                        $sub->orWhere($col, 'like', "%{$v}%");
-                    }
-                } else {
-                    $sub->orWhereIn($col, $values);
+                foreach ($chunks as $set) {
+                    $sub->orWhereIn($col, $set);
                 }
             }
         });
