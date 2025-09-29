@@ -23,8 +23,8 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
-    mem_limit: 512m
-    mem_reservation: 384m
+    mem_limit: 384m          # ↓ p/ caber no total
+    mem_reservation: 320m
     cpu_shares: 1024
 
   laravel:
@@ -49,8 +49,8 @@ services:
     depends_on: [mysql]
     networks: [sail]
     restart: unless-stopped
-    mem_limit: 256m
-    mem_reservation: 192m
+    mem_limit: 192m          # ↓ suficiente p/ FPM
+    mem_reservation: 160m
     cpu_shares: 1024
 
   queue:
@@ -91,10 +91,11 @@ services:
     memswap_limit: "768m"
     cpu_shares: 768
 
+  # FGTS OFF (alta) — continua folgado, mas cabendo com reports
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=832 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=800 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -105,15 +106,16 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 896m
-    mem_reservation: 768m
+    mem_limit: 832m         # ↓ leve ajuste
+    mem_reservation: 704m
     memswap_limit: "1536m"
     cpu_shares: 2048
 
+  # RELATÓRIOS/PRÉVIAS (alta) — MAIS MEMÓRIA AQUI
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=288 --tries=1 --backoff=30
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=480 --tries=1 --backoff=30
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -124,9 +126,9 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 320m
-    mem_reservation: 256m
-    memswap_limit: "768m"
+    mem_limit: 512m         # ↑ bem mais folga p/ 20k linhas
+    mem_reservation: 384m
+    memswap_limit: "1024m"
     cpu_shares: 1536
 
   frontend:
@@ -138,8 +140,8 @@ services:
     ports: ["8080:80"]
     networks: [sail]
     depends_on: [laravel]
-    mem_limit: 32m
-    mem_reservation: 24m
+    mem_limit: 24m          # ↓ pequeno ajuste
+    mem_reservation: 20m
     cpu_shares: 128
 
 networks:
