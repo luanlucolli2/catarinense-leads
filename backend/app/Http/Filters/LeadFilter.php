@@ -43,13 +43,38 @@ class LeadFilter
                       ->limit(1);
                 }]);
             }
+
             if (in_array('status', $columnsForExport, true)) {
                 if (!in_array('leads.consulta', $select, true)) $query->addSelect('leads.consulta');
                 if (!in_array('leads.libera', $select, true))   $query->addSelect('leads.libera');
                 $query->addSelect(DB::raw("$isElegivel AS status_flag"));
             }
+
             if (in_array('contracts_count', $columnsForExport, true)) {
                 $query->withCount('contracts');
+            }
+
+            // ➕ NOVOS CAMPOS (subselects leves, sem carregar relações)
+            if (in_array('data_contrato_recente', $columnsForExport, true)) {
+                $query->addSelect([
+                    'data_contrato_recente' => DB::table('lead_contracts')
+                        ->selectRaw('MAX(data_contrato)')
+                        ->whereColumn('lead_contracts.lead_id', 'leads.id')
+                        ->limit(1),
+                ]);
+            }
+
+            if (in_array('vendedor', $columnsForExport, true)) {
+                // vendedor do contrato mais recente
+                $query->addSelect([
+                    'vendedor' => DB::table('lead_contracts as lc')
+                        ->join('vendors as v', 'v.id', '=', 'lc.vendor_id')
+                        ->whereColumn('lc.lead_id', 'leads.id')
+                        ->orderByDesc('lc.data_contrato')
+                        ->orderByDesc('lc.id')
+                        ->limit(1)
+                        ->select('v.name'),
+                ]);
             }
         } else {
             $query = Lead::query()
@@ -65,7 +90,7 @@ class LeadFilter
                 }]);
         }
 
-        // search
+        // ----- filtros existentes (inalterados) -----
         if ($r->filled('search')) {
             $termRaw  = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
@@ -92,7 +117,6 @@ class LeadFilter
             $query->whereRaw($r->status === 'elegiveis' ? "$isElegivel = 1" : "$isElegivel = 0");
         }
 
-        // valores podem vir como array (POST JSON) ou CSV (GET)
         $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string)$r->motivos)) : [];
         if ($motivos) $query->whereIn('consulta', $motivos);
 
@@ -120,9 +144,9 @@ class LeadFilter
             $query->whereHas('contracts', fn(Builder $q) => $q->whereBetween('data_contrato', [$from, $to]));
         }
 
-        self::applyMassFilter($query, $r, 'cpf',    ['cpf']);                           // ✅ arrays OK
+        self::applyMassFilter($query, $r, 'cpf',    ['cpf']);
         self::applyMassFilter($query, $r, 'names',  ['nome']);
-        self::applyMassFilter($query, $r, 'phones', ['fone1','fone2','fone3','fone4']); // ✅ arrays OK
+        self::applyMassFilter($query, $r, 'phones', ['fone1','fone2','fone3','fone4']);
 
         $vendors = $r->filled('vendors') ? (is_array($r->vendors) ? $r->vendors : explode(',', (string)$r->vendors)) : [];
         if ($vendors) {
@@ -164,7 +188,7 @@ class LeadFilter
         if ($key === 'cpf') {
             $normalized = [];
             foreach ($raw as $v) {
-                $n = Cpf::normalize((string)$v);
+                $n = \App\Support\Cpf::normalize((string)$v);
                 if ($n !== null) $normalized[] = $n;
             }
             $values = array_values(array_unique($normalized));
