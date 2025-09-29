@@ -23,7 +23,7 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
-    mem_limit: 384m          # ↓ p/ caber no total
+    mem_limit: 384m
     mem_reservation: 320m
     cpu_shares: 1024
 
@@ -46,10 +46,10 @@ services:
       - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - ./docker/php-fpm.ini:/etc/php/8.4/fpm/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql]
+    depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
-    mem_limit: 192m          # ↓ suficiente p/ FPM
+    mem_limit: 192m
     mem_reservation: 160m
     cpu_shares: 1024
 
@@ -63,7 +63,7 @@ services:
       - .:/var/www/html
       - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql]
+    depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
@@ -82,7 +82,7 @@ services:
       - .:/var/www/html
       - ./docker/php-cli.clt.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql]
+    depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
@@ -91,7 +91,7 @@ services:
     memswap_limit: "768m"
     cpu_shares: 768
 
-  # FGTS OFF (alta) — continua folgado, mas cabendo com reports
+  # FGTS OFF (alta)
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
@@ -102,16 +102,16 @@ services:
       - .:/var/www/html
       - ./docker/php-cli.fgts.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql]
+    depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 832m         # ↓ leve ajuste
+    mem_limit: 832m
     mem_reservation: 704m
     memswap_limit: "1536m"
     cpu_shares: 2048
 
-  # RELATÓRIOS/PRÉVIAS (alta) — MAIS MEMÓRIA AQUI
+  # RELATÓRIOS/PRÉVIAS (alta)
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
@@ -122,11 +122,11 @@ services:
       - .:/var/www/html
       - ./docker/php-cli.reports.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql]
+    depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 512m         # ↑ bem mais folga p/ 20k linhas
+    mem_limit: 512m
     mem_reservation: 384m
     memswap_limit: "1024m"
     cpu_shares: 1536
@@ -140,9 +140,27 @@ services:
     ports: ["8080:80"]
     networks: [sail]
     depends_on: [laravel]
-    mem_limit: 24m          # ↓ pequeno ajuste
+    mem_limit: 24m
     mem_reservation: 20m
     cpu_shares: 128
+
+  # ====== REDIS (novo) ======
+  redis:
+    image: redis:7-alpine
+    container_name: leads-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks: [sail]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 160m
+    mem_reservation: 96m
+    cpu_shares: 256
 
 networks:
   sail: { driver: bridge }
@@ -150,3 +168,4 @@ networks:
 volumes:
   sail-mysql:
   storage-data:
+  redis-data:
