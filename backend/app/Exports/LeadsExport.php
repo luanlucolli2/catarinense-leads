@@ -11,8 +11,10 @@ use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use Carbon\Carbon;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\BeforeExport;
 
-class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFormatting
+class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFormatting, WithEvents
 {
     protected Builder $query;
     protected array   $columns;
@@ -31,28 +33,27 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
     public function headings(): array
     {
         $map = [
-            'id'                   => 'ID',
-            'cpf'                  => 'CPF',
-            'nome'                 => 'Nome',
-            'data_nascimento'      => 'Data de Nascimento',
-            'fone1'                => 'Telefone 1',
-            'fone2'                => 'Telefone 2',
-            'fone3'                => 'Telefone 3',
-            'fone4'                => 'Telefone 4',
-            'classe_fone1'         => 'Classe 1',
-            'classe_fone2'         => 'Classe 2',
-            'classe_fone3'         => 'Classe 3',
-            'classe_fone4'         => 'Classe 4',
-            'status'               => 'Status',
-            'consulta'             => 'Motivo (Consulta)',
-            'saldo'                => 'Saldo',
-            'libera'               => 'Libera',
-            'primeira_origem'      => 'Origem',
-            'data_atualizacao'     => 'Data de Atualização',
-            'contracts_count'      => 'Qtde de Contratos',
-            // ➕ novos
-            'vendedor'             => 'Vendedor',
-            'data_contrato_recente'=> 'Data de Contrato (mais recente)',
+            'id'                    => 'ID',
+            'cpf'                   => 'CPF',
+            'nome'                  => 'Nome',
+            'data_nascimento'       => 'Data de Nascimento',
+            'fone1'                 => 'Telefone 1',
+            'fone2'                 => 'Telefone 2',
+            'fone3'                 => 'Telefone 3',
+            'fone4'                 => 'Telefone 4',
+            'classe_fone1'          => 'Classe 1',
+            'classe_fone2'          => 'Classe 2',
+            'classe_fone3'          => 'Classe 3',
+            'classe_fone4'          => 'Classe 4',
+            'status'                => 'Status',
+            'consulta'              => 'Motivo (Consulta)',
+            'saldo'                 => 'Saldo',
+            'libera'                => 'Libera',
+            'primeira_origem'       => 'Origem',
+            'data_atualizacao'      => 'Data de Atualização',
+            'contracts_count'       => 'Qtde de Contratos',
+            'vendedor'              => 'Vendedor',
+            'data_contrato_recente' => 'Data de Contrato (mais recente)',
         ];
 
         return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);
@@ -127,6 +128,23 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         return $formats;
     }
 
+    public function registerEvents(): array
+    {
+        return [
+            BeforeExport::class => function (BeforeExport $event) {
+                // Maatwebsite\Excel\Writer -> PhpSpreadsheet\Writer\Xlsx
+                $delegate = method_exists($event->writer, 'getDelegate')
+                    ? $event->writer->getDelegate()
+                    : null;
+
+                if ($delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
+                    && method_exists($delegate, 'setUseInlineStrings')) {
+                    $delegate->setUseInlineStrings(true);
+                }
+            },
+        ];
+    }
+
     private function toExcelDate($value, bool $isDateOnly = false): ?float
     {
         if (empty($value)) return null;
@@ -146,9 +164,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         }
     }
 
-    /**
-     * Converte strings numéricas com ponto/vírgula para float.
-     */
     private function toFloat($val): ?float
     {
         if ($val === null || $val === '') return null;
@@ -188,9 +203,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         $digits = ltrim($digits, '0');
         if ($digits === '') $digits = '0';
 
-        if (PHP_INT_SIZE >= 8) {
-            return (int)$digits;
-        }
-        return (float)$digits;
+        return PHP_INT_SIZE >= 8 ? (int)$digits : (float)$digits;
     }
 }

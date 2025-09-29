@@ -3,24 +3,26 @@ import { useState } from "react";
 import {
   Download,
   Loader2,
+  MoreHorizontal,
+  X,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
-  XCircle,
-  ShieldAlert,
-  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { cn } from "@/lib/utils";
-import { FgtsOffConsultJobListItem, FgtsOffJobStatus } from "@/api/fgtsOff";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +32,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
+import { FgtsOffConsultJobListItem, FgtsOffJobStatus } from "@/api/fgtsOff";
 
 type Props = {
   items: FgtsOffConsultJobListItem[];
@@ -48,45 +52,148 @@ type Props = {
   formatDateTimeBR: (iso?: string | null) => string;
 };
 
-function StatusBadge({ status }: { status: FgtsOffJobStatus }) {
+function getStatusInfo(status: FgtsOffJobStatus) {
   switch (status) {
     case "concluido":
-      return (
-        <Badge className="bg-green-100 text-green-800 border-green-200">
-          Concluído
-        </Badge>
-      );
-    case "expirado":
-      return (
-        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
-          Expirado
-        </Badge>
-      );
-    case "agendado":
-      return <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200">Agendado</Badge>;
+      return {
+        icon: <CheckCircle className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800",
+        label: "Concluído",
+      };
     case "em_progresso":
-      return (
-        <Badge className="inline-flex items-center justify-center gap-1.5 bg-blue-100 text-blue-800 border-blue-200 whitespace-nowrap text-center">
-          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-          <span className="leading-none">Em andamento</span>
-        </Badge>
-      );
+      return {
+        icon: <Loader2 className="w-4 h-4 animate-spin" />,
+        className:
+          "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
+        label: "Em andamento",
+      };
     case "falhou":
-      return (
-        <Badge className="bg-red-100 text-red-800 border-red-200">
-          Falhou
-        </Badge>
-      );
+      return {
+        icon: <XCircle className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800",
+        label: "Falhou",
+      };
+    case "agendado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800",
+        label: "Agendado",
+      };
+    case "expirado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800",
+        label: "Expirado",
+      };
     case "cancelado":
-      return (
-        <Badge className="bg-gray-100 text-gray-800 border-gray-200">
-          Cancelado
-        </Badge>
-      );
+      return {
+        icon: <X className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600",
+        label: "Cancelado",
+      };
     case "pendente":
     default:
-      return <Badge variant="secondary">Pendente</Badge>;
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800/40 dark:text-gray-200 dark:border-gray-700",
+        label: "Pendente",
+      };
   }
+}
+
+function calcSegments(i: FgtsOffConsultJobListItem) {
+  const total = i.total_cpfs || 0;
+  if (!total) return { ok: 0, not: 0, err: 0, sum: 0 };
+  const ok = (i.success_count / total) * 100;
+  const not = ((i.not_authorized_count ?? 0) / total) * 100;
+  const err = (i.fail_count / total) * 100;
+  const sum = ok + not + err;
+  return { ok, not, err, sum, total };
+}
+
+function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
+  const s = calcSegments(item);
+  const processed = (
+    item.success_count +
+    (item.not_authorized_count ?? 0) +
+    item.fail_count
+  ).toLocaleString();
+
+  const pulseWidthPct = Math.min(
+    5,
+    Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8)
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">Progresso</span>
+        <span className="font-medium text-card-foreground">
+          {processed} de {item.total_cpfs.toLocaleString()} CPFs
+        </span>
+      </div>
+
+      <div className="relative h-3 bg-muted rounded-full overflow-hidden">
+        {s.ok > 0 && (
+          <div
+            className="absolute left-0 top-0 h-full bg-emerald-500 dark:bg-emerald-400"
+            style={{ width: `${s.ok}%` }}
+          />
+        )}
+        {s.not > 0 && (
+          <div
+            className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400"
+            style={{ left: `${s.ok}%`, width: `${s.not}%` }}
+          />
+        )}
+        {s.err > 0 && (
+          <div
+            className="absolute top-0 h-full bg-red-500 dark:bg-red-400"
+            style={{ left: `${s.ok + s.not}%`, width: `${s.err}%` }}
+          />
+        )}
+        {item.status === "em_progresso" && s.sum < 100 && (
+          <div
+            className="absolute top-0 h-full bg-blue-300/60 dark:bg-blue-700/70 animate-pulse"
+            style={{
+              left: `${s.sum}%`,
+              width: `${Math.min(pulseWidthPct, 100 - s.sum)}%`,
+            }}
+          />
+        )}
+      </div>
+
+      <div className="flex justify-between text-xs">
+        <div className="flex items-center gap-4">
+          {s.ok > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
+              <span className="text-muted-foreground">Sucesso</span>
+            </div>
+          )}
+          {s.not > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
+              <span className="text-muted-foreground">Não Autorizados</span>
+            </div>
+          )}
+          {s.err > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
+              <span className="text-muted-foreground">Falhas</span>
+            </div>
+          )}
+        </div>
+        <span className="text-muted-foreground">{s.sum.toFixed(1)}% completo</span>
+      </div>
+    </div>
+  );
 }
 
 export const FgtsOffHistoryTable = ({
@@ -102,23 +209,22 @@ export const FgtsOffHistoryTable = ({
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<FgtsOffConsultJobListItem | null>(null);
-
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] = useState<FgtsOffConsultJobListItem | null>(null);
 
-  const handlePrev = () => onPageChange(Math.max(1, page - 1));
-  const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
-
-  // FINAL disponível também em 'falhou' agora, desde que haja file_path
   const canDownloadFinal = (i: FgtsOffConsultJobListItem) =>
-    (i.status === "concluido" || i.status === "expirado" || i.status === "falhou") && Boolean(i.file_path);
+    (i.status === "concluido" ||
+      i.status === "expirado" ||
+      i.status === "falhou") &&
+    Boolean(i.file_path);
 
-  // PRÉVIA é gerada sob demanda (spool + pendentes), então habilitamos em pendente/em_progresso
   const canDownloadPreview = (i: FgtsOffConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
 
   const canCancel = (i: FgtsOffConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "agendado";
+    i.status === "pendente" ||
+    i.status === "em_progresso" ||
+    i.status === "agendado";
 
   const canDelete = (i: FgtsOffConsultJobListItem) =>
     !(i.status === "pendente" || i.status === "em_progresso" || i.status === "agendado");
@@ -155,115 +261,80 @@ export const FgtsOffHistoryTable = ({
     }
   };
 
+  const handlePrev = () => onPageChange(Math.max(1, page - 1));
+  const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
+
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      <div className="px-4 py-3">
-        <div className="text-sm text-gray-600">
-          {loading ? "Carregando..." : `${items.length} itens na página`}
-        </div>
-      </div>
+    <div className="space-y-4">
+      {loading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            Carregando...
+          </CardContent>
+        </Card>
+      ) : items.length === 0 ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">Nenhuma consulta encontrada</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        items.map((i) => {
+          const statusInfo = getStatusInfo(i.status as FgtsOffJobStatus);
+          const finalReady = canDownloadFinal(i);
+          const previewReady = canDownloadPreview(i);
+          const downloadDisabled = !finalReady && !previewReady;
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-left">Título</TableHead>
-              <TableHead className="text-left">Criado em</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Total de CPFs</TableHead>
-              <TableHead className="text-center">Autorizado</TableHead>
-              <TableHead className="text-center">Não autorizado</TableHead>
-              <TableHead className="text-center">Falhas</TableHead>
-              <TableHead className="text-center">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  <div className="flex items-center gap-2 justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Carregando...
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : items.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  Nenhuma consulta encontrada
-                </TableCell>
-              </TableRow>
-            ) : (
-              items.map((i) => {
-                const finalReady = canDownloadFinal(i);
-                const previewReady = canDownloadPreview(i);
-                const downloadDisabled = !finalReady && !previewReady;
-
-                return (
-                  <TableRow key={i.id} className="hover:bg-gray-50">
-                    <TableCell className="font-medium">{i.title}</TableCell>
-
-                    {/* Criado em + (se agendado) janela de agendamento */}
-                    <TableCell className="text-gray-600">
-                      <div>{formatDateTimeBR(i.created_at)}</div>
+          return (
+            <Card
+              key={i.id}
+              className="border border-border bg-card transition-shadow"
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-card-foreground truncate mb-1">
+                      {i.title}
+                    </h3>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>Criado em {formatDateTimeBR(i.created_at)}</span>
                       {i.status === "agendado" && i.scheduled_for && (
-                        <div className="text-xs text-indigo-800 mt-0.5">
-                          Agendado: {formatDateTimeBR(i.scheduled_for)}
+                        <span className="text-purple-600 dark:text-purple-400 font-medium">
+                          • Agendado para: {formatDateTimeBR(i.scheduled_for)}
                           {i.scheduled_until
                             ? ` – ${formatDateTimeBR(i.scheduled_until)}`
                             : ""}
-                        </div>
+                        </span>
                       )}
-                    </TableCell>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 ml-4">
+                    <Badge
+                      className={cn(
+                        "flex items-center gap-1.5",
+                        statusInfo.className
+                      )}
+                    >
+                      {statusInfo.icon}
+                      {statusInfo.label}
+                    </Badge>
 
-                    <TableCell className="text-center">
-                      <StatusBadge status={i.status} />
-                    </TableCell>
-                    <TableCell className="text-center font-medium">
-                      {i.total_cpfs.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-green-600 font-medium">
-                      {i.success_count.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-amber-600 font-medium">
-                      {(i.not_authorized_count ?? 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-red-600 font-medium">
-                      {i.fail_count.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        {/* Cancelar */}
+                    <div className="flex items-center gap-1">
+                      {i.status !== "cancelado" && (
                         <Button
-                          onClick={() => openCancelDialog(i)}
-                          disabled={!canCancel(i) || cancelingId === i.id}
-                          variant="outline"
-                          size="icon"
-                          className={cn(
-                            "border-red-300 text-red-600 hover:bg-red-50",
-                            (!canCancel(i) || cancelingId === i.id) && "opacity-50 cursor-not-allowed"
-                          )}
-                          title={canCancel(i) ? "Cancelar consulta" : "Cancelar indisponível"}
-                        >
-                          {cancelingId === i.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <XCircle className="w-4 h-4" />
-                          )}
-                        </Button>
-
-                        {/* Download (final ou prévia sob demanda) */}
-                        <Button
-                          onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
+                          onClick={() =>
+                            onDownload(i.id, {
+                              preview: !finalReady && previewReady,
+                            })
+                          }
                           disabled={downloadDisabled}
                           variant="outline"
                           size="sm"
-                          className={cn(
-                            "flex items-center gap-2 px-3",
-                            !downloadDisabled
-                              ? "border-blue-300 text-blue-700 hover:bg-blue-50"
-                              : "opacity-50 cursor-not-allowed"
-                          )}
+                          className="h-8"
                           title={
                             finalReady
                               ? "Baixar planilha final"
@@ -273,45 +344,111 @@ export const FgtsOffHistoryTable = ({
                           }
                         >
                           <Download className="w-4 h-4" />
-                          {finalReady ? "Baixar planilha" : previewReady ? "Baixar planilha (prévia)" : "Baixar planilha"}
+                          {!finalReady && previewReady && (
+                            <span className="ml-1">Prévia</span>
+                          )}
                         </Button>
+                      )}
 
-                        {/* Excluir */}
-                        <Button
-                          onClick={() => openDeleteDialog(i)}
-                          disabled={!canDelete(i) || deletingId === i.id}
-                          variant="destructive"
-                          size="icon"
-                          className={cn(
-                            "bg-red-600 hover:bg-red-700 text-white",
-                            (!canDelete(i) || deletingId === i.id) && "opacity-50 cursor-not-allowed"
-                          )}
-                          title={canDelete(i) ? "Excluir definitivamente" : "Excluir indisponível enquanto processa"}
-                        >
-                          {deletingId === i.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {(i.status === "pendente" ||
+                            i.status === "em_progresso" ||
+                            i.status === "agendado") && (
+                              <DropdownMenuItem
+                                onClick={() => openCancelDialog(i)}
+                                className="text-orange-600 dark:text-orange-400"
+                              >
+                                <X className="w-4 h-4 mr-2" />
+                                Cancelar
+                              </DropdownMenuItem>
+                            )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => openDeleteDialog(i)}
+                            className={
+                              i.status === "em_progresso" ||
+                                i.status === "pendente" ||
+                                i.status === "agendado"
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-destructive"
+                            }
+                            disabled={
+                              i.status === "em_progresso" ||
+                              i.status === "pendente" ||
+                              i.status === "agendado"
+                            }
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="pt-0">
+                <div className="space-y-4">
+                  <SegmentedProgressBar item={i} />
+
+                  {(i.status === "concluido" ||
+                    i.status === "em_progresso" ||
+                    i.status === "expirado" ||
+                    i.status === "cancelado" ||
+                    i.status === "falhou") && (
+                      <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                            {i.success_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Sucesso
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
+                            {(i.not_authorized_count ?? 0).toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Não Autorizados
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                            {i.fail_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Falhas
+                          </div>
+                        </div>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                    )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })
+      )}
 
-      {/* Paginação */}
-      <div className="bg-white px-4 lg:px-6 py-3 border-t border-gray-200 flex items-center justify-between">
-        <div className="text-sm text-gray-500">
+      {/* Paginação (somente anterior/próxima) */}
+      <div className="bg-white px-4 lg:px-6 py-3 border border-border rounded-md flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
           Página {page} de {lastPage || 1}
         </div>
         <div className="flex items-center space-x-2">
           <Button
-            onClick={handlePrev}
+            onClick={() => onPageChange(Math.max(1, page - 1))}
             disabled={page <= 1 || !!loading}
             variant="outline"
             size="sm"
@@ -320,7 +457,7 @@ export const FgtsOffHistoryTable = ({
             <span className="sr-only">Anterior</span>
           </Button>
           <Button
-            onClick={handleNext}
+            onClick={() => onPageChange(Math.min(lastPage || 1, page + 1))}
             disabled={page >= (lastPage || 1) || !!loading}
             variant="outline"
             size="sm"
@@ -331,7 +468,7 @@ export const FgtsOffHistoryTable = ({
         </div>
       </div>
 
-      {/* ===== MODAL: Confirmar CANCELAMENTO ===== */}
+      {/* Confirmar CANCELAMENTO */}
       <AlertDialog
         open={!!confirmJob}
         onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}
@@ -339,21 +476,18 @@ export const FgtsOffHistoryTable = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <ShieldAlert className="h-6 w-6" />
               Cancelar consulta?
             </AlertDialogTitle>
           </AlertDialogHeader>
-
           <div className="text-sm text-gray-700">
-            <p>Essa ação irá interromper o processamento da consulta:</p>
+            <p>Essa ação interromperá o processamento:</p>
             {confirmJob && (
               <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
                 {confirmJob.title} (#{confirmJob.id})
               </p>
             )}
-            <p>Deseja realmente continuar?</p>
+            <p>Deseja continuar?</p>
           </div>
-
           <AlertDialogFooter>
             <AlertDialogCancel disabled={cancelingId !== null}>
               Fechar
@@ -369,14 +503,14 @@ export const FgtsOffHistoryTable = ({
               {cancelingId === confirmJob?.id ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Sim, cancelar consulta"
+                "Sim, cancelar"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ===== MODAL: Confirmar EXCLUSÃO ===== */}
+      {/* Confirmar EXCLUSÃO */}
       <AlertDialog
         open={!!confirmDeleteJob}
         onOpenChange={(isOpen) => !isOpen && setConfirmDeleteJob(null)}
@@ -384,13 +518,13 @@ export const FgtsOffHistoryTable = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-6 w-6" />
               Excluir definitivamente?
             </AlertDialogTitle>
           </AlertDialogHeader>
-
           <div className="text-sm text-gray-700">
-            <p>Essa ação irá remover o registro e os arquivos vinculados (planilha final, prévia e spool, se houver):</p>
+            <p>
+              Arquivos vinculados (final, prévia e spool) serão removidos:
+            </p>
             {confirmDeleteJob && (
               <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
                 {confirmDeleteJob.title} (#{confirmDeleteJob.id})
@@ -398,7 +532,6 @@ export const FgtsOffHistoryTable = ({
             )}
             <p>Essa operação não pode ser desfeita.</p>
           </div>
-
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deletingId !== null}>
               Fechar

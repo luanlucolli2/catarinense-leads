@@ -7,10 +7,12 @@ use Illuminate\Support\Carbon;
 use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Concerns\WithHeadings;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\BeforeExport;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
-class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormatting
+class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormatting, WithEvents
 {
     public const COLS = [
         'cpf',
@@ -124,9 +126,26 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
     public function columnFormats(): array
     {
         return [
-            'A' => '0',                           // CPF como inteiro
+            'A' => '0',                                 // CPF como inteiro
             'C' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // autorizadoAte
-            'F' => 'dd/mm/yyyy hh:mm:ss',         // consultadoEm
+            'F' => 'dd/mm/yyyy hh:mm:ss',               // consultadoEm
+        ];
+    }
+
+    /** Habilita inline strings no writer (reduz SharedStrings). */
+    public function registerEvents(): array
+    {
+        return [
+            BeforeExport::class => function (BeforeExport $event) {
+                $delegate = method_exists($event->writer, 'getDelegate')
+                    ? $event->writer->getDelegate()
+                    : null;
+
+                if ($delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
+                    && method_exists($delegate, 'setUseInlineStrings')) {
+                    $delegate->setUseInlineStrings(true);
+                }
+            },
         ];
     }
 }
