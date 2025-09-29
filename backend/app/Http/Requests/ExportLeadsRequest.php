@@ -24,6 +24,9 @@ class ExportLeadsRequest extends FormRequest
         'primeira_origem',
         'data_atualizacao',
         'contracts_count',
+        // ➕ novos campos
+        'vendedor',
+        'data_contrato_recente',
     ];
 
     public function authorize(): bool
