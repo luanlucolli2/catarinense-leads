@@ -5,25 +5,20 @@ namespace App\Exports;
 use Generator;
 use Illuminate\Support\Carbon;
 use Maatwebsite\Excel\Concerns\FromGenerator;
-use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
-use Maatwebsite\Excel\Events\AfterSheet;
+use Maatwebsite\Excel\Events\BeforeExport;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
-use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class CltConsultExport implements
     FromGenerator,
     WithHeadings,
-    ShouldAutoSize,
     WithEvents,
     WithColumnFormatting
 {
-    /**
-     * Chaves canônicas (ordem exata dos dados exportados).
-     */
+    /** Ordem exata das colunas */
     public const COLS = [
         'cpf',
         'nome',
@@ -56,9 +51,7 @@ class CltConsultExport implements
         'mensagem',
     ];
 
-    /**
-     * Cabeçalhos visíveis no Excel (um-para-um com COLS).
-     */
+    /** Cabeçalhos 1–1 com COLS */
     private const HEADERS = [
         'CPF',
         'Nome',
@@ -99,19 +92,14 @@ class CltConsultExport implements
         $this->rowIteratorFactory = $rowIteratorFactory;
     }
 
-    /**
-     * Lê diretamente de um CSV (spool) usando ';' como separador.
-     */
+    /** Lê direto do CSV spool (“;”) */
     public static function fromCsv(string $csvFullPath): self
     {
         return new self(function () use ($csvFullPath): Generator {
             $fh = fopen($csvFullPath, 'r');
-            if ($fh === false) {
-                return;
-            }
+            if ($fh === false) return;
             try {
-                // pula cabeçalho
-                $header = fgetcsv($fh, 0, ';');
+                fgetcsv($fh, 0, ';'); // cabeçalho
                 while (($data = fgetcsv($fh, 0, ';')) !== false) {
                     $assoc = [];
                     foreach (self::COLS as $i => $key) {
@@ -125,9 +113,7 @@ class CltConsultExport implements
         });
     }
 
-    /**
-     * Constrói a partir de um Generator custom (spool + pendentes).
-     */
+    /** Constrói a partir de um generator custom */
     public static function fromGenerator(callable $rowIteratorFactory): self
     {
         return new self($rowIteratorFactory);
@@ -146,9 +132,7 @@ class CltConsultExport implements
         }
     }
 
-    /**
-     * Converte linha associativa para a ordem do Excel + formatações.
-     */
+    /** Mapeia a linha e aplica conversões (CPF/ Datas) */
     private static function mapRow(array $row): array
     {
         $out = [];
@@ -159,8 +143,7 @@ class CltConsultExport implements
             if ($key === 'cpf') {
                 $digits = preg_replace('/\D+/', '', (string) $val);
                 $digits = ltrim($digits ?? '', '0');
-                if ($digits === '')
-                    $digits = '0';
+                if ($digits === '') $digits = '0';
                 $val = PHP_INT_SIZE >= 8 ? (int) $digits : (float) $digits;
             }
 
@@ -175,9 +158,7 @@ class CltConsultExport implements
                     if ($dt instanceof Carbon) {
                         $val = ExcelDate::PHPToExcel($dt->toDateTime());
                     }
-                } catch (\Throwable) {
-                    // mantém o valor original se falhar
-                }
+                } catch (\Throwable) {}
             }
 
             $out[] = $val;
@@ -185,54 +166,32 @@ class CltConsultExport implements
         return $out;
     }
 
-    /**
-     * Estilos gerais.
-     */
-    public function registerEvents(): array
-    {
-        return [
-            AfterSheet::class => function (AfterSheet $event) {
-                $sheet = $event->sheet->getDelegate();
-
-                $highestColumn = $sheet->getHighestColumn();
-                $highestRow = $sheet->getHighestRow();
-
-                // Estilo geral
-                $fullRange = "A1:{$highestColumn}{$highestRow}";
-                $sheet->getStyle($fullRange)
-                    ->getAlignment()
-                    ->setHorizontal(Alignment::HORIZONTAL_LEFT)
-                    ->setVertical(Alignment::VERTICAL_CENTER);
-
-                // Cabeçalho em negrito
-                $headerRange = "A1:{$highestColumn}1";
-                $sheet->getStyle($headerRange)->getFont()->setBold(true);
-
-                // Coluna A (CPF) como inteiro
-                if ($highestRow >= 2) {
-                    $cpfRange = "A2:A{$highestRow}";
-                    $sheet->getStyle($cpfRange)
-                        ->getNumberFormat()
-                        ->setFormatCode('0');
-                }
-            },
-        ];
-    }
-
-    /**
-     * Colunas de data.
-     * D = dataNascimento
-     * G = dataAdmissao
-     * S = dataDesligamento
-     * W = dataInicioAtividadeEmpregador
-     */
+    /** Somente formatos de coluna (sem estilos) */
     public function columnFormats(): array
     {
         return [
-            'D' => NumberFormat::FORMAT_DATE_DDMMYYYY,
-            'G' => NumberFormat::FORMAT_DATE_DDMMYYYY,
-            'S' => NumberFormat::FORMAT_DATE_DDMMYYYY,
-            'W' => NumberFormat::FORMAT_DATE_DDMMYYYY,
+            'A' => '0',                                 // CPF inteiro
+            'D' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // dataNascimento
+            'G' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // dataAdmissao
+            'S' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // dataDesligamento
+            'W' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // dataInicioAtividadeEmpregador
+        ];
+    }
+
+    /** Ativa inline strings no writer (menos SharedStrings = menos RAM) */
+    public function registerEvents(): array
+    {
+        return [
+            BeforeExport::class => function (BeforeExport $event) {
+                $delegate = method_exists($event->writer, 'getDelegate')
+                    ? $event->writer->getDelegate()
+                    : null;
+
+                if ($delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
+                    && method_exists($delegate, 'setUseInlineStrings')) {
+                    $delegate->setUseInlineStrings(true);
+                }
+            },
         ];
     }
 }
