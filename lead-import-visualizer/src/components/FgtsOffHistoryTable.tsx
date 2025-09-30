@@ -290,13 +290,14 @@ export const FgtsOffHistoryTable = ({
           const downloadDisabled = !finalReady && !previewReady;
 
           return (
-          <Card
+         <Card
   key={i.id}
   className={cn(
     // Mais contraste e profundidade
-    "border border-border/70 bg-white dark:bg-neutral-900",
-    "shadow-sm hover:shadow-md transition-shadow",
-    "ring-1 ring-black/5 dark:ring-white/10 rounded-lg"
+    "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
+    "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
+    "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
+    "transition-shadow"
   )}
 >
   <CardHeader className="pb-3">
@@ -423,6 +424,7 @@ export const FgtsOffHistoryTable = ({
     </div>
   </CardContent>
 </Card>
+
 
           );
         })

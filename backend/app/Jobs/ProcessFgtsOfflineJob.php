@@ -104,11 +104,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             // 1) Inválidos já entram no SPOOL (contam como falha)
             foreach ($this->invalidCpfs as $cpfInv) {
                 $row = $this->baseRow($cpfInv);
-                $row['autorizado']    = null;
-                $row['autorizadoAte'] = null;
-                $row['mensagem']      = 'CPF inválido (dígitos verificadores)';
-                $row['status']        = null;
-                $row['consultadoEm']  = $this->nowBrString();
+                $row['situacao']     = 'Não autorizado - CPF inválido (dígitos verificadores)';
+                $row['consultadoEm'] = $this->nowBrString();
                 $this->spoolAppend($job, $row);
             }
             if ($invalidCnt > 0) {
@@ -182,15 +179,17 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                         if (!empty($res['ok'])) {
                             $row = $this->baseRow($cpf);
-                            $row['autorizado']    = $res['authorized'] ?? null;
-                            $row['autorizadoAte'] = $res['authorized_until'] ?? null;
-                            $row['mensagem']      = $res['mensagem'] ?? null;
-                            $row['status']        = $res['http_status'] ?? 200;
-                            $row['consultadoEm']  = $res['consultado_at'] ?? $this->nowBrString();
+                            // ↓ Normalização da situação conforme regra nova
+                            $aut = $res['authorized'] ?? null;
+                            if ($aut === true) {
+                                $row['situacao'] = 'Autorizado';
+                                $authorizedInChunk++;
+                            } else {
+                                $row['situacao'] = 'Não autorizado';
+                                $notAuthorizedInChunk++;
+                            }
+                            $row['consultadoEm'] = $res['consultado_at'] ?? $this->nowBrString();
                             $this->spoolAppend($job, $row);
-
-                            if ($res['authorized'] === true) $authorizedInChunk++;
-                            else $notAuthorizedInChunk++;
 
                             $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
                             $successThisAttempt++;
@@ -200,11 +199,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                             if ($retriable === false) {
                                 $row = $this->baseRow($cpf);
-                                $row['autorizado']    = null;
-                                $row['autorizadoAte'] = null;
-                                $row['mensagem']      = $msg;
-                                $row['status']        = $res['http_status'] ?? null;
-                                $row['consultadoEm']  = $res['consultado_at'] ?? $this->nowBrString();
+                                $row['situacao']     = 'Não autorizado - ' . $msg;
+                                $row['consultadoEm'] = $res['consultado_at'] ?? $this->nowBrString();
                                 $this->spoolAppend($job, $row);
 
                                 $pendentes = array_values(array_filter($pendentes, fn($x) => $x !== $cpf));
@@ -350,17 +346,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             if (flock($fp, LOCK_EX)) {
                 $ordered = [];
                 foreach (FgtsOfflineExport::COLS as $key) {
-                    $v = $row[$key] ?? null;
-                    if ($key === 'autorizado') {
-                        if ($v === true || $v === 1 || $v === '1')        $v = '1';
-                        elseif ($v === false || $v === 0 || $v === '0')   $v = '0';
-                        elseif (is_string($v)) {
-                            $n = mb_strtolower(trim($v), 'UTF-8');
-                            if (in_array($n, ['sim','s','true'], true))        $v = '1';
-                            elseif (in_array($n, ['nao','não','n','false'], true)) $v = '0';
-                        }
-                    }
-                    $ordered[] = $v;
+                    $ordered[] = $row[$key] ?? null;
                 }
                 fputcsv($fp, $ordered, ';');
                 fflush($fp);
