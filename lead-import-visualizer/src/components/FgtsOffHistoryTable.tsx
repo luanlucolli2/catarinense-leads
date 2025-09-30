@@ -290,153 +290,140 @@ export const FgtsOffHistoryTable = ({
           const downloadDisabled = !finalReady && !previewReady;
 
           return (
-            <Card
-              key={i.id}
-              className="border border-border bg-card transition-shadow"
+          <Card
+  key={i.id}
+  className={cn(
+    // Mais contraste e profundidade
+    "border border-border/70 bg-white dark:bg-neutral-900",
+    "shadow-sm hover:shadow-md transition-shadow",
+    "ring-1 ring-black/5 dark:ring-white/10 rounded-lg"
+  )}
+>
+  <CardHeader className="pb-3">
+    <div className="flex items-start justify-between">
+      <div className="flex-1 min-w-0">
+        <h3 className="font-semibold text-card-foreground truncate mb-1">
+          {i.title}
+        </h3>
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+          {i.status === "agendado" && i.scheduled_for && (
+            <span className="text-purple-600 dark:text-purple-400 font-medium">
+              • Agendado para: {formatDateTimeBR(i.scheduled_for)}
+              {i.scheduled_until ? ` – ${formatDateTimeBR(i.scheduled_until)}` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 ml-4">
+        <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
+          {statusInfo.icon}
+          {statusInfo.label}
+        </Badge>
+
+        <div className="flex items-center gap-1">
+          {i.status !== "cancelado" && (
+            <Button
+              onClick={() =>
+                onDownload(i.id, {
+                  preview: !finalReady && previewReady,
+                })
+              }
+              disabled={downloadDisabled}
+              variant="outline"
+              size="sm"
+              className="h-8"
+              title={
+                finalReady
+                  ? "Baixar planilha final"
+                  : previewReady
+                  ? "Gerar & baixar prévia"
+                  : "Baixar indisponível"
+              }
             >
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-card-foreground truncate mb-1">
-                      {i.title}
-                    </h3>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>Criado em {formatDateTimeBR(i.created_at)}</span>
-                      {i.status === "agendado" && i.scheduled_for && (
-                        <span className="text-purple-600 dark:text-purple-400 font-medium">
-                          • Agendado para: {formatDateTimeBR(i.scheduled_for)}
-                          {i.scheduled_until
-                            ? ` – ${formatDateTimeBR(i.scheduled_until)}`
-                            : ""}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 ml-4">
-                    <Badge
-                      className={cn(
-                        "flex items-center gap-1.5",
-                        statusInfo.className
-                      )}
-                    >
-                      {statusInfo.icon}
-                      {statusInfo.label}
-                    </Badge>
+              <Download className="w-4 h-4" />
+              {!finalReady && previewReady && <span className="ml-1">Prévia</span>}
+            </Button>
+          )}
 
-                    <div className="flex items-center gap-1">
-                      {i.status !== "cancelado" && (
-                        <Button
-                          onClick={() =>
-                            onDownload(i.id, {
-                              preview: !finalReady && previewReady,
-                            })
-                          }
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Gerar & baixar prévia"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && (
-                            <span className="ml-1">Prévia</span>
-                          )}
-                        </Button>
-                      )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {(i.status === "pendente" ||
+                i.status === "em_progresso" ||
+                i.status === "agendado") && (
+                <DropdownMenuItem
+                  onClick={() => openCancelDialog(i)}
+                  className="text-orange-600 dark:text-orange-400"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Cancelar
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => openDeleteDialog(i)}
+                className={
+                  i.status === "em_progresso" ||
+                  i.status === "pendente" ||
+                  i.status === "agendado"
+                    ? "text-muted-foreground cursor-not-allowed"
+                    : "text-destructive"
+                }
+                disabled={
+                  i.status === "em_progresso" ||
+                  i.status === "pendente" ||
+                  i.status === "agendado"
+                }
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Excluir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </div>
+  </CardHeader>
 
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {(i.status === "pendente" ||
-                            i.status === "em_progresso" ||
-                            i.status === "agendado") && (
-                              <DropdownMenuItem
-                                onClick={() => openCancelDialog(i)}
-                                className="text-orange-600 dark:text-orange-400"
-                              >
-                                <X className="w-4 h-4 mr-2" />
-                                Cancelar
-                              </DropdownMenuItem>
-                            )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => openDeleteDialog(i)}
-                            className={
-                              i.status === "em_progresso" ||
-                                i.status === "pendente" ||
-                                i.status === "agendado"
-                                ? "text-muted-foreground cursor-not-allowed"
-                                : "text-destructive"
-                            }
-                            disabled={
-                              i.status === "em_progresso" ||
-                              i.status === "pendente" ||
-                              i.status === "agendado"
-                            }
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
+  <CardContent className="pt-0">
+    <div className="space-y-4">
+      <SegmentedProgressBar item={i} />
 
-              <CardContent className="pt-0">
-                <div className="space-y-4">
-                  <SegmentedProgressBar item={i} />
+      {(i.status === "concluido" ||
+        i.status === "em_progresso" ||
+        i.status === "expirado" ||
+        i.status === "cancelado" ||
+        i.status === "falhou") && (
+        <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
+          <div className="text-center">
+            <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+              {i.success_count.toLocaleString()}
+            </div>
+            <div className="text-xs text-muted-foreground">Sucesso</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
+              {(i.not_authorized_count ?? 0).toLocaleString()}
+            </div>
+            <div className="text-xs text-muted-foreground">Não Autorizados</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+              {i.fail_count.toLocaleString()}
+            </div>
+            <div className="text-xs text-muted-foreground">Falhas</div>
+          </div>
+        </div>
+      )}
+    </div>
+  </CardContent>
+</Card>
 
-                  {(i.status === "concluido" ||
-                    i.status === "em_progresso" ||
-                    i.status === "expirado" ||
-                    i.status === "cancelado" ||
-                    i.status === "falhou") && (
-                      <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                            {i.success_count.toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Sucesso
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
-                            {(i.not_authorized_count ?? 0).toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Não Autorizados
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                            {i.fail_count.toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Falhas
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                </div>
-              </CardContent>
-            </Card>
           );
         })
       )}
