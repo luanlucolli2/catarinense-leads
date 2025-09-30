@@ -14,21 +14,16 @@ use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormatting, WithEvents
 {
+    // ↓ NOVO layout (compacto): remove "autorizadoAte", "mensagem", "status" e renomeia "autorizado" → "situacao"
     public const COLS = [
         'cpf',
-        'autorizado',
-        'autorizadoAte',
-        'mensagem',
-        'status',
+        'situacao',
         'consultadoEm',
     ];
 
     private const HEADERS = [
         'CPF',
-        'Autorizado',
-        'Autorizado até',
-        'Mensagem',
-        'Status',
+        'Situação',
         'Consultado em',
     ];
 
@@ -44,7 +39,8 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
     {
         return new self(function () use ($csvFullPath): Generator {
             $fh = fopen($csvFullPath, 'r');
-            if ($fh === false) return;
+            if ($fh === false)
+                return;
             try {
                 fgetcsv($fh, 0, ';'); // cabeçalho
                 while (($data = fgetcsv($fh, 0, ';')) !== false) {
@@ -87,26 +83,9 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
             if ($key === 'cpf') {
                 $digits = preg_replace('/\D+/', '', (string) $val);
                 $digits = ltrim($digits ?? '', '0');
-                if ($digits === '') $digits = '0';
-                $val = PHP_INT_SIZE >= 8 ? (int) $digits : (float) $digits;
-            }
-
-            if ($key === 'autorizado') {
-                $norm = is_string($val) ? mb_strtolower(trim($val), 'UTF-8') : $val;
-                if ($val === true || $val === 1 || $norm === '1' || $norm === 'sim' || $norm === 'true') {
-                    $val = 'Sim';
-                } elseif ($val === false || $val === 0 || $norm === '0' || $norm === 'nao' || $norm === 'não' || $norm === 'false') {
-                    $val = 'Não';
-                }
-            }
-
-            if ($key === 'autorizadoAte' && is_string($val) && preg_match('/^\d{2}\/\d{2}\/\d{4}$/', trim($val))) {
-                try {
-                    $dt = Carbon::createFromFormat('d/m/Y', trim($val));
-                    if ($dt instanceof Carbon) {
-                        $val = ExcelDate::PHPToExcel($dt->toDateTime());
-                    }
-                } catch (\Throwable) {}
+                if ($digits === '')
+                    $digits = '0';
+                $val = PHP_INT_SIZE >= 8 ? (int) $digits : (float) $digits; // mantém performance e compatibilidade
             }
 
             if ($key === 'consultadoEm' && is_string($val) && preg_match('/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2}$/', trim($val))) {
@@ -115,9 +94,11 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
                     if ($dt instanceof Carbon) {
                         $val = ExcelDate::PHPToExcel($dt->toDateTime());
                     }
-                } catch (\Throwable) {}
+                } catch (\Throwable) {
+                }
             }
 
+            // 'situacao' já vem como string final ("Autorizado", "Não autorizado", "Não autorizado - ...")
             $out[] = $val;
         }
         return $out;
@@ -125,10 +106,10 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
 
     public function columnFormats(): array
     {
+        // A=CPF (inteiro), B=Situação (texto), C=Data/Hora
         return [
-            'A' => '0',                                 // CPF como inteiro
-            'C' => NumberFormat::FORMAT_DATE_DDMMYYYY,  // autorizadoAte
-            'F' => 'dd/mm/yyyy hh:mm:ss',               // consultadoEm
+            'A' => '0',
+            'C' => 'dd/mm/yyyy hh:mm:ss',
         ];
     }
 
@@ -141,8 +122,10 @@ class FgtsOfflineExport implements FromGenerator, WithHeadings, WithColumnFormat
                     ? $event->writer->getDelegate()
                     : null;
 
-                if ($delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
-                    && method_exists($delegate, 'setUseInlineStrings')) {
+                if (
+                    $delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
+                    && method_exists($delegate, 'setUseInlineStrings')
+                ) {
                     $delegate->setUseInlineStrings(true);
                 }
             },
