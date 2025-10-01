@@ -95,7 +95,7 @@ services:
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=800 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=800 --tries=1 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
