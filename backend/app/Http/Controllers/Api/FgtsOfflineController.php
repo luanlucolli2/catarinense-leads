@@ -84,37 +84,16 @@ class FgtsOfflineController extends Controller
 
         $data = $validator->validated();
 
-        $tokens = is_string($data['cpfs'])
-            ? (preg_split('/[\s,;]+/u', $data['cpfs'], -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            : (is_array($data['cpfs']) ? $data['cpfs'] : []);
-
-        $valid = [];
-        $invalid = [];
-        foreach ($tokens as $t) {
-            $norm = Cpf::normalize((string) $t);
-            if ($norm === null) continue;
-            if (Cpf::isValid($norm)) $valid[] = $norm;
-            else $invalid[] = $norm;
-        }
-        $valid = array_values(array_unique($valid));
-        $invalid = array_values(array_diff(array_unique($invalid), $valid));
-
-        if ((count($valid) + count($invalid)) === 0) {
-            return response()->json([
-                'message' => 'Nenhum CPF válido ou normalizável encontrado (8–11 dígitos; 8–10 serão completados com zeros à esquerda).'
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-
         $tz    = $data['timezone'] ?? 'America/Sao_Paulo';
         $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $tz) : null;
         $endAt = isset($data['end_at']) ? Carbon::parse($data['end_at'], $tz) : null;
 
-        // Cria registro do job
+        // Cria registro do job (total_cpfs = 0; job calculará o total único na classificação)
         $job = FgtsOfflineJob::create([
             'user_id'               => $request->user()->id,
             'title'                 => $data['title'],
             'status'                => $runAt && $runAt->greaterThan(Carbon::now($tz)) ? 'agendado' : 'pendente',
-            'total_cpfs'            => count($valid) + count($invalid),
+            'total_cpfs'            => 0,
             'success_count'         => 0,
             'not_authorized_count'  => 0,
             'fail_count'            => 0,
@@ -124,19 +103,72 @@ class FgtsOfflineController extends Controller
             'preview_status'        => 'none',
         ]);
 
-        // Pré-cria spool e arquivo de CPFs no disco de relatórios
-        [$spoolPath, $cpfsPath, $spoolBytes] = $this->createInitialSpool($job->id, array_merge($valid, $invalid));
+        // Cria spool e arquivo de CPFs em streaming — SEM materializar arrays, sem "primeira passada"
+        try {
+            [$spoolPath, $cpfsPath, $spoolBytes, $cpfsCount] = $this->createInitialSpool(
+                $job->id,
+                $this->tokenizeCpfsLazy($data['cpfs'])
+            );
+        } catch (\Throwable $e) {
+            // Limpeza defensiva de caminhos esperados
+            try {
+                $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+                $disk     = Storage::disk($diskName);
+                $dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
+                $finalPref= (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+                $spool    = "{$dirSpool}/{$finalPref}_{$job->id}.spool.csv";
+                $cpfs     = "{$dirSpool}/{$finalPref}_{$job->id}.cpfs.txt";
+                foreach ([$spool, $cpfs] as $p) {
+                    if ($disk->exists($p)) { $disk->delete($p); }
+                }
+            } catch (\Throwable $e2) {
+                Log::warning("[FGTS-OFF] Falha ao limpar após erro no createInitialSpool (job {$job->id}): ".$e2->getMessage());
+            }
+
+            $job->delete();
+
+            // Heurística simples: InvalidArgument => 422; demais => 500
+            $code = ($e instanceof \InvalidArgumentException)
+                ? Response::HTTP_UNPROCESSABLE_ENTITY
+                : Response::HTTP_INTERNAL_SERVER_ERROR;
+
+            Log::error("[FGTS-OFF] Erro ao preparar spool (job {$job->id}): ".$e->getMessage(), ['exception' => $e]);
+
+            return response()->json([
+                'message' => $code === Response::HTTP_UNPROCESSABLE_ENTITY
+                    ? 'Os dados fornecidos são inválidos para gerar o spool.'
+                    : 'Falha interna ao preparar arquivos do job.',
+            ], $code);
+        }
+
+        if ($cpfsCount === 0) {
+            // Limpa arquivos criados e remove o job
+            try {
+                $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+                $disk = Storage::disk($diskName);
+                foreach ([$spoolPath, $cpfsPath] as $p) {
+                    if ($p && $disk->exists($p)) { $disk->delete($p); }
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FGTS-OFF] Erro limpando arquivos após cpfsCount=0 (job {$job->id}): ".$e->getMessage());
+            }
+            $job->delete();
+
+            return response()->json([
+                'message' => 'Nenhum CPF normalizável encontrado após processar a entrada.'
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         $job->update([
             'spool_path'      => $spoolPath,
             'spool_cpfs_path' => $cpfsPath,
             'spool_bytes'     => $spoolBytes,
+            // total_cpfs ficará para o Job calcular com dedup de válidos e inválidos
         ]);
 
-        // Enfileira somente com o ID (sem payload de CPFs)
+        // Enfileira somente com o ID (sem payload)
         if ($job->status === 'agendado') {
-            ProcessFgtsOfflineJob::dispatch($job->id)
-                ->delay($job->scheduled_for);
+            ProcessFgtsOfflineJob::dispatch($job->id)->delay($job->scheduled_for);
             return response()->json([
                 'id'               => $job->id,
                 'status'           => $job->status,
@@ -411,10 +443,50 @@ class FgtsOfflineController extends Controller
     }
 
     /**
-     * Cria spool inicial (CSV com cabeçalho) e arquivo de CPFs (um por linha).
-     * Retorna [spoolPath, cpfsPath, spoolBytes].
+     * Generator/lazy tokenizer para entrada de CPFs (string ou array).
+     * Não materializa listas grandes em memória.
+     *
+     * @param string|array $cpfs
+     * @return \Generator<string>
      */
-    private function createInitialSpool(int $jobId, array $allCpfs): array
+    private function tokenizeCpfsLazy($cpfs): \Generator
+    {
+        if (is_string($cpfs)) {
+            // Delimiters: espaço, tab, quebra de linha, vírgula e ponto e vírgula
+            $delims = " \t\n\r,;";
+            $tok = strtok($cpfs, $delims);
+            while ($tok !== false) {
+                yield $tok;
+                $tok = strtok($delims);
+            }
+            return;
+        }
+
+        if (is_array($cpfs)) {
+            foreach ($cpfs as $t) {
+                yield $t;
+            }
+            return;
+        }
+
+        // Fallback seguro
+        if ($cpfs instanceof \Traversable) {
+            foreach ($cpfs as $t) {
+                yield $t;
+            }
+        }
+    }
+
+    /**
+     * Cria spool inicial (CSV com cabeçalho) e arquivo de CPFs (um por linha),
+     * escrevendo em streaming e sem deduplicar em memória.
+     * Retorna [spoolPath, cpfsPath, spoolBytes, cpfsCount].
+     *
+     * @param int $jobId
+     * @param iterable $allCpfs
+     * @return array{0:string,1:string,2:int,3:int}
+     */
+    private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
         $diskName = (string) config('facta_off.storage.reports_disk', 'public');
         $disk = Storage::disk($diskName);
@@ -432,8 +504,9 @@ class FgtsOfflineController extends Controller
         $spoolPath = "{$dirSpool}/{$spoolName}";
         $cpfsPath  = "{$dirSpool}/{$cpfsName}";
 
-        // Spool CSV com cabeçalho
-        $fp = fopen($disk->path($spoolPath), 'c+');
+        // Cria spool CSV com cabeçalho
+        $spoolReal = $disk->path($spoolPath);
+        $fp = fopen($spoolReal, 'c+');
         if ($fp === false) {
             throw new \RuntimeException("Não foi possível criar spool em {$spoolPath}");
         }
@@ -448,18 +521,24 @@ class FgtsOfflineController extends Controller
             fclose($fp);
         }
 
-        // Arquivo CPFs (um por linha; válidos + inválidos deduplicados)
-        $uniq = array_values(array_unique(array_map(fn($c) => preg_replace('/\D+/', '', (string) $c), $allCpfs)));
-        $fp2 = fopen($disk->path($cpfsPath), 'c+');
+        // Escreve CPFs normalizados (um por linha), sem arrays gigantes na memória
+        $cpfsReal = $disk->path($cpfsPath);
+        $fp2 = fopen($cpfsReal, 'c+');
         if ($fp2 === false) {
             throw new \RuntimeException("Não foi possível criar cpfs em {$cpfsPath}");
         }
+
+        $count = 0;
         try {
             if (flock($fp2, LOCK_EX)) {
                 ftruncate($fp2, 0);
-                foreach ($uniq as $cpf) {
-                    if ($cpf === '' || strlen($cpf) !== 11) continue;
-                    fwrite($fp2, $cpf."\n");
+                foreach ($allCpfs as $raw) {
+                    $norm = Cpf::normalize((string) $raw);
+                    if ($norm === null) continue;
+                    $digits = preg_replace('/\D+/', '', $norm);
+                    if ($digits === '' || strlen($digits) !== 11) continue;
+                    fwrite($fp2, $digits . "\n");
+                    $count++;
                 }
                 fflush($fp2);
                 flock($fp2, LOCK_UN);
@@ -471,6 +550,6 @@ class FgtsOfflineController extends Controller
         $bytes = 0;
         try { $bytes = (int) $disk->size($spoolPath); } catch (\Throwable) {}
 
-        return [$spoolPath, $cpfsPath, $bytes];
+        return [$spoolPath, $cpfsPath, $bytes, $count];
     }
 }

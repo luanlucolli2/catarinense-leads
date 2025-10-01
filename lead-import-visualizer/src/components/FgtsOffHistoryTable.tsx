@@ -109,7 +109,7 @@ function getStatusInfo(status: FgtsOffJobStatus) {
 
 function calcSegments(i: FgtsOffConsultJobListItem) {
   const total = i.total_cpfs || 0;
-  if (!total) return { ok: 0, not: 0, err: 0, sum: 0 };
+  if (!total) return { ok: 0, not: 0, err: 0, sum: 0, total: 0 };
   const ok = (i.success_count / total) * 100;
   const not = ((i.not_authorized_count ?? 0) / total) * 100;
   const err = (i.fail_count / total) * 100;
@@ -119,11 +119,17 @@ function calcSegments(i: FgtsOffConsultJobListItem) {
 
 function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
   const s = calcSegments(item);
+  const total = item.total_cpfs || 0;
   const processed = (
     item.success_count +
     (item.not_authorized_count ?? 0) +
     item.fail_count
   ).toLocaleString();
+
+  // Mostrar “preparando/contando…” até total_cpfs ser preenchido
+  const isCounting =
+    total === 0 &&
+    (item.status === "pendente" || item.status === "em_progresso");
 
   const pulseWidthPct = Math.min(
     5,
@@ -135,7 +141,9 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">Progresso</span>
         <span className="font-medium text-card-foreground">
-          {processed} de {item.total_cpfs.toLocaleString()} CPFs
+          {isCounting
+            ? "Preparando/contando CPFs…"
+            : `${processed} de ${total.toLocaleString()} CPFs`}
         </span>
       </div>
 
@@ -158,7 +166,7 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
             style={{ left: `${s.ok + s.not}%`, width: `${s.err}%` }}
           />
         )}
-        {item.status === "em_progresso" && s.sum < 100 && (
+        {(item.status === "em_progresso" || isCounting) && s.sum < 100 && (
           <div
             className="absolute top-0 h-full bg-blue-300/60 dark:bg-blue-700/70 animate-pulse"
             style={{
@@ -190,7 +198,9 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
             </div>
           )}
         </div>
-        <span className="text-muted-foreground">{s.sum.toFixed(1)}% completo</span>
+        <span className="text-muted-foreground">
+          {isCounting ? "Preparando…" : `${s.sum.toFixed(1)}% completo`}
+        </span>
       </div>
     </div>
   );
@@ -290,142 +300,139 @@ export const FgtsOffHistoryTable = ({
           const downloadDisabled = !finalReady && !previewReady;
 
           return (
-         <Card
-  key={i.id}
-  className={cn(
-    // Mais contraste e profundidade
-    "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
-    "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
-    "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
-    "transition-shadow"
-  )}
->
-  <CardHeader className="pb-3">
-    <div className="flex items-start justify-between">
-      <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-card-foreground truncate mb-1">
-          {i.title}
-        </h3>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <span>Criado em {formatDateTimeBR(i.created_at)}</span>
-          {i.status === "agendado" && i.scheduled_for && (
-            <span className="text-purple-600 dark:text-purple-400 font-medium">
-              • Agendado para: {formatDateTimeBR(i.scheduled_for)}
-              {i.scheduled_until ? ` – ${formatDateTimeBR(i.scheduled_until)}` : ""}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-3 ml-4">
-        <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
-          {statusInfo.icon}
-          {statusInfo.label}
-        </Badge>
-
-        <div className="flex items-center gap-1">
-          {i.status !== "cancelado" && (
-            <Button
-              onClick={() =>
-                onDownload(i.id, {
-                  preview: !finalReady && previewReady,
-                })
-              }
-              disabled={downloadDisabled}
-              variant="outline"
-              size="sm"
-              className="h-8"
-              title={
-                finalReady
-                  ? "Baixar planilha final"
-                  : previewReady
-                  ? "Gerar & baixar prévia"
-                  : "Baixar indisponível"
-              }
-            >
-              <Download className="w-4 h-4" />
-              {!finalReady && previewReady && <span className="ml-1">Prévia</span>}
-            </Button>
-          )}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {(i.status === "pendente" ||
-                i.status === "em_progresso" ||
-                i.status === "agendado") && (
-                <DropdownMenuItem
-                  onClick={() => openCancelDialog(i)}
-                  className="text-orange-600 dark:text-orange-400"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Cancelar
-                </DropdownMenuItem>
+            <Card
+              key={i.id}
+              className={cn(
+                "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
+                "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
+                "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
+                "transition-shadow"
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => openDeleteDialog(i)}
-                className={
-                  i.status === "em_progresso" ||
-                  i.status === "pendente" ||
-                  i.status === "agendado"
-                    ? "text-muted-foreground cursor-not-allowed"
-                    : "text-destructive"
-                }
-                disabled={
-                  i.status === "em_progresso" ||
-                  i.status === "pendente" ||
-                  i.status === "agendado"
-                }
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Excluir
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </div>
-  </CardHeader>
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-card-foreground truncate mb-1">
+                      {i.title}
+                    </h3>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                      {i.status === "agendado" && i.scheduled_for && (
+                        <span className="text-purple-600 dark:text-purple-400 font-medium">
+                          • Agendado para: {formatDateTimeBR(i.scheduled_for)}
+                          {i.scheduled_until ? ` – ${formatDateTimeBR(i.scheduled_until)}` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 ml-4">
+                    <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
+                      {statusInfo.icon}
+                      {statusInfo.label}
+                    </Badge>
 
-  <CardContent className="pt-0">
-    <div className="space-y-4">
-      <SegmentedProgressBar item={i} />
+                    <div className="flex items-center gap-1">
+                      {i.status !== "cancelado" && (
+                        <Button
+                          onClick={() =>
+                            onDownload(i.id, {
+                              preview: !finalReady && previewReady,
+                            })
+                          }
+                          disabled={downloadDisabled}
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          title={
+                            finalReady
+                              ? "Baixar planilha final"
+                              : previewReady
+                                ? "Gerar & baixar prévia"
+                                : "Baixar indisponível"
+                          }
+                        >
+                          <Download className="w-4 h-4" />
+                          {!finalReady && previewReady && <span className="ml-1">Prévia</span>}
+                        </Button>
+                      )}
 
-      {(i.status === "concluido" ||
-        i.status === "em_progresso" ||
-        i.status === "expirado" ||
-        i.status === "cancelado" ||
-        i.status === "falhou") && (
-        <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
-          <div className="text-center">
-            <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-              {i.success_count.toLocaleString()}
-            </div>
-            <div className="text-xs text-muted-foreground">Sucesso</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
-              {(i.not_authorized_count ?? 0).toLocaleString()}
-            </div>
-            <div className="text-xs text-muted-foreground">Não Autorizados</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-              {i.fail_count.toLocaleString()}
-            </div>
-            <div className="text-xs text-muted-foreground">Falhas</div>
-          </div>
-        </div>
-      )}
-    </div>
-  </CardContent>
-</Card>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {(i.status === "pendente" ||
+                            i.status === "em_progresso" ||
+                            i.status === "agendado") && (
+                              <DropdownMenuItem
+                                onClick={() => openCancelDialog(i)}
+                                className="text-orange-600 dark:text-orange-400"
+                              >
+                                <X className="w-4 h-4 mr-2" />
+                                Cancelar
+                              </DropdownMenuItem>
+                            )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => openDeleteDialog(i)}
+                            className={
+                              i.status === "em_progresso" ||
+                                i.status === "pendente" ||
+                                i.status === "agendado"
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-destructive"
+                            }
+                            disabled={
+                              i.status === "em_progresso" ||
+                              i.status === "pendente" ||
+                              i.status === "agendado"
+                            }
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
 
+              <CardContent className="pt-0">
+                <div className="space-y-4">
+                  <SegmentedProgressBar item={i} />
 
+                  {(i.status === "concluido" ||
+                    i.status === "em_progresso" ||
+                    i.status === "expirado" ||
+                    i.status === "cancelado" ||
+                    i.status === "falhou") && (
+                      <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                            {i.success_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Sucesso</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
+                            {(i.not_authorized_count ?? 0).toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Não Autorizados</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                            {i.fail_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Falhas</div>
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </CardContent>
+            </Card>
           );
         })
       )}
