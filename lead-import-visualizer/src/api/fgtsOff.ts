@@ -1,4 +1,3 @@
-// src/api/fgtsOff.ts
 import axiosClient from './axiosClient'
 
 /** Estados do job no backend */
@@ -20,18 +19,18 @@ export interface FgtsOffConsultJobListItem {
   title: string
   status: FgtsOffJobStatus
   total_cpfs: number
-  success_count: number              // autorizado
-  not_authorized_count: number       // não autorizado
-  fail_count: number                 // erro
+  success_count: number
+  not_authorized_count: number
+  fail_count: number
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
-  // campos opcionais de PRÉVIA
+  // PRÉVIA (opcional)
   preview_disk?: string | null
   preview_path?: string | null
   preview_name?: string | null
   preview_updated_at?: string | null
-  // telemetria opcional (pode não vir no index)
+  // telemetria opcional
   spool_bytes?: number | null
 
   started_at?: string | null
@@ -103,9 +102,7 @@ export async function listFgtsOffConsultJobs(page = 1): Promise<Paginated<FgtsOf
   return data
 }
 
-/** Cria um novo job (cpfs: string colada do textarea ou array de strings)
- *  Suporta agendamento com run_at, end_at e timezone (opcionais).
- */
+/** Cria um novo job */
 export async function createFgtsOffConsultJob(input: {
   title: string
   cpfs: string | string[]
@@ -120,14 +117,14 @@ export async function createFgtsOffConsultJob(input: {
   return data
 }
 
-/** Busca um job específico (para checar status) */
+/** Busca um job específico */
 export async function getFgtsOffConsultJob(id: number): Promise<FgtsOffConsultJobShow> {
   const { data } = await axiosClient.get<FgtsOffConsultJobShow>(`${BASE}/${id}`)
   return data
 }
 
-/** Solicita geração da PRÉVIA (assíncrono). 202=aceita/andando, 200=já pronta, 409=spool ausente/indisponível. */
-export async function requestFgtsOffPreview(id: number): Promise<number> {
+/** Solicita geração da PRÉVIA (202=aceita/andando, 200=já pronta, 409=indisponível). */
+export async function requestFgtsOffPreview(id: number): Promise<200 | 202 | 409> {
   const resp = await axiosClient.post(
     `${BASE}/${id}/preview/generate`,
     null,
@@ -135,48 +132,50 @@ export async function requestFgtsOffPreview(id: number): Promise<number> {
       validateStatus: (s) => (s >= 200 && s < 300) || s === 409
     }
   )
-  return resp.status
+  return resp.status as 200 | 202 | 409
 }
-
-/** Faz o download do relatório FINAL (stream) — liberado em 'concluido', 'expirado' ou 'falhou' */
+/** (opcional) também pode aplicar cache-busting no FINAL */
 export async function downloadFgtsOffReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
-  })
+    params: { t: Date.now() }, // seguro aplicar; final não muda, mas evita cache agressivo
+  });
 
-  const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}.xlsx`
+  const cd = resp.headers['content-disposition'] || '';
+  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}.xlsx`;
 
-  const url = window.URL.createObjectURL(resp.data)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
+  const url = window.URL.createObjectURL(resp.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }
 
 /** Faz o download da PRÉVIA já pronta (NÃO força regeneração) */
 export async function downloadFgtsOffPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
-  })
+    // 👇 evita baixar versão antiga por cache do navegador/CDN
+    params: { t: Date.now() },
+  });
 
-  const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}-preview.xlsx`
+  const cd = resp.headers['content-disposition'] || '';
+  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}-preview.xlsx`;
 
-  const url = window.URL.createObjectURL(resp.data)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
+  const url = window.URL.createObjectURL(resp.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }
 
-/** Cancela um job (opcionalmente com motivo) */
+/** Cancela um job */
 export async function cancelFgtsOffConsultJob(id: number, reason?: string) {
   const { data } = await axiosClient.post<{
     id: number
@@ -187,7 +186,7 @@ export async function cancelFgtsOffConsultJob(id: number, reason?: string) {
   return data
 }
 
-/** Exclui definitivamente um job e seus arquivos (backend retorna 204 No Content) */
+/** Exclui um job */
 export async function deleteFgtsOffConsultJob(id: number): Promise<void> {
   await axiosClient.delete(`${BASE}/${id}`)
 }
