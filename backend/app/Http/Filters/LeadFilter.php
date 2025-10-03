@@ -54,7 +54,6 @@ class LeadFilter
                 $query->withCount('contracts');
             }
 
-            // ➕ NOVOS CAMPOS (subselects leves, sem carregar relações)
             if (in_array('data_contrato_recente', $columnsForExport, true)) {
                 $query->addSelect([
                     'data_contrato_recente' => DB::table('lead_contracts')
@@ -65,7 +64,6 @@ class LeadFilter
             }
 
             if (in_array('vendedor', $columnsForExport, true)) {
-                // vendedor do contrato mais recente
                 $query->addSelect([
                     'vendedor' => DB::table('lead_contracts as lc')
                         ->join('vendors as v', 'v.id', '=', 'lc.vendor_id')
@@ -87,7 +85,18 @@ class LeadFilter
                       ->whereColumn('lead_imports.lead_id','leads.id')
                       ->orderBy('lead_imports.created_at')
                       ->limit(1);
-                }]);
+                }])
+                // ➕ Campos do snapshot FGTS OFF (subselect por CPF; leve e indexável)
+                ->addSelect([
+                    'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
+                        ->select('authorized')
+                        ->whereColumn('fos.cpf', 'leads.cpf')
+                        ->limit(1),
+                    'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
+                        ->select('consultado_em')
+                        ->whereColumn('fos.cpf', 'leads.cpf')
+                        ->limit(1),
+                ]);
         }
 
         // ----- filtros existentes (inalterados) -----

@@ -38,6 +38,8 @@ export interface ProcessedLead {
   data_atualizacao: string;
   consulta: string;
   primeira_origem: string;
+  fgts_off_authorized: boolean | null;
+  fgts_off_consultado_em: string; // string de data formatada OU ""
 }
 
 type SortField =
@@ -48,7 +50,9 @@ type SortField =
   | "libera"
   | "data_atualizacao"
   | "contratos"
-  | "primeira_origem";
+  | "primeira_origem"
+  | "fgts_off_authorized"
+  | "fgts_off_consultado_em";
 type SortDirection = "asc" | "desc";
 
 interface LeadsTableProps {
@@ -69,8 +73,10 @@ const SkeletonRow = () => (
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-20" /></td>
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-20" /></td>
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
+    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-16" /></td>
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
+    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-8 w-12" /></td>
     <td className="px-3 xl:px-6 py-4"><Skeleton className="h-8 w-12" /></td>
   </tr>
 );
@@ -108,21 +114,39 @@ export const LeadsTable = ({
 
   const sortedLeads = useMemo(() => {
     if (!sortField) return leads;
-    return [...leads].sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
-      if (aValue == null) return 1;
-      if (bValue == null) return -1;
-      if (sortField === "data_atualizacao") {
-        aValue = new Date(aValue);
-        bValue = new Date(bValue);
+
+    const valueForSort = (x: ProcessedLead) => {
+      switch (sortField) {
+        case "data_atualizacao":
+          return x.data_atualizacao ? new Date(x.data_atualizacao).getTime() : Number.POSITIVE_INFINITY;
+        case "fgts_off_consultado_em":
+          return x.fgts_off_consultado_em ? new Date(x.fgts_off_consultado_em).getTime() : Number.POSITIVE_INFINITY;
+        case "fgts_off_authorized":
+          if (x.fgts_off_authorized === true) return 0;
+          if (x.fgts_off_authorized === false) return 1;
+          return 2;
+        case "contratos":
+          return x.contratos ?? -1;
+        case "saldo":
+        case "libera":
+          return (x as any)[sortField] ?? "";
+        default: {
+          const v = (x as any)[sortField];
+          if (typeof v === "string") return v.toLowerCase();
+          return v ?? "";
+        }
       }
-      if (typeof aValue === "string") aValue = aValue.toLowerCase();
-      if (typeof bValue === "string") bValue = bValue.toLowerCase();
-      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
+    };
+
+    const sorted = [...leads].sort((a, b) => {
+      const av = valueForSort(a);
+      const bv = valueForSort(b);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
       return 0;
     });
+
+    return sortDirection === "asc" ? sorted : sorted.reverse();
   }, [leads, sortField, sortDirection]);
 
   const SortButton = ({
@@ -149,6 +173,28 @@ export const LeadsTable = ({
     </button>
   );
 
+  const renderFgtsOffPill = (auth: boolean | null) => {
+    if (auth === true) {
+      return (
+        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+          Autorizado
+        </span>
+      );
+    }
+    if (auth === false) {
+      return (
+        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+          Não autorizado
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+        --
+      </span>
+    );
+  };
+
   const renderTableBody = () => {
     if (isLoading) {
       return Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />);
@@ -156,7 +202,7 @@ export const LeadsTable = ({
     if (leads.length === 0) {
       return (
         <tr>
-          <td colSpan={11} className="text-center py-12 text-gray-500">
+          <td colSpan={13} className="text-center py-12 text-gray-500">
             Nenhum lead encontrado com os filtros aplicados.
           </td>
         </tr>
@@ -197,7 +243,9 @@ export const LeadsTable = ({
             "--"
           )}
         </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top">
+
+        {/* Classe - centralizado */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top text-center">
           <span
             className={cn(
               "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
@@ -209,8 +257,10 @@ export const LeadsTable = ({
             {lead.telefones[0]?.classe || "--"}
           </span>
         </td>
+
+        {/* Status - badge centralizado */}
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top">
-          <div className="flex flex-col space-y-1">
+          <div className="flex flex-col items-center space-y-1">
             <span
               className={cn(
                 "inline-flex px-2 py-1 text-xs font-semibold rounded-full w-fit",
@@ -221,28 +271,46 @@ export const LeadsTable = ({
             >
               {lead.status}
             </span>
-            <span className="text-xs text-gray-500 truncate max-w-[120px]">
+            <span className="text-xs text-gray-500 truncate max-w-[120px] text-center">
               {lead.consulta}
             </span>
           </div>
         </td>
+
+        {/* Saldo / Libera */}
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
           {lead.saldo}
         </td>
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
           {lead.libera}
         </td>
+
+        {/* Data hig. */}
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top">
           {lead.data_atualizacao}
         </td>
+
+        {/* Autorizado (OFF) - pill centralizado */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top text-center">
+          {renderFgtsOffPill(lead.fgts_off_authorized)}
+        </td>
+
+        {/* Data autorizado (OFF) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top text-center">
+          {lead.fgts_off_consultado_em || "nunca consultado"}
+        </td>
+
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
           {lead.contratos}
         </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top">
-          <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[100px] truncate">
+
+        {/* Origem - pill centralizado */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top text-center">
+          <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[100px] truncate mx-auto">
             {lead.primeira_origem}
           </span>
         </td>
+
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top">
           <Button
             onClick={() => handleViewLead(lead)}
@@ -264,7 +332,7 @@ export const LeadsTable = ({
         {/* Desktop Table */}
         <div className="hidden lg:block w-full max-w-full">
           <div className="overflow-x-auto max-w-full">
-            <table className="w-full min-w-[1200px]">
+            <table className="w-full min-w-[1350px]">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[110px]">
@@ -282,15 +350,25 @@ export const LeadsTable = ({
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[140px]">
                     <SortButton field="status">Status</SortButton>
                   </th>
+
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
                     <SortButton field="saldo">Saldo</SortButton>
                   </th>
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
                     <SortButton field="libera">Libera</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
-                    <SortButton field="data_atualizacao">Consulta FGTS</SortButton>
+
+                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[120px]">
+                    <SortButton field="data_atualizacao">Data hig.</SortButton>
                   </th>
+
+                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[140px]">
+                    <SortButton field="fgts_off_authorized">Autorizado (FGTS OFF)</SortButton>
+                  </th>
+                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[160px]">
+                    <SortButton field="fgts_off_consultado_em">Data consulta (FGTS OFF)</SortButton>
+                  </th>
+
                   <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[80px]">
                     <SortButton field="contratos">Contratos</SortButton>
                   </th>
@@ -309,7 +387,7 @@ export const LeadsTable = ({
           </div>
         </div>
 
-        {/* Mobile/Tablet Cards */}
+        {/* Mobile/Tablet Cards (sem mudanças) */}
         <div className="lg:hidden space-y-4 p-4 max-w-full">
           {sortedLeads.map((lead) => (
             <div
@@ -370,6 +448,16 @@ export const LeadsTable = ({
                 </span>
               </div>
 
+              <div className="flex items-center justify-between text-xs">
+                <div className="space-x-2 flex items-center">
+                  <span className="text-gray-500">Autorizado (OFF):</span>
+                  {renderFgtsOffPill(lead.fgts_off_authorized)}
+                </div>
+                <span className="text-gray-500">
+                  Data autorizado (OFF): {lead.fgts_off_consultado_em || "nunca consultado"}
+                </span>
+              </div>
+
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Saldo:</span>
@@ -382,7 +470,7 @@ export const LeadsTable = ({
               </div>
 
               <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t">
-                <span>Última higienização: {lead.data_atualizacao}</span>
+                <span>Data hig.: {lead.data_atualizacao}</span>
                 <span className="truncate">{lead.consulta}</span>
               </div>
             </div>

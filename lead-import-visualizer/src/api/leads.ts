@@ -21,6 +21,9 @@ export interface LeadFromApi {
   saldo: string | null
   libera: string | null
   contracts_count: number
+  /** ➕ FGTS OFF */
+  fgts_off_authorized: boolean | null
+  fgts_off_consultado_em: string | null
 }
 
 export interface LeadDetailFromApi {
@@ -48,6 +51,9 @@ export interface LeadDetailFromApi {
     vendor?: { id: number; name: string }
   }[]
   importJobs: { id: number; origin: string; type: string; created_at: string }[]
+  /** ➕ FGTS OFF */
+  fgts_off_authorized: boolean | null
+  fgts_off_consultado_em: string | null
 }
 
 export interface PaginatedLeadsResponse {
@@ -67,9 +73,9 @@ export interface LeadFilters {
   date_to?: string
   contract_from?: string
   contract_to?: string
-  cpf?: string          // textarea (CSV/linhas)
-  names?: string        // textarea
-  phones?: string       // textarea
+  cpf?: string
+  names?: string
+  phones?: string
   origens_hig?: string[]
   vendors?: string[]
   /** 🎂 meses de aniversário (1..12 como strings) */
@@ -131,7 +137,6 @@ const buildQueryParams = (f: LeadFilters) => {
 }
 
 const shouldUsePost = (filters: LeadFilters) => {
-  // Heurística: se URL prevista > ~1500 chars OU listas muito grandes, usa POST
   const params = buildQueryParams(filters)
   const urlPreview = `/leads?${params.toString()}`
   if (urlPreview.length > 1500) return true
@@ -140,16 +145,14 @@ const shouldUsePost = (filters: LeadFilters) => {
   const namesCount = filters.names ? splitAndNormalize(filters.names, false).length : 0
   const phonesCount = filters.phones ? splitAndNormalize(filters.phones, true).length : 0
   const totalMass = cpfCount + namesCount + phonesCount
-  return totalMass > 200 // ajustável
+  return totalMass > 200
 }
 
 /* ---------- Endpoints ---------- */
 export async function fetchLeads(filters: LeadFilters) {
   if (shouldUsePost(filters)) {
-    // POST /leads/search com arrays; page vai na query (paginator do Laravel)
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
-      // básicos
       search: filters.search?.trim() || undefined,
       status: filters.status && filters.status !== "todos" ? filters.status : undefined,
       motivos: filters.motivos?.length ? filters.motivos : undefined,
@@ -161,7 +164,6 @@ export async function fetchLeads(filters: LeadFilters) {
       contract_to: filters.contract_to || undefined,
       vendors: filters.vendors?.length ? filters.vendors : undefined,
       birth_month: months.length ? months : undefined,
-      // massa como arrays
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
@@ -170,12 +172,11 @@ export async function fetchLeads(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponse>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined } // mantém paginação
+      { params: filters.page ? { page: filters.page } : undefined }
     )
     return data
   }
 
-  // GET normal
   const params = buildQueryParams(filters)
   const { data } = await axiosClient.get<PaginatedLeadsResponse>("/leads", {
     params,
@@ -230,7 +231,7 @@ export async function exportLeads(
         const v = star[1].trim()
         const parts = v.split("''")
         filename = decodeURIComponent(parts.pop() || filename)
-      } catch { }
+      } catch {}
     } else {
       const simple = cd.match(/filename="?([^"]+)"?/i)
       if (simple?.[1]) filename = simple[1]

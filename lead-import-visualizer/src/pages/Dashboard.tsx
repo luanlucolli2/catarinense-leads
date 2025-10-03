@@ -117,6 +117,15 @@ const Dashboard = () => {
         { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
       ].filter((f) => f.fone && f.fone !== "--")
 
+      // 🔧 Normaliza 0/1/"0"/"1" → boolean | null
+      const rawAuth: any = (lead as any).fgts_off_authorized
+      const fgtsOffAuthorized: boolean | null =
+        rawAuth === true || rawAuth === 1 || rawAuth === "1"
+          ? true
+          : rawAuth === false || rawAuth === 0 || rawAuth === "0"
+          ? false
+          : null
+
       return {
         id: lead.id,
         cpf: formatCPF(lead.cpf),
@@ -129,7 +138,12 @@ const Dashboard = () => {
         libera: formatCurrency(lead.libera),
         data_atualizacao: formatDate(lead.data_atualizacao),
         consulta: lead.consulta || "--",
-        primeira_origem: lead.primeira_origem,
+        primeira_origem: lead.primeira_origem || "",
+        fgts_off_authorized: fgtsOffAuthorized,
+        // mantém vazio para sort funcionar; o componente mostra "nunca consultado" se vazio
+        fgts_off_consultado_em: lead.fgts_off_consultado_em
+          ? formatDate(lead.fgts_off_consultado_em)
+          : "",
       }
     })
   }, [paginatedData])
@@ -140,7 +154,6 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (!awaitingFetch) return
-    // enquanto estiver buscando, garantimos um loading visível
     if ((isFetching || isLoading) && !pendingToastId) {
       const id = toast.loading(
         awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
@@ -151,7 +164,6 @@ const Dashboard = () => {
 
     if (isFetching || isLoading) return
 
-    // terminou: fecha loading e mostra sucesso/erro
     if (pendingToastId) {
       toast.dismiss(pendingToastId)
       setPendingToastId(null)
@@ -171,7 +183,6 @@ const Dashboard = () => {
   const handleApplyFilters = () => {
     setCurrentPage(1)
     setAwaitingFetch("apply")
-    // dispara loading imediatamente (não precisa esperar effect rodar)
     if (pendingToastId) toast.dismiss(pendingToastId)
     const id = toast.loading("Aplicando filtros…")
     setPendingToastId(id)
