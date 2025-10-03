@@ -132,7 +132,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                 'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
             ];
 
-            // 7) merge de telefones
+            // 7) merge de telefones (com prioridades Carteira > Atendimento IA > demais)
             $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
             foreach ($mergedPhones as $field => $value) {
                 $dataFromSheet[$field] = $value;
@@ -236,67 +236,101 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         return $name;
     }
 
+    /**
+     * Retorna prioridade da classe (com string já normalizada para comparação):
+     *  - 2: carteira
+     *  - 1: atendimento ia
+     *  - 0: demais / vazio
+     */
+    private function classPriority(?string $class): int
+    {
+        $c = $this->normalizeClasse($class) ?? '';
+        if ($c === 'carteira') return 2;
+        if ($c === 'atendimento ia') return 1;
+        return 0;
+    }
+
     private function mergePhones(Lead $lead, array $incomingSheet): array
     {
-        $normClass = function ($c) {
-            $c = ucfirst(strtolower($c ?? 'Frio'));
-            return $c === 'Quente' ? 'Quente' : 'Frio';
+        // empacota número + classe normalizada + prioridade
+        $pack = function ($phone, $class) {
+            $normClass = $this->normalizeClasse($class);
+            return [
+                'phone' => $phone ?: null,
+                'class' => $normClass,                 // sempre salvo/propago normalizado (lowercase, espaços colapsados)
+                'prio'  => $this->classPriority($normClass),
+            ];
         };
 
+        // estado atual (classes normalizadas na leitura)
         $result = [
-            ['phone' => $lead->fone1, 'class' => $normClass($lead->classe_fone1)],
-            ['phone' => $lead->fone2, 'class' => $normClass($lead->classe_fone2)],
-            ['phone' => $lead->fone3, 'class' => $normClass($lead->classe_fone3)],
-            ['phone' => $lead->fone4, 'class' => $normClass($lead->classe_fone4)],
+            $pack($lead->fone1, $lead->classe_fone1),
+            $pack($lead->fone2, $lead->classe_fone2),
+            $pack($lead->fone3, $lead->classe_fone3),
+            $pack($lead->fone4, $lead->classe_fone4),
         ];
 
+        // entradas novas (já normalizadas via normalizeClasse)
         $incoming = [
-            ['phone' => $incomingSheet['fone1'] ?? null, 'class' => $normClass($incomingSheet['classe_fone1'] ?? null)],
-            ['phone' => $incomingSheet['fone2'] ?? null, 'class' => $normClass($incomingSheet['classe_fone2'] ?? null)],
-            ['phone' => $incomingSheet['fone3'] ?? null, 'class' => $normClass($incomingSheet['classe_fone3'] ?? null)],
-            ['phone' => $incomingSheet['fone4'] ?? null, 'class' => $normClass($incomingSheet['classe_fone4'] ?? null)],
+            $pack($incomingSheet['fone1'] ?? null, $incomingSheet['classe_fone1'] ?? null),
+            $pack($incomingSheet['fone2'] ?? null, $incomingSheet['classe_fone2'] ?? null),
+            $pack($incomingSheet['fone3'] ?? null, $incomingSheet['classe_fone3'] ?? null),
+            $pack($incomingSheet['fone4'] ?? null, $incomingSheet['classe_fone4'] ?? null),
         ];
 
         foreach ($incoming as $slot) {
             $phone = $slot['phone'];
             if (!$phone) continue;
 
-            $class = $slot['class'];
+            $incomingClass = $slot['class'];
+            $incomingPrio  = $slot['prio'];
 
+            // já existe o mesmo número?
             $idxExisting = array_search($phone, array_column($result, 'phone'), true);
             if ($idxExisting !== false) {
-                if ($class === 'Quente' && $result[$idxExisting]['class'] !== 'Quente') {
-                    $result[$idxExisting]['class'] = 'Quente';
+                // só atualiza a classificação se a nova tiver prioridade MAIOR
+                if ($incomingPrio > $result[$idxExisting]['prio']) {
+                    $result[$idxExisting]['class'] = $incomingClass; // persistimos já normalizado
+                    $result[$idxExisting]['prio']  = $incomingPrio;
                 }
                 continue;
             }
 
-            if ($class === 'Quente') {
-                $freeIdx = null;
-                foreach ($result as $i => $s) {
-                    if (empty($s['phone'])) { $freeIdx = $i; break; }
-                }
-                if (!is_null($freeIdx)) { $result[$freeIdx] = $slot; continue; }
+            // número novo
+            // 1) tenta preencher slot vazio
+            $freeIdx = null;
+            foreach ($result as $i => $s) {
+                if (empty($s['phone'])) { $freeIdx = $i; break; }
+            }
+            if (!is_null($freeIdx)) {
+                $result[$freeIdx] = $slot;
+                continue;
+            }
 
-                foreach ($result as $i => $s) {
-                    if ($s['class'] === 'Frio') { $result[$i] = $slot; continue 2; }
-                }
-            } else {
-                foreach ($result as $i => $s) {
-                    if (empty($s['phone'])) { $result[$i] = $slot; break; }
+            // 2) sem vagas: substitui apenas se prioridade do novo for maior que algum existente
+            if ($incomingPrio > 0) {
+                $minPrio = min(array_column($result, 'prio'));
+                if ($incomingPrio > $minPrio) {
+                    foreach ($result as $i => $s) {
+                        if ($s['prio'] === $minPrio) {
+                            $result[$i] = $slot;
+                            break;
+                        }
+                    }
                 }
             }
+            // prioridade 0 sem vagas: ignora (não derruba ninguém)
         }
 
         return [
-            'fone1'        => $result[0]['phone'],
-            'classe_fone1' => $result[0]['class'],
-            'fone2'        => $result[1]['phone'],
-            'classe_fone2' => $result[1]['class'],
-            'fone3'        => $result[2]['phone'],
-            'classe_fone3' => $result[2]['class'],
-            'fone4'        => $result[3]['phone'],
-            'classe_fone4' => $result[3]['class'],
+            'fone1'        => $result[0]['phone'] ?? null,
+            'classe_fone1' => $result[0]['class'] ?? null,
+            'fone2'        => $result[1]['phone'] ?? null,
+            'classe_fone2' => $result[1]['class'] ?? null,
+            'fone3'        => $result[2]['phone'] ?? null,
+            'classe_fone3' => $result[2]['class'] ?? null,
+            'fone4'        => $result[3]['phone'] ?? null,
+            'classe_fone4' => $result[3]['class'] ?? null,
         ];
     }
 
@@ -315,10 +349,25 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
         return $digits;
     }
 
+    /**
+     * Normaliza a classificação para persistência:
+     * - trim + substitui underscores por espaço
+     * - colapsa espaços
+     * - remove caracteres de controle
+     * - lowercase (sempre salvar como minúsculas)
+     * - limita a 255 caracteres
+     */
     private function normalizeClasse($classe): ?string
     {
-        if ($classe === null || $classe === '') return null;
-        return ucfirst(strtolower(trim($classe)));
+        if ($classe === null) return null;
+        $s = trim((string)$classe);
+        if ($s === '') return null;
+
+        $s = str_replace('_', ' ', $s);
+        $s = preg_replace('/\s+/', ' ', $s);
+        $s = preg_replace('/[^\P{C}]+/u', '', $s) ?? $s;
+        $s = mb_strtolower($s);
+        return mb_substr($s, 0, 255);
     }
 
     public function registerEvents(): array

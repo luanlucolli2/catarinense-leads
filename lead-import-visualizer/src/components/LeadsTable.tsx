@@ -125,6 +125,14 @@ export const LeadsTable = ({
     });
   }, [leads, sortField, sortDirection]);
 
+  // === Badge color helper (classe): carteira -> dourado; atendimento ia -> roxo; demais -> azul ===
+  const classeBadgeClasses = (classe?: string | null) => {
+    const c = (classe ?? "").trim().toLowerCase();
+    if (c === "carteira") return "bg-amber-100 text-amber-800";
+    if (c === "atendimento ia") return "bg-purple-100 text-purple-800";
+    return "bg-blue-100 text-blue-800";
+  };
+
   const SortButton = ({
     field,
     children,
@@ -201,9 +209,7 @@ export const LeadsTable = ({
           <span
             className={cn(
               "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-              lead.telefones[0]?.classe === "Quente"
-                ? "bg-red-100 text-red-800"
-                : "bg-blue-100 text-blue-800"
+              classeBadgeClasses(lead.telefones[0]?.classe)
             )}
           >
             {lead.telefones[0]?.classe || "--"}
@@ -344,9 +350,7 @@ export const LeadsTable = ({
                   <span
                     className={cn(
                       "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-                      lead.telefones[0]?.classe === "Quente"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-blue-100 text-blue-800"
+                      classeBadgeClasses(lead.telefones[0]?.classe)
                     )}
                   >
                     {lead.telefones[0]?.classe || "--"}
