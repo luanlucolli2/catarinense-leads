@@ -24,9 +24,11 @@ class ExportLeadsRequest extends FormRequest
         'primeira_origem',
         'data_atualizacao',
         'contracts_count',
-        // ➕ novos campos
         'vendedor',
         'data_contrato_recente',
+        // ➕ novos campos exportáveis
+        'fgts_off_authorized',
+        'fgts_off_consultado_em',
     ];
 
     public function authorize(): bool
@@ -40,7 +42,7 @@ class ExportLeadsRequest extends FormRequest
             'columns'   => ['required', 'array', 'min:1'],
             'columns.*' => ['required', 'string', 'distinct', Rule::in(self::ALLOWED_COLUMNS)],
 
-            // filtros
+            // filtros existentes
             'search'        => ['nullable', 'string'],
             'status'        => ['nullable', 'in:todos,elegiveis,nao-elegiveis'],
             'motivos'       => ['nullable'],
@@ -57,8 +59,12 @@ class ExportLeadsRequest extends FormRequest
             'names'         => ['nullable'],
             'phones'        => ['nullable'],
 
-            // 🎂 meses de aniversário
             'birth_month'   => ['nullable'],
+
+            // ➕ novos filtros FGTS OFF
+            'fgts_authorized'     => ['nullable', 'in:sim,nao,1,0,true,false'],
+            'fgts_consulta_from'  => ['nullable', 'date_format:Y-m-d'],
+            'fgts_consulta_to'    => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 

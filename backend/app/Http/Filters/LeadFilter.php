@@ -19,6 +19,19 @@ class LeadFilter
 
         $exportMode = is_array($columnsForExport);
 
+        // Normaliza flags de uso dos campos FGTS OFF para evitar selects desnecessários
+        $needFgtsAuthorizedCol = $exportMode
+            ? in_array('fgts_off_authorized', $columnsForExport, true)
+            : true; // no modo lista já expomos para o front
+
+        $needFgtsConsultadoCol = $exportMode
+            ? in_array('fgts_off_consultado_em', $columnsForExport, true)
+            : true;
+
+        // Filtros FGTS OFF (novos)
+        $filterFgtsAuth = self::normalizeYesNo($r->input('fgts_authorized', null)); // true|false|null
+        $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
+
         if ($exportMode) {
             $select = ['leads.id'];
             $allowedLeadCols = [
@@ -74,6 +87,24 @@ class LeadFilter
                         ->select('v.name'),
                 ]);
             }
+
+            // ➕ Subselects do snapshot FGTS OFF no modo export apenas se requeridos/filtros
+            if ($needFgtsAuthorizedCol || $filterFgtsAuth !== null || $hasFgtsDateFilter) {
+                $query->addSelect([
+                    'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
+                        ->select('authorized')
+                        ->whereColumn('fos.cpf', 'leads.cpf')
+                        ->limit(1),
+                ]);
+            }
+            if ($needFgtsConsultadoCol || $hasFgtsDateFilter) {
+                $query->addSelect([
+                    'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
+                        ->select('consultado_em')
+                        ->whereColumn('fos.cpf', 'leads.cpf')
+                        ->limit(1),
+                ]);
+            }
         } else {
             $query = Lead::query()
                 ->select('leads.*')
@@ -85,18 +116,25 @@ class LeadFilter
                       ->whereColumn('lead_imports.lead_id','leads.id')
                       ->orderBy('lead_imports.created_at')
                       ->limit(1);
-                }])
-                // ➕ Campos do snapshot FGTS OFF (subselect por CPF; leve e indexável)
-                ->addSelect([
+                }]);
+
+            // ➕ Campos do snapshot FGTS OFF no modo lista
+            if ($needFgtsAuthorizedCol) {
+                $query->addSelect([
                     'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
                         ->select('authorized')
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
+                ]);
+            }
+            if ($needFgtsConsultadoCol) {
+                $query->addSelect([
                     'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
                         ->select('consultado_em')
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
                 ]);
+            }
         }
 
         // ----- filtros existentes (inalterados) -----
@@ -169,6 +207,28 @@ class LeadFilter
             if ($months) $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
         }
 
+        // ======== NOVOS FILTROS: FGTS OFF ========
+
+        // 1) Autorizado: sim/nao
+        if ($filterFgtsAuth !== null) {
+            $query->whereIn('leads.cpf', function ($sq) use ($filterFgtsAuth) {
+                $sq->select('cpf')
+                   ->from('fgts_off_snapshots')
+                   ->where('authorized', $filterFgtsAuth);
+            });
+        }
+
+        // 2) Período de consulta: Y-m-d -> [00:00:00, 23:59:59]
+        if ($hasFgtsDateFilter) {
+            $from = $r->input('fgts_consulta_from', '1900-01-01');
+            $to   = $r->input('fgts_consulta_to',   now()->toDateString());
+            $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
+                $sq->select('cpf')
+                   ->from('fgts_off_snapshots')
+                   ->whereBetween('consultado_em', ["{$from} 00:00:00","{$to} 23:59:59"]);
+            });
+        }
+
         return $query->latest('updated_at');
     }
 
@@ -223,5 +283,23 @@ class LeadFilter
                 foreach ($chunks as $set) $sub->orWhereIn($col, $set);
             }
         });
+    }
+
+    /** sim|1|true => true ; nao|0|false => false ; outros => null */
+    private static function normalizeYesNo($v): ?bool
+    {
+        if ($v === null || $v === '') return null;
+        $s = is_string($v) ? mb_strtolower(trim($v)) : $v;
+
+        $truthy = ['1','true','t','yes','y','sim','s'];
+        $falsy  = ['0','false','f','no','n','nao','não'];
+
+        if (is_bool($v)) return $v;
+        if (is_numeric($v)) return ((int)$v) === 1;
+
+        if (in_array($s, $truthy, true)) return true;
+        if (in_array($s, $falsy,  true)) return false;
+
+        return null;
     }
 }

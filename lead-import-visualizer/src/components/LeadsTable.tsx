@@ -39,7 +39,7 @@ export interface ProcessedLead {
   consulta: string;
   primeira_origem: string;
   fgts_off_authorized: boolean | null;
-  fgts_off_consultado_em: string; // string de data formatada OU ""
+  fgts_off_consultado_em: string; // string data formatada OU ""
 }
 
 type SortField =
@@ -63,21 +63,35 @@ interface LeadsTableProps {
   isLoading: boolean;
 }
 
+/** Placeholder padrão para campos vazios */
+const EMPTY = "—";
+
+/** largura fixa da coluna de ações p/ alinhar header + body */
+const ACTIONS_COL_WIDTH = "w-[110px] min-w-[110px] max-w-[110px]";
+
 const SkeletonRow = () => (
   <tr className="hover:bg-gray-50">
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-28" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-40" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-32" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-20" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-20" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-16" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-4 w-24" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-8 w-12" /></td>
-    <td className="px-3 xl:px-6 py-4"><Skeleton className="h-8 w-12" /></td>
+    <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-28" /></td>
+    <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-40" /></td>
+    <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-32" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-20 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-right"><Skeleton className="h-4 w-20 ml-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-right"><Skeleton className="h-4 w-20 ml-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-8 w-20 mx-auto" /></td>
+    {/* Ações sticky */}
+    <td
+      className={cn(
+        "px-3 xl:px-6 py-4 text-center sticky right-0 z-20 bg-white border-l border-gray-200",
+        ACTIONS_COL_WIDTH
+      )}
+    >
+      <Skeleton className="h-8 w-12 mx-auto" />
+    </td>
   </tr>
 );
 
@@ -97,12 +111,10 @@ export const LeadsTable = ({
     setSelectedLeadId(lead.id);
     setIsModalOpen(true);
   };
-
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedLeadId(null);
   };
-
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -152,13 +164,19 @@ export const LeadsTable = ({
   const SortButton = ({
     field,
     children,
+    align = "left",
   }: {
     field: SortField;
     children: React.ReactNode;
+    align?: "left" | "center" | "right";
   }) => (
     <button
       onClick={() => handleSort(field)}
-      className="flex items-center space-x-1 hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-150"
+      className={cn(
+        "flex items-center gap-1 hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-150 w-full",
+        align === "center" && "justify-center",
+        align === "right" && "justify-end"
+      )}
     >
       <span>{children}</span>
       {sortField === field ? (
@@ -172,6 +190,9 @@ export const LeadsTable = ({
       )}
     </button>
   );
+
+  const display = (val?: string | number | null) =>
+    val === undefined || val === null || val === "" ? EMPTY : val;
 
   const renderFgtsOffPill = (auth: boolean | null) => {
     if (auth === true) {
@@ -189,11 +210,17 @@ export const LeadsTable = ({
       );
     }
     return (
-      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
-        --
+      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+        Sem dados
       </span>
     );
   };
+
+  const renderNotConsultedBadge = () => (
+    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+      Não consultado
+    </span>
+  );
 
   const renderTableBody = () => {
     if (isLoading) {
@@ -211,18 +238,23 @@ export const LeadsTable = ({
     return sortedLeads.map((lead) => (
       <tr
         key={lead.id}
-        className="hover:bg-gray-50 transition-colors duration-150"
+        className="group hover:bg-gray-50 transition-colors duration-150"
       >
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-top">
-          {lead.cpf}
+        {/* CPF */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[110px]">
+          {display(lead.cpf)}
         </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium max-w-[200px] truncate align-top">
-          {lead.nome}
+
+        {/* Nome */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
+          {display(lead.nome)}
         </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono align-top">
+
+        {/* Telefone principal + contador */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[120px]">
           {lead.telefones.length > 0 ? (
             <div className="flex items-center space-x-2">
-              <span>{lead.telefones[0].fone}</span>
+              <span className="font-mono">{display(lead.telefones[0].fone)}</span>
               {lead.telefones.length > 1 && (
                 <TooltipProvider>
                   <Tooltip>
@@ -240,26 +272,32 @@ export const LeadsTable = ({
               )}
             </div>
           ) : (
-            "--"
+            EMPTY
           )}
         </td>
 
-        {/* Classe - centralizado */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top text-center">
-          <span
-            className={cn(
-              "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-              lead.telefones[0]?.classe === "Quente"
-                ? "bg-red-100 text-red-800"
-                : "bg-blue-100 text-blue-800"
-            )}
-          >
-            {lead.telefones[0]?.classe || "--"}
-          </span>
+        {/* Classe (pill) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[90px]">
+          {lead.telefones[0]?.classe ? (
+            <span
+              className={cn(
+                "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
+                lead.telefones[0]?.classe === "Quente"
+                  ? "bg-red-100 text-red-800"
+                  : "bg-blue-100 text-blue-800"
+              )}
+            >
+              {lead.telefones[0]?.classe}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+              {EMPTY}
+            </span>
+          )}
         </td>
 
-        {/* Status - badge centralizado */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top">
+        {/* Status + motivo */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[140px]">
           <div className="flex flex-col items-center space-y-1">
             <span
               className={cn(
@@ -269,49 +307,66 @@ export const LeadsTable = ({
                   : "bg-gray-100 text-gray-800"
               )}
             >
-              {lead.status}
+              {display(lead.status)}
             </span>
-            <span className="text-xs text-gray-500 truncate max-w-[120px] text-center">
-              {lead.consulta}
+            <span className="text-xs text-gray-500 truncate max-w-[140px] text-center">
+              {display(lead.consulta)}
             </span>
           </div>
         </td>
 
-        {/* Saldo / Libera */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
-          {lead.saldo}
+        {/* Saldo / Libera (direita) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
+          {display(lead.saldo)}
         </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
-          {lead.libera}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
+          {display(lead.libera)}
         </td>
 
         {/* Data hig. */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top">
-          {lead.data_atualizacao}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
+          {display(lead.data_atualizacao)}
         </td>
 
-        {/* Autorizado (OFF) - pill centralizado */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top text-center">
+        {/* Autorizado (OFF) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[160px]">
           {renderFgtsOffPill(lead.fgts_off_authorized)}
         </td>
 
-        {/* Data autorizado (OFF) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top text-center">
-          {lead.fgts_off_consultado_em || "nunca consultado"}
+        {/* Data consulta (OFF) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[160px]">
+          {lead.fgts_off_consultado_em ? (
+            lead.fgts_off_consultado_em
+          ) : (
+            renderNotConsultedBadge()
+          )}
         </td>
 
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-top">
-          {lead.contratos}
+        {/* Contratos */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[80px]">
+          {typeof lead.contratos === "number" ? lead.contratos : EMPTY}
         </td>
 
-        {/* Origem - pill centralizado */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top text-center">
-          <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[100px] truncate mx-auto">
-            {lead.primeira_origem}
-          </span>
+        {/* Origem (pill) */}
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
+          {lead.primeira_origem ? (
+            <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[140px] truncate mx-auto">
+              {lead.primeira_origem}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+              {EMPTY}
+            </span>
+          )}
         </td>
 
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-top">
+        {/* Ações sticky */}
+        <td
+          className={cn(
+            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
+            ACTIONS_COL_WIDTH
+          )}
+        >
           <Button
             onClick={() => handleViewLead(lead)}
             variant="outline"
@@ -331,51 +386,58 @@ export const LeadsTable = ({
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full max-w-full">
         {/* Desktop Table */}
         <div className="hidden lg:block w-full max-w-full">
-          <div className="overflow-x-auto max-w-full">
+          <div className="overflow-x-auto relative max-w-full">
             <table className="w-full min-w-[1350px]">
-              <thead className="bg-gray-50 sticky top-0">
+              <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[110px]">
-                    <SortButton field="cpf">Cpf</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-left">
+                    <SortButton field="cpf" align="left">CPF</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[140px]">
-                    <SortButton field="nome">Nome</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-left">
+                    <SortButton field="nome" align="left">Nome</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[120px]">
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-left">
                     Telefone
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[80px]">
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[90px] text-center">
                     Classe
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[140px]">
-                    <SortButton field="status">Status</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-center">
+                    <SortButton field="status" align="center">Status</SortButton>
                   </th>
 
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
-                    <SortButton field="saldo">Saldo</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[100px] text-right">
+                    <SortButton field="saldo" align="right">Saldo</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
-                    <SortButton field="libera">Libera</SortButton>
-                  </th>
-
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[120px]">
-                    <SortButton field="data_atualizacao">Data hig.</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[100px] text-right">
+                    <SortButton field="libera" align="right">Libera</SortButton>
                   </th>
 
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[140px]">
-                    <SortButton field="fgts_off_authorized">Autorizado (FGTS OFF)</SortButton>
-                  </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[160px]">
-                    <SortButton field="fgts_off_consultado_em">Data consulta (FGTS OFF)</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-center">
+                    <SortButton field="data_atualizacao" align="center">Data hig.</SortButton>
                   </th>
 
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[80px]">
-                    <SortButton field="contratos">Contratos</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[160px] text-center">
+                    <SortButton field="fgts_off_authorized" align="center">Autorizado (FGTS OFF)</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[100px]">
-                    <SortButton field="primeira_origem">Origem</SortButton>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[160px] text-center">
+                    <SortButton field="fgts_off_consultado_em" align="center">Data consulta (FGTS OFF)</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 tracking-wider min-w-[80px]">
+
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[80px] text-right">
+                    <SortButton field="contratos" align="right">Contratos</SortButton>
+                  </th>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-center">
+                    <SortButton field="primeira_origem" align="center">Origem</SortButton>
+                  </th>
+
+                  {/* Header Ações sticky */}
+                  <th
+                    className={cn(
+                      "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider text-center sticky right-0 z-40 bg-gray-50 border-l border-gray-200",
+                      ACTIONS_COL_WIDTH
+                    )}
+                  >
                     Ações
                   </th>
                 </tr>
@@ -387,7 +449,7 @@ export const LeadsTable = ({
           </div>
         </div>
 
-        {/* Mobile/Tablet Cards (sem mudanças) */}
+        {/* Mobile/Tablet Cards */}
         <div className="lg:hidden space-y-4 p-4 max-w-full">
           {sortedLeads.map((lead) => (
             <div
@@ -397,13 +459,13 @@ export const LeadsTable = ({
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-gray-900 truncate">
-                    {lead.nome}
+                    {display(lead.nome)}
                   </h3>
                   <p className="text-sm font-mono text-gray-600 truncate">
-                    {lead.cpf}
+                    {display(lead.cpf)}
                   </p>
                   <p className="text-sm font-mono text-gray-600 truncate">
-                    {lead.telefones[0]?.fone || "--"}
+                    {lead.telefones[0]?.fone || EMPTY}
                   </p>
                 </div>
                 <Button
@@ -419,16 +481,22 @@ export const LeadsTable = ({
 
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center space-x-2 flex-wrap">
-                  <span
-                    className={cn(
-                      "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-                      lead.telefones[0]?.classe === "Quente"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-blue-100 text-blue-800"
-                    )}
-                  >
-                    {lead.telefones[0]?.classe || "--"}
-                  </span>
+                  {lead.telefones[0]?.classe ? (
+                    <span
+                      className={cn(
+                        "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
+                        lead.telefones[0]?.classe === "Quente"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-blue-100 text-blue-800"
+                      )}
+                    >
+                      {lead.telefones[0]?.classe}
+                    </span>
+                  ) : (
+                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                      {EMPTY}
+                    </span>
+                  )}
                   <span
                     className={cn(
                       "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
@@ -437,14 +505,20 @@ export const LeadsTable = ({
                         : "bg-gray-100 text-gray-800"
                     )}
                   >
-                    {lead.status}
+                    {display(lead.status)}
                   </span>
-                  <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full truncate max-w-[120px]">
-                    {lead.primeira_origem}
-                  </span>
+                  {lead.primeira_origem ? (
+                    <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full truncate max-w-[140px]">
+                      {lead.primeira_origem}
+                    </span>
+                  ) : (
+                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                      {EMPTY}
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs text-gray-500">
-                  {lead.contratos} contratos
+                  {typeof lead.contratos === "number" ? lead.contratos : EMPTY} contratos
                 </span>
               </div>
 
@@ -453,25 +527,28 @@ export const LeadsTable = ({
                   <span className="text-gray-500">Autorizado (OFF):</span>
                   {renderFgtsOffPill(lead.fgts_off_authorized)}
                 </div>
-                <span className="text-gray-500">
-                  Data autorizado (OFF): {lead.fgts_off_consultado_em || "nunca consultado"}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-500">Consulta (OFF):</span>
+                  {lead.fgts_off_consultado_em
+                    ? <span>{lead.fgts_off_consultado_em}</span>
+                    : renderNotConsultedBadge()}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Saldo:</span>
-                  <p className="font-semibold truncate">{lead.saldo}</p>
+                  <p className="font-semibold truncate">{display(lead.saldo)}</p>
                 </div>
                 <div>
                   <span className="text-gray-500">Libera:</span>
-                  <p className="font-semibold truncate">{lead.libera}</p>
+                  <p className="font-semibold truncate">{display(lead.libera)}</p>
                 </div>
               </div>
 
               <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t">
-                <span>Data hig.: {lead.data_atualizacao}</span>
-                <span className="truncate">{lead.consulta}</span>
+                <span>Data hig.: {display(lead.data_atualizacao)}</span>
+                <span className="truncate">{display(lead.consulta)}</span>
               </div>
             </div>
           ))}

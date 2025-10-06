@@ -22,6 +22,7 @@ import {
 } from "@/lib/formatters"
 
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
+type FgtsAuthorizedFilter = "todos" | "sim" | "nao"
 
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
@@ -40,6 +41,14 @@ const Dashboard = () => {
   const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
+
+  /** ➕ novos filtros FGTS OFF */
+  const [fgtsAuthorizedFilter, setFgtsAuthorizedFilter] =
+    usePersistedState<FgtsAuthorizedFilter>("dashboard:fgtsAuthorizedFilter", "todos")
+  const [fgtsConsultaFromFilter, setFgtsConsultaFromFilter] =
+    usePersistedState<string>("dashboard:fgtsConsultaFromFilter", "")
+  const [fgtsConsultaToFilter, setFgtsConsultaToFilter] =
+    usePersistedState<string>("dashboard:fgtsConsultaToFilter", "")
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -77,6 +86,10 @@ const Dashboard = () => {
       phonesMassFilter,
       vendorsFilter,
       birthMonthFilter,
+      // ➕ FGTS OFF no cache key
+      fgtsAuthorizedFilter,
+      fgtsConsultaFromFilter,
+      fgtsConsultaToFilter,
     ],
     queryFn: () =>
       fetchLeads({
@@ -95,6 +108,10 @@ const Dashboard = () => {
         phones: phonesMassFilter,
         vendors: vendorsFilter,
         birth_month: birthMonthFilter,
+        // ➕ FGTS OFF
+        fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+        fgts_consulta_from: fgtsConsultaFromFilter || undefined,
+        fgts_consulta_to: fgtsConsultaToFilter || undefined,
       }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
@@ -140,7 +157,6 @@ const Dashboard = () => {
         consulta: lead.consulta || "--",
         primeira_origem: lead.primeira_origem || "",
         fgts_off_authorized: fgtsOffAuthorized,
-        // mantém vazio para sort funcionar; o componente mostra "nunca consultado" se vazio
         fgts_off_consultado_em: lead.fgts_off_consultado_em
           ? formatDate(lead.fgts_off_consultado_em)
           : "",
@@ -204,6 +220,12 @@ const Dashboard = () => {
     setPhonesMassFilter("")
     setVendorsFilter([])
     setBirthMonthFilter([])
+
+    // ➕ FGTS OFF
+    setFgtsAuthorizedFilter("todos")
+    setFgtsConsultaFromFilter("")
+    setFgtsConsultaToFilter("")
+
     setCurrentPage(1)
 
     setAwaitingFetch("clear")
@@ -226,7 +248,11 @@ const Dashboard = () => {
     phonesMassFilter ||
     higienizacaoFilter.length ||
     vendorsFilter.length ||
-    birthMonthFilter.length
+    birthMonthFilter.length ||
+    // ➕ FGTS OFF
+    fgtsAuthorizedFilter !== "todos" ||
+    fgtsConsultaFromFilter ||
+    fgtsConsultaToFilter
 
   const collectFilters = () => ({
     search: searchValue || undefined,
@@ -243,6 +269,10 @@ const Dashboard = () => {
     phones: phonesMassFilter || undefined,
     vendors: vendorsFilter.length ? vendorsFilter : undefined,
     birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
+    // ➕ FGTS OFF
+    fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+    fgts_consulta_from: fgtsConsultaFromFilter || undefined,
+    fgts_consulta_to: fgtsConsultaToFilter || undefined,
   })
 
   const handleExport = async (columns: string[]) => {
@@ -312,6 +342,13 @@ const Dashboard = () => {
         onVendorsFilterChange={setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
+        // ➕ FGTS OFF
+        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
+        onFgtsAuthorizedFilterChange={setFgtsAuthorizedFilter}
+        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
+        onFgtsConsultaFromFilterChange={setFgtsConsultaFromFilter}
+        fgtsConsultaToFilter={fgtsConsultaToFilter}
+        onFgtsConsultaToFilterChange={setFgtsConsultaToFilter}
       />
 
       <LeadsTable
