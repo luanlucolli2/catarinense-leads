@@ -34,7 +34,7 @@ class ImportController extends Controller
         $ext  = strtolower($file->getClientOriginalExtension());
         $readerName = $ext === 'xls' ? 'Xls' : 'Xlsx';
 
-        // 2) Cabeçalhos (linha 1)
+        // 1) Cabeçalhos (linha 1) – barato
         $headers = $this->readHeaders($file->getPathname(), $readerName);
         $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
         $missing = $this->diffMissingHeaders($headers, $requiredHeaders);
@@ -45,17 +45,16 @@ class ImportController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // 3) Conta linhas válidas por coluna CPF (streaming)
+        // 2) Estimar total de linhas de forma leve (sem varrer a coluna)
         try {
-            $cpfColIndex = $this->findCpfColumnIndex($headers); // 1-based
-            $totalRows   = $this->countRowsByCpfColumn($file->getPathname(), $readerName, $cpfColIndex);
+            $totalRows = $this->quickTotalRows($file->getPathname(), $readerName);
         } catch (ReaderException $e) {
             return response()->json([
                 'message' => 'Não foi possível ler o arquivo. Verifique se o formato é válido e se não está corrompido.'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // 4) Mutex atômico
+        // 3) Mutex atômico
         $locked = DB::selectOne('SELECT GET_LOCK(?, ? ) AS l', ['imports_mutex', 5]);
         if (!$locked || (int)$locked->l !== 1) {
             return response()->json([
@@ -80,6 +79,7 @@ class ImportController extends Controller
                 'file_name'      => $file->getClientOriginalName(),
                 'file_path'      => $path,
                 'status'         => 'pendente',
+                // usa estimativa leve; o progresso é atualizado chunk a chunk pelo import
                 'total_rows'     => (int)$totalRows,
                 'processed_rows' => 0,
             ]);
@@ -160,7 +160,7 @@ class ImportController extends Controller
         }, $filename, ['Content-Type' => 'text/csv']);
     }
 
-    /* ===================== helpers de leitura streaming ===================== */
+    /* ===================== helpers ===================== */
 
     private function readHeaders(string $fullPath, string $readerName): array
     {
@@ -184,58 +184,16 @@ class ImportController extends Controller
         return $headers;
     }
 
-    private function findCpfColumnIndex(array $headers): int
+    /** Contagem leve: pega total de linhas da planilha e subtrai o header. */
+    private function quickTotalRows(string $fullPath, string $readerName): int
     {
-        foreach ($headers as $idx => $slug) {
-            if ($slug === 'cpfcliente') {
-                return (int)$idx;
-            }
-        }
-        return 0;
-    }
-
-    private function countRowsByCpfColumn(string $fullPath, string $readerName, int $cpfColIndex): int
-    {
-        if ($cpfColIndex <= 0) {
-            // fallback: totalRows bruto - 1
-            $readerInfo = $readerName === 'Xls'
-                ? new \PhpOffice\PhpSpreadsheet\Reader\Xls()
-                : new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
-            $info = $readerInfo->listWorksheetInfo($fullPath);
-            $total = max(($info[0]['totalRows'] ?? 1) - 1, 0);
-            return (int)$total;
-        }
-
-        // pega highestRow barato
         $readerInfo = $readerName === 'Xls'
             ? new \PhpOffice\PhpSpreadsheet\Reader\Xls()
             : new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+
         $info = $readerInfo->listWorksheetInfo($fullPath);
-        $highestRow = (int)($info[0]['totalRows'] ?? 1);
-
-        if ($highestRow <= 1) return 0;
-
-        // lê apenas a coluna do CPF, das linhas 2..highestRow
-        $reader = IOFactory::createReader($readerName);
-        $reader->setReadDataOnly(true);
-        $reader->setReadFilter(new SingleColumnReadFilter($cpfColIndex, 2, $highestRow));
-
-        $spreadsheet = $reader->load($fullPath);
-        $sheet = $spreadsheet->getSheet(0);
-
-        $count = 0;
-        for ($row = 2; $row <= $highestRow; $row++) {
-            $v = $sheet->getCellByColumnAndRow($cpfColIndex, $row)->getValue();
-            if ($v === null) continue;
-            $str = trim(is_string($v) ? $v : (string)$v);
-            $digits = preg_replace('/\D+/', '', $str);
-            if ($digits !== '') $count++;
-        }
-
-        $spreadsheet->disconnectWorksheets();
-        unset($sheet, $spreadsheet);
-
-        return $count;
+        $total = max((int) (($info[0]['totalRows'] ?? 1) - 1), 0);
+        return $total;
     }
 
     private function diffMissingHeaders(array $presentByIndex, array $requiredOriginal): array
@@ -264,25 +222,5 @@ class HeaderRowReadFilter implements IReadFilter
     public function readCell($column, $row, $worksheetName = '')
     {
         return $row === $this->row;
-    }
-}
-
-class SingleColumnReadFilter implements IReadFilter
-{
-    private int $colIndex1Based;
-    private int $startRow;
-    private int $endRow;
-
-    public function __construct(int $colIndex1Based, int $startRow, int $endRow)
-    {
-        $this->colIndex1Based = $colIndex1Based;
-        $this->startRow = $startRow;
-        $this->endRow = $endRow;
-    }
-
-    public function readCell($column, $row, $worksheetName = '')
-    {
-        $idx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($column);
-        return $idx === $this->colIndex1Based && $row >= $this->startRow && $row <= $this->endRow;
     }
 }

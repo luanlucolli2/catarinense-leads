@@ -49,8 +49,8 @@ services:
     depends_on: [mysql, redis]
     networks: [sail]
     restart: unless-stopped
-    mem_limit: 192m
-    mem_reservation: 160m
+    mem_limit: 512m
+    mem_reservation: 384m
     cpu_shares: 1024
 
   queue:
