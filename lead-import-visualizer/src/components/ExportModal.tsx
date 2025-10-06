@@ -9,7 +9,7 @@ interface ExportModalProps {
   onExport: (columns: string[]) => void;
 }
 
-// ✅ Inclui vendedor e data_contrato_recente
+// ✅ Inclui vendedor, data_contrato_recente e campos de FGTS OFF
 const availableColumns = [
   { id: "cpf", label: "CPF", selected: true },
   { id: "nome", label: "Nome", selected: true },
@@ -31,7 +31,9 @@ const availableColumns = [
   { id: "contracts_count", label: "Qtde de Contratos", selected: true },
   { id: "data_contrato_recente", label: "Data de Contrato (mais recente)", selected: true }, // ➕
   { id: "vendedor", label: "Vendedor", selected: true }, // ➕
-
+  // ➕ FGTS OFF
+  { id: "fgts_off_authorized", label: "FGTS OFF Autorizado", selected: true },
+  { id: "fgts_off_consultado_em", label: "FGTS OFF Consultado em", selected: true },
 ];
 
 export const ExportModal = ({

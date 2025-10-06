@@ -54,6 +54,9 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
             'contracts_count'       => 'Qtde de Contratos',
             'vendedor'              => 'Vendedor',
             'data_contrato_recente' => 'Data de Contrato (mais recente)',
+            // ➕ novos
+            'fgts_off_authorized'   => 'FGTS OFF Autorizado',
+            'fgts_off_consultado_em'=> 'FGTS OFF Consultado em',
         ];
 
         return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);
@@ -97,6 +100,15 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                     $row[] = isset($lead->contracts_count) ? (int) $lead->contracts_count : null;
                     break;
 
+                case 'fgts_off_authorized':
+                    $val = $lead->fgts_off_authorized;
+                    $row[] = $val === null ? null : ($val ? 'Sim' : 'Não');
+                    break;
+
+                case 'fgts_off_consultado_em':
+                    $row[] = $this->toExcelDate($lead->fgts_off_consultado_em);
+                    break;
+
                 default:
                     $row[] = $lead->{$col};
             }
@@ -116,7 +128,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                 $formats[$colIndex] = NumberFormat::FORMAT_NUMBER_00;
             }
 
-            if (in_array($col, ['data_atualizacao', 'data_nascimento', 'data_contrato_recente'], true)) {
+            if (in_array($col, ['data_atualizacao', 'data_nascimento', 'data_contrato_recente', 'fgts_off_consultado_em'], true)) {
                 $formats[$colIndex] = NumberFormat::FORMAT_DATE_DDMMYYYY;
             }
 
@@ -132,7 +144,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
     {
         return [
             BeforeExport::class => function (BeforeExport $event) {
-                // Maatwebsite\Excel\Writer -> PhpSpreadsheet\Writer\Xlsx
                 $delegate = method_exists($event->writer, 'getDelegate')
                     ? $event->writer->getDelegate()
                     : null;
@@ -194,7 +205,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         return is_numeric($normalized) ? (float)$normalized : null;
     }
 
-    /** CPF -> número (sem zeros à esquerda); 32-bit retorna float para evitar overflow */
     private function cpfToNumber($val): int|float|null
     {
         if ($val === null || $val === '') return null;

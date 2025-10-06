@@ -22,6 +22,7 @@ import {
 } from "@/lib/formatters"
 
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
+type FgtsAuthorizedFilter = "todos" | "sim" | "nao"
 
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
@@ -40,6 +41,14 @@ const Dashboard = () => {
   const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
+
+  /** ➕ novos filtros FGTS OFF */
+  const [fgtsAuthorizedFilter, setFgtsAuthorizedFilter] =
+    usePersistedState<FgtsAuthorizedFilter>("dashboard:fgtsAuthorizedFilter", "todos")
+  const [fgtsConsultaFromFilter, setFgtsConsultaFromFilter] =
+    usePersistedState<string>("dashboard:fgtsConsultaFromFilter", "")
+  const [fgtsConsultaToFilter, setFgtsConsultaToFilter] =
+    usePersistedState<string>("dashboard:fgtsConsultaToFilter", "")
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -77,6 +86,10 @@ const Dashboard = () => {
       phonesMassFilter,
       vendorsFilter,
       birthMonthFilter,
+      // ➕ FGTS OFF no cache key
+      fgtsAuthorizedFilter,
+      fgtsConsultaFromFilter,
+      fgtsConsultaToFilter,
     ],
     queryFn: () =>
       fetchLeads({
@@ -95,6 +108,10 @@ const Dashboard = () => {
         phones: phonesMassFilter,
         vendors: vendorsFilter,
         birth_month: birthMonthFilter,
+        // ➕ FGTS OFF
+        fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+        fgts_consulta_from: fgtsConsultaFromFilter || undefined,
+        fgts_consulta_to: fgtsConsultaToFilter || undefined,
       }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
@@ -117,6 +134,15 @@ const Dashboard = () => {
         { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
       ].filter((f) => f.fone && f.fone !== "--")
 
+      // 🔧 Normaliza 0/1/"0"/"1" → boolean | null
+      const rawAuth: any = (lead as any).fgts_off_authorized
+      const fgtsOffAuthorized: boolean | null =
+        rawAuth === true || rawAuth === 1 || rawAuth === "1"
+          ? true
+          : rawAuth === false || rawAuth === 0 || rawAuth === "0"
+          ? false
+          : null
+
       return {
         id: lead.id,
         cpf: formatCPF(lead.cpf),
@@ -129,7 +155,11 @@ const Dashboard = () => {
         libera: formatCurrency(lead.libera),
         data_atualizacao: formatDate(lead.data_atualizacao),
         consulta: lead.consulta || "--",
-        primeira_origem: lead.primeira_origem,
+        primeira_origem: lead.primeira_origem || "",
+        fgts_off_authorized: fgtsOffAuthorized,
+        fgts_off_consultado_em: lead.fgts_off_consultado_em
+          ? formatDate(lead.fgts_off_consultado_em)
+          : "",
       }
     })
   }, [paginatedData])
@@ -140,7 +170,6 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (!awaitingFetch) return
-    // enquanto estiver buscando, garantimos um loading visível
     if ((isFetching || isLoading) && !pendingToastId) {
       const id = toast.loading(
         awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
@@ -151,7 +180,6 @@ const Dashboard = () => {
 
     if (isFetching || isLoading) return
 
-    // terminou: fecha loading e mostra sucesso/erro
     if (pendingToastId) {
       toast.dismiss(pendingToastId)
       setPendingToastId(null)
@@ -171,7 +199,6 @@ const Dashboard = () => {
   const handleApplyFilters = () => {
     setCurrentPage(1)
     setAwaitingFetch("apply")
-    // dispara loading imediatamente (não precisa esperar effect rodar)
     if (pendingToastId) toast.dismiss(pendingToastId)
     const id = toast.loading("Aplicando filtros…")
     setPendingToastId(id)
@@ -193,6 +220,12 @@ const Dashboard = () => {
     setPhonesMassFilter("")
     setVendorsFilter([])
     setBirthMonthFilter([])
+
+    // ➕ FGTS OFF
+    setFgtsAuthorizedFilter("todos")
+    setFgtsConsultaFromFilter("")
+    setFgtsConsultaToFilter("")
+
     setCurrentPage(1)
 
     setAwaitingFetch("clear")
@@ -215,7 +248,11 @@ const Dashboard = () => {
     phonesMassFilter ||
     higienizacaoFilter.length ||
     vendorsFilter.length ||
-    birthMonthFilter.length
+    birthMonthFilter.length ||
+    // ➕ FGTS OFF
+    fgtsAuthorizedFilter !== "todos" ||
+    fgtsConsultaFromFilter ||
+    fgtsConsultaToFilter
 
   const collectFilters = () => ({
     search: searchValue || undefined,
@@ -232,6 +269,10 @@ const Dashboard = () => {
     phones: phonesMassFilter || undefined,
     vendors: vendorsFilter.length ? vendorsFilter : undefined,
     birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
+    // ➕ FGTS OFF
+    fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+    fgts_consulta_from: fgtsConsultaFromFilter || undefined,
+    fgts_consulta_to: fgtsConsultaToFilter || undefined,
   })
 
   const handleExport = async (columns: string[]) => {
@@ -301,6 +342,13 @@ const Dashboard = () => {
         onVendorsFilterChange={setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
+        // ➕ FGTS OFF
+        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
+        onFgtsAuthorizedFilterChange={setFgtsAuthorizedFilter}
+        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
+        onFgtsConsultaFromFilterChange={setFgtsConsultaFromFilter}
+        fgtsConsultaToFilter={fgtsConsultaToFilter}
+        onFgtsConsultaToFilterChange={setFgtsConsultaToFilter}
       />
 
       <LeadsTable

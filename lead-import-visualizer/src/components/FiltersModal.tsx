@@ -31,11 +31,14 @@ interface FiltersModalProps {
   higienizacaoFilter: string[];
   vendorsFilter: string[];
 
+  /** ➕ FGTS OFF */
+  fgtsAuthorizedFilter: "todos" | "sim" | "nao"
+  fgtsConsultaFromFilter: string
+  fgtsConsultaToFilter: string
+
   /* setters que afetam o Dashboard (só no Apply!) */
   onSearchChange: (v: string) => void
-  onEligibleFilterChange: (
-    v: "todos" | "elegiveis" | "nao-elegiveis",
-  ) => void
+  onEligibleFilterChange: (v: "todos" | "elegiveis" | "nao-elegiveis") => void
   onContractDateFromFilterChange: (v: string) => void
   onContractDateToFilterChange: (v: string) => void
   onMotivosFilterChange: (v: string[]) => void
@@ -47,6 +50,11 @@ interface FiltersModalProps {
   onDateToFilterChange: (v: string) => void
   onHigienizacaoFilterChange: (values: string[]) => void
   onVendorsFilterChange: (values: string[]) => void
+
+  /** ➕ setters FGTS OFF */
+  onFgtsAuthorizedFilterChange: (v: "todos" | "sim" | "nao") => void
+  onFgtsConsultaFromFilterChange: (v: string) => void
+  onFgtsConsultaToFilterChange: (v: string) => void
 
   /* 🎂 meses de aniversário */
   birthMonthFilter: string[]
@@ -108,6 +116,11 @@ export const FiltersModal = ({
   higienizacaoFilter,
   vendorsFilter,
 
+  /* ➕ FGTS OFF */
+  fgtsAuthorizedFilter,
+  fgtsConsultaFromFilter,
+  fgtsConsultaToFilter,
+
   /* setters */
   onSearchChange,
   onEligibleFilterChange,
@@ -122,6 +135,11 @@ export const FiltersModal = ({
   onDateToFilterChange,
   onHigienizacaoFilterChange,
   onVendorsFilterChange,
+
+  /* ➕ setters FGTS OFF */
+  onFgtsAuthorizedFilterChange,
+  onFgtsConsultaFromFilterChange,
+  onFgtsConsultaToFilterChange,
 
   /* 🎂 */
   birthMonthFilter,
@@ -139,12 +157,8 @@ export const FiltersModal = ({
    * -----------------------------------------------------------------*/
   const [localSearch, setLocalSearch] = useState(searchValue)
   const [localEligible, setLocalEligible] = useState(eligibleFilter)
-  const [localContractFrom, setLocalContractFrom] = useState(
-    contractDateFromFilter,
-  )
-  const [localContractTo, setLocalContractTo] = useState(
-    contractDateToFilter,
-  )
+  const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
+  const [localContractTo, setLocalContractTo] = useState(contractDateToFilter)
   const [localMotivos, setLocalMotivos] = useState<string[]>(motivosFilter)
   const [localOrigens, setLocalOrigens] = useState<string[]>(origemFilter)
   const [localCpfMass, setLocalCpfMass] = useState(cpfMassFilter)
@@ -158,6 +172,11 @@ export const FiltersModal = ({
   const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(
     birthMonthFilter.map(monthNumToLabel)
   )
+  // ➕ FGTS OFF (estado local)
+  const [localFgtsAuthorized, setLocalFgtsAuthorized] =
+    useState<"todos" | "sim" | "nao">(fgtsAuthorizedFilter)
+  const [localFgtsFrom, setLocalFgtsFrom] = useState(fgtsConsultaFromFilter)
+  const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
   /* ------------------------------------------------------------------
    * 2.  Sincroniza quando modal abre
@@ -178,6 +197,10 @@ export const FiltersModal = ({
     setLocalHigienizacao(higienizacaoFilter)
     setLocalVendors(vendorsFilter)
     setLocalBirthMonths(birthMonthFilter.map(monthNumToLabel))
+    // ➕ FGTS OFF
+    setLocalFgtsAuthorized(fgtsAuthorizedFilter)
+    setLocalFgtsFrom(fgtsConsultaFromFilter)
+    setLocalFgtsTo(fgtsConsultaToFilter)
   }, [
     isOpen,
     searchValue,
@@ -194,6 +217,10 @@ export const FiltersModal = ({
     higienizacaoFilter,
     vendorsFilter,
     birthMonthFilter,
+    // ➕ FGTS OFF
+    fgtsAuthorizedFilter,
+    fgtsConsultaFromFilter,
+    fgtsConsultaToFilter,
   ])
 
   useEffect(() => {
@@ -229,6 +256,12 @@ export const FiltersModal = ({
     onHigienizacaoFilterChange(localHigienizacao)
     onVendorsFilterChange(localVendors)
     onBirthMonthFilterChange(normalizedMonths) // 🎂 sobe como números (string)
+
+    // ➕ FGTS OFF
+    onFgtsAuthorizedFilterChange(localFgtsAuthorized)
+    onFgtsConsultaFromFilterChange(localFgtsFrom)
+    onFgtsConsultaToFilterChange(localFgtsTo)
+
     onApplyFilters()
     onClose()
   }
@@ -240,9 +273,6 @@ export const FiltersModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      {/* CSS local para colorir checkboxes (inclui os do MultiSelect) */}
-
-
       <div className="filters-modal max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
         {/* ---------- Cabeçalho ---------- */}
         <header className="flex items-center justify-between border-b p-6">
@@ -409,6 +439,45 @@ export const FiltersModal = ({
 
             {/* Coluna direita */}
             <div className="space-y-6">
+              {/* ➕ FGTS OFF - Autorizado */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  FGTS OFF - Autorizado
+                </label>
+                <Select
+                  value={localFgtsAuthorized}
+                  onValueChange={(v) => setLocalFgtsAuthorized(v as "todos" | "sim" | "nao")}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="sim">Sim</SelectItem>
+                    <SelectItem value="nao">Não</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* ➕ FGTS OFF - Período de consulta */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Período de Consulta FGTS OFF
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    type="date"
+                    value={localFgtsFrom}
+                    onChange={(e) => setLocalFgtsFrom(e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    value={localFgtsTo}
+                    onChange={(e) => setLocalFgtsTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
                   CPFs em Massa

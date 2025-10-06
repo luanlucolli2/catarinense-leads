@@ -73,7 +73,15 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        $lead->load(['contracts.vendor', 'importJobs']);
+        // carrega relacionamento + injeta campos flatten no payload
+        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot']);
+
+        $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
+        $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->consultado_em);
+
+        // mantém resposta enxuta
+        $lead->unsetRelation('fgtsOffSnapshot');
+
         return response()->json($lead);
     }
 

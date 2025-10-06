@@ -45,6 +45,14 @@ interface LeadsControlsProps {
   onVendorsFilterChange: (values: string[]) => void;
   availableVendors: { id: number; name: string }[];
   hasActiveFilters: boolean;
+
+  /** ➕ FGTS OFF */
+  fgtsAuthorizedFilter: "todos" | "sim" | "nao";
+  onFgtsAuthorizedFilterChange: (v: "todos" | "sim" | "nao") => void;
+  fgtsConsultaFromFilter: string;
+  onFgtsConsultaFromFilterChange: (v: string) => void;
+  fgtsConsultaToFilter: string;
+  onFgtsConsultaToFilterChange: (v: string) => void;
 }
 
 export const LeadsControls = ({
@@ -86,6 +94,13 @@ export const LeadsControls = ({
   onVendorsFilterChange,
   availableVendors,
   hasActiveFilters,
+  // ➕ FGTS OFF
+  fgtsAuthorizedFilter,
+  onFgtsAuthorizedFilterChange,
+  fgtsConsultaFromFilter,
+  onFgtsConsultaFromFilterChange,
+  fgtsConsultaToFilter,
+  onFgtsConsultaToFilterChange,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
 
@@ -201,6 +216,13 @@ export const LeadsControls = ({
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}
         availableOrigens={availableOrigens}
+        // ➕ FGTS OFF
+        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
+        onFgtsAuthorizedFilterChange={onFgtsAuthorizedFilterChange}
+        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
+        onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
+        fgtsConsultaToFilter={fgtsConsultaToFilter}
+        onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
       />
     </div>
   );

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Lead extends Model
 {
@@ -30,7 +31,7 @@ class Lead extends Model
     ];
 
     protected $casts = [
-        'data_nascimento' => 'date',
+        'data_nascimento'  => 'date',
         'data_atualizacao' => 'datetime',
     ];
 
@@ -41,7 +42,6 @@ class Lead extends Model
 
     public function importJobs(): BelongsToMany
     {
-        // Usa o Pivot model (mesmo sem timestamps automáticos)
         return $this->belongsToMany(ImportJob::class, 'lead_imports')
             ->using(LeadImport::class)
             ->withPivot('action', 'created_at')
@@ -51,5 +51,11 @@ class Lead extends Model
     public function backups(): HasMany
     {
         return $this->hasMany(\App\Models\Backup\LeadBackup::class);
+    }
+
+    /** Snapshot FGTS OFF mais recente por CPF (join por cpf, não por lead_id). */
+    public function fgtsOffSnapshot(): HasOne
+    {
+        return $this->hasOne(FgtsOffSnapshot::class, 'cpf', 'cpf');
     }
 }
