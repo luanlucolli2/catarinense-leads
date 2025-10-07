@@ -40,7 +40,7 @@ export const AppLayout = () => {
               </Button>
 
               <h1 className="text-lg font-semibold text-gray-900">
-                Sistema de Leads
+                Catarinense Leads
               </h1>
             </div>
           </div>

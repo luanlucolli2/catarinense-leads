@@ -204,7 +204,7 @@ export const LeadsTable = ({
     }
     if (auth === false) {
       return (
-        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-amber-500 text-white">
           Não autorizado
         </span>
       );
@@ -215,6 +215,7 @@ export const LeadsTable = ({
       </span>
     );
   };
+
 
   const renderNotConsultedBadge = () => (
     <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
@@ -361,22 +362,26 @@ export const LeadsTable = ({
         </td>
 
         {/* Ações sticky */}
+        {/* Ações sticky */}
         <td
           className={cn(
-            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
+            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
             ACTIONS_COL_WIDTH
           )}
         >
-          <Button
-            onClick={() => handleViewLead(lead)}
-            variant="outline"
-            size="sm"
-            className="flex items-center space-x-1"
-          >
-            <Eye className="w-4 h-4" />
-            <span className="hidden xl:inline">Ver</span>
-          </Button>
+          <div className="flex justify-center">
+            <Button
+              onClick={() => handleViewLead(lead)}
+              variant="outline"
+              size="sm"
+              className="flex items-center space-x-1"
+            >
+              <Eye className="w-4 h-4" />
+              <span className="hidden xl:inline">Ver</span>
+            </Button>
+          </div>
         </td>
+
       </tr>
     ));
   };

@@ -168,38 +168,46 @@ const Dashboard = () => {
   const [awaitingFetch, setAwaitingFetch] = useState<null | "apply" | "clear">(null)
   const [pendingToastId, setPendingToastId] = useState<string | number | null>(null)
 
+  // 🔧 FIX: nunca sair cedo; sempre desmontar o loader quando o fetch terminar.
   useEffect(() => {
-    if (!awaitingFetch) return
-    if ((isFetching || isLoading) && !pendingToastId) {
+    // criar loader somente quando a ação foi iniciada pelo usuário
+    if (awaitingFetch && (isFetching || isLoading) && !pendingToastId) {
       const id = toast.loading(
         awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
       )
       setPendingToastId(id)
-      return
     }
 
-    if (isFetching || isLoading) return
-
-    if (pendingToastId) {
+    // quando terminar o fetch, sempre encerra o loader (se existir)
+    if (!isFetching && !isLoading && pendingToastId) {
       toast.dismiss(pendingToastId)
       setPendingToastId(null)
-    }
 
-    if (isError) {
-      toast.error("Falha ao aplicar filtros. Tente novamente.")
-    } else {
-      if (awaitingFetch === "apply") toast.success("Filtros aplicados.")
-      if (awaitingFetch === "clear") toast.info("Filtros limpos.")
+      // mensagens finais apenas quando a ação veio do usuário
+      if (awaitingFetch) {
+        if (isError) {
+          toast.error("Falha ao aplicar filtros. Tente novamente.")
+        } else {
+          if (awaitingFetch === "apply") toast.success("Filtros aplicados.")
+          if (awaitingFetch === "clear") toast.info("Filtros limpos.")
+        }
+        setAwaitingFetch(null)
+      }
     }
-    setAwaitingFetch(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFetching, isLoading, isError, awaitingFetch, pendingToastId])
+
+  // cleanup defensivo: se o componente desmontar, fecha qualquer toast pendente
+  useEffect(() => {
+    return () => {
+      if (pendingToastId) toast.dismiss(pendingToastId)
+    }
+  }, [pendingToastId])
 
   /* ---------- handlers ---------- */
   const handleApplyFilters = () => {
     setCurrentPage(1)
     setAwaitingFetch("apply")
-    if (pendingToastId) toast.dismiss(pendingToastId)
+    if (pendingToastId) toast.dismiss(pendingToastId) // evita loader duplicado
     const id = toast.loading("Aplicando filtros…")
     setPendingToastId(id)
   }
