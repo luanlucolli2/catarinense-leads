@@ -197,7 +197,7 @@ export const LeadsTable = ({
   const renderFgtsOffPill = (auth: boolean | null) => {
     if (auth === true) {
       return (
-        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-400 text-white">
           Autorizado
         </span>
       );
