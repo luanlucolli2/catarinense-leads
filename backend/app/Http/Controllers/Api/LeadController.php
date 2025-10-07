@@ -20,7 +20,6 @@ class LeadController extends Controller
         return response()->json($leads);
     }
 
-    // ✅ Igual ao index, mas aceita filtros no body (JSON) para listas grandes sem estourar header/URL
     public function search(Request $r)
     {
         $perPage = (int) $r->input('per_page', 10);
@@ -73,17 +72,14 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        // carrega relacionamento + injeta campos flatten no payload
         $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot']);
 
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
-        $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->consultado_em);
+        // usar updated_at do snapshot como "consultado em"
+        $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->updated_at);
 
-        // mantém resposta enxuta
         $lead->unsetRelation('fgtsOffSnapshot');
 
         return response()->json($lead);
     }
-
-    // (helper antigo mantido, mas o filtro central agora está no LeadFilter)
 }

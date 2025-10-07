@@ -31,8 +31,8 @@ interface FiltersModalProps {
   higienizacaoFilter: string[];
   vendorsFilter: string[];
 
-  /** ➕ FGTS OFF */
-  fgtsAuthorizedFilter: "todos" | "sim" | "nao"
+  /** ➕ FGTS OFF (tri-estado) */
+  fgtsAuthorizedFilter: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
   fgtsConsultaFromFilter: string
   fgtsConsultaToFilter: string
 
@@ -51,8 +51,8 @@ interface FiltersModalProps {
   onHigienizacaoFilterChange: (values: string[]) => void
   onVendorsFilterChange: (values: string[]) => void
 
-  /** ➕ setters FGTS OFF */
-  onFgtsAuthorizedFilterChange: (v: "todos" | "sim" | "nao") => void
+  /** ➕ setters FGTS OFF (tri-estado) */
+  onFgtsAuthorizedFilterChange: (v: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado") => void
   onFgtsConsultaFromFilterChange: (v: string) => void
   onFgtsConsultaToFilterChange: (v: string) => void
 
@@ -116,7 +116,7 @@ export const FiltersModal = ({
   higienizacaoFilter,
   vendorsFilter,
 
-  /* ➕ FGTS OFF */
+  /* ➕ FGTS OFF (tri-estado) */
   fgtsAuthorizedFilter,
   fgtsConsultaFromFilter,
   fgtsConsultaToFilter,
@@ -172,9 +172,9 @@ export const FiltersModal = ({
   const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(
     birthMonthFilter.map(monthNumToLabel)
   )
-  // ➕ FGTS OFF (estado local)
+  // ➕ FGTS OFF (tri-estado)
   const [localFgtsAuthorized, setLocalFgtsAuthorized] =
-    useState<"todos" | "sim" | "nao">(fgtsAuthorizedFilter)
+    useState<"todos" | "autorizado" | "nao_autorizado" | "nao_consultado">(fgtsAuthorizedFilter)
   const [localFgtsFrom, setLocalFgtsFrom] = useState(fgtsConsultaFromFilter)
   const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
@@ -257,7 +257,7 @@ export const FiltersModal = ({
     onVendorsFilterChange(localVendors)
     onBirthMonthFilterChange(normalizedMonths) // 🎂 sobe como números (string)
 
-    // ➕ FGTS OFF
+    // ➕ FGTS OFF (tri-estado)
     onFgtsAuthorizedFilterChange(localFgtsAuthorized)
     onFgtsConsultaFromFilterChange(localFgtsFrom)
     onFgtsConsultaToFilterChange(localFgtsTo)
@@ -439,22 +439,25 @@ export const FiltersModal = ({
 
             {/* Coluna direita */}
             <div className="space-y-6">
-              {/* ➕ FGTS OFF - Autorizado */}
+              {/* ➕ FGTS OFF - Status (tri-estado) */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  FGTS OFF - Autorizado
+                  FGTS OFF - Situação
                 </label>
                 <Select
                   value={localFgtsAuthorized}
-                  onValueChange={(v) => setLocalFgtsAuthorized(v as "todos" | "sim" | "nao")}
+                  onValueChange={(v) =>
+                    setLocalFgtsAuthorized(v as "todos" | "autorizado" | "nao_autorizado" | "nao_consultado")
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecionar..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="sim">Sim</SelectItem>
-                    <SelectItem value="nao">Não</SelectItem>
+                    <SelectItem value="autorizado">Autorizado</SelectItem>
+                    <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
+                    <SelectItem value="nao_consultado">Não consultado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

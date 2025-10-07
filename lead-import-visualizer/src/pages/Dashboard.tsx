@@ -22,7 +22,7 @@ import {
 } from "@/lib/formatters"
 
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
-type FgtsAuthorizedFilter = "todos" | "sim" | "nao"
+type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
@@ -42,9 +42,9 @@ const Dashboard = () => {
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
-  /** ➕ novos filtros FGTS OFF */
+  /** ➕ novos filtros FGTS OFF (tri-estado) */
   const [fgtsAuthorizedFilter, setFgtsAuthorizedFilter] =
-    usePersistedState<FgtsAuthorizedFilter>("dashboard:fgtsAuthorizedFilter", "todos")
+    usePersistedState<FgtsStatusFilter>("dashboard:fgtsAuthorizedFilter", "todos")
   const [fgtsConsultaFromFilter, setFgtsConsultaFromFilter] =
     usePersistedState<string>("dashboard:fgtsConsultaFromFilter", "")
   const [fgtsConsultaToFilter, setFgtsConsultaToFilter] =
@@ -108,8 +108,8 @@ const Dashboard = () => {
         phones: phonesMassFilter,
         vendors: vendorsFilter,
         birth_month: birthMonthFilter,
-        // ➕ FGTS OFF
-        fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+        // ➕ FGTS OFF (tri-estado)
+        fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
         fgts_consulta_from: fgtsConsultaFromFilter || undefined,
         fgts_consulta_to: fgtsConsultaToFilter || undefined,
       }),
@@ -269,8 +269,8 @@ const Dashboard = () => {
     phones: phonesMassFilter || undefined,
     vendors: vendorsFilter.length ? vendorsFilter : undefined,
     birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
-    // ➕ FGTS OFF
-    fgts_authorized: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+    // ➕ FGTS OFF (tri-estado)
+    fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
     fgts_consulta_from: fgtsConsultaFromFilter || undefined,
     fgts_consulta_to: fgtsConsultaToFilter || undefined,
   })
@@ -342,7 +342,7 @@ const Dashboard = () => {
         onVendorsFilterChange={setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
-        // ➕ FGTS OFF
+        // ➕ FGTS OFF (tri-estado)
         fgtsAuthorizedFilter={fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={setFgtsAuthorizedFilter}
         fgtsConsultaFromFilter={fgtsConsultaFromFilter}

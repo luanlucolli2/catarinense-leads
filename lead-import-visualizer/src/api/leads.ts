@@ -80,8 +80,8 @@ export interface LeadFilters {
   vendors?: string[]
   /** 🎂 meses de aniversário (1..12 como strings) */
   birth_month?: string[]
-  /** ➕ novos filtros FGTS OFF */
-  fgts_authorized?: "sim" | "nao" // enviamos só quando setado
+  /** ➕ FGTS OFF (tri-estado) */
+  fgts_status?: "autorizado" | "nao_autorizado" | "nao_consultado" // enviamos só quando setado
   fgts_consulta_from?: string      // YYYY-MM-DD
   fgts_consulta_to?: string        // YYYY-MM-DD
 }
@@ -118,8 +118,8 @@ const buildQueryParams = (f: LeadFilters) => {
   if (f.contract_from) p.set("contract_from", f.contract_from)
   if (f.contract_to) p.set("contract_to", f.contract_to)
 
-  // ➕ FGTS OFF
-  if (f.fgts_authorized) p.set("fgts_authorized", f.fgts_authorized)
+  // ➕ FGTS OFF (tri-estado)
+  if (f.fgts_status) p.set("fgts_status", f.fgts_status)
   if (f.fgts_consulta_from) p.set("fgts_consulta_from", f.fgts_consulta_from)
   if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
 
@@ -176,8 +176,8 @@ export async function fetchLeads(filters: LeadFilters) {
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
-      // ➕ FGTS OFF
-      fgts_authorized: filters.fgts_authorized || undefined,
+      // ➕ FGTS OFF (tri-estado)
+      fgts_status: filters.fgts_status || undefined,
       fgts_consulta_from: filters.fgts_consulta_from || undefined,
       fgts_consulta_to: filters.fgts_consulta_to || undefined,
     }

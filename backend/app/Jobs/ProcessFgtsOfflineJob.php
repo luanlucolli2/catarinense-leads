@@ -143,7 +143,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $invalidCnt = 0;
             $batchRows = [];
             $batchSize = 500;
-            $snapRows = []; // ← snapshots para upsert em lote
+            $snapRows = []; // snapshots para upsert em lote
 
             $pf = fopen($pend1Real, 'c+');
             if ($pf === false) {
@@ -191,12 +191,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         $row['consultadoEm'] = $this->nowBrString();
                         $batchRows[] = $row;
 
-                        // snapshot (final)
+                        // snapshot (final) → updated_at (agora UTC) será usado
                         $snapRows[] = [
-                            'cpf'           => $cpf,
-                            'situacao'      => $row['situacao'],
-                            'authorized'    => false,
-                            'consultado_em' => $this->parseConsultedAtBr($row['consultadoEm']),
+                            'cpf'        => $cpf,
+                            'situacao'   => $row['situacao'],
+                            'authorized' => false,
                         ];
 
                         $invalidCnt++;
@@ -451,12 +450,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         $rows[] = $row;
                         $leftoverCount++;
 
-                        // snapshot (final)
+                        // snapshot (final) → updated_at (agora UTC) será usado
                         $snapRows[] = [
-                            'cpf'           => $cpf,
-                            'situacao'      => $row['situacao'],
-                            'authorized'    => false,
-                            'consultado_em' => $this->parseConsultedAtBr($row['consultadoEm']),
+                            'cpf'        => $cpf,
+                            'situacao'   => $row['situacao'],
+                            'authorized' => false,
                         ];
 
                         if (count($rows) >= $batchSize) {
@@ -567,12 +565,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $rows[] = $row;
                 $successThisAttempt++;
 
-                // snapshot (final para "ok")
+                // snapshot (final para "ok") → updated_at (agora UTC) será usado
                 $snapRows[] = [
-                    'cpf'           => $cpf,
-                    'situacao'      => $row['situacao'],
-                    'authorized'    => ($res['authorized'] ?? null) === true,
-                    'consultado_em' => $this->tryParseUtc($res['consultado_at'] ?? null),
+                    'cpf'        => $cpf,
+                    'situacao'   => $row['situacao'],
+                    'authorized' => ($res['authorized'] ?? null) === true,
                 ];
             } else {
                 $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
@@ -585,12 +582,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $rows[] = $row;
                     $terminalFailsInChunk++;
 
-                    // snapshot (falha terminal)
+                    // snapshot (falha terminal) → updated_at (agora UTC)
                     $snapRows[] = [
-                        'cpf'           => $cpf,
-                        'situacao'      => $row['situacao'],
-                        'authorized'    => false,
-                        'consultado_em' => $this->tryParseUtc($res['consultado_at'] ?? null),
+                        'cpf'        => $cpf,
+                        'situacao'   => $row['situacao'],
+                        'authorized' => false,
                     ];
                 } else {
                     // mantém para próxima tentativa
@@ -729,7 +725,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $job->preview_dirty = true;
 
         $this->rowsSinceFlush = 0;
-        $this->nextFlushAt = $now + $this->flushEverySecs;
+               $this->nextFlushAt = $now + $this->flushEverySecs;
         $this->lastFlushedBytes = $bytes;
 
         $this->accSuccess = 0;
@@ -817,18 +813,12 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         }
     }
 
-    /**
-     * Constrói arquivo de CPFs únicos (ordenados) a partir do cpfs.txt.
-     * RAM-frugal: blocos menores + spill por pressão de memória + k-way merge.
-     *
-     * @return int número de CPFs únicos
-     */
     private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
     {
         $disk = Storage::disk($this->disk);
         $uniqReal = $disk->path($uniqRel);
 
-        $blockSize = 10000; // ~10k chaves por bloco
+        $blockSize = 10000;
         $chunks = [];
 
         $r = fopen($cpfsReal, 'r');
@@ -880,7 +870,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             return $cnt;
         }
 
-        // k-way merge
         $writers = fopen($uniqReal, 'w');
         if ($writers === false) {
             foreach ($chunks as $c)
@@ -938,9 +927,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return $written;
     }
 
-    /**
-     * Escreve um bloco (set de CPFs) em arquivo temporário ORDENADO sem duplicar memória.
-     */
     private function writeSortedChunk(array $block): string
     {
         $disk = Storage::disk($this->disk);
@@ -961,7 +947,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return $real;
     }
 
-    /** true se memória do processo > ~70% do memory_limit (e há bloco em curso). */
     private function shouldSpill(int $currentCount): bool
     {
         if ($currentCount <= 0)
@@ -973,7 +958,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return $usage > (int) ($limit * 0.70);
     }
 
-    /** memory_limit (php.ini) em bytes; -1 => INT_MAX. */
     private function memoryLimitBytes(): int
     {
         $val = ini_get('memory_limit');
@@ -999,7 +983,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         if (empty($snapRows)) return;
 
         try {
-            // normaliza campos + agrega CPFs para lookup
             $now = Carbon::now('UTC');
             $cpfs = [];
             $payload = [];
@@ -1010,12 +993,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $cpfs[] = $cpf;
 
                 $payload[] = [
-                    'cpf'           => $cpf,
-                    'situacao'      => $r['situacao'] ?? null,
-                    'authorized'    => array_key_exists('authorized', $r) ? (bool)$r['authorized'] : null,
-                    'consultado_em' => $r['consultado_em'] ?? $now,
-                    'job_id'        => $this->jobId,
-                    'updated_at'    => $now,
+                    'cpf'        => $cpf,
+                    'situacao'   => $r['situacao'] ?? null,
+                    'authorized' => array_key_exists('authorized', $r) ? (bool)$r['authorized'] : null,
+                    'job_id'     => $this->jobId,
+                    'updated_at' => $now, // ← passa a ser o "consultado em"
                     // lead_id será preenchido abaixo
                 ];
             }
@@ -1034,31 +1016,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             DB::table('fgts_off_snapshots')->upsert(
                 $payload,
                 ['cpf'],
-                ['situacao','authorized','consultado_em','job_id','updated_at','lead_id']
+                ['situacao','authorized','job_id','updated_at','lead_id'] // removido consultado_em
             );
         } catch (\Throwable $e) {
             Log::warning("[FGTS-OFF] Upsert snapshots falhou no job {$this->jobId}: ".$e->getMessage());
         }
-    }
-
-    /** Parse "d/m/Y H:i:s" (São Paulo) → UTC; fallback: now UTC. */
-    private function parseConsultedAtBr(?string $s): Carbon
-    {
-        if (!$s) return Carbon::now('UTC');
-        try {
-            return Carbon::createFromFormat('d/m/Y H:i:s', $s, 'America/Sao_Paulo')->setTimezone('UTC');
-        } catch (\Throwable) {
-            try { return Carbon::parse($s)->setTimezone('UTC'); } catch (\Throwable) { return Carbon::now('UTC'); }
-        }
-    }
-
-    /** Tenta parsear qualquer data → UTC; fallback now UTC. */
-    private function tryParseUtc($v): Carbon
-    {
-        try {
-            if ($v instanceof Carbon) return $v->copy()->setTimezone('UTC');
-            if (is_string($v) && $v !== '') return Carbon::parse($v)->setTimezone('UTC');
-        } catch (\Throwable) {}
-        return Carbon::now('UTC');
     }
 }
