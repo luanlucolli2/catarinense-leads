@@ -344,8 +344,7 @@ const FGTSOfflineConsultaPage = () => {
           Consulta FGTS (Base Offline)
         </h1>
         <p className="text-gray-600 text-sm lg:text-base">
-          Realize consulta FGTS Base Offline em massa colando CPFs e baixe o resultado em Excel. É possível agendar uma janela de execução.
-        </p>
+          Faça consultas em massa na FGTS Base Offline (Facta). Os resultados são gerados em .xlsx e, quando possível, vinculados automaticamente aos leads cadastrados.        </p>
       </div>
 
       <div className="space-y-6">
