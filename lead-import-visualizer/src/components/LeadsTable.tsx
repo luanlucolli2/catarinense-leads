@@ -69,6 +69,22 @@ const EMPTY = "—";
 /** largura fixa da coluna de ações p/ alinhar header + body */
 const ACTIONS_COL_WIDTH = "w-[110px] min-w-[110px] max-w-[110px]";
 
+/** Normaliza + escolhe aparência do badge de classe de telefone */
+const getClasseBadge = (raw?: string | null) => {
+  if (!raw) {
+    return { label: EMPTY, cls: "bg-gray-100 text-gray-700" };
+  }
+  const norm = raw.toString().toLowerCase().replace(/[_\s]+/g, " ").trim();
+  if (norm === "carteira") {
+    return { label: "Carteira", cls: "bg-amber-100 text-amber-800" }; // dourado/ouro
+  }
+  if (norm === "atendimento ia") {
+    return { label: "Atendimento IA", cls: "bg-sky-100 text-sky-800" }; // azul tech
+  }
+  // demais: azul frio padrão
+  return { label: raw, cls: "bg-blue-100 text-blue-800" };
+};
+
 const SkeletonRow = () => (
   <tr className="hover:bg-gray-50">
     <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-28" /></td>
@@ -216,7 +232,6 @@ export const LeadsTable = ({
     );
   };
 
-
   const renderNotConsultedBadge = () => (
     <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
       Não consultado
@@ -236,154 +251,148 @@ export const LeadsTable = ({
         </tr>
       );
     }
-    return sortedLeads.map((lead) => (
-      <tr
-        key={lead.id}
-        className="group hover:bg-gray-50 transition-colors duration-150"
-      >
-        {/* CPF */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[110px]">
-          {display(lead.cpf)}
-        </td>
+    return sortedLeads.map((lead) => {
+      const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
 
-        {/* Nome */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
-          {display(lead.nome)}
-        </td>
+      return (
+        <tr
+          key={lead.id}
+          className="group hover:bg-gray-50 transition-colors duration-150"
+        >
+          {/* CPF */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[110px]">
+            {display(lead.cpf)}
+          </td>
 
-        {/* Telefone principal + contador */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[120px]">
-          {lead.telefones.length > 0 ? (
-            <div className="flex items-center space-x-2">
-              <span className="font-mono">{display(lead.telefones[0].fone)}</span>
-              {lead.telefones.length > 1 && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="flex items-center text-xs bg-gray-200 text-gray-600 rounded-full px-2 py-0.5">
-                        <Phone className="w-3 h-3 mr-1" />
-                        +{lead.telefones.length - 1}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Este lead possui mais telefones.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          ) : (
-            EMPTY
-          )}
-        </td>
+          {/* Nome */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
+            {display(lead.nome)}
+          </td>
 
-        {/* Classe (pill) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[90px]">
-          {lead.telefones[0]?.classe ? (
+          {/* Telefone principal + contador */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[120px]">
+            {lead.telefones.length > 0 ? (
+              <div className="flex items-center space-x-2">
+                <span className="font-mono">{display(lead.telefones[0].fone)}</span>
+                {lead.telefones.length > 1 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button className="flex items-center text-xs bg-gray-200 text-gray-600 rounded-full px-2 py-0.5">
+                          <Phone className="w-3 h-3 mr-1" />
+                          +{lead.telefones.length - 1}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Este lead possui mais telefones.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+            ) : (
+              EMPTY
+            )}
+          </td>
+
+          {/* Classe (pill) */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[90px]">
             <span
               className={cn(
                 "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-                lead.telefones[0]?.classe === "Quente"
-                  ? "bg-red-100 text-red-800"
-                  : "bg-blue-100 text-blue-800"
+                classeInfo.cls
               )}
             >
-              {lead.telefones[0]?.classe}
+              {classeInfo.label}
             </span>
-          ) : (
-            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
-              {EMPTY}
-            </span>
-          )}
-        </td>
+          </td>
 
-        {/* Status + motivo */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[140px]">
-          <div className="flex flex-col items-center space-y-1">
-            <span
-              className={cn(
-                "inline-flex px-2 py-1 text-xs font-semibold rounded-full w-fit",
-                lead.status === "Elegível"
-                  ? "bg-green-100 text-green-800"
-                  : "bg-gray-100 text-gray-800"
-              )}
-            >
-              {display(lead.status)}
-            </span>
-            <span className="text-xs text-gray-500 truncate max-w-[140px] text-center">
-              {display(lead.consulta)}
-            </span>
-          </div>
-        </td>
+          {/* Status + motivo */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[140px]">
+            <div className="flex flex-col items-center space-y-1">
+              <span
+                className={cn(
+                  "inline-flex px-2 py-1 text-xs font-semibold rounded-full w-fit",
+                  lead.status === "Elegível"
+                    ? "bg-green-100 text-green-800"
+                    : "bg-gray-100 text-gray-800"
+                )}
+              >
+                {display(lead.status)}
+              </span>
+              <span className="text-xs text-gray-500 truncate max-w-[140px] text-center">
+                {display(lead.consulta)}
+              </span>
+            </div>
+          </td>
 
-        {/* Saldo / Libera (direita) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
-          {display(lead.saldo)}
-        </td>
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
-          {display(lead.libera)}
-        </td>
+          {/* Saldo / Libera (direita) */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
+            {display(lead.saldo)}
+          </td>
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[100px]">
+            {display(lead.libera)}
+          </td>
 
-        {/* Data hig. */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
-          {display(lead.data_atualizacao)}
-        </td>
+          {/* Data hig. */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
+            {display(lead.data_atualizacao)}
+          </td>
 
-        {/* Autorizado (OFF) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[160px]">
-          {renderFgtsOffPill(lead.fgts_off_authorized)}
-        </td>
+          {/* Autorizado (OFF) */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[160px]">
+            {renderFgtsOffPill(lead.fgts_off_authorized)}
+          </td>
 
-        {/* Data consulta (OFF) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[160px]">
-          {lead.fgts_off_consultado_em ? (
-            lead.fgts_off_consultado_em
-          ) : (
-            renderNotConsultedBadge()
-          )}
-        </td>
+          {/* Data consulta (OFF) */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[160px]">
+            {lead.fgts_off_consultado_em ? (
+              lead.fgts_off_consultado_em
+            ) : (
+              renderNotConsultedBadge()
+            )}
+          </td>
 
-        {/* Contratos */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[80px]">
-          {typeof lead.contratos === "number" ? lead.contratos : EMPTY}
-        </td>
+          {/* Contratos */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[80px]">
+            {typeof lead.contratos === "number" ? lead.contratos : EMPTY}
+          </td>
 
-        {/* Origem (pill) */}
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
-          {lead.primeira_origem ? (
-            <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[140px] truncate mx-auto">
-              {lead.primeira_origem}
-            </span>
-          ) : (
-            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
-              {EMPTY}
-            </span>
-          )}
-        </td>
+          {/* Origem (pill) */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
+            {lead.primeira_origem ? (
+              <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[140px] truncate mx-auto">
+                {lead.primeira_origem}
+              </span>
+            ) : (
+              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                {EMPTY}
+              </span>
+            )}
+          </td>
 
-        {/* Ações sticky */}
-        {/* Ações sticky */}
-        <td
-          className={cn(
-            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
-            ACTIONS_COL_WIDTH
-          )}
-        >
-          <div className="flex justify-center">
-            <Button
-              onClick={() => handleViewLead(lead)}
-              variant="outline"
-              size="sm"
-              className="flex items-center space-x-1"
-            >
-              <Eye className="w-4 h-4" />
-              <span className="hidden xl:inline">Ver</span>
-            </Button>
-          </div>
-        </td>
-
-      </tr>
-    ));
+          {/* Ações sticky */}
+          <td
+            className={cn(
+              "px-3 xl:px-6 py-4 whitespace-nowrap align-middle sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
+              ACTIONS_COL_WIDTH
+            )}
+          >
+            <div className="flex justify-center">
+              <Button
+                onClick={() => handleViewLead(lead)}
+                variant="outline"
+                size="sm"
+                className="flex items-center space-x-1"
+              >
+                <Eye className="w-4 h-4" />
+                <span className="hidden xl:inline">Ver</span>
+              </Button>
+            </div>
+          </td>
+        </tr>
+      );
+    });
   };
 
   return (
@@ -456,107 +465,102 @@ export const LeadsTable = ({
 
         {/* Mobile/Tablet Cards */}
         <div className="lg:hidden space-y-4 p-4 max-w-full">
-          {sortedLeads.map((lead) => (
-            <div
-              key={lead.id}
-              className="bg-white border border-gray-200 rounded-lg p-4 space-y-3 max-w-full"
-            >
-              <div className="flex justify-between items-start">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-gray-900 truncate">
-                    {display(lead.nome)}
-                  </h3>
-                  <p className="text-sm font-mono text-gray-600 truncate">
-                    {display(lead.cpf)}
-                  </p>
-                  <p className="text-sm font-mono text-gray-600 truncate">
-                    {lead.telefones[0]?.fone || EMPTY}
-                  </p>
+          {sortedLeads.map((lead) => {
+            const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
+            return (
+              <div
+                key={lead.id}
+                className="bg-white border border-gray-200 rounded-lg p-4 space-y-3 max-w-full"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-gray-900 truncate">
+                      {display(lead.nome)}
+                    </h3>
+                    <p className="text-sm font-mono text-gray-600 truncate">
+                      {display(lead.cpf)}
+                    </p>
+                    <p className="text-sm font-mono text-gray-600 truncate">
+                      {lead.telefones[0]?.fone || EMPTY}
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => handleViewLead(lead)}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center space-x-1 ml-2 flex-shrink-0"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Ver</span>
+                  </Button>
                 </div>
-                <Button
-                  onClick={() => handleViewLead(lead)}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center space-x-1 ml-2 flex-shrink-0"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>Ver</span>
-                </Button>
-              </div>
 
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center space-x-2 flex-wrap">
-                  {lead.telefones[0]?.classe ? (
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center space-x-2 flex-wrap">
                     <span
                       className={cn(
                         "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-                        lead.telefones[0]?.classe === "Quente"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-blue-100 text-blue-800"
+                        classeInfo.cls
                       )}
                     >
-                      {lead.telefones[0]?.classe}
+                      {classeInfo.label}
                     </span>
-                  ) : (
-                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
-                      {EMPTY}
+                    <span
+                      className={cn(
+                        "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
+                        lead.status === "Elegível"
+                          ? "bg-green-100 text-green-800"
+                          : "bg-gray-100 text-gray-800"
+                      )}
+                    >
+                      {display(lead.status)}
                     </span>
-                  )}
-                  <span
-                    className={cn(
-                      "inline-flex px-2 py-1 text-xs font-semibold rounded-full",
-                      lead.status === "Elegível"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-gray-100 text-gray-800"
+                    {lead.primeira_origem ? (
+                      <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full truncate max-w-[140px]">
+                        {lead.primeira_origem}
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                        {EMPTY}
+                      </span>
                     )}
-                  >
-                    {display(lead.status)}
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {typeof lead.contratos === "number" ? lead.contratos : EMPTY} contratos
                   </span>
-                  {lead.primeira_origem ? (
-                    <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full truncate max-w-[140px]">
-                      {lead.primeira_origem}
-                    </span>
-                  ) : (
-                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
-                      {EMPTY}
-                    </span>
-                  )}
                 </div>
-                <span className="text-xs text-gray-500">
-                  {typeof lead.contratos === "number" ? lead.contratos : EMPTY} contratos
-                </span>
-              </div>
 
-              <div className="flex items-center justify-between text-xs">
-                <div className="space-x-2 flex items-center">
-                  <span className="text-gray-500">Autorizado (OFF):</span>
-                  {renderFgtsOffPill(lead.fgts_off_authorized)}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="space-x-2 flex items-center">
+                    <span className="text-gray-500">Autorizado (OFF):</span>
+                    {renderFgtsOffPill(lead.fgts_off_authorized)}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-500">Consulta (OFF):</span>
+                    {lead.fgts_off_consultado_em
+                      ? <span>{lead.fgts_off_consultado_em}</span>
+                      : renderNotConsultedBadge()}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-gray-500">Consulta (OFF):</span>
-                  {lead.fgts_off_consultado_em
-                    ? <span>{lead.fgts_off_consultado_em}</span>
-                    : renderNotConsultedBadge()}
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-500">Saldo:</span>
-                  <p className="font-semibold truncate">{display(lead.saldo)}</p>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Saldo:</span>
+                    <p className="font-semibold truncate">{display(lead.saldo)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Libera:</span>
+                    <p className="font-semibold truncate">{display(lead.libera)}</p>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-500">Libera:</span>
-                  <p className="font-semibold truncate">{display(lead.libera)}</p>
-                </div>
-              </div>
 
-              <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t">
-                <span>Data hig.: {display(lead.data_atualizacao)}</span>
-                <span className="truncate">{display(lead.consulta)}</span>
+                <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t">
+                  <span>Data hig.: {display(lead.data_atualizacao)}</span>
+                  <span className="truncate">{display(lead.consulta)}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Pagination */}
