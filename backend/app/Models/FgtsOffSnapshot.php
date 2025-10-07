@@ -11,23 +11,21 @@ class FgtsOffSnapshot extends Model
     protected $primaryKey = 'cpf';
     public $incrementing = false;
     protected $keyType = 'string';
-    public $timestamps = false; // usamos updated_at manual
+    public $timestamps = false; // continuamos a gerenciar updated_at manualmente
 
     protected $fillable = [
         'cpf',
         'lead_id',
         'situacao',
         'authorized',
-        'consultado_em',
         'job_id',
         'raw_meta',
-        'updated_at',
+        'updated_at', // passa a ser o "consultado em"
     ];
 
     protected $casts = [
-        'authorized'    => 'boolean',
-        'consultado_em' => 'datetime',
-        'updated_at'    => 'datetime',
-        'raw_meta'      => 'array',
+        'authorized' => 'boolean',
+        'updated_at' => 'datetime',
+        'raw_meta'   => 'array',
     ];
 }

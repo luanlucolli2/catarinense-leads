@@ -19,18 +19,18 @@ class LeadFilter
 
         $exportMode = is_array($columnsForExport);
 
-        // Normaliza flags de uso dos campos FGTS OFF para evitar selects desnecessários
+        // ---- FGTS OFF: colunas a projetar (só quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
             ? in_array('fgts_off_authorized', $columnsForExport, true)
-            : true; // no modo lista já expomos para o front
+            : true; // no modo lista expomos para o front
 
         $needFgtsConsultadoCol = $exportMode
             ? in_array('fgts_off_consultado_em', $columnsForExport, true)
             : true;
 
-        // Filtros FGTS OFF (novos)
-        $filterFgtsAuth = self::normalizeYesNo($r->input('fgts_authorized', null)); // true|false|null
-        $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
+        // ---- FGTS OFF: novos filtros ----
+        $fgtsStatus          = self::normalizeFgtsStatus($r->input('fgts_status', null)); // 'autorizado'|'nao_autorizado'|'nao_consultado'|null
+        $hasFgtsDateFilter   = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
 
         if ($exportMode) {
             $select = ['leads.id'];
@@ -88,8 +88,8 @@ class LeadFilter
                 ]);
             }
 
-            // ➕ Subselects do snapshot FGTS OFF no modo export apenas se requeridos/filtros
-            if ($needFgtsAuthorizedCol || $filterFgtsAuth !== null || $hasFgtsDateFilter) {
+            // Subselects do snapshot FGTS OFF apenas se requeridos/filtros
+            if ($needFgtsAuthorizedCol || $fgtsStatus !== null || $hasFgtsDateFilter) {
                 $query->addSelect([
                     'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
                         ->select('authorized')
@@ -100,7 +100,7 @@ class LeadFilter
             if ($needFgtsConsultadoCol || $hasFgtsDateFilter) {
                 $query->addSelect([
                     'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('consultado_em')
+                        ->select('updated_at') // ← usar timestamp nativo
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
                 ]);
@@ -118,7 +118,6 @@ class LeadFilter
                       ->limit(1);
                 }]);
 
-            // ➕ Campos do snapshot FGTS OFF no modo lista
             if ($needFgtsAuthorizedCol) {
                 $query->addSelect([
                     'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
@@ -130,14 +129,14 @@ class LeadFilter
             if ($needFgtsConsultadoCol) {
                 $query->addSelect([
                     'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('consultado_em')
+                        ->select('updated_at') // ← usar timestamp nativo
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
                 ]);
             }
         }
 
-        // ----- filtros existentes (inalterados) -----
+        // ----- filtros existentes -----
         if ($r->filled('search')) {
             $termRaw  = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
@@ -209,23 +208,33 @@ class LeadFilter
 
         // ======== NOVOS FILTROS: FGTS OFF ========
 
-        // 1) Autorizado: sim/nao
-        if ($filterFgtsAuth !== null) {
-            $query->whereIn('leads.cpf', function ($sq) use ($filterFgtsAuth) {
+        // 1) Status de autorização em 3 estados
+        if ($fgtsStatus === 'autorizado') {
+            $query->whereIn('leads.cpf', function ($sq) {
                 $sq->select('cpf')
                    ->from('fgts_off_snapshots')
-                   ->where('authorized', $filterFgtsAuth);
+                   ->where('authorized', 1);
+            });
+        } elseif ($fgtsStatus === 'nao_autorizado') {
+            $query->whereIn('leads.cpf', function ($sq) {
+                $sq->select('cpf')
+                   ->from('fgts_off_snapshots')
+                   ->where('authorized', 0);
+            });
+        } elseif ($fgtsStatus === 'nao_consultado') {
+            $query->whereNotIn('leads.cpf', function ($sq) {
+                $sq->select('cpf')->from('fgts_off_snapshots');
             });
         }
 
-        // 2) Período de consulta: Y-m-d -> [00:00:00, 23:59:59]
+        // 2) Período de consulta: usar updated_at como "consultado em"
         if ($hasFgtsDateFilter) {
             $from = $r->input('fgts_consulta_from', '1900-01-01');
             $to   = $r->input('fgts_consulta_to',   now()->toDateString());
             $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
                 $sq->select('cpf')
                    ->from('fgts_off_snapshots')
-                   ->whereBetween('consultado_em', ["{$from} 00:00:00","{$to} 23:59:59"]);
+                   ->whereBetween('updated_at', ["{$from} 00:00:00","{$to} 23:59:59"]);
             });
         }
 
@@ -285,21 +294,25 @@ class LeadFilter
         });
     }
 
-    /** sim|1|true => true ; nao|0|false => false ; outros => null */
-    private static function normalizeYesNo($v): ?bool
+    private static function normalizeFgtsStatus($v): ?string
     {
         if ($v === null || $v === '') return null;
-        $s = is_string($v) ? mb_strtolower(trim($v)) : $v;
+        if (!is_string($v)) return null;
 
-        $truthy = ['1','true','t','yes','y','sim','s'];
-        $falsy  = ['0','false','f','no','n','nao','não'];
+        $s = trim(mb_strtolower($v));
+        $s = str_replace(['ã','â','á','à','ä'], 'a', $s);
+        $s = str_replace(['ê','é','è','ë'], 'e', $s);
+        $s = str_replace(['î','í','ì','ï'], 'i', $s);
+        $s = str_replace(['õ','ô','ó','ò','ö'], 'o', $s);
+        $s = str_replace(['û','ú','ù','ü'], 'u', $s);
+        $s = preg_replace('/[\s\-]+/u', '_', $s);
 
-        if (is_bool($v)) return $v;
-        if (is_numeric($v)) return ((int)$v) === 1;
+        $map = [
+            'autorizado'      => 'autorizado',
+            'nao_autorizado'  => 'nao_autorizado',
+            'nao_consultado'  => 'nao_consultado',
+        ];
 
-        if (in_array($s, $truthy, true)) return true;
-        if (in_array($s, $falsy,  true)) return false;
-
-        return null;
+        return $map[$s] ?? null;
     }
 }
