@@ -61,18 +61,18 @@ return [
         'xlsm' => Excel::XLSX,
         'xltx' => Excel::XLSX,
         'xltm' => Excel::XLSX,
-        'xls'  => Excel::XLS,
-        'xlt'  => Excel::XLS,
-        'ods'  => Excel::ODS,
-        'ots'  => Excel::ODS,
-        'slk'  => Excel::SLK,
-        'xml'  => Excel::XML,
+        'xls' => Excel::XLS,
+        'xlt' => Excel::XLS,
+        'ods' => Excel::ODS,
+        'ots' => Excel::ODS,
+        'slk' => Excel::SLK,
+        'xml' => Excel::XML,
         'gnumeric' => Excel::GNUMERIC,
-        'htm'  => Excel::HTML,
+        'htm' => Excel::HTML,
         'html' => Excel::HTML,
-        'csv'  => Excel::CSV,
-        'tsv'  => Excel::TSV,
-        'pdf'  => Excel::DOMPDF,
+        'csv' => Excel::CSV,
+        'tsv' => Excel::TSV,
+        'pdf' => Excel::DOMPDF,
     ],
 
     'value_binder' => [
@@ -80,21 +80,11 @@ return [
     ],
 
     'cache' => [
-        // Estratégia híbrida: memória com spill para Redis
-        'driver' => 'batch',
-
-        // ~50 MB de teto para o hot set em memória (ajuste fino se necessário)
-        'batch' => [
-            'memory_limit' => 51200, // em KB
-        ],
-
-        // Usa o store padrão do app (já configurado para Redis no .env)
-        // Se quiser forçar explicitamente:
+        'driver' => 'illuminate',
         'illuminate' => [
-            'store' => 'redis',
+            'store' => 'file', // <- em vez de 'redis'
         ],
-
-        'default_ttl' => 10800,
+        'default_ttl' => 7200,
     ],
 
     'transactions' => [
