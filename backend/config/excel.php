@@ -80,13 +80,13 @@ return [
     ],
 
     // ✅ Usa o cache do Laravel (Redis) via "illuminate"
-    'cache' => [
-        'driver' => 'illuminate',
-        'illuminate' => [
-            'store' => 'redis', // usa a store 'redis' do config/cache.php
-        ],
-        'default_ttl' => 10800,
+   'cache' => [
+    'driver' => 'illuminate',
+    'illuminate' => [
+        'store' => 'file',   // <- usa o cache "file" do Laravel
     ],
+    'default_ttl' => 10800,
+],
 
     'transactions' => [
         'handler' => 'db',
