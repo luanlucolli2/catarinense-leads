@@ -6,8 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\Vendor;
 use Illuminate\Http\Request;
-use Illuminate\Database\Eloquent\Builder;
-use App\Models\ImportJob;
 use Illuminate\Support\Facades\DB;
 
 class LeadController extends Controller
@@ -30,15 +28,18 @@ class LeadController extends Controller
 
     public function filters()
     {
-        $firstJobIds = DB::table('lead_imports')
-            ->selectRaw('MIN(import_job_id) as id')
-            ->groupBy('lead_id');
+        // últimas importações por lead (separadas por tipo)
+        $lastCadJobIds = DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('ij.type', 'cadastral')
+            ->selectRaw('MAX(li.import_job_id) as id')
+            ->groupBy('li.lead_id');
 
-        $lastHigJobIds = DB::table('lead_imports')
-            ->join('import_jobs', 'import_jobs.id', '=', 'lead_imports.import_job_id')
-            ->where('import_jobs.type', 'higienizacao')
-            ->selectRaw('MAX(import_jobs.id) as id')
-            ->groupBy('lead_imports.lead_id');
+        $lastHigJobIds = DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('ij.type', 'higienizacao')
+            ->selectRaw('MAX(li.import_job_id) as id')
+            ->groupBy('li.lead_id');
 
         return response()->json([
             'motivos' => Lead::query()
@@ -47,20 +48,25 @@ class LeadController extends Controller
                 ->orderBy('consulta')
                 ->pluck('consulta')
                 ->values(),
-            'origens' => ImportJob::query()
+
+            // origens CADASTRAL derivadas da ÚLTIMA origem de cada lead
+            'origens' => DB::table('import_jobs')
                 ->where('type', 'cadastral')
-                ->whereIn('id', $firstJobIds)
+                ->whereIn('id', $lastCadJobIds)
                 ->distinct()
                 ->orderBy('origin')
                 ->pluck('origin')
                 ->values(),
-            'origens_hig' => ImportJob::query()
+
+            // origens HIG derivadas da ÚLTIMA origem de cada lead
+            'origens_hig' => DB::table('import_jobs')
                 ->where('type', 'higienizacao')
                 ->whereIn('id', $lastHigJobIds)
                 ->distinct()
                 ->orderBy('origin')
                 ->pluck('origin')
                 ->values(),
+
             'vendors' => Vendor::query()
                 ->whereHas('contracts')
                 ->orderBy('name')
@@ -75,8 +81,29 @@ class LeadController extends Controller
         $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot']);
 
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
-        // usar updated_at do snapshot como "consultado em"
         $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->updated_at);
+
+        // últimas origens por tipo
+        $ultimaCad = DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('li.lead_id', $lead->id)
+            ->where('ij.type', 'cadastral')
+            ->orderByDesc('li.created_at')
+            ->orderByDesc('li.import_job_id')
+            ->limit(1)
+            ->value('ij.origin');
+
+        $ultimaHig = DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('li.lead_id', $lead->id)
+            ->where('ij.type', 'higienizacao')
+            ->orderByDesc('li.created_at')
+            ->orderByDesc('li.import_job_id')
+            ->limit(1)
+            ->value('ij.origin');
+
+        $lead->setAttribute('ultima_origem_cadastral', $ultimaCad);
+        $lead->setAttribute('ultima_origem_higienizacao', $ultimaHig);
 
         $lead->unsetRelation('fgtsOffSnapshot');
 

@@ -9,7 +9,8 @@ interface ExportModalProps {
   onExport: (columns: string[]) => void;
 }
 
-// ✅ Inclui vendedor, data_contrato_recente e campos de FGTS OFF
+// ✅ Inclui vendedor, data_contrato_recente, campos FGTS OFF
+// ✅ Troca "primeira_origem" por "ultima_origem_cadastral" e adiciona "ultima_origem_higienizacao"
 const availableColumns = [
   { id: "cpf", label: "CPF", selected: true },
   { id: "nome", label: "Nome", selected: true },
@@ -26,11 +27,12 @@ const availableColumns = [
   { id: "consulta", label: "Motivo (Consulta)", selected: true },
   { id: "saldo", label: "Saldo", selected: true },
   { id: "libera", label: "Libera", selected: true },
-  { id: "primeira_origem", label: "Origem", selected: true },
+  { id: "ultima_origem_cadastral", label: "Última Origem (Cadastral)", selected: true },
+  { id: "ultima_origem_higienizacao", label: "Última Origem (Higienização)", selected: true },
   { id: "data_atualizacao", label: "Data de Atualização", selected: true },
   { id: "contracts_count", label: "Qtde de Contratos", selected: true },
-  { id: "data_contrato_recente", label: "Data de Contrato (mais recente)", selected: true }, // ➕
-  { id: "vendedor", label: "Vendedor", selected: true }, // ➕
+  { id: "data_contrato_recente", label: "Data de Contrato (mais recente)", selected: true },
+  { id: "vendedor", label: "Vendedor", selected: true },
   // ➕ FGTS OFF
   { id: "fgts_off_authorized", label: "FGTS OFF Autorizado", selected: true },
   { id: "fgts_off_consultado_em", label: "FGTS OFF Consultado em", selected: true },
@@ -43,7 +45,6 @@ export const ExportModal = ({
 }: ExportModalProps) => {
   const [selectedColumns, setSelectedColumns] = useState<Record<string, boolean>>({});
 
-  // Sempre que o modal abrir, (re)inicia seleção padrão
   useEffect(() => {
     if (isOpen) {
       const init = availableColumns.reduce((acc, col) => {

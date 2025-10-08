@@ -97,8 +97,8 @@ const Dashboard = () => {
         search: searchValue,
         status: statusFilter,
         motivos: motivosFilter,
-        origens: origemFilter,
-        origens_hig: higienizacaoFilter,
+        origens: origemFilter,            // últimas cadastrais
+        origens_hig: higienizacaoFilter,  // últimas higienização
         date_from: dateFromFilter,
         date_to: dateToFilter,
         contract_from: contractDateFromFilter,
@@ -135,7 +135,7 @@ const Dashboard = () => {
       ].filter((f) => f.fone && f.fone !== "--")
 
       // 🔧 Normaliza 0/1/"0"/"1" → boolean | null
-      const rawAuth: any = (lead as any).fgts_off_authorized
+      const rawAuth: any = lead.fgts_off_authorized
       const fgtsOffAuthorized: boolean | null =
         rawAuth === true || rawAuth === 1 || rawAuth === "1"
           ? true
@@ -155,7 +155,9 @@ const Dashboard = () => {
         libera: formatCurrency(lead.libera),
         data_atualizacao: formatDate(lead.data_atualizacao),
         consulta: lead.consulta || "--",
-        primeira_origem: lead.primeira_origem || "",
+        /** ⬇️ novas origens exibidas */
+        ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        ultima_origem_higienizacao: lead.ultima_origem_higienizacao || "",
         fgts_off_authorized: fgtsOffAuthorized,
         fgts_off_consultado_em: lead.fgts_off_consultado_em
           ? formatDate(lead.fgts_off_consultado_em)
@@ -168,22 +170,16 @@ const Dashboard = () => {
   const [awaitingFetch, setAwaitingFetch] = useState<null | "apply" | "clear">(null)
   const [pendingToastId, setPendingToastId] = useState<string | number | null>(null)
 
-  // 🔧 FIX: nunca sair cedo; sempre desmontar o loader quando o fetch terminar.
   useEffect(() => {
-    // criar loader somente quando a ação foi iniciada pelo usuário
     if (awaitingFetch && (isFetching || isLoading) && !pendingToastId) {
       const id = toast.loading(
         awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
       )
       setPendingToastId(id)
     }
-
-    // quando terminar o fetch, sempre encerra o loader (se existir)
     if (!isFetching && !isLoading && pendingToastId) {
       toast.dismiss(pendingToastId)
       setPendingToastId(null)
-
-      // mensagens finais apenas quando a ação veio do usuário
       if (awaitingFetch) {
         if (isError) {
           toast.error("Falha ao aplicar filtros. Tente novamente.")
@@ -196,7 +192,6 @@ const Dashboard = () => {
     }
   }, [isFetching, isLoading, isError, awaitingFetch, pendingToastId])
 
-  // cleanup defensivo: se o componente desmontar, fecha qualquer toast pendente
   useEffect(() => {
     return () => {
       if (pendingToastId) toast.dismiss(pendingToastId)
@@ -207,7 +202,7 @@ const Dashboard = () => {
   const handleApplyFilters = () => {
     setCurrentPage(1)
     setAwaitingFetch("apply")
-    if (pendingToastId) toast.dismiss(pendingToastId) // evita loader duplicado
+    if (pendingToastId) toast.dismiss(pendingToastId)
     const id = toast.loading("Aplicando filtros…")
     setPendingToastId(id)
   }
@@ -266,8 +261,8 @@ const Dashboard = () => {
     search: searchValue || undefined,
     status: statusFilter !== "todos" ? statusFilter : undefined,
     motivos: motivosFilter.length ? motivosFilter : undefined,
-    origens: origemFilter.length ? origemFilter : undefined,
-    origens_hig: higienizacaoFilter.length ? higienizacaoFilter : undefined,
+    origens: origemFilter.length ? origemFilter : undefined,          // últimas (cad)
+    origens_hig: higienizacaoFilter.length ? higienizacaoFilter : undefined, // últimas (hig)
     date_from: dateFromFilter || undefined,
     date_to: dateToFilter || undefined,
     contract_from: contractDateFromFilter || undefined,

@@ -28,10 +28,6 @@ class LeadFilter
             ? in_array('fgts_off_consultado_em', $columnsForExport, true)
             : true;
 
-        // ---- FGTS OFF: novos filtros ----
-        $fgtsStatus          = self::normalizeFgtsStatus($r->input('fgts_status', null)); // 'autorizado'|'nao_autorizado'|'nao_consultado'|null
-        $hasFgtsDateFilter   = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
-
         if ($exportMode) {
             $select = ['leads.id'];
             $allowedLeadCols = [
@@ -46,13 +42,29 @@ class LeadFilter
             }
             $query = Lead::query()->select($select);
 
-            if (in_array('primeira_origem', $columnsForExport, true)) {
-                $query->addSelect(['primeira_origem' => function ($q) {
-                    $q->select('origin')
-                      ->from('import_jobs')
-                      ->join('lead_imports','import_jobs.id','=','lead_imports.import_job_id')
-                      ->whereColumn('lead_imports.lead_id','leads.id')
-                      ->orderBy('lead_imports.created_at')
+            // ===== novas colunas de origem (últimas) =====
+            if (in_array('ultima_origem_cadastral', $columnsForExport, true)) {
+                $query->addSelect(['ultima_origem_cadastral' => function ($q) {
+                    $q->select('ij.origin')
+                      ->from('lead_imports as li')
+                      ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                      ->whereColumn('li.lead_id', 'leads.id')
+                      ->where('ij.type', 'cadastral')
+                      ->orderByDesc('li.created_at')
+                      ->orderByDesc('li.import_job_id')
+                      ->limit(1);
+                }]);
+            }
+
+            if (in_array('ultima_origem_higienizacao', $columnsForExport, true)) {
+                $query->addSelect(['ultima_origem_higienizacao' => function ($q) {
+                    $q->select('ij.origin')
+                      ->from('lead_imports as li')
+                      ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                      ->whereColumn('li.lead_id', 'leads.id')
+                      ->where('ij.type', 'higienizacao')
+                      ->orderByDesc('li.created_at')
+                      ->orderByDesc('li.import_job_id')
                       ->limit(1);
                 }]);
             }
@@ -89,7 +101,7 @@ class LeadFilter
             }
 
             // Subselects do snapshot FGTS OFF apenas se requeridos/filtros
-            if ($needFgtsAuthorizedCol || $fgtsStatus !== null || $hasFgtsDateFilter) {
+            if ($needFgtsAuthorizedCol) {
                 $query->addSelect([
                     'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
                         ->select('authorized')
@@ -97,10 +109,10 @@ class LeadFilter
                         ->limit(1),
                 ]);
             }
-            if ($needFgtsConsultadoCol || $hasFgtsDateFilter) {
+            if ($needFgtsConsultadoCol) {
                 $query->addSelect([
                     'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('updated_at') // ← usar timestamp nativo
+                        ->select('updated_at')
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
                 ]);
@@ -109,12 +121,25 @@ class LeadFilter
             $query = Lead::query()
                 ->select('leads.*')
                 ->withCount('contracts')
-                ->addSelect(['primeira_origem' => function ($q) {
-                    $q->select('origin')
-                      ->from('import_jobs')
-                      ->join('lead_imports','import_jobs.id','=','lead_imports.import_job_id')
-                      ->whereColumn('lead_imports.lead_id','leads.id')
-                      ->orderBy('lead_imports.created_at')
+                // ===== novas colunas por padrão na lista =====
+                ->addSelect(['ultima_origem_cadastral' => function ($q) {
+                    $q->select('ij.origin')
+                      ->from('lead_imports as li')
+                      ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                      ->whereColumn('li.lead_id', 'leads.id')
+                      ->where('ij.type', 'cadastral')
+                      ->orderByDesc('li.created_at')
+                      ->orderByDesc('li.import_job_id')
+                      ->limit(1);
+                }])
+                ->addSelect(['ultima_origem_higienizacao' => function ($q) {
+                    $q->select('ij.origin')
+                      ->from('lead_imports as li')
+                      ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                      ->whereColumn('li.lead_id', 'leads.id')
+                      ->where('ij.type', 'higienizacao')
+                      ->orderByDesc('li.created_at')
+                      ->orderByDesc('li.import_job_id')
                       ->limit(1);
                 }]);
 
@@ -129,14 +154,14 @@ class LeadFilter
             if ($needFgtsConsultadoCol) {
                 $query->addSelect([
                     'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('updated_at') // ← usar timestamp nativo
+                        ->select('updated_at')
                         ->whereColumn('fos.cpf', 'leads.cpf')
                         ->limit(1),
                 ]);
             }
         }
 
-        // ----- filtros existentes -----
+        // ----- filtros de busca -----
         if ($r->filled('search')) {
             $termRaw  = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
@@ -166,18 +191,46 @@ class LeadFilter
         $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string)$r->motivos)) : [];
         if ($motivos) $query->whereIn('consulta', $motivos);
 
-        $origens = $r->filled('origens') ? (is_array($r->origens) ? $r->origens : explode(',', (string)$r->origens)) : [];
-        if ($origens) {
-            $query->whereHas('importJobs', fn(Builder $q) => $q->whereIn('import_jobs.origin', $origens));
+        // ======= NOVO: filtros de origem baseados na ÚLTIMA por tipo =======
+        $origensCad = $r->filled('origens') ? (is_array($r->origens) ? $r->origens : explode(',', (string)$r->origens)) : [];
+        if ($origensCad) {
+            $query->whereIn('leads.id', function ($sq) use ($origensCad) {
+                $sq->select('li.lead_id')
+                   ->from('lead_imports as li')
+                   ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                   ->where('ij.type', 'cadastral')
+                   ->whereIn('ij.origin', $origensCad)
+                   ->whereRaw('li.import_job_id = (
+                        SELECT li2.import_job_id
+                        FROM lead_imports li2
+                        JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = "cadastral"
+                        WHERE li2.lead_id = li.lead_id
+                        ORDER BY li2.created_at DESC, li2.import_job_id DESC
+                        LIMIT 1
+                   )');
+            });
         }
 
         $origHig = $r->filled('origens_hig') ? (is_array($r->origens_hig) ? $r->origens_hig : explode(',', (string)$r->origens_hig)) : [];
         if ($origHig) {
-            $query->whereHas('importJobs', function (Builder $q) use ($origHig) {
-                $q->where('import_jobs.type','higienizacao')->whereIn('import_jobs.origin', $origHig);
+            $query->whereIn('leads.id', function ($sq) use ($origHig) {
+                $sq->select('li.lead_id')
+                   ->from('lead_imports as li')
+                   ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                   ->where('ij.type', 'higienizacao')
+                   ->whereIn('ij.origin', $origHig)
+                   ->whereRaw('li.import_job_id = (
+                        SELECT li2.import_job_id
+                        FROM lead_imports li2
+                        JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = "higienizacao"
+                        WHERE li2.lead_id = li.lead_id
+                        ORDER BY li2.created_at DESC, li2.import_job_id DESC
+                        LIMIT 1
+                   )');
             });
         }
 
+        // datas e demais
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
             $to   = $r->input('date_to',   now()->toDateString());
@@ -206,20 +259,17 @@ class LeadFilter
             if ($months) $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
         }
 
-        // ======== NOVOS FILTROS: FGTS OFF ========
+        // ======== FGTS OFF ========
+        $fgtsStatus        = self::normalizeFgtsStatus($r->input('fgts_status', null));
+        $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
 
-        // 1) Status de autorização em 3 estados
         if ($fgtsStatus === 'autorizado') {
             $query->whereIn('leads.cpf', function ($sq) {
-                $sq->select('cpf')
-                   ->from('fgts_off_snapshots')
-                   ->where('authorized', 1);
+                $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1);
             });
         } elseif ($fgtsStatus === 'nao_autorizado') {
             $query->whereIn('leads.cpf', function ($sq) {
-                $sq->select('cpf')
-                   ->from('fgts_off_snapshots')
-                   ->where('authorized', 0);
+                $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0);
             });
         } elseif ($fgtsStatus === 'nao_consultado') {
             $query->whereNotIn('leads.cpf', function ($sq) {
@@ -227,7 +277,6 @@ class LeadFilter
             });
         }
 
-        // 2) Período de consulta: usar updated_at como "consultado em"
         if ($hasFgtsDateFilter) {
             $from = $r->input('fgts_consulta_from', '1900-01-01');
             $to   = $r->input('fgts_consulta_to',   now()->toDateString());
