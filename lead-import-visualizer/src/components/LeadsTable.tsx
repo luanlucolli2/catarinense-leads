@@ -1,5 +1,3 @@
-// src/components/LeadsTable.tsx
-
 import { useState, useMemo } from "react";
 import {
   ChevronLeft,
@@ -37,7 +35,9 @@ export interface ProcessedLead {
   libera: string;
   data_atualizacao: string;
   consulta: string;
-  primeira_origem: string;
+  /** ⬇️ novas origens mostradas */
+  ultima_origem_cadastral: string;
+  ultima_origem_higienizacao: string;
   fgts_off_authorized: boolean | null;
   fgts_off_consultado_em: string; // string data formatada OU ""
 }
@@ -50,7 +50,8 @@ type SortField =
   | "libera"
   | "data_atualizacao"
   | "contratos"
-  | "primeira_origem"
+  | "ultima_origem_cadastral"
+  | "ultima_origem_higienizacao"
   | "fgts_off_authorized"
   | "fgts_off_consultado_em";
 type SortDirection = "asc" | "desc";
@@ -76,12 +77,11 @@ const getClasseBadge = (raw?: string | null) => {
   }
   const norm = raw.toString().toLowerCase().replace(/[_\s]+/g, " ").trim();
   if (norm === "carteira") {
-    return { label: "Carteira", cls: "bg-amber-100 text-amber-800" }; // dourado/ouro
+    return { label: "Carteira", cls: "bg-amber-100 text-amber-800" };
   }
   if (norm === "atendimento ia") {
-    return { label: "Atendimento IA", cls: "bg-sky-100 text-sky-800" }; // azul tech
+    return { label: "Atendimento IA", cls: "bg-sky-100 text-sky-800" };
   }
-  // demais: azul frio padrão
   return { label: raw, cls: "bg-blue-100 text-blue-800" };
 };
 
@@ -98,7 +98,8 @@ const SkeletonRow = () => (
     <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
     <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
     <td className="px-3 xl:px-6 py-4 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
-    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-8 w-20 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
     {/* Ações sticky */}
     <td
       className={cn(
@@ -245,7 +246,7 @@ export const LeadsTable = ({
     if (leads.length === 0) {
       return (
         <tr>
-          <td colSpan={13} className="text-center py-12 text-gray-500">
+          <td colSpan={14} className="text-center py-12 text-gray-500">
             Nenhum lead encontrado com os filtros aplicados.
           </td>
         </tr>
@@ -358,11 +359,24 @@ export const LeadsTable = ({
             {typeof lead.contratos === "number" ? lead.contratos : EMPTY}
           </td>
 
-          {/* Origem (pill) */}
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
-            {lead.primeira_origem ? (
-              <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[140px] truncate mx-auto">
-                {lead.primeira_origem}
+          {/* Última origem cadastral */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[140px]">
+            {lead.ultima_origem_cadastral ? (
+              <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">
+                {lead.ultima_origem_cadastral}
+              </span>
+            ) : (
+              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                {EMPTY}
+              </span>
+            )}
+          </td>
+
+          {/* Última origem higienização */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[140px]">
+            {lead.ultima_origem_higienizacao ? (
+              <span className="inline-flex px-2 py-1 text-xs font-medium bg-violet-100 text-violet-800 rounded-full max-w-[160px] truncate mx-auto">
+                {lead.ultima_origem_higienizacao}
               </span>
             ) : (
               <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
@@ -401,7 +415,7 @@ export const LeadsTable = ({
         {/* Desktop Table */}
         <div className="hidden lg:block w-full max-w-full">
           <div className="overflow-x-auto relative max-w-full">
-            <table className="w-full min-w-[1350px]">
+            <table className="w-full min-w-[1500px]">
               <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
                   <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-left">
@@ -441,8 +455,12 @@ export const LeadsTable = ({
                   <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[80px] text-right">
                     <SortButton field="contratos" align="right">Contratos</SortButton>
                   </th>
-                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-center">
-                    <SortButton field="primeira_origem" align="center">Origem</SortButton>
+
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-center">
+                    <SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton>
+                  </th>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-center">
+                    <SortButton field="ultima_origem_higienizacao" align="center">Última origem (hig.)</SortButton>
                   </th>
 
                   {/* Header Ações sticky */}
@@ -515,9 +533,18 @@ export const LeadsTable = ({
                     >
                       {display(lead.status)}
                     </span>
-                    {lead.primeira_origem ? (
+                    {lead.ultima_origem_cadastral ? (
                       <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full truncate max-w-[140px]">
-                        {lead.primeira_origem}
+                        {lead.ultima_origem_cadastral}
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                        {EMPTY}
+                      </span>
+                    )}
+                    {lead.ultima_origem_higienizacao ? (
+                      <span className="inline-flex px-2 py-1 text-xs font-medium bg-violet-100 text-violet-800 rounded-full truncate max-w-[140px]">
+                        {lead.ultima_origem_higienizacao}
                       </span>
                     ) : (
                       <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">

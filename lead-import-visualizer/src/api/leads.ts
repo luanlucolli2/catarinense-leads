@@ -15,14 +15,16 @@ export interface LeadFromApi {
   classe_fone3: string | null
   fone4: string | null
   classe_fone4: string | null
-  primeira_origem: string | null
+  /** ⬇️ campos de origem (últimas) */
+  ultima_origem_cadastral: string | null
+  ultima_origem_higienizacao: string | null
   consulta: string | null
   data_atualizacao: string | null
   saldo: string | null
   libera: string | null
   contracts_count: number
   /** ➕ FGTS OFF */
-  fgts_off_authorized: boolean | null
+  fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
 }
 
@@ -45,14 +47,17 @@ export interface LeadDetailFromApi {
   libera: string | null
   created_at: string | null
   updated_at: string | null
+  importJobs: { id: number; origin: string; type: string; created_at: string }[]
   contracts: {
     id: number
     data_contrato: string
     vendor?: { id: number; name: string }
   }[]
-  importJobs: { id: number; origin: string; type: string; created_at: string }[]
+  /** ⬇️ campos de origem (últimas) */
+  ultima_origem_cadastral: string | null
+  ultima_origem_higienizacao: string | null
   /** ➕ FGTS OFF */
-  fgts_off_authorized: boolean | null
+  fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
 }
 
@@ -68,7 +73,9 @@ export interface LeadFilters {
   search?: string
   status?: "todos" | "elegiveis" | "nao-elegiveis"
   motivos?: string[]
-  origens?: string[]
+  /** ⬇️ já são as últimas por tipo (back aplica) */
+  origens?: string[]        // cadastral
+  origens_hig?: string[]    // higienização
   date_from?: string
   date_to?: string
   contract_from?: string
@@ -76,12 +83,11 @@ export interface LeadFilters {
   cpf?: string
   names?: string
   phones?: string
-  origens_hig?: string[]
   vendors?: string[]
   /** 🎂 meses de aniversário (1..12 como strings) */
   birth_month?: string[]
   /** ➕ FGTS OFF (tri-estado) */
-  fgts_status?: "autorizado" | "nao_autorizado" | "nao_consultado" // enviamos só quando setado
+  fgts_status?: "autorizado" | "nao_autorizado" | "nao_consultado"
   fgts_consulta_from?: string      // YYYY-MM-DD
   fgts_consulta_to?: string        // YYYY-MM-DD
 }
@@ -204,8 +210,8 @@ export async function fetchLeadDetail(id: number) {
 
 export interface FiltersOptionsDTO {
   motivos: string[]
-  origens: string[]
-  origens_hig: string[]
+  origens: string[]       // últimas cadastrais
+  origens_hig: string[]   // últimas higienização
   vendors: { id: number; name: string }[]
 }
 

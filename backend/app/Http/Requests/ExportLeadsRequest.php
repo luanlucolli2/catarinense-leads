@@ -21,7 +21,8 @@ class ExportLeadsRequest extends FormRequest
         'consulta',
         'saldo',
         'libera',
-        'primeira_origem',
+        'ultima_origem_cadastral',
+        'ultima_origem_higienizacao',
         'data_atualizacao',
         'contracts_count',
         'vendedor',
@@ -46,8 +47,8 @@ class ExportLeadsRequest extends FormRequest
             'search'        => ['nullable', 'string'],
             'status'        => ['nullable', 'in:todos,elegiveis,nao-elegiveis'],
             'motivos'       => ['nullable'],
-            'origens'       => ['nullable'],
-            'origens_hig'   => ['nullable'],
+            'origens'       => ['nullable'],       // últimas origens cadastrais
+            'origens_hig'   => ['nullable'],       // últimas origens de higienização
             'vendors'       => ['nullable'],
 
             'date_from'     => ['nullable', 'date_format:Y-m-d'],
@@ -61,10 +62,10 @@ class ExportLeadsRequest extends FormRequest
 
             'birth_month'   => ['nullable'],
 
-            // ➕ novos filtros FGTS OFF
-            'fgts_authorized'     => ['nullable', 'in:sim,nao,1,0,true,false'],
-            'fgts_consulta_from'  => ['nullable', 'date_format:Y-m-d'],
-            'fgts_consulta_to'    => ['nullable', 'date_format:Y-m-d'],
+            // ➕ FGTS OFF (alinhado ao LeadFilter)
+            'fgts_status'        => ['nullable', 'in:autorizado,nao_autorizado,nao_consultado'],
+            'fgts_consulta_from' => ['nullable', 'date_format:Y-m-d'],
+            'fgts_consulta_to'   => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 
