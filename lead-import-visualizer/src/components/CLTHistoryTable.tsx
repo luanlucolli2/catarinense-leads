@@ -3,26 +3,26 @@ import { useState } from "react";
 import {
   Download,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
-  MoreVertical,
-  Play,
-  Pause,
+  MoreHorizontal,
   X,
   Trash2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { cn } from "@/lib/utils";
-import { CltConsultJobListItem } from "@/api/clt";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,21 +32,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { CltConsultJobListItem } from "@/api/clt";
 
 type Props = {
   items: CltConsultJobListItem[];
   loading?: boolean;
-
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
-  onPause: (id: number) => Promise<void>;
-  onResume: (id: number) => Promise<void>;
   onCancel: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
@@ -60,51 +52,152 @@ type Props = {
   formatDateTimeBR: (iso?: string | null) => string;
 };
 
-function StatusBadge({ status }: { status: CltConsultJobListItem["status"] }) {
+type CltJobStatus = CltConsultJobListItem["status"];
+
+function getStatusInfo(status: CltJobStatus) {
   switch (status) {
     case "concluido":
-      return (
-        <Badge className="bg-green-100 text-green-800 border-green-200">
-          Concluído
-        </Badge>
-      );
+      return {
+        icon: <CheckCircle className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800",
+        label: "Concluído",
+      };
     case "em_progresso":
-      return (
-        <Badge className="inline-flex items-center justify-center gap-1.5 bg-blue-100 text-blue-800 border-blue-200 whitespace-nowrap text-center">
-          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-          <span className="leading-none">Em andamento</span>
-        </Badge>
-      );
-    case "pausado":
-      return (
-        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
-          Pausado
-        </Badge>
-      );
+      return {
+        icon: <Loader2 className="w-4 h-4 animate-spin" />,
+        className:
+          "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
+        label: "Em andamento",
+      };
     case "falhou":
-      return (
-        <Badge className="bg-red-100 text-red-800 border-red-200">
-          Falhou
-        </Badge>
-      );
+      return {
+        icon: <XCircle className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800",
+        label: "Falhou",
+      };
     case "cancelado":
-      return (
-        <Badge className="bg-gray-100 text-gray-800 border-gray-200">
-          Cancelado
-        </Badge>
-      );
+      return {
+        icon: <X className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600",
+        label: "Cancelado",
+      };
     case "pendente":
     default:
-      return <Badge variant="secondary">Pendente</Badge>;
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800/40 dark:text-gray-200 dark:border-gray-700",
+        label: "Pendente",
+      };
   }
+}
+
+function calcSegments(i: CltConsultJobListItem) {
+  const total = i.total_cpfs || 0;
+  if (!total) return { ok: 0, not: 0, err: 0, sum: 0, total: 0 };
+  const ok = (i.success_count / total) * 100;
+  const not = ((i.not_found_count ?? 0) / total) * 100;
+  const err = (i.fail_count / total) * 100;
+  const sum = ok + not + err;
+  return { ok, not, err, sum, total };
+}
+
+function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
+  const s = calcSegments(item);
+  const total = item.total_cpfs || 0;
+  const processed = (
+    item.success_count +
+    (item.not_found_count ?? 0) +
+    item.fail_count
+  ).toLocaleString();
+
+  // Mostrar “preparando/contando…” até total_cpfs ser preenchido
+  const isCounting =
+    total === 0 &&
+    (item.status === "pendente" || item.status === "em_progresso");
+
+  const pulseWidthPct = Math.min(
+    5,
+    Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8)
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">Progresso</span>
+        <span className="font-medium text-card-foreground">
+          {isCounting
+            ? "Preparando/contando CPFs…"
+            : `${processed} de ${total.toLocaleString()} CPFs`}
+        </span>
+      </div>
+
+      <div className="relative h-3 bg-muted rounded-full overflow-hidden">
+        {s.ok > 0 && (
+          <div
+            className="absolute left-0 top-0 h-full bg-emerald-500 dark:bg-emerald-400"
+            style={{ width: `${s.ok}%` }}
+          />
+        )}
+        {s.not > 0 && (
+          <div
+            className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400"
+            style={{ left: `${s.ok}%`, width: `${s.not}%` }}
+          />
+        )}
+        {s.err > 0 && (
+          <div
+            className="absolute top-0 h-full bg-red-500 dark:bg-red-400"
+            style={{ left: `${s.ok + s.not}%`, width: `${s.err}%` }}
+          />
+        )}
+        {(item.status === "em_progresso" || isCounting) && s.sum < 100 && (
+          <div
+            className="absolute top-0 h-full bg-blue-300/60 dark:bg-blue-700/70 animate-pulse"
+            style={{
+              left: `${s.sum}%`,
+              width: `${Math.min(pulseWidthPct, 100 - s.sum)}%`,
+            }}
+          />
+        )}
+      </div>
+
+      <div className="flex justify-between text-xs">
+        <div className="flex items-center gap-4">
+          {s.ok > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
+              <span className="text-muted-foreground">Sucesso</span>
+            </div>
+          )}
+          {s.not > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
+              <span className="text-muted-foreground">Não encontrados</span>
+            </div>
+          )}
+          {s.err > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
+              <span className="text-muted-foreground">Falhas</span>
+            </div>
+          )}
+        </div>
+        <span className="text-muted-foreground">
+          {isCounting ? "Preparando…" : `${s.sum.toFixed(1)}% completo`}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export const CLTHistoryTable = ({
   items,
   loading,
   onDownload,
-  onPause,
-  onResume,
   onCancel,
   onDelete,
   page,
@@ -114,27 +207,20 @@ export const CLTHistoryTable = ({
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
-
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [confirmDeleteJob, setConfirmDeleteJob] = useState<CltConsultJobListItem | null>(null);
-
-  const [pausingId, setPausingId] = useState<number | null>(null);
-  const [resumingId, setResumingId] = useState<number | null>(null);
-
-  const handlePrev = () => onPageChange(Math.max(1, page - 1));
-  const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
+  const [confirmDeleteJob, setConfirmDeleteJob] =
+    useState<CltConsultJobListItem | null>(null);
 
   const canDownloadFinal = (i: CltConsultJobListItem) =>
-    i.status === "concluido" && Boolean(i.file_path);
+    (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") &&
+    Boolean(i.file_path ?? (i as any).has_file); // usa file_path (DTO da lista) e, por compatibilidade, fallback no has_file via any
 
-  // ✅ PRÉVIA é on-demand: habilita enquanto processa ou pausado, independentemente de preview_path
   const canDownloadPreview = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "pendente" || i.status === "em_progresso";
 
   const canCancel = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "pendente" || i.status === "em_progresso";
 
-  // pode excluir quando NÃO está em processamento (inclui pausado)
   const canDelete = (i: CltConsultJobListItem) =>
     !(i.status === "pendente" || i.status === "em_progresso");
 
@@ -170,217 +256,165 @@ export const CLTHistoryTable = ({
     }
   };
 
-  const doPause = async (i: CltConsultJobListItem) => {
-    if (pausingId !== null) return;
-    try {
-      setPausingId(i.id);
-      await onPause(i.id);
-    } finally {
-      setPausingId(null);
-    }
-  };
-
-  const doResume = async (i: CltConsultJobListItem) => {
-    if (resumingId !== null) return;
-    try {
-      setResumingId(i.id);
-      await onResume(i.id);
-    } finally {
-      setResumingId(null);
-    }
-  };
+  const handlePrev = () => onPageChange(Math.max(1, page - 1));
+  const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      <div className="px-4 py-3">
-        <div className="text-sm text-gray-600">
-          {loading ? "Carregando..." : `${items.length} itens na página`}
-        </div>
-      </div>
+    <div className="space-y-4">
+      {loading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            Carregando...
+          </CardContent>
+        </Card>
+      ) : items.length === 0 ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">Nenhuma consulta encontrada</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        items.map((i) => {
+          const statusInfo = getStatusInfo(i.status as CltJobStatus);
+          const finalReady = canDownloadFinal(i);
+          const previewReady = canDownloadPreview(i);
+          const downloadDisabled = !finalReady && !previewReady;
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-left">Título</TableHead>
-              <TableHead className="text-left">Criado em</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Total de CPFs</TableHead>
-              <TableHead className="text-center">Sucesso</TableHead>
-              <TableHead className="text-center">Não encontrado</TableHead>
-              <TableHead className="text-center">Falhas</TableHead>
-              <TableHead className="text-center">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  <div className="flex items-center gap-2 justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Carregando...
+          return (
+            <Card
+              key={i.id}
+              className={cn(
+                "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
+                "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
+                "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
+                "transition-shadow"
+              )}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-card-foreground truncate mb-1">
+                      {i.title}
+                    </h3>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                    </div>
                   </div>
-                </TableCell>
-              </TableRow>
-            ) : items.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  Nenhuma consulta encontrada
-                </TableCell>
-              </TableRow>
-            ) : (
-              items.map((i) => {
-                const finalReady = canDownloadFinal(i);
-                const previewReady = canDownloadPreview(i);
-                const showDownload = i.status !== "cancelado" && (finalReady || previewReady);
-                const downloadDisabled = !finalReady && !previewReady;
+                  <div className="flex items-center gap-3 ml-4">
+                    <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
+                      {statusInfo.icon}
+                      {statusInfo.label}
+                    </Badge>
 
-                const isPausing = pausingId === i.id;
-                const isResuming = resumingId === i.id;
+                    <div className="flex items-center gap-1">
+                      {i.status !== "cancelado" && (
+                        <Button
+                          onClick={() =>
+                            onDownload(i.id, {
+                              preview: !finalReady && previewReady,
+                            })
+                          }
+                          disabled={downloadDisabled}
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          title={
+                            finalReady
+                              ? "Baixar planilha final"
+                              : previewReady
+                                ? "Baixar prévia"
+                                : "Baixar indisponível"
+                          }
+                        >
+                          <Download className="w-4 h-4" />
+                          {!finalReady && previewReady && <span className="ml-1">Prévia</span>}
+                        </Button>
+                      )}
 
-                return (
-                  <TableRow key={i.id} className="hover:bg-gray-50">
-                    <TableCell className="font-medium">{i.title}</TableCell>
-                    <TableCell className="text-gray-600">
-                      {formatDateTimeBR(i.created_at)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <StatusBadge status={i.status} />
-                    </TableCell>
-                    <TableCell className="text-center font-medium">
-                      {i.total_cpfs.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-green-600 font-medium">
-                      {i.success_count.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-amber-600 font-medium">
-                      {(i.not_found_count ?? 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center text-red-600 font-medium">
-                      {i.fail_count.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        {/* === Botão de Download (final ou prévia), como no protótipo === */}
-                        {showDownload && (
-                          <Button
-                            onClick={() => onDownload(i.id, { preview: !finalReady && previewReady })}
-                            disabled={downloadDisabled}
-                            variant="outline"
-                            size="sm"
-                            className={cn(
-                              "flex items-center gap-2 px-3",
-                              !downloadDisabled
-                                ? "border-blue-300 text-blue-700 hover:bg-blue-50"
-                                : "opacity-50 cursor-not-allowed"
-                            )}
-                            title={
-                              finalReady
-                                ? "Baixar planilha final"
-                                : previewReady
-                                  ? "Baixar planilha (prévia)"
-                                  : "Baixar indisponível"
-                            }
-                          >
-                            <Download className="w-4 h-4" />
-                            {i.status === "em_progresso" && <span className="ml-1">Prévia</span>}
-                            {i.status === "pausado" && <span className="ml-1">Prévia</span>}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
                           </Button>
-                        )}
-
-                        {/* === Dropdown de Ações (Pausar/Retomar/Cancelar/Excluir) === */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent"
-                              aria-label="Mais ações"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {i.status === "em_progresso" && (
-                              <DropdownMenuItem
-                                onClick={() => void doPause(i)}
-                                className={cn(
-                                  "text-yellow-600",
-                                  isPausing && "opacity-60 pointer-events-none"
-                                )}
-                              >
-                                {isPausing ? (
-                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : (
-                                  <Pause className="w-4 h-4 mr-2" />
-                                )}
-                                Pausar
-                              </DropdownMenuItem>
-                            )}
-
-                            {i.status === "pausado" && (
-                              <DropdownMenuItem
-                                onClick={() => void doResume(i)}
-                                className={cn(
-                                  "text-blue-600",
-                                  isResuming && "opacity-60 pointer-events-none"
-                                )}
-                              >
-                                {isResuming ? (
-                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : (
-                                  <Play className="w-4 h-4 mr-2" />
-                                )}
-                                Retomar
-                              </DropdownMenuItem>
-                            )}
-
-                            {(i.status === "em_progresso" || i.status === "pausado" || i.status === "pendente") && (
-                              <DropdownMenuItem
-                                onClick={() => openCancelDialog(i)}
-                                className={cn(
-                                  "text-orange-600",
-                                  cancelingId === i.id && "opacity-60 pointer-events-none"
-                                )}
-                              >
-                                {cancelingId === i.id ? (
-                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : (
-                                  <X className="w-4 h-4 mr-2" />
-                                )}
-                                Cancelar
-                              </DropdownMenuItem>
-                            )}
-
-                            <DropdownMenuSeparator />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {(i.status === "pendente" || i.status === "em_progresso") && (
                             <DropdownMenuItem
-                              onClick={() => openDeleteDialog(i)}
-                              className={i.status === "em_progresso" ? "text-gray-400 cursor-not-allowed" : "text-red-600"}
-                              disabled={i.status === "em_progresso"}
+                              onClick={() => openCancelDialog(i)}
+                              className="text-orange-600 dark:text-orange-400"
                             >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Excluir
+                              <X className="w-4 h-4 mr-2" />
+                              Cancelar
                             </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => openDeleteDialog(i)}
+                            className={
+                              i.status === "em_progresso" || i.status === "pendente"
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-destructive"
+                            }
+                            disabled={i.status === "em_progresso" || i.status === "pendente"}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
 
-      {/* Paginação */}
-      <div className="bg-white px-4 lg:px-6 py-3 border-t border-gray-200 flex items-center justify-between">
-        <div className="text-sm text-gray-500">
+              <CardContent className="pt-0">
+                <div className="space-y-4">
+                  <SegmentedProgressBar item={i} />
+
+                  {(i.status === "concluido" ||
+                    i.status === "em_progresso" ||
+                    i.status === "cancelado" ||
+                    i.status === "falhou") && (
+                      <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                            {i.success_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Sucesso</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
+                            {(i.not_found_count ?? 0).toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Não encontrados</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                            {i.fail_count.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Falhas</div>
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })
+      )}
+
+      {/* Paginação (somente anterior/próxima) */}
+      <div className="bg-white px-4 lg:px-6 py-3 border border-border rounded-md flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
           Página {page} de {lastPage || 1}
         </div>
         <div className="flex items-center space-x-2">
           <Button
-            onClick={handlePrev}
+            onClick={() => onPageChange(Math.max(1, page - 1))}
             disabled={page <= 1 || !!loading}
             variant="outline"
             size="sm"
@@ -389,7 +423,7 @@ export const CLTHistoryTable = ({
             <span className="sr-only">Anterior</span>
           </Button>
           <Button
-            onClick={handleNext}
+            onClick={() => onPageChange(Math.min(lastPage || 1, page + 1))}
             disabled={page >= (lastPage || 1) || !!loading}
             variant="outline"
             size="sm"
@@ -400,7 +434,7 @@ export const CLTHistoryTable = ({
         </div>
       </div>
 
-      {/* ===== MODAL: Confirmar CANCELAMENTO ===== */}
+      {/* Confirmar CANCELAMENTO */}
       <AlertDialog
         open={!!confirmJob}
         onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}
@@ -411,17 +445,15 @@ export const CLTHistoryTable = ({
               Cancelar consulta?
             </AlertDialogTitle>
           </AlertDialogHeader>
-
           <div className="text-sm text-gray-700">
-            <p>Essa ação irá interromper o processamento da consulta:</p>
+            <p>Essa ação interromperá o processamento:</p>
             {confirmJob && (
               <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
                 {confirmJob.title} (#{confirmJob.id})
               </p>
             )}
-            <p>Deseja realmente continuar?</p>
+            <p>Deseja continuar?</p>
           </div>
-
           <AlertDialogFooter>
             <AlertDialogCancel disabled={cancelingId !== null}>
               Fechar
@@ -437,14 +469,14 @@ export const CLTHistoryTable = ({
               {cancelingId === confirmJob?.id ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Sim, cancelar consulta"
+                "Sim, cancelar"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ===== MODAL: Confirmar EXCLUSÃO ===== */}
+      {/* Confirmar EXCLUSÃO */}
       <AlertDialog
         open={!!confirmDeleteJob}
         onOpenChange={(isOpen) => !isOpen && setConfirmDeleteJob(null)}
@@ -455,9 +487,8 @@ export const CLTHistoryTable = ({
               Excluir definitivamente?
             </AlertDialogTitle>
           </AlertDialogHeader>
-
           <div className="text-sm text-gray-700">
-            <p>Essa ação irá remover o registro e os arquivos vinculados (planilha final e prévia, se houver):</p>
+            <p>Arquivos vinculados (final, prévia e spool) serão removidos:</p>
             {confirmDeleteJob && (
               <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
                 {confirmDeleteJob.title} (#{confirmDeleteJob.id})
@@ -465,7 +496,6 @@ export const CLTHistoryTable = ({
             )}
             <p>Essa operação não pode ser desfeita.</p>
           </div>
-
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deletingId !== null}>
               Fechar

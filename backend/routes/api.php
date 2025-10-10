@@ -22,7 +22,6 @@ Route::middleware('auth:sanctum')->group(function () {
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
     Route::apiResource('leads', LeadController::class);
-    // ✅ evita 431: mesma listagem, mas via POST (body JSON) para filtros massivos
     Route::post('/leads/search', [LeadController::class, 'search']);
 
     /* Importação (FGTS) */
@@ -41,9 +40,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clt/consult-jobs', [CltConsultController::class, 'store']);
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/clt/consult-jobs/{id}/preview/generate', [CltConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
-    Route::post('/clt/consult-jobs/{id}/pause', [CltConsultController::class, 'pause'])->whereNumber('id');
-    Route::post('/clt/consult-jobs/{id}/resume', [CltConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
 

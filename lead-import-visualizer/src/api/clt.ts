@@ -1,14 +1,16 @@
 // src/api/clt.ts
 import axiosClient from './axiosClient'
-import http from './http'
-/** Estados do job no backend */
+
+/** Estados do job no backend (sem pausa e sem agendamento) */
 export type CltJobStatus =
   | 'pendente'
   | 'em_progresso'
-  | 'pausado'
   | 'concluido'
   | 'falhou'
   | 'cancelado'
+
+/** Estados da PRÉVIA (alinhado ao backend) */
+export type PreviewStatus = 'none' | 'queued' | 'running' | 'ready' | 'error'
 
 /** DTO básico (index) */
 export interface CltConsultJobListItem {
@@ -19,14 +21,19 @@ export interface CltConsultJobListItem {
   success_count: number
   fail_count: number
   not_found_count: number
+
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
-  // campos opcionais de PRÉVIA
+
+  // PRÉVIA (opcional)
   preview_disk?: string | null
   preview_path?: string | null
   preview_name?: string | null
   preview_updated_at?: string | null
+
+  // telemetria opcional
+  spool_bytes?: number | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -35,7 +42,7 @@ export interface CltConsultJobListItem {
   created_at: string
 }
 
-/** DTO de show() */
+/** DTO de show() — espelha FGTS OFF, com campos de prévia completos */
 export interface CltConsultJobShow {
   id: number
   title: string
@@ -45,9 +52,22 @@ export interface CltConsultJobShow {
   fail_count: number
   not_found_count: number
   has_file: boolean
-  has_preview?: boolean
-  preview_updated_at?: string | null
 
+  // PRÉVIA
+  has_preview?: boolean
+  preview_status?: PreviewStatus
+  preview_updated_at?: string | null
+  preview_requested_at?: string | null
+  preview_started_at?: string | null
+  preview_finished_at?: string | null
+  preview_size_bytes?: number | null
+  preview_rows?: number | null
+  preview_error?: string | null
+
+  // telemetria
+  spool_bytes?: number | null
+
+  // datas
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
@@ -69,10 +89,12 @@ export async function ensureCsrfCookie() {
   await http.get('/sanctum/csrf-cookie')
 }
 
+const BASE = '/clt/consult-jobs'
+
 /** Lista os jobs do usuário autenticado */
 export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsultJobListItem>> {
   const { data } = await axiosClient.get<Paginated<CltConsultJobListItem>>(
-    `/clt/consult-jobs?page=${page}`
+    `${BASE}?page=${page}`
   )
   return data
 }
@@ -80,7 +102,7 @@ export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsult
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
 export async function createCltConsultJob(input: { title: string; cpfs: string | string[] }) {
   const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
-    '/clt/consult-jobs',
+    BASE,
     input
   )
   return data
@@ -88,14 +110,27 @@ export async function createCltConsultJob(input: { title: string; cpfs: string |
 
 /** Busca um job específico (para checar status) */
 export async function getCltConsultJob(id: number): Promise<CltConsultJobShow> {
-  const { data } = await axiosClient.get<CltConsultJobShow>(`/clt/consult-jobs/${id}`)
+  const { data } = await axiosClient.get<CltConsultJobShow>(`${BASE}/${id}`)
   return data
 }
 
-/** Faz o download do relatório FINAL (stream) */
+/** Solicita geração da PRÉVIA (200=já pronta, 202=aceita/andando, 409=indisponível) */
+export async function requestCltPreview(id: number): Promise<200 | 202 | 409> {
+  const resp = await axiosClient.post(
+    `${BASE}/${id}/preview/generate`,
+    null,
+    {
+      validateStatus: (s) => (s >= 200 && s < 300) || s === 409
+    }
+  )
+  return resp.status as 200 | 202 | 409
+}
+
+/** Faz o download do relatório FINAL (stream) — aplica cache-busting defensivo */
 export async function downloadCltReport(id: number) {
-  const resp = await axiosClient.get(`/clt/consult-jobs/${id}/download`, {
+  const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
+    params: { t: Date.now() },
   })
 
   const cd = resp.headers['content-disposition'] || ''
@@ -111,11 +146,12 @@ export async function downloadCltReport(id: number) {
   window.URL.revokeObjectURL(url)
 }
 
-/** Faz o download da PRÉVIA (on-demand) */
-export async function downloadCltPreview(id: number, opts?: { refresh?: boolean }) {
-  const resp = await axiosClient.get(`/clt/consult-jobs/${id}/preview`, {
+/** Faz o download da PRÉVIA já pronta (NÃO força regeneração) */
+export async function downloadCltPreview(id: number) {
+  const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
-    params: opts?.refresh ? { refresh: 1 } : undefined,
+    // evita baixar versão antiga por cache do navegador/CDN
+    params: { t: Date.now() },
   })
 
   const cd = resp.headers['content-disposition'] || ''
@@ -131,22 +167,6 @@ export async function downloadCltPreview(id: number, opts?: { refresh?: boolean 
   window.URL.revokeObjectURL(url)
 }
 
-/** Pausa um job */
-export async function pauseCltConsultJob(id: number) {
-  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
-    `/clt/consult-jobs/${id}/pause`
-  )
-  return data
-}
-
-/** Retoma um job */
-export async function resumeCltConsultJob(id: number) {
-  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
-    `/clt/consult-jobs/${id}/resume`
-  )
-  return data
-}
-
 /** Cancela um job (opcionalmente com motivo) */
 export async function cancelCltConsultJob(id: number, reason?: string) {
   const { data } = await axiosClient.post<{
@@ -154,13 +174,13 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
     status: CltJobStatus
     canceled_at?: string | null
     cancel_reason?: string | null
-  }>(`/clt/consult-jobs/${id}/cancel`, reason ? { reason } : {})
+  }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
   return data
 }
 
 /** Exclui definitivamente um job e seus arquivos (204 No Content) */
 export async function deleteCltConsultJob(id: number): Promise<void> {
-  await axiosClient.delete(`/clt/consult-jobs/${id}`)
+  await axiosClient.delete(`${BASE}/${id}`)
 }
 
 function parseContentDispositionFilename(contentDisposition: string): string | null {
