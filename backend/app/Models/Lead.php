@@ -58,4 +58,10 @@ class Lead extends Model
     {
         return $this->hasOne(FgtsOffSnapshot::class, 'cpf', 'cpf');
     }
+
+    /** Snapshot CLT mais recente por CPF (join por cpf, não por lead_id). */
+    public function cltSnapshot(): HasOne
+    {
+        return $this->hasOne(CltSnapshot::class, 'cpf', 'cpf');
+    }
 }
