@@ -21,7 +21,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 18300;
+    public int $uniqueFor = 115260;
     public function uniqueId(): string
     {
         return (string) $this->jobId;
@@ -61,7 +61,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->onQueue((string) config('cltfacta.job.queue', 'clt'));
 
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 18000);
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');

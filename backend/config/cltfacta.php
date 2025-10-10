@@ -46,7 +46,7 @@ return [
         'timeout_seconds' => (int) env('CLT_JOB_TIMEOUT', 115200),
         'max_attempts' => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60),
-        'chunk' => (int) env('CLT_HTTP_CHUNK', 10),
+        'chunk' => (int) env('CLT_HTTP_CHUNK', 20),
         'min_chunk' => (int) env('CLT_HTTP_MIN_CHUNK', 5),
         'retry_after_max' => (int) env('CLT_HTTP_RETRY_AFTER_MAX', 120),
     ],
