@@ -17,6 +17,7 @@ interface FiltersModalProps {
   isOpen: boolean
   onClose: () => void
   searchValue: string
+  /** mantidos p/ compat com o caller, mas não usados */
   eligibleFilter: "todos" | "elegiveis" | "nao-elegiveis"
   contractDateFromFilter: string
   contractDateToFilter: string
@@ -33,6 +34,7 @@ interface FiltersModalProps {
   fgtsConsultaFromFilter: string
   fgtsConsultaToFilter: string
   onSearchChange: (v: string) => void
+  /** mantidos p/ compat, não usados */
   onEligibleFilterChange: (v: "todos" | "elegiveis" | "nao-elegiveis") => void
   onContractDateFromFilterChange: (v: string) => void
   onContractDateToFilterChange: (v: string) => void
@@ -130,6 +132,7 @@ export const FiltersModal = ({
   isOpen,
   onClose,
   searchValue,
+  /** elegibilidade: mantido em props mas não usado */
   eligibleFilter,
   contractDateFromFilter,
   contractDateToFilter,
@@ -146,6 +149,7 @@ export const FiltersModal = ({
   fgtsConsultaFromFilter,
   fgtsConsultaToFilter,
   onSearchChange,
+  /** elegibilidade: mantido em props mas não usado */
   onEligibleFilterChange,
   onContractDateFromFilterChange,
   onContractDateToFilterChange,
@@ -171,7 +175,6 @@ export const FiltersModal = ({
   availableVendors,
 }: FiltersModalProps) => {
   const [localSearch, setLocalSearch] = useState(searchValue)
-  const [localEligible, setLocalEligible] = useState(eligibleFilter)
   const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
   const [localContractTo, setLocalContractTo] = useState(contractDateToFilter)
   const [localMotivos, setLocalMotivos] = useState<string[]>(motivosFilter)
@@ -192,7 +195,6 @@ export const FiltersModal = ({
   useEffect(() => {
     if (!isOpen) return
     setLocalSearch(searchValue)
-    setLocalEligible(eligibleFilter)
     setLocalContractFrom(contractDateFromFilter)
     setLocalContractTo(contractDateToFilter)
     setLocalMotivos(motivosFilter)
@@ -211,7 +213,6 @@ export const FiltersModal = ({
   }, [
     isOpen,
     searchValue,
-    eligibleFilter,
     contractDateFromFilter,
     contractDateToFilter,
     motivosFilter,
@@ -239,7 +240,7 @@ export const FiltersModal = ({
   const commitAndApply = () => {
     const normalizedMonths = localBirthMonths.map(monthLabelToNum).filter(isValidMonth)
     onSearchChange(localSearch.trim())
-    onEligibleFilterChange(localEligible)
+    // elegibilidade não é mais aplicada
     onContractDateFromFilterChange(localContractFrom)
     onContractDateToFilterChange(localContractTo)
     onMotivosFilterChange(localMotivos)
@@ -265,7 +266,6 @@ export const FiltersModal = ({
 
   const any = (arr: (string | null | undefined)[]) => arr.some((v) => !!(v && String(v).trim()))
   const isSearchActive = !!localSearch.trim()
-  const isEligibilityActive = localEligible !== "todos"
   const isMotivosActive = localMotivos.length > 0
   const isOrigensActive = localOrigens.length > 0
   const isHigienizacaoActive = localHigienizacao.length > 0
@@ -279,7 +279,6 @@ export const FiltersModal = ({
 
   const chips: string[] = []
   if (isSearchActive) chips.push("Pesquisa")
-  if (isEligibilityActive) chips.push("Elegibilidade")
   if (isMotivosActive) chips.push(`Motivos (${localMotivos.length})`)
   if (isOrigensActive) chips.push(`Origem (${localOrigens.length})`)
   if (isHigienizacaoActive) chips.push(`Higienização (${localHigienizacao.length})`)
@@ -294,7 +293,7 @@ export const FiltersModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       {/* Wrapper com escopo p/ reset de focus */}
-      <div className="filters-modal flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+      <div className="filters-modal flex max-h:[90vh] max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
         {/* Cabeçalho */}
         <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -333,7 +332,7 @@ export const FiltersModal = ({
           <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
             <div className="space-y-4 sm:space-y-5">
               <Section title="Pesquisa" description="Busque por nome, CPF ou telefone." active={isSearchActive}>
-                <div className={cn(isSearchActive && "rounded-md ring-1 ring-blue-200")}>
+                <div className={cn(isSearchActive && "rounded-md ring-1 ring-blue-2  00")}>
                   <Label text="Pesquisa geral" active={isSearchActive} />
                   <Input
                     value={localSearch}
@@ -341,25 +340,6 @@ export const FiltersModal = ({
                     placeholder="Digite termos…"
                     className={NO_FOCUS}
                   />
-                </div>
-              </Section>
-
-              <Section title="Elegibilidade" description="Filtre por status de elegibilidade." active={isEligibilityActive}>
-                <div>
-                  <Label text="Status" active={isEligibilityActive} />
-                  <Select
-                    value={localEligible}
-                    onValueChange={(v) => setLocalEligible(v as FiltersModalProps["eligibleFilter"])}
-                  >
-                    <SelectTrigger className={cn(NO_FOCUS, isEligibilityActive && "ring-1 ring-blue-200")}>
-                      <SelectValue placeholder="Selecionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="elegiveis">Elegíveis</SelectItem>
-                      <SelectItem value="nao-elegiveis">Inelegíveis</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </Section>
 
@@ -504,12 +484,12 @@ export const FiltersModal = ({
               <Section title="Aniversário" description="Selecione um ou mais meses." active={isBirthActive}>
                 <div>
                   <Label text="Mês(es) de aniversário" active={isBirthActive} />
-                <MultiSelect
-                  options={MONTH_OPTIONS}
-                  selected={localBirthMonths}
-                  onChange={setLocalBirthMonths}
-                  placeholder="Selecione os meses…"
-                />
+                  <MultiSelect
+                    options={MONTH_OPTIONS}
+                    selected={localBirthMonths}
+                    onChange={setLocalBirthMonths}
+                    placeholder="Selecione os meses…"
+                  />
                 </div>
               </Section>
 

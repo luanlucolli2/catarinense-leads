@@ -28,7 +28,6 @@ class LeadController extends Controller
 
     public function filters()
     {
-        // últimas importações por lead (separadas por tipo)
         $lastCadJobIds = DB::table('lead_imports as li')
             ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
             ->where('ij.type', 'cadastral')
@@ -49,7 +48,6 @@ class LeadController extends Controller
                 ->pluck('consulta')
                 ->values(),
 
-            // origens CADASTRAL derivadas da ÚLTIMA origem de cada lead
             'origens' => DB::table('import_jobs')
                 ->where('type', 'cadastral')
                 ->whereIn('id', $lastCadJobIds)
@@ -58,7 +56,6 @@ class LeadController extends Controller
                 ->pluck('origin')
                 ->values(),
 
-            // origens HIG derivadas da ÚLTIMA origem de cada lead
             'origens_hig' => DB::table('import_jobs')
                 ->where('type', 'higienizacao')
                 ->whereIn('id', $lastHigJobIds)
@@ -78,10 +75,32 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot']);
+        // carrega ambos snapshots para a tela de detalhes
+        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'cltSnapshot']);
 
+        // FGTS OFF
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
         $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->updated_at);
+
+        // CLT – expõe exatamente os campos pedidos
+        $clt = $lead->cltSnapshot;
+        if ($clt) {
+            $lead->setAttribute('elegivel', $clt->elegivel);
+            $lead->setAttribute('idade', $clt->idade);
+            $lead->setAttribute('sexo', $clt->sexo);
+            $lead->setAttribute('data_admissao', $clt->data_admissao);
+            $lead->setAttribute('meses_admissao', $clt->meses_admissao);
+            $lead->setAttribute('valor_renda', $clt->valor_renda);
+            $lead->setAttribute('valor_base_margem', $clt->valor_base_margem);
+            $lead->setAttribute('margem_disponivel', $clt->margem_disponivel);
+            $lead->setAttribute('valor_max_prestacao', $clt->valor_max_prestacao);
+            $lead->setAttribute('categoria_trabalhador_codigo', $clt->categoria_trabalhador_codigo);
+            $lead->setAttribute('inicio_atividade_empregador', $clt->inicio_atividade_empregador);
+            $lead->setAttribute('qtd_emprestimos_ativos_suspensos', $clt->qtd_emprestimos_ativos_suspensos);
+            $lead->setAttribute('emprestimos_legados', $clt->emprestimos_legados);
+            $lead->setAttribute('not_found', $clt->not_found);
+            $lead->setAttribute('clt_consultado_em', $clt->updated_at); // evita colidir com leads.updated_at
+        }
 
         // últimas origens por tipo
         $ultimaCad = DB::table('lead_imports as li')
@@ -106,6 +125,7 @@ class LeadController extends Controller
         $lead->setAttribute('ultima_origem_higienizacao', $ultimaHig);
 
         $lead->unsetRelation('fgtsOffSnapshot');
+        $lead->unsetRelation('cltSnapshot');
 
         return response()->json($lead);
     }

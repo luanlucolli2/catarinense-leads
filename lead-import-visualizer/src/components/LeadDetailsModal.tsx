@@ -29,6 +29,7 @@ import {
   Calendar,
   DollarSign,
   AlertTriangle,
+  Briefcase,
 } from "lucide-react"
 
 import { fetchLeadDetail, LeadDetailFromApi } from "@/api/leads"
@@ -52,7 +53,6 @@ type UILead = {
   nome: string
   cpf: string
   dataNascimento: string
-  status: "Elegível" | "Inelegível"
   tipoConsulta: string
   saldoDisplay: string
   saldoAlert: boolean
@@ -67,18 +67,15 @@ type UILead = {
 }
 
 const mapApiToUi = (d: LeadDetailFromApi): UILead => {
-  const isElegivel =
-    d.consulta === "Saldo FACTA" && parseFloat(d.libera ?? "0") > 0
-
   const rawSaldo = d.saldo ?? ""
-  const numSaldo = parseFloat(rawSaldo.replace(",", "."))
+  const numSaldo = parseFloat((rawSaldo as string).replace(",", "."))
   const saldoOk = !Number.isNaN(numSaldo)
-  const saldoDisp = saldoOk ? formatCurrency(numSaldo) : rawSaldo
+  const saldoDisp = saldoOk ? formatCurrency(numSaldo) : (rawSaldo as string)
 
   const rawLib = d.libera ?? ""
-  const numLib = parseFloat(rawLib.replace(",", "."))
+  const numLib = parseFloat((rawLib as string).replace(",", "."))
   const liberaOk = !Number.isNaN(numLib)
-  const liberaDisp = liberaOk ? formatCurrency(numLib) : rawLib
+  const liberaDisp = liberaOk ? formatCurrency(numLib) : (rawLib as string)
 
   const telefones = [1, 2, 3, 4].flatMap((i) => {
     const num = (d as any)[`fone${i}`] as string | null
@@ -87,12 +84,14 @@ const mapApiToUi = (d: LeadDetailFromApi): UILead => {
     return [{ numero: num, classe: cls }]
   })
 
-  const contratos = d.contracts.map((c: any) => ({
+  const contractsArr = Array.isArray(d.contracts) ? d.contracts : []
+  const contratos = contractsArr.map((c: any) => ({
     dataContrato: formatDateOnly(c.data_contrato),
     vendedor: c.vendor?.name ?? "Sem vendedor",
   }))
 
-  const historicoimports = (d as any).import_jobs.map((j: any) => ({
+  const imports = (d as any).import_jobs ?? (d as any).importJobs ?? []
+  const historicoimports = imports.map((j: any) => ({
     tipo: j.type,
     origem: j.origin,
     dataImportacao: formatDateOnly(j.created_at),
@@ -102,7 +101,6 @@ const mapApiToUi = (d: LeadDetailFromApi): UILead => {
     nome: d.nome,
     cpf: d.cpf,
     dataNascimento: formatDateOnly(d.data_nascimento),
-    status: isElegivel ? "Elegível" : "Inelegível",
     tipoConsulta: d.consulta ?? "--",
     saldoDisplay: saldoDisp,
     saldoAlert: !saldoOk,
@@ -139,6 +137,16 @@ export const LeadDetailsModal = ({
   if (!leadId || isLoading || !data) return null
   const lead = mapApiToUi(data)
 
+  // helpers CLT
+  const clt = data
+  const cltStatus = clt.not_found
+    ? "Não encontrado"
+    : clt.elegivel === true
+    ? "Elegível"
+    : clt.elegivel === false
+    ? "Não elegível"
+    : "—"
+
   return (
     <Dialog
       open={isOpen}
@@ -146,8 +154,7 @@ export const LeadDetailsModal = ({
         if (!open) onClose()
       }}
     >
-      {/* Removido height fixa; modal flex com rolagem interna confiável */}
-      <DialogContent className="max-w-4xl w-[96vw] p-4 sm:p-6 max-h-[90vh] sm:max-h-[92vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl w-[96vw] p-4 sm:p-6 max-h-[90vh] sm:max-h-[92vh] overflow-hidden flex flex-col">
         {/* ---------- Cabeçalho ---------- */}
         <DialogHeader className="pb-2 sm:pb-4 flex-shrink-0">
           <DialogTitle className="text-lg sm:text-xl font-semibold flex flex-col gap-1">
@@ -168,9 +175,8 @@ export const LeadDetailsModal = ({
         <Tabs defaultValue="dados" className="flex flex-col flex-1 min-h-0">
           <TabsBar />
 
-          {/* wrapper rolável ocupa o espaço restante sem sobrepor o footer */}
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-            {/* === Dados === */}
+            {/* === Dados (FGTS) === */}
             <TabsContent value="dados" className="space-y-4 sm:space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                 <PersonalCard lead={lead} />
@@ -220,7 +226,61 @@ export const LeadDetailsModal = ({
               <HistoryCard lead={lead} />
             </TabsContent>
 
-            {/* espaçador para não colar no footer em telas pequenas */}
+            {/* === CLT === */}
+            <TabsContent value="clt">
+              <Card className="mb-4">
+                <CardHeader className="pb-3 sm:pb-4">
+                  <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 sm:h-5 sm:w-5" />
+                    CLT (Consignado)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-4">
+                  {/* Situação da consulta */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Situação" value={cltStatus} />
+                    <Info label="Já consultado?" value={clt.clt_consultado_em ? "Sim" : "Ainda não"} />
+                    <Info label="Data da última consulta" value={clt.clt_consultado_em ? formatDateOnly(clt.clt_consultado_em) : "—"} />
+                  </div>
+
+                  {/* Vínculo de trabalho */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Data de admissão" value={formatDateOnly(clt.data_admissao)} />
+                    <Info label="Tempo de casa (meses)" value={clt.meses_admissao != null ? String(clt.meses_admissao) : "—"} />
+                    <Info label="Início atividade do empregador" value={formatDateOnly(clt.inicio_atividade_empregador)} />
+                  </div>
+
+                  {/* Perfil do cliente */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Idade" value={clt.idade != null ? String(clt.idade) : "—"} />
+                    <Info label="Sexo" value={clt.sexo ?? "—"} />
+                    <Info label="Categoria do trabalhador (cód.)" value={clt.categoria_trabalhador_codigo ?? "—"} />
+                  </div>
+
+                  {/* Renda e margem */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Info label="Renda total" value={formatCurrency(clt.valor_renda as any)} />
+                    <Info label="Base de margem" value={formatCurrency(clt.valor_base_margem as any)} />
+                    <Info label="Margem disponível" value={formatCurrency(clt.margem_disponivel as any)} />
+                    <Info label="Valor máx. prestação" value={formatCurrency(clt.valor_max_prestacao as any)} />
+                  </div>
+
+                  {/* Histórico de crédito */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Info label="Qtd. empréstimos ativos/suspensos" value={clt.qtd_emprestimos_ativos_suspensos != null ? String(clt.qtd_emprestimos_ativos_suspensos) : "—"} />
+                    <Info label="Tem ativos?" value={(clt.qtd_emprestimos_ativos_suspensos ?? 0) > 0 ? "Sim" : "Não"} />
+                    <Info label="Qtd. legados" value={clt.emprestimos_legados != null ? String(clt.emprestimos_legados) : "—"} />
+                    <Info label="Tem legados?" value={(clt.emprestimos_legados ?? 0) > 0 ? "Sim" : "Não"} />
+                  </div>
+
+                  {/* Origem (cad.) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Última origem (cadastral)" value={(data as any).ultima_origem_cadastral ?? "—"} />
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <div className="h-2" />
           </div>
         </Tabs>
@@ -241,12 +301,13 @@ export const LeadDetailsModal = ({
 /* ----------------------- sub-components ----------------------------- */
 const TabsBar = () => (
   <div className="flex-shrink-0">
-    {/* TabsList vira flex e scrolla horizontal no mobile sem estourar o padding do modal */}
     <TabsList className="flex w-full h-auto p-1 bg-muted/50 overflow-x-auto">
       <TabButton value="dados" icon={<User className="h-3 w-3 sm:h-4 sm:w-4" />}>Dados</TabButton>
       <TabButton value="telefones" icon={<Phone className="h-3 w-3 sm:h-4 sm:w-4" />}>Telefones</TabButton>
       <TabButton value="contratos" icon={<FileText className="h-3 w-3 sm:h-4 sm:w-4" />}>Contratos</TabButton>
       <TabButton value="historico" icon={<History className="h-3 w-3 sm:h-4 sm:w-4" />}>Histórico</TabButton>
+      {/* ➕ Aba exclusiva CLT */}
+      <TabButton value="clt" icon={<Briefcase className="h-3 w-3 sm:h-4 sm:w-4" />}>CLT</TabButton>
     </TabsList>
   </div>
 )
@@ -273,28 +334,10 @@ const StatusCard = ({ lead }: { lead: UILead }) => (
     <CardHeader className="pb-3 sm:pb-4">
       <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
         <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
-        Status e Consulta
+        Consulta
       </CardTitle>
     </CardHeader>
     <CardContent className="space-y-3 sm:space-y-4 pt-0">
-      <div>
-        <label className="text-xs sm:text-sm font-medium text-gray-600">
-          Status
-        </label>
-        <div className="mt-1">
-          <Badge
-            variant={lead.status === "Elegível" ? "default" : "secondary"}
-            className={cn(
-              "text-xs",
-              lead.status === "Elegível"
-                ? "bg-green-100 text-green-800 hover:bg-green-100"
-                : "bg-red-100 text-red-800 hover:bg-red-100",
-            )}
-          >
-            {lead.status}
-          </Badge>
-        </div>
-      </div>
       <Info label="Resultado da Consulta" value={lead.tipoConsulta} />
     </CardContent>
   </Card>

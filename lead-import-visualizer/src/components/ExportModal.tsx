@@ -9,8 +9,8 @@ interface ExportModalProps {
   onExport: (columns: string[]) => void;
 }
 
-// ✅ Inclui vendedor, data_contrato_recente, campos FGTS OFF
-// ✅ Troca "primeira_origem" por "ultima_origem_cadastral" e adiciona "ultima_origem_higienizacao"
+// ✅ remove "status" (Elegível/Inelegível)
+// ✅ mantém vendedor, data_contrato_recente e FGTS OFF
 const availableColumns = [
   { id: "cpf", label: "CPF", selected: true },
   { id: "nome", label: "Nome", selected: true },
@@ -23,7 +23,6 @@ const availableColumns = [
   { id: "classe_fone2", label: "Classe 2", selected: true },
   { id: "classe_fone3", label: "Classe 3", selected: true },
   { id: "classe_fone4", label: "Classe 4", selected: true },
-  { id: "status", label: "Status", selected: true },
   { id: "consulta", label: "Motivo (Consulta)", selected: true },
   { id: "saldo", label: "Saldo", selected: true },
   { id: "libera", label: "Libera", selected: true },

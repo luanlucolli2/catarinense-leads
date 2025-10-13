@@ -2,7 +2,10 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export interface LeadFromApi {
+export type Mode = "fgts" | "clt"
+
+/** FGTS (lista) */
+export interface LeadFromApiFGTS {
   id: number
   cpf: string
   nome: string | null
@@ -28,6 +31,46 @@ export interface LeadFromApi {
   fgts_off_consultado_em: string | null
 }
 
+/** CLT (lista) – subselects no back, join por CPF */
+export interface LeadFromApiCLT {
+  id: number
+  cpf: string
+  nome: string | null
+  data_nascimento: string | null
+  fone1: string | null
+  classe_fone1: string | null
+  fone2: string | null
+  classe_fone2: string | null
+  fone3: string | null
+  classe_fone3: string | null
+  fone4: string | null
+  classe_fone4: string | null
+  /** ⬇️ origem cadastral (última), pedido no back para CLT também */
+  ultima_origem_cadastral: string | null
+
+  /** Snapshot CLT */
+  elegivel: boolean | null
+  not_found: boolean | null
+  clt_consultado_em: string | null
+
+  idade: number | null
+  sexo: "M" | "F" | string | null
+  data_admissao: string | null
+  meses_admissao: number | null
+
+  valor_renda: string | number | null
+  valor_base_margem: string | number | null
+  margem_disponivel: string | number | null
+  valor_max_prestacao: string | number | null
+
+  categoria_trabalhador_codigo: string | null
+  inicio_atividade_empregador: string | null
+
+  qtd_emprestimos_ativos_suspensos: number | null
+  emprestimos_legados: number | null
+}
+
+/** Detalhe (carrega FGTS e CLT) */
 export interface LeadDetailFromApi {
   id: number
   cpf: string
@@ -47,35 +90,55 @@ export interface LeadDetailFromApi {
   libera: string | null
   created_at: string | null
   updated_at: string | null
-  importJobs: { id: number; origin: string; type: string; created_at: string }[]
+  importJobs?: { id: number; origin: string; type: string; created_at: string }[]
+  import_jobs?: { id: number; origin: string; type: string; created_at: string }[]
   contracts: {
     id: number
     data_contrato: string
     vendor?: { id: number; name: string }
   }[]
-  /** ⬇️ campos de origem (últimas) */
+  /** ⬇️ origens (últimas) */
   ultima_origem_cadastral: string | null
   ultima_origem_higienizacao: string | null
   /** ➕ FGTS OFF */
   fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
+  /** ➕ CLT */
+  elegivel: boolean | null
+  idade: number | null
+  sexo: "M" | "F" | string | null
+  data_admissao: string | null
+  meses_admissao: number | null
+  valor_renda: string | number | null
+  valor_base_margem: string | number | null
+  margem_disponivel: string | number | null
+  valor_max_prestacao: string | number | null
+  categoria_trabalhador_codigo: string | null
+  inicio_atividade_empregador: string | null
+  qtd_emprestimos_ativos_suspensos: number | null
+  emprestimos_legados: number | null
+  not_found: boolean | null
+  clt_consultado_em: string | null
 }
 
-export interface PaginatedLeadsResponse {
-  data: LeadFromApi[]
+export interface PaginatedResponse<T> {
+  data: T[]
   current_page: number
   last_page: number
   total: number
 }
 
+export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
+export type PaginatedLeadsResponseCLT  = PaginatedResponse<LeadFromApiCLT>
+
 export interface LeadFilters {
   page?: number
   search?: string
+  /** mantido só por compat na UI; ignorado no back FGTS/CLT */
   status?: "todos" | "elegiveis" | "nao-elegiveis"
   motivos?: string[]
-  /** ⬇️ já são as últimas por tipo (back aplica) */
   origens?: string[]        // cadastral
-  origens_hig?: string[]    // higienização
+  origens_hig?: string[]    // higienização (relevante no FGTS)
   date_from?: string
   date_to?: string
   contract_from?: string
@@ -84,12 +147,11 @@ export interface LeadFilters {
   names?: string
   phones?: string
   vendors?: string[]
-  /** 🎂 meses de aniversário (1..12 como strings) */
   birth_month?: string[]
-  /** ➕ FGTS OFF (tri-estado) */
+  /** ➕ FGTS OFF (apenas uso no modo FGTS) */
   fgts_status?: "autorizado" | "nao_autorizado" | "nao_consultado"
-  fgts_consulta_from?: string      // YYYY-MM-DD
-  fgts_consulta_to?: string        // YYYY-MM-DD
+  fgts_consulta_from?: string
+  fgts_consulta_to?: string
 }
 
 /* ---------- Helpers ---------- */
@@ -104,8 +166,11 @@ const normalizeMonths = (arr?: string[]) =>
     .map((m) => String(parseInt(m, 10)))
     .filter((m) => /^\d+$/.test(m) && +m >= 1 && +m <= 12)
 
-const buildQueryParams = (f: LeadFilters) => {
+const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   const p = new URLSearchParams()
+
+  // modo
+  p.set("mode", mode)
 
   // filtros básicos
   if (f.page) p.set("page", String(f.page))
@@ -115,7 +180,6 @@ const buildQueryParams = (f: LeadFilters) => {
     const normalized = hasLetters ? raw : raw.replace(/\D/g, "")
     p.set("search", normalized)
   }
-  if (f.status && f.status !== "todos") p.set("status", f.status)
   if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
   if (f.origens?.length) p.set("origens", f.origens.join(","))
   if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
@@ -124,7 +188,7 @@ const buildQueryParams = (f: LeadFilters) => {
   if (f.contract_from) p.set("contract_from", f.contract_from)
   if (f.contract_to) p.set("contract_to", f.contract_to)
 
-  // ➕ FGTS OFF (tri-estado)
+  // ➕ FGTS OFF (só faz sentido no FGTS; no CLT o back ignora)
   if (f.fgts_status) p.set("fgts_status", f.fgts_status)
   if (f.fgts_consulta_from) p.set("fgts_consulta_from", f.fgts_consulta_from)
   if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
@@ -151,8 +215,8 @@ const buildQueryParams = (f: LeadFilters) => {
   return p
 }
 
-const shouldUsePost = (filters: LeadFilters) => {
-  const params = buildQueryParams(filters)
+const shouldUsePost = (filters: LeadFilters, mode: Mode) => {
+  const params = buildQueryParams(filters, mode)
   const urlPreview = `/leads?${params.toString()}`
   if (urlPreview.length > 1500) return true
 
@@ -164,12 +228,13 @@ const shouldUsePost = (filters: LeadFilters) => {
 }
 
 /* ---------- Endpoints ---------- */
-export async function fetchLeads(filters: LeadFilters) {
-  if (shouldUsePost(filters)) {
+export async function fetchLeadsFGTS(filters: LeadFilters) {
+  const mode: Mode = "fgts"
+  if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
+      mode,
       search: filters.search?.trim() || undefined,
-      status: filters.status && filters.status !== "todos" ? filters.status : undefined,
       motivos: filters.motivos?.length ? filters.motivos : undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
@@ -182,13 +247,11 @@ export async function fetchLeads(filters: LeadFilters) {
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
-      // ➕ FGTS OFF (tri-estado)
       fgts_status: filters.fgts_status || undefined,
       fgts_consulta_from: filters.fgts_consulta_from || undefined,
       fgts_consulta_to: filters.fgts_consulta_to || undefined,
     }
-
-    const { data } = await axiosClient.post<PaginatedLeadsResponse>(
+    const { data } = await axiosClient.post<PaginatedLeadsResponseFGTS>(
       "/leads/search",
       payload,
       { params: filters.page ? { page: filters.page } : undefined }
@@ -196,8 +259,45 @@ export async function fetchLeads(filters: LeadFilters) {
     return data
   }
 
-  const params = buildQueryParams(filters)
-  const { data } = await axiosClient.get<PaginatedLeadsResponse>("/leads", {
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponseFGTS>("/leads", {
+    params,
+  })
+  return data
+}
+
+export async function fetchLeadsCLT(filters: LeadFilters) {
+  const mode: Mode = "clt"
+  if (shouldUsePost(filters, mode)) {
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      mode,
+      search: filters.search?.trim() || undefined,
+      motivos: filters.motivos?.length ? filters.motivos : undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      // origens_hig não tem efeito específico no CLT, mas o back ignora
+      origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      contract_from: filters.contract_from || undefined,
+      contract_to: filters.contract_to || undefined,
+      vendors: filters.vendors?.length ? filters.vendors : undefined,
+      birth_month: months.length ? months : undefined,
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+      // FGTS OFF ignorado no modo CLT
+    }
+    const { data } = await axiosClient.post<PaginatedLeadsResponseCLT>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined }
+    )
+    return data
+  }
+
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponseCLT>("/leads", {
     params,
   })
   return data
@@ -220,18 +320,19 @@ export async function fetchLeadsFilters() {
   return data
 }
 
-/** Normaliza filtros críticos para o POST do export (mantém compatibilidade com o backend) */
+/** Normaliza filtros críticos para o POST do export */
 function normalizeFiltersForExport(filters: LeadFilters): LeadFilters {
   const normalized: LeadFilters = { ...filters }
   normalized.birth_month = normalizeMonths(filters.birth_month)
   return normalized
 }
 
+/** Mantém export FGTS existente; depois criaremos a variação CLT */
 export async function exportLeads(
   filters: LeadFilters,
   columns: string[]
 ): Promise<void> {
-  const payload = { ...normalizeFiltersForExport(filters), columns }
+  const payload = { ...normalizeFiltersForExport(filters), columns, mode: "fgts" }
 
   const response = await axiosClient.post("/leads/export", payload, {
     responseType: "blob",
