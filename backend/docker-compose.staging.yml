@@ -75,7 +75,7 @@ services:
   queue-clt:
     image: leads-backend
     container_name: leads-queue-clt
-    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=192 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=288 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -86,8 +86,8 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 256m
-    mem_reservation: 192m
+    mem_limit: 352m
+    mem_reservation: 288m
     memswap_limit: "768m"
     cpu_shares: 768
 
@@ -95,7 +95,7 @@ services:
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=800 --tries=1 --backoff=60
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=700 --tries=1 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -106,8 +106,8 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 832m
-    mem_reservation: 704m
+    mem_limit: 732m
+    mem_reservation: 608m
     memswap_limit: "1536m"
     cpu_shares: 2048
 
