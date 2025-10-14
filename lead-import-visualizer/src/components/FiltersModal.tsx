@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { X, Filter, Check } from "lucide-react"
+import { X, Filter, Check, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,6 +14,8 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
 
 interface FiltersModalProps {
+  mode: "FGTS" | "CLT"
+
   isOpen: boolean
   onClose: () => void
   searchValue: string
@@ -33,6 +35,7 @@ interface FiltersModalProps {
   fgtsAuthorizedFilter: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
   fgtsConsultaFromFilter: string
   fgtsConsultaToFilter: string
+
   onSearchChange: (v: string) => void
   /** mantidos p/ compat, não usados */
   onEligibleFilterChange: (v: "todos" | "elegiveis" | "nao-elegiveis") => void
@@ -58,6 +61,79 @@ interface FiltersModalProps {
   availableOrigens: string[]
   availableHigienizacoes: string[]
   availableVendors: { id: number; name: string }[]
+
+  /** ➕ CLT (props) */
+  cltConsultado: "todos" | "sim" | "nao"
+  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void
+  cltElegivel: "todos" | "sim" | "nao"
+  onCltElegivelChange: (v: "todos" | "sim" | "nao") => void
+  cltNotFound: "todos" | "sim" | "nao"
+  onCltNotFoundChange: (v: "todos" | "sim" | "nao") => void
+
+  cltConsultaFrom: string
+  onCltConsultaFromChange: (v: string) => void
+  cltConsultaTo: string
+  onCltConsultaToChange: (v: string) => void
+
+  cltAdmissaoFrom: string
+  onCltAdmissaoFromChange: (v: string) => void
+  cltAdmissaoTo: string
+  onCltAdmissaoToChange: (v: string) => void
+
+  cltMesesMin: string
+  onCltMesesMinChange: (v: string) => void
+  cltMesesMax: string
+  onCltMesesMaxChange: (v: string) => void
+
+  cltInicioEmpregadorFrom: string
+  onCltInicioEmpregadorFromChange: (v: string) => void
+  cltInicioEmpregadorTo: string
+  onCltInicioEmpregadorToChange: (v: string) => void
+
+  cltCategoriaCodigos: string
+  onCltCategoriaCodigosChange: (v: string) => void
+
+  cltIdadeMin: string
+  onCltIdadeMinChange: (v: string) => void
+  cltIdadeMax: string
+  onCltIdadeMaxChange: (v: string) => void
+
+  cltSexo: string[]
+  onCltSexoChange: (values: string[]) => void
+
+  cltRendaMin: string
+  onCltRendaMinChange: (v: string) => void
+  cltRendaMax: string
+  onCltRendaMaxChange: (v: string) => void
+
+  cltBaseMin: string
+  onCltBaseMinChange: (v: string) => void
+  cltBaseMax: string
+  onCltBaseMaxChange: (v: string) => void
+
+  cltMargemMin: string
+  onCltMargemMinChange: (v: string) => void
+  cltMargemMax: string
+  onCltMargemMaxChange: (v: string) => void
+
+  cltPrestacaoMin: string
+  onCltPrestacaoMinChange: (v: string) => void
+  cltPrestacaoMax: string
+  onCltPrestacaoMaxChange: (v: string) => void
+
+  cltAtivosMin: string
+  onCltAtivosMinChange: (v: string) => void
+  cltAtivosMax: string
+  onCltAtivosMaxChange: (v: string) => void
+  cltTemAtivos: "todos" | "sim" | "nao"
+  onCltTemAtivosChange: (v: "todos" | "sim" | "nao") => void
+
+  /** Mantidos p/ compat., mas ignorados (sem min/máx legados no CLT) */
+ 
+
+  /** Somente booleano de legados */
+  cltTemLegados: "todos" | "sim" | "nao"
+  onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -129,6 +205,7 @@ const Label = ({ text, active = false }: { text: string; active?: boolean }) => 
 )
 
 export const FiltersModal = ({
+  mode,
   isOpen,
   onClose,
   searchValue,
@@ -173,6 +250,63 @@ export const FiltersModal = ({
   availableOrigens,
   availableHigienizacoes,
   availableVendors,
+
+  // —— CLT
+  cltConsultado,
+  onCltConsultadoChange,
+  cltElegivel,
+  onCltElegivelChange,
+  cltNotFound,
+  onCltNotFoundChange,
+  cltConsultaFrom,
+  onCltConsultaFromChange,
+  cltConsultaTo,
+  onCltConsultaToChange,
+  cltAdmissaoFrom,
+  onCltAdmissaoFromChange,
+  cltAdmissaoTo,
+  onCltAdmissaoToChange,
+  cltMesesMin,
+  onCltMesesMinChange,
+  cltMesesMax,
+  onCltMesesMaxChange,
+  cltInicioEmpregadorFrom,
+  onCltInicioEmpregadorFromChange,
+  cltInicioEmpregadorTo,
+  onCltInicioEmpregadorToChange,
+  cltCategoriaCodigos,
+  onCltCategoriaCodigosChange,
+  cltIdadeMin,
+  onCltIdadeMinChange,
+  cltIdadeMax,
+  onCltIdadeMaxChange,
+  cltSexo,
+  onCltSexoChange,
+  cltRendaMin,
+  onCltRendaMinChange,
+  cltRendaMax,
+  onCltRendaMaxChange,
+  cltBaseMin,
+  onCltBaseMinChange,
+  cltBaseMax,
+  onCltBaseMaxChange,
+  cltMargemMin,
+  onCltMargemMinChange,
+  cltMargemMax,
+  onCltMargemMaxChange,
+  cltPrestacaoMin,
+  onCltPrestacaoMinChange,
+  cltPrestacaoMax,
+  onCltPrestacaoMaxChange,
+  cltAtivosMin,
+  onCltAtivosMinChange,
+  cltAtivosMax,
+  onCltAtivosMaxChange,
+  cltTemAtivos,
+  onCltTemAtivosChange,
+  /* ignorados na UI: min/máx de legados */
+  cltTemLegados,
+  onCltTemLegadosChange,
 }: FiltersModalProps) => {
   const [localSearch, setLocalSearch] = useState(searchValue)
   const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
@@ -192,6 +326,35 @@ export const FiltersModal = ({
   const [localFgtsFrom, setLocalFgtsFrom] = useState(fgtsConsultaFromFilter)
   const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
+  // —— CLT locals ——
+  const [lCltConsultado, setLCltConsultado] = useState<"todos"|"sim"|"nao">(cltConsultado)
+  const [lCltElegivel, setLCltElegivel] = useState<"todos"|"sim"|"nao">(cltElegivel)
+  const [lCltNotFound, setLCltNotFound] = useState<"todos"|"sim"|"nao">(cltNotFound)
+  const [lCltConsultaFrom, setLCltConsultaFrom] = useState(cltConsultaFrom)
+  const [lCltConsultaTo, setLCltConsultaTo] = useState(cltConsultaTo)
+  const [lCltAdmissaoFrom, setLCltAdmissaoFrom] = useState(cltAdmissaoFrom)
+  const [lCltAdmissaoTo, setLCltAdmissaoTo] = useState(cltAdmissaoTo)
+  const [lCltMesesMin, setLCltMesesMin] = useState(cltMesesMin)
+  const [lCltMesesMax, setLCltMesesMax] = useState(cltMesesMax)
+  const [lCltInicioEmpFrom, setLCltInicioEmpFrom] = useState(cltInicioEmpregadorFrom)
+  const [lCltInicioEmpTo, setLCltInicioEmpTo] = useState(cltInicioEmpregadorTo)
+  const [lCltCategoria, setLCltCategoria] = useState(cltCategoriaCodigos)
+  const [lCltIdadeMin, setLCltIdadeMin] = useState(cltIdadeMin)
+  const [lCltIdadeMax, setLCltIdadeMax] = useState(cltIdadeMax)
+  const [lCltSexo, setLCltSexo] = useState<string[]>(cltSexo)
+  const [lCltRendaMin, setLCltRendaMin] = useState(cltRendaMin)
+  const [lCltRendaMax, setLCltRendaMax] = useState(cltRendaMax)
+  const [lCltBaseMin, setLCltBaseMin] = useState(cltBaseMin)
+  const [lCltBaseMax, setLCltBaseMax] = useState(cltBaseMax)
+  const [lCltMargemMin, setLCltMargemMin] = useState(cltMargemMin)
+  const [lCltMargemMax, setLCltMargemMax] = useState(cltMargemMax)
+  const [lCltPrestacaoMin, setLCltPrestacaoMin] = useState(cltPrestacaoMin)
+  const [lCltPrestacaoMax, setLCltPrestacaoMax] = useState(cltPrestacaoMax)
+  const [lCltAtivosMin, setLCltAtivosMin] = useState(cltAtivosMin)
+  const [lCltAtivosMax, setLCltAtivosMax] = useState(cltAtivosMax)
+  const [lCltTemAtivos, setLCltTemAtivos] = useState<"todos"|"sim"|"nao">(cltTemAtivos)
+  const [lCltTemLegados, setLCltTemLegados] = useState<"todos"|"sim"|"nao">(cltTemLegados)
+
   useEffect(() => {
     if (!isOpen) return
     setLocalSearch(searchValue)
@@ -210,6 +373,35 @@ export const FiltersModal = ({
     setLocalFgtsAuthorized(fgtsAuthorizedFilter)
     setLocalFgtsFrom(fgtsConsultaFromFilter)
     setLocalFgtsTo(fgtsConsultaToFilter)
+
+    // CLT locals
+    setLCltConsultado(cltConsultado)
+    setLCltElegivel(cltElegivel)
+    setLCltNotFound(cltNotFound)
+    setLCltConsultaFrom(cltConsultaFrom)
+    setLCltConsultaTo(cltConsultaTo)
+    setLCltAdmissaoFrom(cltAdmissaoFrom)
+    setLCltAdmissaoTo(cltAdmissaoTo)
+    setLCltMesesMin(cltMesesMin)
+    setLCltMesesMax(cltMesesMax)
+    setLCltInicioEmpFrom(cltInicioEmpregadorFrom)
+    setLCltInicioEmpTo(cltInicioEmpregadorTo)
+    setLCltCategoria(cltCategoriaCodigos)
+    setLCltIdadeMin(cltIdadeMin)
+    setLCltIdadeMax(cltIdadeMax)
+    setLCltSexo(cltSexo)
+    setLCltRendaMin(cltRendaMin)
+    setLCltRendaMax(cltRendaMax)
+    setLCltBaseMin(cltBaseMin)
+    setLCltBaseMax(cltBaseMax)
+    setLCltMargemMin(cltMargemMin)
+    setLCltMargemMax(cltMargemMax)
+    setLCltPrestacaoMin(cltPrestacaoMin)
+    setLCltPrestacaoMax(cltPrestacaoMax)
+    setLCltAtivosMin(cltAtivosMin)
+    setLCltAtivosMax(cltAtivosMax)
+    setLCltTemAtivos(cltTemAtivos)
+    setLCltTemLegados(cltTemLegados)
   }, [
     isOpen,
     searchValue,
@@ -228,6 +420,15 @@ export const FiltersModal = ({
     fgtsAuthorizedFilter,
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
+    // CLT deps
+    cltConsultado, cltElegivel, cltNotFound, cltConsultaFrom, cltConsultaTo,
+    cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
+    cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos,
+    cltIdadeMin, cltIdadeMax, cltSexo,
+    cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax,
+    cltMargemMin, cltMargemMax, cltPrestacaoMin, cltPrestacaoMax,
+    cltAtivosMin, cltAtivosMax, cltTemAtivos,
+    cltTemLegados,
   ])
 
   useEffect(() => {
@@ -253,9 +454,44 @@ export const FiltersModal = ({
     onHigienizacaoFilterChange(localHigienizacao)
     onVendorsFilterChange(localVendors)
     onBirthMonthFilterChange(normalizedMonths)
-    onFgtsAuthorizedFilterChange(localFgtsAuthorized)
-    onFgtsConsultaFromFilterChange(localFgtsFrom)
-    onFgtsConsultaToFilterChange(localFgtsTo)
+
+    if (mode === "FGTS") {
+      onFgtsAuthorizedFilterChange(localFgtsAuthorized)
+      onFgtsConsultaFromFilterChange(localFgtsFrom)
+      onFgtsConsultaToFilterChange(localFgtsTo)
+    }
+
+    if (mode === "CLT") {
+      onCltConsultadoChange(lCltConsultado)
+      onCltElegivelChange(lCltElegivel)
+      onCltNotFoundChange(lCltNotFound)
+      onCltConsultaFromChange(lCltConsultaFrom)
+      onCltConsultaToChange(lCltConsultaTo)
+      onCltAdmissaoFromChange(lCltAdmissaoFrom)
+      onCltAdmissaoToChange(lCltAdmissaoTo)
+      onCltMesesMinChange(lCltMesesMin)
+      onCltMesesMaxChange(lCltMesesMax)
+      onCltInicioEmpregadorFromChange(lCltInicioEmpFrom)
+      onCltInicioEmpregadorToChange(lCltInicioEmpTo)
+      onCltCategoriaCodigosChange(lCltCategoria)
+      onCltIdadeMinChange(lCltIdadeMin)
+      onCltIdadeMaxChange(lCltIdadeMax)
+      onCltSexoChange(lCltSexo)
+      onCltRendaMinChange(lCltRendaMin)
+      onCltRendaMaxChange(lCltRendaMax)
+      onCltBaseMinChange(lCltBaseMin)
+      onCltBaseMaxChange(lCltBaseMax)
+      onCltMargemMinChange(lCltMargemMin)
+      onCltMargemMaxChange(lCltMargemMax)
+      onCltPrestacaoMinChange(lCltPrestacaoMin)
+      onCltPrestacaoMaxChange(lCltPrestacaoMax)
+      onCltAtivosMinChange(lCltAtivosMin)
+      onCltAtivosMaxChange(lCltAtivosMax)
+      onCltTemAtivosChange(lCltTemAtivos)
+      // apenas boolean de legados:
+      onCltTemLegadosChange(lCltTemLegados)
+    }
+
     onApplyFilters()
     onClose()
   }
@@ -277,23 +513,58 @@ export const FiltersModal = ({
   const isFgtsPeriodActive = any([localFgtsFrom, localFgtsTo])
   const isMassActive = any([localCpfMass, localNamesMass, localPhonesMass])
 
+  // CLT actives
+  const actCltSituacao =
+    (lCltConsultado !== "todos") ||
+    (lCltElegivel !== "todos") ||
+    (lCltNotFound !== "todos") ||
+    any([lCltConsultaFrom, lCltConsultaTo])
+
+  const actCltVinculo =
+    any([lCltAdmissaoFrom, lCltAdmissaoTo]) ||
+    any([lCltMesesMin, lCltMesesMax]) ||
+    any([lCltInicioEmpFrom, lCltInicioEmpTo]) ||
+    !!lCltCategoria.trim()
+
+  const actCltPerfil =
+    any([lCltIdadeMin, lCltIdadeMax]) ||
+    (lCltSexo && lCltSexo.length > 0)
+
+  const actCltRenda =
+    any([lCltRendaMin, lCltRendaMax, lCltBaseMin, lCltBaseMax, lCltMargemMin, lCltMargemMax, lCltPrestacaoMin, lCltPrestacaoMax])
+
+  const actCltHistorico =
+    any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
+    /* apenas boolean de legados */
+    lCltTemLegados !== "todos"
+
   const chips: string[] = []
   if (isSearchActive) chips.push("Pesquisa")
-  if (isMotivosActive) chips.push(`Motivos (${localMotivos.length})`)
   if (isOrigensActive) chips.push(`Origem (${localOrigens.length})`)
-  if (isHigienizacaoActive) chips.push(`Higienização (${localHigienizacao.length})`)
-  if (isVendorsActive) chips.push(`Vendedores (${localVendors.length})`)
+  if (mode === "FGTS") {
+    if (isMotivosActive) chips.push(`Motivos (${localMotivos.length})`)
+    if (isHigienizacaoActive) chips.push(`Higienização (${localHigienizacao.length})`)
+    if (isVendorsActive) chips.push(`Vendedores (${localVendors.length})`)
+    if (isContractPeriodActive) chips.push("Período de contratos")
+    if (isUpdatedPeriodActive) chips.push("Período de higienização")
+    if (isFgtsStatusActive) chips.push("FGTS OFF status")
+    if (isFgtsPeriodActive) chips.push("FGTS OFF período")
+  } else {
+    if (actCltSituacao) chips.push("CLT · Situação")
+    if (actCltVinculo) chips.push("CLT · Vínculo")
+    if (actCltPerfil) chips.push("CLT · Perfil")
+    if (actCltRenda) chips.push("CLT · Renda/Margem")
+    if (actCltHistorico) chips.push("CLT · Histórico")
+  }
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
-  if (isContractPeriodActive) chips.push("Período de contratos")
-  if (isUpdatedPeriodActive) chips.push("Período de higienização")
-  if (isFgtsStatusActive) chips.push("FGTS OFF status")
-  if (isFgtsPeriodActive) chips.push("FGTS OFF período")
   if (isMassActive) chips.push("Filtros em massa")
+
+  const modeLabel = mode === "FGTS" ? "FGTS (Robô OFF)" : "CLT (Consignado)"
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       {/* Wrapper com escopo p/ reset de focus */}
-      <div className="filters-modal flex max-h:[90vh] max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+      <div className="filters-modal flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
         {/* Cabeçalho */}
         <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -327,12 +598,22 @@ export const FiltersModal = ({
           </div>
         </header>
 
+        {/* Barra de modo */}
+        <div className="px-4 sm:px-6 py-2 bg-gray-50 border-b flex items-center gap-2">
+          <Info className="w-4 h-4 text-gray-500" />
+          <span className="text-xs sm:text-sm text-gray-700">
+            Filtrando dados de: <strong>{modeLabel}</strong>
+          </span>
+        </div>
+
         {/* Conteúdo rolável */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-            <div className="space-y-4 sm:space-y-5">
+          {/* Grade responsiva com densidade + spans por card */}
+          <div className="grid grid-flow-dense gap-4 sm:gap-5 lg:grid-cols-12 xl:grid-cols-12">
+            {/* Pesquisa */}
+            <div className="lg:col-span-6 xl:col-span-4">
               <Section title="Pesquisa" description="Busque por nome, CPF ou telefone." active={isSearchActive}>
-                <div className={cn(isSearchActive && "rounded-md ring-1 ring-blue-2  00")}>
+                <div className={cn(isSearchActive && "rounded-md ring-1 ring-blue-200")}>
                   <Label text="Pesquisa geral" active={isSearchActive} />
                   <Input
                     value={localSearch}
@@ -342,21 +623,26 @@ export const FiltersModal = ({
                   />
                 </div>
               </Section>
+            </div>
 
+            {/* Origem / Motivos / Higienização */}
+            <div className="lg:col-span-6 xl:col-span-4">
               <Section
                 title="Origem e Motivos"
-                description="Refine pela origem do lead, origem da higienização e motivo."
-                active={isOrigensActive || isHigienizacaoActive || isMotivosActive}
+                description={mode === "FGTS" ? "Refine pela origem do lead, origem da higienização e motivo." : "Refine pela origem do lead."}
+                active={isOrigensActive || (mode === "FGTS" && (isHigienizacaoActive || isMotivosActive))}
               >
-                <div>
-                  <Label text="Motivos" active={isMotivosActive} />
-                  <MultiSelect
-                    options={availableMotivos}
-                    selected={localMotivos}
-                    onChange={setLocalMotivos}
-                    placeholder="Selecionar motivos…"
-                  />
-                </div>
+                {mode === "FGTS" && (
+                  <div>
+                    <Label text="Motivos" active={isMotivosActive} />
+                    <MultiSelect
+                      options={availableMotivos}
+                      selected={localMotivos}
+                      onChange={setLocalMotivos}
+                      placeholder="Selecionar motivos…"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <Label text="Origem dos leads" active={isOrigensActive} />
@@ -368,119 +654,359 @@ export const FiltersModal = ({
                   />
                 </div>
 
-                <div>
-                  <Label text="Origem das higienizações" active={isHigienizacaoActive} />
-                  <MultiSelect
-                    options={availableHigienizacoes}
-                    selected={localHigienizacao}
-                    onChange={setLocalHigienizacao}
-                    placeholder="Selecionar origens…"
-                  />
-                </div>
-              </Section>
-
-              <Section title="Vendedores" description="Filtre por responsável comercial." active={isVendorsActive}>
-                <div>
-                  <Label text="Seleção de vendedores" active={isVendorsActive} />
-                  <MultiSelect
-                    options={availableVendors.map((v) => v.name)}
-                    selected={localVendors}
-                    onChange={setLocalVendors}
-                    placeholder="Selecionar vendedores…"
-                  />
-                </div>
+                {mode === "FGTS" && (
+                  <div>
+                    <Label text="Origem das higienizações" active={isHigienizacaoActive} />
+                    <MultiSelect
+                      options={availableHigienizacoes}
+                      selected={localHigienizacao}
+                      onChange={setLocalHigienizacao}
+                      placeholder="Selecionar origens…"
+                    />
+                  </div>
+                )}
               </Section>
             </div>
 
-            <div className="space-y-4 sm:space-y-5">
-              <Section
-                title="Períodos"
-                description="Defina intervalos de datas para contratos e higienização."
-                active={isContractPeriodActive || isUpdatedPeriodActive}
-              >
-                <div className="grid grid-cols-1 gap-3">
+            {/* Vendedores (FGTS) */}
+            {mode === "FGTS" && (
+              <div className="lg:col-span-6 xl:col-span-4">
+                <Section title="Vendedores" description="Filtre por responsável comercial." active={isVendorsActive}>
                   <div>
-                    <Label text="Período de contratos" active={isContractPeriodActive} />
-                    <div className="mt-2 grid grid-cols-2 gap-3">
-                      <Input
-                        type="date"
-                        value={localContractFrom}
-                        onChange={(e) => setLocalContractFrom(e.target.value)}
-                        className={cn(NO_FOCUS, localContractFrom && "ring-1 ring-blue-200")}
-                      />
-                      <Input
-                        type="date"
-                        value={localContractTo}
-                        onChange={(e) => setLocalContractTo(e.target.value)}
-                        className={cn(NO_FOCUS, localContractTo && "ring-1 ring-blue-200")}
-                      />
+                    <Label text="Seleção de vendedores" active={isVendorsActive} />
+                    <MultiSelect
+                      options={availableVendors.map((v) => v.name)}
+                      selected={localVendors}
+                      onChange={setLocalVendors}
+                      placeholder="Selecionar vendedores…"
+                    />
+                  </div>
+                </Section>
+              </div>
+            )}
+
+            {/* Períodos (FGTS) – largura maior */}
+            {mode === "FGTS" && (
+              <div className="lg:col-span-12 xl:col-span-8">
+                <Section
+                  title="Períodos"
+                  description="Defina intervalos de datas para contratos e higienização."
+                  active={isContractPeriodActive || isUpdatedPeriodActive}
+                >
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <Label text="Período de contratos" active={isContractPeriodActive} />
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <Input
+                          type="date"
+                          value={localContractFrom}
+                          onChange={(e) => setLocalContractFrom(e.target.value)}
+                          className={cn(NO_FOCUS, localContractFrom && "ring-1 ring-blue-200")}
+                        />
+                        <Input
+                          type="date"
+                          value={localContractTo}
+                          onChange={(e) => setLocalContractTo(e.target.value)}
+                          className={cn(NO_FOCUS, localContractTo && "ring-1 ring-blue-200")}
+                        />
+                      </div>
                     </div>
+
+                    <div>
+                      <Label text="Período de higienização" active={isUpdatedPeriodActive} />
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <Input
+                          type="date"
+                          value={localDateFrom}
+                          onChange={(e) => setLocalDateFrom(e.target.value)}
+                          className={cn(NO_FOCUS, localDateFrom && "ring-1 ring-blue-200")}
+                        />
+                        <Input
+                          type="date"
+                          value={localDateTo}
+                          onChange={(e) => setLocalDateTo(e.target.value)}
+                          className={cn(NO_FOCUS, localDateTo && "ring-1 ring-blue-200")}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            )}
+
+            {/* FGTS OFF */}
+            {mode === "FGTS" && (
+              <div className="lg:col-span-12 xl:col-span-4">
+                <Section
+                  title="FGTS OFF"
+                  description="Filtre por status da autorização e período da consulta."
+                  active={isFgtsStatusActive || isFgtsPeriodActive}
+                >
+                  <div>
+                    <Label text="Status" active={isFgtsStatusActive} />
+                    <Select
+                      value={localFgtsAuthorized}
+                      onValueChange={(v) =>
+                        setLocalFgtsAuthorized(v as "todos" | "autorizado" | "nao_autorizado" | "nao_consultado")
+                      }
+                    >
+                      <SelectTrigger className={cn(NO_FOCUS, isFgtsStatusActive && "ring-1 ring-blue-200")}>
+                        <SelectValue placeholder="Selecionar..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="autorizado">Autorizado</SelectItem>
+                        <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
+                        <SelectItem value="nao_consultado">Não consultado</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div>
-                    <Label text="Período de higienização" active={isUpdatedPeriodActive} />
+                    <Label text="Período da consulta" active={isFgtsPeriodActive} />
                     <div className="mt-2 grid grid-cols-2 gap-3">
                       <Input
                         type="date"
-                        value={localDateFrom}
-                        onChange={(e) => setLocalDateFrom(e.target.value)}
-                        className={cn(NO_FOCUS, localDateFrom && "ring-1 ring-blue-200")}
+                        value={localFgtsFrom}
+                        onChange={(e) => setLocalFgtsFrom(e.target.value)}
+                        className={cn(NO_FOCUS, localFgtsFrom && "ring-1 ring-blue-200")}
                       />
                       <Input
                         type="date"
-                        value={localDateTo}
-                        onChange={(e) => setLocalDateTo(e.target.value)}
-                        className={cn(NO_FOCUS, localDateTo && "ring-1 ring-blue-200")}
+                        value={localFgtsTo}
+                        onChange={(e) => setLocalFgtsTo(e.target.value)}
+                        className={cn(NO_FOCUS, localFgtsTo && "ring-1 ring-blue-200")}
                       />
                     </div>
                   </div>
-                </div>
-              </Section>
+                </Section>
+              </div>
+            )}
 
-              <Section
-                title="FGTS OFF"
-                description="Filtre por status da autorização e período da consulta."
-                active={isFgtsStatusActive || isFgtsPeriodActive}
-              >
-                <div>
-                  <Label text="Status" active={isFgtsStatusActive} />
-                  <Select
-                    value={localFgtsAuthorized}
-                    onValueChange={(v) =>
-                      setLocalFgtsAuthorized(v as "todos" | "autorizado" | "nao_autorizado" | "nao_consultado")
-                    }
+            {/* CLT – blocos distribuídos */}
+            {mode === "CLT" && (
+              <>
+                <div className="lg:col-span-6 xl:col-span-4">
+                  <Section
+                    title="CLT · Situação"
+                    description="Consultado, elegibilidade e período da última consulta."
+                    active={actCltSituacao}
                   >
-                    <SelectTrigger className={cn(NO_FOCUS, isFgtsStatusActive && "ring-1 ring-blue-200")}>
-                      <SelectValue placeholder="Selecionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="autorizado">Autorizado</SelectItem>
-                      <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
-                      <SelectItem value="nao_consultado">Não consultado</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <Label text="Consultado?" active={lCltConsultado !== "todos"} />
+                        <Select value={lCltConsultado} onValueChange={(v)=>setLCltConsultado(v as any)}>
+                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos</SelectItem>
+                            <SelectItem value="sim">Sim</SelectItem>
+                            <SelectItem value="nao">Não</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label text="Elegível?" active={lCltElegivel !== "todos"} />
+                        <Select value={lCltElegivel} onValueChange={(v)=>setLCltElegivel(v as any)}>
+                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos</SelectItem>
+                            <SelectItem value="sim">Sim</SelectItem>
+                            <SelectItem value="nao">Não</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label text="Not Found?" active={lCltNotFound !== "todos"} />
+                        <Select value={lCltNotFound} onValueChange={(v)=>setLCltNotFound(v as any)}>
+                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos</SelectItem>
+                            <SelectItem value="sim">Sim</SelectItem>
+                            <SelectItem value="nao">Não</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label text="Período da consulta CLT" active={any([lCltConsultaFrom, lCltConsultaTo])} />
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <Input type="date" value={lCltConsultaFrom} onChange={(e)=>setLCltConsultaFrom(e.target.value)} className={NO_FOCUS}/>
+                        <Input type="date" value={lCltConsultaTo} onChange={(e)=>setLCltConsultaTo(e.target.value)} className={NO_FOCUS}/>
+                      </div>
+                    </div>
+                  </Section>
                 </div>
 
-                <div>
-                  <Label text="Período da consulta" active={isFgtsPeriodActive} />
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    <Input
-                      type="date"
-                      value={localFgtsFrom}
-                      onChange={(e) => setLocalFgtsFrom(e.target.value)}
-                      className={cn(NO_FOCUS, localFgtsFrom && "ring-1 ring-blue-200")}
-                    />
-                    <Input
-                      type="date"
-                      value={localFgtsTo}
-                      onChange={(e) => setLocalFgtsTo(e.target.value)}
-                      className={cn(NO_FOCUS, localFgtsTo && "ring-1 ring-blue-200")}
-                    />
-                  </div>
-                </div>
-              </Section>
+                <div className="lg:col-span-6 xl:col-span-4">
+                  <Section
+                    title="CLT · Vínculo"
+                    description="Admissão, tempo de casa, início de atividade do empregador e categoria do trabalhador."
+                    active={actCltVinculo}
+                  >
+                    <div>
+                      <Label text="Período de admissão" active={any([lCltAdmissaoFrom, lCltAdmissaoTo])} />
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <Input type="date" value={lCltAdmissaoFrom} onChange={(e)=>setLCltAdmissaoFrom(e.target.value)} className={NO_FOCUS}/>
+                        <Input type="date" value={lCltAdmissaoTo} onChange={(e)=>setLCltAdmissaoTo(e.target.value)} className={NO_FOCUS}/>
+                      </div>
+                    </div>
 
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label text="Meses de admissão (mín)" active={!!lCltMesesMin} />
+                        <Input value={lCltMesesMin} onChange={(e)=>setLCltMesesMin(e.target.value)} placeholder="ex.: 6" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Meses de admissão (máx)" active={!!lCltMesesMax} />
+                        <Input value={lCltMesesMax} onChange={(e)=>setLCltMesesMax(e.target.value)} placeholder="ex.: 120" className={NO_FOCUS}/>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label text="Início atividade do empregador" active={any([lCltInicioEmpFrom, lCltInicioEmpTo])} />
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <Input type="date" value={lCltInicioEmpFrom} onChange={(e)=>setLCltInicioEmpFrom(e.target.value)} className={NO_FOCUS}/>
+                        <Input type="date" value={lCltInicioEmpTo} onChange={(e)=>setLCltInicioEmpTo(e.target.value)} className={NO_FOCUS}/>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label text="Categoria(s) trabalhador (códigos)" active={!!lCltCategoria.trim()} />
+                      <Textarea
+                        rows={2}
+                        placeholder="Ex.: 123, 456, 789"
+                        value={lCltCategoria}
+                        onChange={(e)=>setLCltCategoria(e.target.value)}
+                        className={NO_FOCUS}
+                      />
+                    </div>
+                  </Section>
+                </div>
+
+                <div className="lg:col-span-6 xl:col-span-4">
+                  <Section
+                    title="CLT · Perfil"
+                    description="Idade e sexo."
+                    active={actCltPerfil}
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label text="Idade mín." active={!!lCltIdadeMin} />
+                        <Input value={lCltIdadeMin} onChange={(e)=>setLCltIdadeMin(e.target.value)} placeholder="ex.: 18" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Idade máx." active={!!lCltIdadeMax} />
+                        <Input value={lCltIdadeMax} onChange={(e)=>setLCltIdadeMax(e.target.value)} placeholder="ex.: 75" className={NO_FOCUS}/>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label text="Sexo" active={lCltSexo.length>0} />
+                      <MultiSelect
+                        options={["M","F"]}
+                        selected={lCltSexo}
+                        onChange={setLCltSexo}
+                        placeholder="Selecionar sexo…"
+                      />
+                    </div>
+                  </Section>
+                </div>
+
+                <div className="lg:col-span-12 xl:col-span-8">
+                  <Section
+                    title="CLT · Renda e Margem"
+                    description="Faixas de renda, base, margem e prestação."
+                    active={actCltRenda}
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label text="Renda mín." active={!!lCltRendaMin} />
+                        <Input value={lCltRendaMin} onChange={(e)=>setLCltRendaMin(e.target.value)} placeholder="ex.: 1200,00" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Renda máx." active={!!lCltRendaMax} />
+                        <Input value={lCltRendaMax} onChange={(e)=>setLCltRendaMax(e.target.value)} placeholder="ex.: 5000,00" className={NO_FOCUS}/>
+                      </div>
+
+                      <div>
+                        <Label text="Base mín." active={!!lCltBaseMin} />
+                        <Input value={lCltBaseMin} onChange={(e)=>setLCltBaseMin(e.target.value)} placeholder="ex.: 1000,00" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Base máx." active={!!lCltBaseMax} />
+                        <Input value={lCltBaseMax} onChange={(e)=>setLCltBaseMax(e.target.value)} placeholder="ex.: 4000,00" className={NO_FOCUS}/>
+                      </div>
+
+                      <div>
+                        <Label text="Margem mín." active={!!lCltMargemMin} />
+                        <Input value={lCltMargemMin} onChange={(e)=>setLCltMargemMin(e.target.value)} placeholder="ex.: 100,00" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Margem máx." active={!!lCltMargemMax} />
+                        <Input value={lCltMargemMax} onChange={(e)=>setLCltMargemMax(e.target.value)} placeholder="ex.: 2000,00" className={NO_FOCUS}/>
+                      </div>
+
+                      <div>
+                        <Label text="Prestação mín." active={!!lCltPrestacaoMin} />
+                        <Input value={lCltPrestacaoMin} onChange={(e)=>setLCltPrestacaoMin(e.target.value)} placeholder="ex.: 100,00" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Prestação máx." active={!!lCltPrestacaoMax} />
+                        <Input value={lCltPrestacaoMax} onChange={(e)=>setLCltPrestacaoMax(e.target.value)} placeholder="ex.: 800,00" className={NO_FOCUS}/>
+                      </div>
+                    </div>
+                  </Section>
+                </div>
+
+                <div className="lg:col-span-12 xl:col-span-4">
+                  <Section
+                    title="CLT · Histórico de Crédito"
+                    description="Quantidade de empréstimos ativos/suspensos e legados."
+                    active={actCltHistorico}
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label text="Ativos/Susp. mín." active={!!lCltAtivosMin} />
+                        <Input value={lCltAtivosMin} onChange={(e)=>setLCltAtivosMin(e.target.value)} placeholder="ex.: 0" className={NO_FOCUS}/>
+                      </div>
+                      <div>
+                        <Label text="Ativos/Susp. máx." active={!!lCltAtivosMax} />
+                        <Input value={lCltAtivosMax} onChange={(e)=>setLCltAtivosMax(e.target.value)} placeholder="ex.: 10" className={NO_FOCUS}/>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label text="Tem ativos/suspensos?" active={lCltTemAtivos !== "todos"} />
+                      <Select value={lCltTemAtivos} onValueChange={(v)=>setLCltTemAtivos(v as any)}>
+                        <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos</SelectItem>
+                          <SelectItem value="sim">Sim</SelectItem>
+                          <SelectItem value="nao">Não</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Apenas booleano de legados */}
+                    <div>
+                      <Label text="Tem legados?" active={lCltTemLegados !== "todos"} />
+                      <Select value={lCltTemLegados} onValueChange={(v)=>setLCltTemLegados(v as any)}>
+                        <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos</SelectItem>
+                          <SelectItem value="sim">Sim</SelectItem>
+                          <SelectItem value="nao">Não</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </Section>
+                </div>
+              </>
+            )}
+
+            {/* Aniversário (compacto) */}
+            <div className="lg:col-span-6 xl:col-span-4">
               <Section title="Aniversário" description="Selecione um ou mais meses." active={isBirthActive}>
                 <div>
                   <Label text="Mês(es) de aniversário" active={isBirthActive} />
@@ -492,7 +1018,10 @@ export const FiltersModal = ({
                   />
                 </div>
               </Section>
+            </div>
 
+            {/* Filtros em massa (mais largo) */}
+            <div className="lg:col-span-12 xl:col-span-8">
               <Section title="Filtros em massa" description="Cole uma lista de valores para filtrar rapidamente." active={isMassActive}>
                 <div className="grid grid-cols-1 gap-3">
                   <div>

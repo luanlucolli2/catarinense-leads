@@ -148,10 +148,41 @@ export interface LeadFilters {
   phones?: string
   vendors?: string[]
   birth_month?: string[]
+
   /** ➕ FGTS OFF (apenas uso no modo FGTS) */
   fgts_status?: "autorizado" | "nao_autorizado" | "nao_consultado"
   fgts_consulta_from?: string
   fgts_consulta_to?: string
+
+  /** ➕ CLT — filtros específicos */
+  clt_consultado?: "sim" | "nao"
+  clt_elegivel?: "sim" | "nao"
+  clt_not_found?: "sim" | "nao"
+  clt_consulta_from?: string
+  clt_consulta_to?: string
+  clt_admissao_from?: string
+  clt_admissao_to?: string
+  clt_meses_min?: string | number
+  clt_meses_max?: string | number
+  clt_inicio_empregador_from?: string
+  clt_inicio_empregador_to?: string
+  clt_categoria_codigos?: string[] // enviaremos como array no POST e CSV no GET
+  clt_idade_min?: string | number
+  clt_idade_max?: string | number
+  clt_sexo?: ("M" | "F")[]
+  clt_renda_min?: string
+  clt_renda_max?: string
+  clt_base_min?: string
+  clt_base_max?: string
+  clt_margem_min?: string
+  clt_margem_max?: string
+  clt_prestacao_min?: string
+  clt_prestacao_max?: string
+  clt_ativos_min?: string | number
+  clt_ativos_max?: string | number
+  clt_tem_ativos?: "sim" | "nao"
+  /** 🔁 removidos min/max: manter apenas boolean */
+  clt_tem_legados?: "sim" | "nao"
 }
 
 /* ---------- Helpers ---------- */
@@ -180,18 +211,60 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     const normalized = hasLetters ? raw : raw.replace(/\D/g, "")
     p.set("search", normalized)
   }
-  if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
+  // FGTS-only
+  if (mode === "fgts") {
+    if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
+    if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
+    if (f.date_from) p.set("date_from", f.date_from)
+    if (f.date_to) p.set("date_to", f.date_to)
+    if (f.contract_from) p.set("contract_from", f.contract_from)
+    if (f.contract_to) p.set("contract_to", f.contract_to)
+  }
+  // comum aos dois modos
   if (f.origens?.length) p.set("origens", f.origens.join(","))
-  if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
-  if (f.date_from) p.set("date_from", f.date_from)
-  if (f.date_to) p.set("date_to", f.date_to)
-  if (f.contract_from) p.set("contract_from", f.contract_from)
-  if (f.contract_to) p.set("contract_to", f.contract_to)
 
-  // ➕ FGTS OFF (só faz sentido no FGTS; no CLT o back ignora)
-  if (f.fgts_status) p.set("fgts_status", f.fgts_status)
-  if (f.fgts_consulta_from) p.set("fgts_consulta_from", f.fgts_consulta_from)
-  if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
+  // ➕ FGTS OFF (só no FGTS; no CLT o back ignora)
+  if (mode === "fgts") {
+    if (f.fgts_status) p.set("fgts_status", f.fgts_status)
+    if (f.fgts_consulta_from) p.set("fgts_consulta_from", f.fgts_consulta_from)
+    if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
+  }
+
+  // ➕ CLT – somente quando mode = "clt"
+  if (mode === "clt") {
+    if (f.clt_consultado) p.set("clt_consultado", f.clt_consultado)
+    if (f.clt_elegivel) p.set("clt_elegivel", f.clt_elegivel)
+    if (f.clt_not_found) p.set("clt_not_found", f.clt_not_found)
+    if (f.clt_consulta_from) p.set("clt_consulta_from", f.clt_consulta_from)
+    if (f.clt_consulta_to) p.set("clt_consulta_to", f.clt_consulta_to)
+
+    if (f.clt_admissao_from) p.set("clt_admissao_from", f.clt_admissao_from)
+    if (f.clt_admissao_to) p.set("clt_admissao_to", f.clt_admissao_to)
+    if (f.clt_meses_min !== undefined && f.clt_meses_min !== "") p.set("clt_meses_min", String(f.clt_meses_min))
+    if (f.clt_meses_max !== undefined && f.clt_meses_max !== "") p.set("clt_meses_max", String(f.clt_meses_max))
+    if (f.clt_inicio_empregador_from) p.set("clt_inicio_empregador_from", f.clt_inicio_empregador_from)
+    if (f.clt_inicio_empregador_to) p.set("clt_inicio_empregador_to", f.clt_inicio_empregador_to)
+    if (f.clt_categoria_codigos?.length) p.set("clt_categoria_codigos", f.clt_categoria_codigos.join(","))
+
+    if (f.clt_idade_min !== undefined && f.clt_idade_min !== "") p.set("clt_idade_min", String(f.clt_idade_min))
+    if (f.clt_idade_max !== undefined && f.clt_idade_max !== "") p.set("clt_idade_max", String(f.clt_idade_max))
+    if (f.clt_sexo?.length) p.set("clt_sexo", f.clt_sexo.join(","))
+
+    if (f.clt_renda_min) p.set("clt_renda_min", f.clt_renda_min)
+    if (f.clt_renda_max) p.set("clt_renda_max", f.clt_renda_max)
+    if (f.clt_base_min) p.set("clt_base_min", f.clt_base_min)
+    if (f.clt_base_max) p.set("clt_base_max", f.clt_base_max)
+    if (f.clt_margem_min) p.set("clt_margem_min", f.clt_margem_min)
+    if (f.clt_margem_max) p.set("clt_margem_max", f.clt_margem_max)
+    if (f.clt_prestacao_min) p.set("clt_prestacao_min", f.clt_prestacao_min)
+    if (f.clt_prestacao_max) p.set("clt_prestacao_max", f.clt_prestacao_max)
+
+    if (f.clt_ativos_min !== undefined && f.clt_ativos_min !== "") p.set("clt_ativos_min", String(f.clt_ativos_min))
+    if (f.clt_ativos_max !== undefined && f.clt_ativos_max !== "") p.set("clt_ativos_max", String(f.clt_ativos_max))
+    if (f.clt_tem_ativos) p.set("clt_tem_ativos", f.clt_tem_ativos)
+
+    if (f.clt_tem_legados) p.set("clt_tem_legados", f.clt_tem_legados)
+  }
 
   // filtros em massa (GET -> CSV)
   if (f.cpf) {
@@ -206,7 +279,8 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     const list = splitAndNormalize(f.phones, true)
     if (list.length) p.set("phones", list.join(","))
   }
-  if (f.vendors?.length) p.set("vendors", f.vendors.join(","))
+  // Vendors só é relevante no FGTS
+  if (mode === "fgts" && f.vendors?.length) p.set("vendors", f.vendors.join(","))
 
   // 🎂 mês(es) de aniversário
   const months = normalizeMonths(f.birth_month)
@@ -273,20 +347,41 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
     const payload: any = {
       mode,
       search: filters.search?.trim() || undefined,
-      motivos: filters.motivos?.length ? filters.motivos : undefined,
+      // CLT: apenas o que faz sentido
       origens: filters.origens?.length ? filters.origens : undefined,
-      // origens_hig não tem efeito específico no CLT, mas o back ignora
-      origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
-      date_from: filters.date_from || undefined,
-      date_to: filters.date_to || undefined,
-      contract_from: filters.contract_from || undefined,
-      contract_to: filters.contract_to || undefined,
-      vendors: filters.vendors?.length ? filters.vendors : undefined,
       birth_month: months.length ? months : undefined,
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
-      // FGTS OFF ignorado no modo CLT
+
+      // ➕ CLT
+      clt_consultado: filters.clt_consultado || undefined,
+      clt_elegivel: filters.clt_elegivel || undefined,
+      clt_not_found: filters.clt_not_found || undefined,
+      clt_consulta_from: filters.clt_consulta_from || undefined,
+      clt_consulta_to: filters.clt_consulta_to || undefined,
+      clt_admissao_from: filters.clt_admissao_from || undefined,
+      clt_admissao_to: filters.clt_admissao_to || undefined,
+      clt_meses_min: filters.clt_meses_min ?? undefined,
+      clt_meses_max: filters.clt_meses_max ?? undefined,
+      clt_inicio_empregador_from: filters.clt_inicio_empregador_from || undefined,
+      clt_inicio_empregador_to: filters.clt_inicio_empregador_to || undefined,
+      clt_categoria_codigos: filters.clt_categoria_codigos?.length ? filters.clt_categoria_codigos : undefined,
+      clt_idade_min: filters.clt_idade_min ?? undefined,
+      clt_idade_max: filters.clt_idade_max ?? undefined,
+      clt_sexo: filters.clt_sexo?.length ? filters.clt_sexo : undefined,
+      clt_renda_min: filters.clt_renda_min || undefined,
+      clt_renda_max: filters.clt_renda_max || undefined,
+      clt_base_min: filters.clt_base_min || undefined,
+      clt_base_max: filters.clt_base_max || undefined,
+      clt_margem_min: filters.clt_margem_min || undefined,
+      clt_margem_max: filters.clt_margem_max || undefined,
+      clt_prestacao_min: filters.clt_prestacao_min || undefined,
+      clt_prestacao_max: filters.clt_prestacao_max || undefined,
+      clt_ativos_min: filters.clt_ativos_min ?? undefined,
+      clt_ativos_max: filters.clt_ativos_max ?? undefined,
+      clt_tem_ativos: filters.clt_tem_ativos || undefined,
+      clt_tem_legados: filters.clt_tem_legados || undefined,
     }
     const { data } = await axiosClient.post<PaginatedLeadsResponseCLT>(
       "/leads/search",

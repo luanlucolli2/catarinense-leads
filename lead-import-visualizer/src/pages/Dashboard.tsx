@@ -32,12 +32,14 @@ import { cn } from "@/lib/utils"
 
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
+type YesNoAll = "todos" | "sim" | "nao"
 type ActiveTab = "FGTS" | "CLT"
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
   const [currentPage, setCurrentPage] = useState(1)
 
+  /* =========================  FGTS (persistido)  ========================= */
   const [searchValue, setSearchValue] = usePersistedState<string>("dashboard:searchValue", "")
   const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>("dashboard:statusFilter", "todos")
   const [motivosFilter, setMotivosFilter] = usePersistedState<string[]>("dashboard:motivosFilter", [])
@@ -53,13 +55,58 @@ const Dashboard = () => {
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
-  /** ➕ novos filtros FGTS OFF (tri-estado) – só fazem efeito no modo FGTS */
+  /** ➕ FGTS OFF (tri-estado) – só fazem efeito no modo FGTS */
   const [fgtsAuthorizedFilter, setFgtsAuthorizedFilter] =
     usePersistedState<FgtsStatusFilter>("dashboard:fgtsAuthorizedFilter", "todos")
   const [fgtsConsultaFromFilter, setFgtsConsultaFromFilter] =
     usePersistedState<string>("dashboard:fgtsConsultaFromFilter", "")
   const [fgtsConsultaToFilter, setFgtsConsultaToFilter] =
     usePersistedState<string>("dashboard:fgtsConsultaToFilter", "")
+
+  /* =========================  CLT (persistido)  ========================= */
+  const [cltSearchValue, setCltSearchValue] = usePersistedState<string>("dashboard-clt:searchValue", "")
+  const [cltStatusFilter, setCltStatusFilter] = usePersistedState<StatusFilter>("dashboard-clt:statusFilter", "todos")
+  const [cltMotivosFilter, setCltMotivosFilter] = usePersistedState<string[]>("dashboard-clt:motivosFilter", [])
+  const [cltOrigemFilter, setCltOrigemFilter] = usePersistedState<string[]>("dashboard-clt:origemFilter", [])
+  const [cltHigienizacaoFilter, setCltHigienizacaoFilter] = usePersistedState<string[]>("dashboard-clt:higienizacaoFilter", [])
+  const [cltDateFromFilter, setCltDateFromFilter] = usePersistedState<string>("dashboard-clt:dateFromFilter", "")
+  const [cltDateToFilter,   setCltDateToFilter]   = usePersistedState<string>("dashboard-clt:dateToFilter", "")
+  const [cltContractFromFilter, setCltContractFromFilter] = usePersistedState<string>("dashboard-clt:contractDateFromFilter", "")
+  const [cltContractToFilter,   setCltContractToFilter]   = usePersistedState<string>("dashboard-clt:contractDateToFilter", "")
+  const [cltCpfMassFilter,    setCltCpfMassFilter]    = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
+  const [cltNamesMassFilter,  setCltNamesMassFilter]  = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
+  const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-clt:phonesMassFilter", "")
+  const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
+  const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
+
+  // —— CLT específicos ——
+  const [cltConsultado, setCltConsultado] = usePersistedState<YesNoAll>("dashboard-clt:consultado", "todos")
+  const [cltElegivel, setCltElegivel] = usePersistedState<YesNoAll>("dashboard-clt:elegivel", "todos")
+  const [cltNotFound, setCltNotFound] = usePersistedState<YesNoAll>("dashboard-clt:not_found", "todos")
+  const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
+  const [cltConsultaTo,   setCltConsultaTo]   = usePersistedState<string>("dashboard-clt:consultaTo", "")
+  const [cltAdmissaoFrom, setCltAdmissaoFrom] = usePersistedState<string>("dashboard-clt:admissaoFrom", "")
+  const [cltAdmissaoTo,   setCltAdmissaoTo]   = usePersistedState<string>("dashboard-clt:admissaoTo", "")
+  const [cltMesesMin, setCltMesesMin] = usePersistedState<string>("dashboard-clt:mesesMin", "")
+  const [cltMesesMax, setCltMesesMax] = usePersistedState<string>("dashboard-clt:mesesMax", "")
+  const [cltInicioEmpregadorFrom, setCltInicioEmpregadorFrom] = usePersistedState<string>("dashboard-clt:inicioEmpFrom", "")
+  const [cltInicioEmpregadorTo,   setCltInicioEmpregadorTo]   = usePersistedState<string>("dashboard-clt:inicioEmpTo", "")
+  const [cltCategoriaCodigos, setCltCategoriaCodigos] = usePersistedState<string>("dashboard-clt:categoriaCodigos", "")
+  const [cltIdadeMin, setCltIdadeMin] = usePersistedState<string>("dashboard-clt:idadeMin", "")
+  const [cltIdadeMax, setCltIdadeMax] = usePersistedState<string>("dashboard-clt:idadeMax", "")
+  const [cltSexo, setCltSexo] = usePersistedState<string[]>("dashboard-clt:sexo", [])
+  const [cltRendaMin, setCltRendaMin] = usePersistedState<string>("dashboard-clt:rendaMin", "")
+  const [cltRendaMax, setCltRendaMax] = usePersistedState<string>("dashboard-clt:rendaMax", "")
+  const [cltBaseMin, setCltBaseMin] = usePersistedState<string>("dashboard-clt:baseMin", "")
+  const [cltBaseMax, setCltBaseMax] = usePersistedState<string>("dashboard-clt:baseMax", "")
+  const [cltMargemMin, setCltMargemMin] = usePersistedState<string>("dashboard-clt:margemMin", "")
+  const [cltMargemMax, setCltMargemMax] = usePersistedState<string>("dashboard-clt:margemMax", "")
+  const [cltPrestacaoMin, setCltPrestacaoMin] = usePersistedState<string>("dashboard-clt:prestacaoMin", "")
+  const [cltPrestacaoMax, setCltPrestacaoMax] = usePersistedState<string>("dashboard-clt:prestacaoMax", "")
+  const [cltAtivosMin, setCltAtivosMin] = usePersistedState<string>("dashboard-clt:ativosMin", "")
+  const [cltAtivosMax, setCltAtivosMax] = usePersistedState<string>("dashboard-clt:ativosMax", "")
+  const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-clt:temAtivos", "todos")
+  const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-clt:temLegados", "todos")
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -73,7 +120,7 @@ const Dashboard = () => {
     staleTime: 1000 * 60 * 5,
   })
 
-  /** fetch paginado – chave inclui aba ativa */
+  /** fetch paginado – chave inclui aba ativa e filtros do modo ativo */
   const {
     data: paginatedData,
     isLoading,
@@ -85,52 +132,96 @@ const Dashboard = () => {
       "leads",
       activeTab,
       currentPage,
-      searchValue,
-      statusFilter,
-      motivosFilter,
-      origemFilter,
-      higienizacaoFilter,
-      dateFromFilter,
-      dateToFilter,
-      contractDateFromFilter,
-      contractDateToFilter,
-      cpfMassFilter,
-      namesMassFilter,
-      phonesMassFilter,
-      vendorsFilter,
-      birthMonthFilter,
-      // FGTS OFF
-      fgtsAuthorizedFilter,
-      fgtsConsultaFromFilter,
-      fgtsConsultaToFilter,
+
+      // —— FGTS comuns
+      searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
+      dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
+      cpfMassFilter, namesMassFilter, phonesMassFilter, vendorsFilter, birthMonthFilter,
+      fgtsAuthorizedFilter, fgtsConsultaFromFilter, fgtsConsultaToFilter,
+
+      // —— CLT comuns
+      cltSearchValue, cltStatusFilter, cltMotivosFilter, cltOrigemFilter, cltHigienizacaoFilter,
+      cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
+      cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltVendorsFilter, cltBirthMonthFilter,
+      // CLT específicos
+      cltConsultado, cltElegivel, cltNotFound,
+      cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
+      cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
+      cltSexo, cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax, cltMargemMin, cltMargemMax,
+      cltPrestacaoMin, cltPrestacaoMax, cltAtivosMin, cltAtivosMax, cltTemAtivos, cltTemLegados,
     ],
     queryFn: async (): Promise<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT> => {
-      const common = {
-        page: currentPage,
-        search: searchValue,
-        status: statusFilter,
-        motivos: motivosFilter,
-        origens: origemFilter,
-        origens_hig: higienizacaoFilter,
-        date_from: dateFromFilter,
-        date_to: dateToFilter,
-        contract_from: contractDateFromFilter,
-        contract_to: contractDateToFilter,
-        cpf: cpfMassFilter,
-        names: namesMassFilter,
-        phones: phonesMassFilter,
-        vendors: vendorsFilter,
-        birth_month: birthMonthFilter,
-      }
       if (activeTab === "FGTS") {
         return fetchLeadsFGTS({
-          ...common,
+          page: currentPage,
+          search: searchValue,
+          status: statusFilter,
+          motivos: motivosFilter,
+          origens: origemFilter,
+          origens_hig: higienizacaoFilter,
+          date_from: dateFromFilter,
+          date_to: dateToFilter,
+          contract_from: contractDateFromFilter,
+          contract_to: contractDateToFilter,
+          cpf: cpfMassFilter,
+          names: namesMassFilter,
+          phones: phonesMassFilter,
+          vendors: vendorsFilter,
+          birth_month: birthMonthFilter,
           fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
           fgts_consulta_from: fgtsConsultaFromFilter || undefined,
           fgts_consulta_to: fgtsConsultaToFilter || undefined,
         })
       }
-      return fetchLeadsCLT(common)
+
+      // —— CLT
+      const catCodes = cltCategoriaCodigos
+        ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+        : undefined
+      return fetchLeadsCLT({
+        page: currentPage,
+        search: cltSearchValue,
+        status: cltStatusFilter,
+        // CLT: apenas filtros válidos
+        origens: cltOrigemFilter,
+        cpf: cltCpfMassFilter,
+        names: cltNamesMassFilter,
+        phones: cltPhonesMassFilter,
+        birth_month: cltBirthMonthFilter,
+
+        clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
+        clt_elegivel: cltElegivel !== "todos" ? cltElegivel : undefined,
+        clt_not_found: cltNotFound !== "todos" ? cltNotFound : undefined,
+        clt_consulta_from: cltConsultaFrom || undefined,
+        clt_consulta_to: cltConsultaTo || undefined,
+
+        clt_admissao_from: cltAdmissaoFrom || undefined,
+        clt_admissao_to: cltAdmissaoTo || undefined,
+        clt_meses_min: cltMesesMin || undefined,
+        clt_meses_max: cltMesesMax || undefined,
+        clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+        clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+        clt_categoria_codigos: catCodes,
+        clt_idade_min: cltIdadeMin || undefined,
+        clt_idade_max: cltIdadeMax || undefined,
+        clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
+
+        clt_renda_min: cltRendaMin || undefined,
+        clt_renda_max: cltRendaMax || undefined,
+        clt_base_min: cltBaseMin || undefined,
+        clt_base_max: cltBaseMax || undefined,
+        clt_margem_min: cltMargemMin || undefined,
+        clt_margem_max: cltMargemMax || undefined,
+        clt_prestacao_min: cltPrestacaoMin || undefined,
+        clt_prestacao_max: cltPrestacaoMax || undefined,
+
+        clt_ativos_min: cltAtivosMin || undefined,
+        clt_ativos_max: cltAtivosMax || undefined,
+        clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+
+        // somente boolean de legados (sem min/max)
+        clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+      })
     },
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
@@ -149,7 +240,6 @@ const Dashboard = () => {
         { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
       ].filter((f) => f.fone && f.fone !== "--")
 
-      // Normaliza 0/1/"0"/"1" → boolean | null
       const rawAuth: any = lead.fgts_off_authorized
       const fgtsOffAuthorized: boolean | null =
         rawAuth === true || rawAuth === 1 || rawAuth === "1"
@@ -191,7 +281,6 @@ const Dashboard = () => {
         { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
       ].filter((f) => f.fone && f.fone !== "--")
 
-      // 🔧 Normaliza 0/1/"0"/"1" → boolean | null
       const rawElegivel: any = lead.elegivel
       const elegivel: boolean | null =
         rawElegivel === true || rawElegivel === 1 || rawElegivel === "1"
@@ -269,7 +358,7 @@ const Dashboard = () => {
     setPendingToastId(id)
   }
 
-  const handleClearFilters = () => {
+  const clearFgts = () => {
     setSearchValue("")
     setStatusFilter("todos")
     setMotivosFilter([])
@@ -284,10 +373,61 @@ const Dashboard = () => {
     setPhonesMassFilter("")
     setVendorsFilter([])
     setBirthMonthFilter([])
-    // FGTS OFF
     setFgtsAuthorizedFilter("todos")
     setFgtsConsultaFromFilter("")
     setFgtsConsultaToFilter("")
+  }
+
+  const clearClt = () => {
+    setCltSearchValue("")
+    setCltStatusFilter("todos")
+    setCltMotivosFilter([])
+    setCltOrigemFilter([])
+    setCltHigienizacaoFilter([])
+    setCltDateFromFilter("")
+    setCltDateToFilter("")
+    setCltContractFromFilter("")
+    setCltContractToFilter("")
+    setCltCpfMassFilter("")
+    setCltNamesMassFilter("")
+    setCltPhonesMassFilter("")
+    setCltVendorsFilter([])
+    setCltBirthMonthFilter([])
+
+    setCltConsultado("todos")
+    setCltElegivel("todos")
+    setCltNotFound("todos")
+    setCltConsultaFrom("")
+    setCltConsultaTo("")
+    setCltAdmissaoFrom("")
+    setCltAdmissaoTo("")
+    setCltMesesMin("")
+    setCltMesesMax("")
+    setCltInicioEmpregadorFrom("")
+    setCltInicioEmpregadorTo("")
+    setCltCategoriaCodigos("")
+    setCltIdadeMin("")
+    setCltIdadeMax("")
+    setCltSexo([])
+    setCltRendaMin("")
+    setCltRendaMax("")
+    setCltBaseMin("")
+    setCltBaseMax("")
+    setCltMargemMin("")
+    setCltMargemMax("")
+    setCltPrestacaoMin("")
+    setCltPrestacaoMax("")
+    setCltAtivosMin("")
+    setCltAtivosMax("")
+    setCltTemAtivos("todos")
+
+    setCltTemLegados("todos")
+  }
+
+  const handleClearFilters = () => {
+    if (activeTab === "FGTS") clearFgts()
+    else clearClt()
+
     setCurrentPage(1)
     setAwaitingFetch("clear")
     if (pendingToastId) toast.dismiss(pendingToastId)
@@ -295,7 +435,7 @@ const Dashboard = () => {
     setPendingToastId(id)
   }
 
-  const hasActiveFilters =
+  const hasActiveFiltersFGTS =
     searchValue ||
     statusFilter !== "todos" ||
     motivosFilter.length ||
@@ -310,30 +450,110 @@ const Dashboard = () => {
     higienizacaoFilter.length ||
     vendorsFilter.length ||
     birthMonthFilter.length ||
-    // FGTS OFF (conta só quando na aba FGTS)
-    (activeTab === "FGTS" &&
-      (fgtsAuthorizedFilter !== "todos" || fgtsConsultaFromFilter || fgtsConsultaToFilter))
+    fgtsAuthorizedFilter !== "todos" ||
+    fgtsConsultaFromFilter ||
+    fgtsConsultaToFilter
 
-  const collectFilters = () => ({
-    search: searchValue || undefined,
-    status: statusFilter !== "todos" ? statusFilter : undefined,
-    motivos: motivosFilter.length ? motivosFilter : undefined,
-    origens: origemFilter.length ? origemFilter : undefined,
-    origens_hig: higienizacaoFilter.length ? higienizacaoFilter : undefined,
-    date_from: dateFromFilter || undefined,
-    date_to: dateToFilter || undefined,
-    contract_from: contractDateFromFilter || undefined,
-    contract_to: contractDateToFilter || undefined,
-    cpf: cpfMassFilter || undefined,
-    names: namesMassFilter || undefined,
-    phones: phonesMassFilter || undefined,
-    vendors: vendorsFilter.length ? vendorsFilter : undefined,
-    birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
-    // FGTS OFF (apenas no FGTS)
-    fgts_status: activeTab === "FGTS" && fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
-    fgts_consulta_from: activeTab === "FGTS" && fgtsConsultaFromFilter ? fgtsConsultaFromFilter : undefined,
-    fgts_consulta_to: activeTab === "FGTS" && fgtsConsultaToFilter ? fgtsConsultaToFilter : undefined,
-  })
+  // CLT: removemos contagem de filtros que não se aplicam (motivos, higienização, período hig., período de contrato, vendors)
+  const hasActiveFiltersCLT =
+    cltSearchValue ||
+    cltStatusFilter !== "todos" ||
+    cltOrigemFilter.length || // cadastral ok
+    cltCpfMassFilter ||
+    cltNamesMassFilter ||
+    cltPhonesMassFilter ||
+    cltBirthMonthFilter.length ||
+    cltConsultado !== "todos" ||
+    cltElegivel !== "todos" ||
+    cltNotFound !== "todos" ||
+    cltConsultaFrom ||
+    cltConsultaTo ||
+    cltAdmissaoFrom ||
+    cltAdmissaoTo ||
+    cltMesesMin ||
+    cltMesesMax ||
+    cltInicioEmpregadorFrom ||
+    cltInicioEmpregadorTo ||
+    !!cltCategoriaCodigos.trim() ||
+    cltIdadeMin ||
+    cltIdadeMax ||
+    (cltSexo && cltSexo.length > 0) ||
+    cltRendaMin || cltRendaMax ||
+    cltBaseMin || cltBaseMax ||
+    cltMargemMin || cltMargemMax ||
+    cltPrestacaoMin || cltPrestacaoMax ||
+    cltAtivosMin || cltAtivosMax || cltTemAtivos !== "todos" ||
+    /* apenas boolean de legados */
+    cltTemLegados !== "todos"
+
+  const hasActiveFilters = activeTab === "FGTS" ? hasActiveFiltersFGTS : hasActiveFiltersCLT
+
+  const collectFilters = () => {
+    if (activeTab === "FGTS") {
+      return {
+        search: searchValue || undefined,
+        status: statusFilter !== "todos" ? statusFilter : undefined,
+        motivos: motivosFilter.length ? motivosFilter : undefined,
+        origens: origemFilter.length ? origemFilter : undefined,
+        origens_hig: higienizacaoFilter.length ? higienizacaoFilter : undefined,
+        date_from: dateFromFilter || undefined,
+        date_to: dateToFilter || undefined,
+        contract_from: contractDateFromFilter || undefined,
+        contract_to: contractDateToFilter || undefined,
+        cpf: cpfMassFilter || undefined,
+        names: namesMassFilter || undefined,
+        phones: phonesMassFilter || undefined,
+        vendors: vendorsFilter.length ? vendorsFilter : undefined,
+        birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
+        fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
+        fgts_consulta_from: fgtsConsultaFromFilter || undefined,
+        fgts_consulta_to: fgtsConsultaToFilter || undefined,
+      }
+    }
+
+    const catCodes = cltCategoriaCodigos
+      ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+      : undefined
+
+    return {
+      search: cltSearchValue || undefined,
+      status: cltStatusFilter !== "todos" ? cltStatusFilter : undefined,
+      // CLT válidos
+      origens: cltOrigemFilter.length ? cltOrigemFilter : undefined,
+      cpf: cltCpfMassFilter || undefined,
+      names: cltNamesMassFilter || undefined,
+      phones: cltPhonesMassFilter || undefined,
+      birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
+
+      clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
+      clt_elegivel: cltElegivel !== "todos" ? cltElegivel : undefined,
+      clt_not_found: cltNotFound !== "todos" ? cltNotFound : undefined,
+      clt_consulta_from: cltConsultaFrom || undefined,
+      clt_consulta_to: cltConsultaTo || undefined,
+      clt_admissao_from: cltAdmissaoFrom || undefined,
+      clt_admissao_to: cltAdmissaoTo || undefined,
+      clt_meses_min: cltMesesMin || undefined,
+      clt_meses_max: cltMesesMax || undefined,
+      clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+      clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+      clt_categoria_codigos: catCodes,
+      clt_idade_min: cltIdadeMin || undefined,
+      clt_idade_max: cltIdadeMax || undefined,
+      clt_sexo: cltSexo.length ? (cltSexo as ("M"|"F")[]) : undefined,
+      clt_renda_min: cltRendaMin || undefined,
+      clt_renda_max: cltRendaMax || undefined,
+      clt_base_min: cltBaseMin || undefined,
+      clt_base_max: cltBaseMax || undefined,
+      clt_margem_min: cltMargemMin || undefined,
+      clt_margem_max: cltMargemMax || undefined,
+      clt_prestacao_min: cltPrestacaoMin || undefined,
+      clt_prestacao_max: cltPrestacaoMax || undefined,
+      clt_ativos_min: cltAtivosMin || undefined,
+      clt_ativos_max: cltAtivosMax || undefined,
+      clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+      clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+    }
+  }
 
   const handleExport = async (columns: string[]) => {
     // nesta etapa mantemos exportação somente para FGTS (como estava)
@@ -350,6 +570,50 @@ const Dashboard = () => {
   const total = (paginatedData as any)?.total ?? 0
   const current_page = (paginatedData as any)?.current_page ?? 1
   const last_page = (paginatedData as any)?.last_page ?? 1
+
+  // ======== Projeção de estados para o componente de controles (modo atual) ========
+  const ui = activeTab === "FGTS"
+    ? {
+        mode: "FGTS" as const,
+        searchValue, setSearchValue,
+        statusFilter, setStatusFilter,
+        motivosFilter, setMotivosFilter,
+        origemFilter, setOrigemFilter,
+        higienizacaoFilter, setHigienizacaoFilter,
+        dateFromFilter, setDateFromFilter,
+        dateToFilter, setDateToFilter,
+        contractDateFromFilter, setContractDateFromFilter,
+        contractDateToFilter, setContractDateToFilter,
+        cpfMassFilter, setCpfMassFilter,
+        namesMassFilter, setNamesMassFilter,
+        phonesMassFilter, setPhonesMassFilter,
+        vendorsFilter, setVendorsFilter,
+        birthMonthFilter, setBirthMonthFilter,
+        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+        fgtsConsultaToFilter, setFgtsConsultaToFilter,
+      }
+    : {
+        mode: "CLT" as const,
+        searchValue: cltSearchValue, setSearchValue: setCltSearchValue,
+        statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
+        motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
+        origemFilter: cltOrigemFilter, setOrigemFilter: setCltOrigemFilter,
+        higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
+        dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
+        dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
+        contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
+        contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
+        cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
+        namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
+        phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
+        vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
+        birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
+        // FGTS OFF não se aplica no CLT (passamos defaults não usados no modal CLT)
+        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+        fgtsConsultaToFilter, setFgtsConsultaToFilter,
+      }
 
   return (
     <div className="max-w-full p-4 lg:p-6">
@@ -396,50 +660,109 @@ const Dashboard = () => {
       </div>
 
       <LeadsControls
+        mode={ui.mode}
         onImportClick={() => setIsImportModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        eligibleFilter={statusFilter} // ainda exibido; sem efeito no back
-        onEligibleFilterChange={setStatusFilter}
-        motivosFilter={motivosFilter}
-        onMotivosFilterChange={setMotivosFilter}
-        origemFilter={origemFilter}
-        onOrigemFilterChange={setOrigemFilter}
-        higienizacaoFilter={higienizacaoFilter}
-        onHigienizacaoFilterChange={setHigienizacaoFilter}
-        dateFromFilter={dateFromFilter}
-        onDateFromFilterChange={setDateFromFilter}
-        dateToFilter={dateToFilter}
-        onDateToFilterChange={setDateToFilter}
-        contractDateFromFilter={contractDateFromFilter}
-        onContractDateFromFilterChange={setContractDateFromFilter}
-        contractDateToFilter={contractDateToFilter}
-        onContractDateToFilterChange={setContractDateToFilter}
-        cpfMassFilter={cpfMassFilter}
-        onCpfMassFilterChange={setCpfMassFilter}
-        namesMassFilter={namesMassFilter}
-        onNamesMassFilterChange={setNamesMassFilter}
-        phonesMassFilter={phonesMassFilter}
-        onPhonesMassFilterChange={setPhonesMassFilter}
-        birthMonthFilter={birthMonthFilter}
-        onBirthMonthFilterChange={setBirthMonthFilter}
+
+        searchValue={ui.searchValue}
+        onSearchChange={ui.setSearchValue}
+        eligibleFilter={ui.statusFilter}
+        onEligibleFilterChange={ui.setStatusFilter}
+        motivosFilter={ui.motivosFilter}
+        onMotivosFilterChange={ui.setMotivosFilter}
+        origemFilter={ui.origemFilter}
+        onOrigemFilterChange={ui.setOrigemFilter}
+        higienizacaoFilter={ui.higienizacaoFilter}
+        onHigienizacaoFilterChange={ui.setHigienizacaoFilter}
+        dateFromFilter={ui.dateFromFilter}
+        onDateFromFilterChange={ui.setDateFromFilter}
+        dateToFilter={ui.dateToFilter}
+        onDateToFilterChange={ui.setDateToFilter}
+        contractDateFromFilter={ui.contractDateFromFilter}
+        onContractDateFromFilterChange={ui.setContractDateFromFilter}
+        contractDateToFilter={ui.contractDateToFilter}
+        onContractDateToFilterChange={ui.setContractDateToFilter}
+        cpfMassFilter={ui.cpfMassFilter}
+        onCpfMassFilterChange={ui.setCpfMassFilter}
+        namesMassFilter={ui.namesMassFilter}
+        onNamesMassFilterChange={ui.setNamesMassFilter}
+        phonesMassFilter={ui.phonesMassFilter}
+        onPhonesMassFilterChange={ui.setPhonesMassFilter}
+        birthMonthFilter={ui.birthMonthFilter}
+        onBirthMonthFilterChange={ui.setBirthMonthFilter}
         onApplyFilters={handleApplyFilters}
         onClearFilters={handleClearFilters}
         availableMotivos={filterOptions?.motivos ?? []}
         availableOrigens={filterOptions?.origens ?? []}
         availableHigienizacoes={filterOptions?.origens_hig ?? []}
-        vendorsFilter={vendorsFilter}
-        onVendorsFilterChange={setVendorsFilter}
+        vendorsFilter={ui.vendorsFilter}
+        onVendorsFilterChange={ui.setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
-        // ➕ FGTS OFF (exibidos pelo componente; no CLT serão ignorados no back)
-        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
-        onFgtsAuthorizedFilterChange={setFgtsAuthorizedFilter}
-        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
-        onFgtsConsultaFromFilterChange={setFgtsConsultaFromFilter}
-        fgtsConsultaToFilter={fgtsConsultaToFilter}
-        onFgtsConsultaToFilterChange={setFgtsConsultaToFilter}
+        // ➕ FGTS OFF (só tem UI no modo FGTS)
+        fgtsAuthorizedFilter={ui.fgtsAuthorizedFilter}
+        onFgtsAuthorizedFilterChange={ui.setFgtsAuthorizedFilter}
+        fgtsConsultaFromFilter={ui.fgtsConsultaFromFilter}
+        onFgtsConsultaFromFilterChange={ui.setFgtsConsultaFromFilter}
+        fgtsConsultaToFilter={ui.fgtsConsultaToFilter}
+        onFgtsConsultaToFilterChange={ui.setFgtsConsultaToFilter}
+
+        
+        cltConsultado={cltConsultado}
+        onCltConsultadoChange={setCltConsultado}
+        cltElegivel={cltElegivel}
+        onCltElegivelChange={setCltElegivel}
+        cltNotFound={cltNotFound}
+        onCltNotFoundChange={setCltNotFound}
+        cltConsultaFrom={cltConsultaFrom}
+        onCltConsultaFromChange={setCltConsultaFrom}
+        cltConsultaTo={cltConsultaTo}
+        onCltConsultaToChange={setCltConsultaTo}
+        cltAdmissaoFrom={cltAdmissaoFrom}
+        onCltAdmissaoFromChange={setCltAdmissaoFrom}
+        cltAdmissaoTo={cltAdmissaoTo}
+        onCltAdmissaoToChange={setCltAdmissaoTo}
+        cltMesesMin={cltMesesMin}
+        onCltMesesMinChange={setCltMesesMin}
+        cltMesesMax={cltMesesMax}
+        onCltMesesMaxChange={setCltMesesMax}
+        cltInicioEmpregadorFrom={cltInicioEmpregadorFrom}
+        onCltInicioEmpregadorFromChange={setCltInicioEmpregadorFrom}
+        cltInicioEmpregadorTo={cltInicioEmpregadorTo}
+        onCltInicioEmpregadorToChange={setCltInicioEmpregadorTo}
+        cltCategoriaCodigos={cltCategoriaCodigos}
+        onCltCategoriaCodigosChange={setCltCategoriaCodigos}
+        cltIdadeMin={cltIdadeMin}
+        onCltIdadeMinChange={setCltIdadeMin}
+        cltIdadeMax={cltIdadeMax}
+        onCltIdadeMaxChange={setCltIdadeMax}
+        cltSexo={cltSexo}
+        onCltSexoChange={setCltSexo}
+        cltRendaMin={cltRendaMin}
+        onCltRendaMinChange={setCltRendaMin}
+        cltRendaMax={cltRendaMax}
+        onCltRendaMaxChange={setCltRendaMax}
+        cltBaseMin={cltBaseMin}
+        onCltBaseMinChange={setCltBaseMin}
+        cltBaseMax={cltBaseMax}
+        onCltBaseMaxChange={setCltBaseMax}
+        cltMargemMin={cltMargemMin}
+        onCltMargemMinChange={setCltMargemMin}
+        cltMargemMax={cltMargemMax}
+        onCltMargemMaxChange={setCltMargemMax}
+        cltPrestacaoMin={cltPrestacaoMin}
+        onCltPrestacaoMinChange={setCltPrestacaoMin}
+        cltPrestacaoMax={cltPrestacaoMax}
+        onCltPrestacaoMaxChange={setCltPrestacaoMax}
+        cltAtivosMin={cltAtivosMin}
+        onCltAtivosMinChange={setCltAtivosMin}
+        cltAtivosMax={cltAtivosMax}
+        onCltAtivosMaxChange={setCltAtivosMax}
+        cltTemAtivos={cltTemAtivos}
+        onCltTemAtivosChange={setCltTemAtivos}
+    
+        cltTemLegados={cltTemLegados}
+        onCltTemLegadosChange={setCltTemLegados}
       />
 
       {activeTab === "FGTS" ? (

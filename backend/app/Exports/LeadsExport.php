@@ -75,7 +75,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
             'categoria_trabalhador_codigo'      => 'CLT Categoria do Trabalhador',
             'inicio_atividade_empregador'       => 'CLT Início Atividade (Empregador)',
             'qtd_emprestimos_ativos_suspensos'  => 'CLT Qtde Empréstimos Ativos/Suspensos',
-            'emprestimos_legados'               => 'CLT Qtde Legados',
+            'emprestimos_legados'               => 'CLT Empréstimos Legados',
             'not_found'                         => 'CLT Não Encontrado',
             'clt_consultado_em'                 => 'CLT Consultado em',
         ];
@@ -122,6 +122,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                 // ===== CLT =====
                 case 'elegivel':
                 case 'not_found':
+                case 'emprestimos_legados':
                     $v = $lead->{$col};
                     $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
                     break;
@@ -142,7 +143,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                 case 'meses_admissao':
                 case 'idade':
                 case 'qtd_emprestimos_ativos_suspensos':
-                case 'emprestimos_legados':
                     $row[] = isset($lead->{$col}) ? (int) $lead->{$col} : null;
                     break;
 

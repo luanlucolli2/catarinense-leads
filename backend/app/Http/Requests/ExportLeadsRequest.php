@@ -86,9 +86,12 @@ class ExportLeadsRequest extends FormRequest
             'fgts_consulta_to'   => ['nullable', 'date_format:Y-m-d'],
 
             // ===== CLT: filtros =====
-            // Situação
-            'clt_elegivel'       => ['nullable', 'in:sim,nao'],
-            'clt_not_found'      => ['nullable', 'in:sim,nao'],
+            // Situação (novo unificado)
+            'clt_situacao'     => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado'],
+            // Compatibilidade (opcional/deprecado)
+            'clt_elegivel'     => ['nullable', 'in:sim,nao'],
+            'clt_not_found'    => ['nullable', 'in:sim,nao'],
+
             'clt_consultado'     => ['nullable', 'in:sim,nao'],
             'clt_consulta_from'  => ['nullable', 'date_format:Y-m-d'],
             'clt_consulta_to'    => ['nullable', 'date_format:Y-m-d'],
@@ -121,8 +124,6 @@ class ExportLeadsRequest extends FormRequest
             'clt_ativos_min'    => ['nullable', 'integer', 'min:0'],
             'clt_ativos_max'    => ['nullable', 'integer', 'min:0'],
             'clt_tem_ativos'    => ['nullable', 'in:sim,nao'],
-            'clt_legados_min'   => ['nullable', 'integer', 'min:0'],
-            'clt_legados_max'   => ['nullable', 'integer', 'min:0'],
             'clt_tem_legados'   => ['nullable', 'in:sim,nao'],
         ];
     }

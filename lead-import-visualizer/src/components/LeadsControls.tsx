@@ -6,30 +6,41 @@ import { useState } from "react";
 import { FiltersModal } from "./FiltersModal";
 
 interface LeadsControlsProps {
+  /** Modo atual da listagem / filtros */
+  mode: "FGTS" | "CLT";
+
   onImportClick: () => void;
   onExportClick: () => void;
+
   searchValue: string;
   onSearchChange: (value: string) => void;
+
   eligibleFilter: "todos" | "elegiveis" | "nao-elegiveis";
   onEligibleFilterChange: (value: "todos" | "elegiveis" | "nao-elegiveis") => void;
+
   contractDateFromFilter: string;
   onContractDateFromFilterChange: (value: string) => void;
   contractDateToFilter: string;
   onContractDateToFilterChange: (value: string) => void;
+
   motivosFilter: string[];
   onMotivosFilterChange: (values: string[]) => void;
+
   origemFilter: string[];
   onOrigemFilterChange: (values: string[]) => void;
+
   cpfMassFilter: string;
   onCpfMassFilterChange: (value: string) => void;
   namesMassFilter: string;
   onNamesMassFilterChange: (value: string) => void;
   phonesMassFilter: string;
   onPhonesMassFilterChange: (value: string) => void;
+
   dateFromFilter: string;
   onDateFromFilterChange: (value: string) => void;
   dateToFilter: string;
   onDateToFilterChange: (value: string) => void;
+
   /* 🎂 meses de aniversário */
   birthMonthFilter: string[];
   onBirthMonthFilterChange: (values: string[]) => void;
@@ -53,9 +64,83 @@ interface LeadsControlsProps {
   onFgtsConsultaFromFilterChange: (v: string) => void;
   fgtsConsultaToFilter: string;
   onFgtsConsultaToFilterChange: (v: string) => void;
+
+  /** ➕ CLT (filtros específicos) */
+  cltConsultado: "todos" | "sim" | "nao";
+  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
+  cltElegivel: "todos" | "sim" | "nao";
+  onCltElegivelChange: (v: "todos" | "sim" | "nao") => void;
+  cltNotFound: "todos" | "sim" | "nao";
+  onCltNotFoundChange: (v: "todos" | "sim" | "nao") => void;
+
+  cltConsultaFrom: string;
+  onCltConsultaFromChange: (v: string) => void;
+  cltConsultaTo: string;
+  onCltConsultaToChange: (v: string) => void;
+
+  cltAdmissaoFrom: string;
+  onCltAdmissaoFromChange: (v: string) => void;
+  cltAdmissaoTo: string;
+  onCltAdmissaoToChange: (v: string) => void;
+
+  cltMesesMin: string;
+  onCltMesesMinChange: (v: string) => void;
+  cltMesesMax: string;
+  onCltMesesMaxChange: (v: string) => void;
+
+  cltInicioEmpregadorFrom: string;
+  onCltInicioEmpregadorFromChange: (v: string) => void;
+  cltInicioEmpregadorTo: string;
+  onCltInicioEmpregadorToChange: (v: string) => void;
+
+  cltCategoriaCodigos: string;
+  onCltCategoriaCodigosChange: (v: string) => void;
+
+  cltIdadeMin: string;
+  onCltIdadeMinChange: (v: string) => void;
+  cltIdadeMax: string;
+  onCltIdadeMaxChange: (v: string) => void;
+
+  cltSexo: string[];
+  onCltSexoChange: (values: string[]) => void;
+
+  cltRendaMin: string;
+  onCltRendaMinChange: (v: string) => void;
+  cltRendaMax: string;
+  onCltRendaMaxChange: (v: string) => void;
+
+  cltBaseMin: string;
+  onCltBaseMinChange: (v: string) => void;
+  cltBaseMax: string;
+  onCltBaseMaxChange: (v: string) => void;
+
+  cltMargemMin: string;
+  onCltMargemMinChange: (v: string) => void;
+  cltMargemMax: string;
+  onCltMargemMaxChange: (v: string) => void;
+
+  cltPrestacaoMin: string;
+  onCltPrestacaoMinChange: (v: string) => void;
+  cltPrestacaoMax: string;
+  onCltPrestacaoMaxChange: (v: string) => void;
+
+  cltAtivosMin: string;
+  onCltAtivosMinChange: (v: string) => void;
+  cltAtivosMax: string;
+  onCltAtivosMaxChange: (v: string) => void;
+  cltTemAtivos: "todos" | "sim" | "nao";
+  onCltTemAtivosChange: (v: "todos" | "sim" | "nao") => void;
+
+  /** Mantidos por compat (não usados na UI): */
+ 
+
+  /** Somente booleano de legados */
+  cltTemLegados: "todos" | "sim" | "nao";
+  onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 }
 
 export const LeadsControls = ({
+  mode,
   onImportClick,
   onExportClick,
   searchValue,
@@ -101,6 +186,63 @@ export const LeadsControls = ({
   onFgtsConsultaFromFilterChange,
   fgtsConsultaToFilter,
   onFgtsConsultaToFilterChange,
+
+  // ➕ CLT específicos
+  cltConsultado,
+  onCltConsultadoChange,
+  cltElegivel,
+  onCltElegivelChange,
+  cltNotFound,
+  onCltNotFoundChange,
+  cltConsultaFrom,
+  onCltConsultaFromChange,
+  cltConsultaTo,
+  onCltConsultaToChange,
+  cltAdmissaoFrom,
+  onCltAdmissaoFromChange,
+  cltAdmissaoTo,
+  onCltAdmissaoToChange,
+  cltMesesMin,
+  onCltMesesMinChange,
+  cltMesesMax,
+  onCltMesesMaxChange,
+  cltInicioEmpregadorFrom,
+  onCltInicioEmpregadorFromChange,
+  cltInicioEmpregadorTo,
+  onCltInicioEmpregadorToChange,
+  cltCategoriaCodigos,
+  onCltCategoriaCodigosChange,
+  cltIdadeMin,
+  onCltIdadeMinChange,
+  cltIdadeMax,
+  onCltIdadeMaxChange,
+  cltSexo,
+  onCltSexoChange,
+  cltRendaMin,
+  onCltRendaMinChange,
+  cltRendaMax,
+  onCltRendaMaxChange,
+  cltBaseMin,
+  onCltBaseMinChange,
+  cltBaseMax,
+  onCltBaseMaxChange,
+  cltMargemMin,
+  onCltMargemMinChange,
+  cltMargemMax,
+  onCltMargemMaxChange,
+  cltPrestacaoMin,
+  onCltPrestacaoMinChange,
+  cltPrestacaoMax,
+  onCltPrestacaoMaxChange,
+  cltAtivosMin,
+  onCltAtivosMinChange,
+  cltAtivosMax,
+  onCltAtivosMaxChange,
+  cltTemAtivos,
+  onCltTemAtivosChange,
+ 
+  cltTemLegados,
+  onCltTemLegadosChange,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
 
@@ -179,6 +321,7 @@ export const LeadsControls = ({
       </div>
 
       <FiltersModal
+        mode={mode}
         isOpen={isFiltersModalOpen}
         onClose={() => setIsFiltersModalOpen(false)}
         searchValue={searchValue}
@@ -216,13 +359,69 @@ export const LeadsControls = ({
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}
         availableOrigens={availableOrigens}
-        // ➕ FGTS OFF (tri-estado)
+        // ➕ FGTS OFF (só no FGTS)
         fgtsAuthorizedFilter={fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={onFgtsAuthorizedFilterChange}
         fgtsConsultaFromFilter={fgtsConsultaFromFilter}
         onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
         fgtsConsultaToFilter={fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
+        /* CLT específicos */
+        cltConsultado={cltConsultado}
+        onCltConsultadoChange={onCltConsultadoChange}
+        cltElegivel={cltElegivel}
+        onCltElegivelChange={onCltElegivelChange}
+        cltNotFound={cltNotFound}
+        onCltNotFoundChange={onCltNotFoundChange}
+        cltConsultaFrom={cltConsultaFrom}
+        onCltConsultaFromChange={onCltConsultaFromChange}
+        cltConsultaTo={cltConsultaTo}
+        onCltConsultaToChange={onCltConsultaToChange}
+        cltAdmissaoFrom={cltAdmissaoFrom}
+        onCltAdmissaoFromChange={onCltAdmissaoFromChange}
+        cltAdmissaoTo={cltAdmissaoTo}
+        onCltAdmissaoToChange={onCltAdmissaoToChange}
+        cltMesesMin={cltMesesMin}
+        onCltMesesMinChange={onCltMesesMinChange}
+        cltMesesMax={cltMesesMax}
+        onCltMesesMaxChange={onCltMesesMaxChange}
+        cltInicioEmpregadorFrom={cltInicioEmpregadorFrom}
+        onCltInicioEmpregadorFromChange={onCltInicioEmpregadorFromChange}
+        cltInicioEmpregadorTo={cltInicioEmpregadorTo}
+        onCltInicioEmpregadorToChange={onCltInicioEmpregadorToChange}
+        cltCategoriaCodigos={cltCategoriaCodigos}
+        onCltCategoriaCodigosChange={onCltCategoriaCodigosChange}
+        cltIdadeMin={cltIdadeMin}
+        onCltIdadeMinChange={onCltIdadeMinChange}
+        cltIdadeMax={cltIdadeMax}
+        onCltIdadeMaxChange={onCltIdadeMaxChange}
+        cltSexo={cltSexo}
+        onCltSexoChange={onCltSexoChange}
+        cltRendaMin={cltRendaMin}
+        onCltRendaMinChange={onCltRendaMinChange}
+        cltRendaMax={cltRendaMax}
+        onCltRendaMaxChange={onCltRendaMaxChange}
+        cltBaseMin={cltBaseMin}
+        onCltBaseMinChange={onCltBaseMinChange}
+        cltBaseMax={cltBaseMax}
+        onCltBaseMaxChange={onCltBaseMaxChange}
+        cltMargemMin={cltMargemMin}
+        onCltMargemMinChange={onCltMargemMinChange}
+        cltMargemMax={cltMargemMax}
+        onCltMargemMaxChange={onCltMargemMaxChange}
+        cltPrestacaoMin={cltPrestacaoMin}
+        onCltPrestacaoMinChange={onCltPrestacaoMinChange}
+        cltPrestacaoMax={cltPrestacaoMax}
+        onCltPrestacaoMaxChange={onCltPrestacaoMaxChange}
+        cltAtivosMin={cltAtivosMin}
+        onCltAtivosMinChange={onCltAtivosMinChange}
+        cltAtivosMax={cltAtivosMax}
+        onCltAtivosMaxChange={onCltAtivosMaxChange}
+        cltTemAtivos={cltTemAtivos}
+        onCltTemAtivosChange={onCltTemAtivosChange}
+       
+        cltTemLegados={cltTemLegados}
+        onCltTemLegadosChange={onCltTemLegadosChange}
       />
     </div>
   );
