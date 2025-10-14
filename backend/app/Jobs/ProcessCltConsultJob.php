@@ -80,7 +80,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if (!$job) {
             $this->deletePendFiles();
             return;
-        }
+    }
 
         if ($this->isCancelled($job) || $this->isPaused($job)) {
             $this->deletePreview($job);
@@ -448,7 +448,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                             $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
                             $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
-                            $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
+                            $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null; // CSV mantém S/N
                             $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
 
                             $row['nome'] = $v['nome'] ?? null;
@@ -465,11 +465,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         // SNAPSHOT: apenas vínculo mais recente
                         $best = $this->pickLatestVinculo($vinculos);
                         if ($best) {
-                            // (2) Dentro de processChunk(), ao montar $snapRows[] (somente a linha do 'elegivel' muda)
                             $snapRows[] = [
                                 'cpf' => $cpf,
                                 'nome' => $best['nome'] ?? null,
-                                'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null), // <- corrigido
+                                'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null), // já corrigido
                                 'data_nasc' => $this->parseDateBr($best['dataNascimento'] ?? null),
                                 'idade' => $this->computeIdadeAnos($best['dataNascimento'] ?? null),
                                 'sexo' => $best['sexo_descricao'] ?? null,
@@ -486,11 +485,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                 'inicio_emp' => $this->parseDateBr($best['dataInicioAtividadeEmpregador'] ?? null),
 
                                 'qtd_ems' => isset($best['qtdEmprestimosAtivosSuspensos']) ? (int) $best['qtdEmprestimosAtivosSuspensos'] : null,
-                                'legados' => isset($best['emprestimosLegados']) ? (int) $best['emprestimosLegados'] : null,
+                                'legados' => array_key_exists('emprestimosLegados', $best)
+                                    ? $this->simNaoToBool($best['emprestimosLegados'])  // ✅ era (int) "S"/"N"
+                                    : null,
 
                                 'not_found' => false,
                             ];
-
                         }
                     } else {
                         // OK porém sem vínculos → só CSV; não gera snapshot
@@ -708,7 +708,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function pickLatestVinculo(array $vinculos): ?array
     {
         $best = null;
-        $bestKey = null;
+               $bestKey = null;
         foreach ($vinculos as $v) {
             $d = $v['dataAdmissao'] ?? null;
             $key = null;
@@ -760,11 +760,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $cpfs[] = $cpf;
 
-                // (3) Dentro de persistSnapshots(), ao montar $payload[] (somente a linha do 'elegivel' muda)
                 $payload[] = [
                     'cpf' => $cpf,
                     'nome' => $r['nome'] ?? null,
-                    'elegivel' => array_key_exists('elegivel', $r) ? $this->simNaoToBool($r['elegivel']) : null, // <- corrigido
+                    'elegivel' => array_key_exists('elegivel', $r) ? $this->simNaoToBool($r['elegivel']) : null,
                     'data_nascimento' => $r['data_nasc'] ?? null,
                     'idade' => $r['idade'] ?? null,
                     'sexo' => $r['sexo'] ?? null,
@@ -781,7 +780,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'inicio_atividade_empregador' => $r['inicio_emp'] ?? null,
 
                     'qtd_emprestimos_ativos_suspensos' => $r['qtd_ems'] ?? null,
-                    'emprestimos_legados' => $r['legados'] ?? null,
+                    'emprestimos_legados' => $r['legados'] ?? null, // ✅ agora boolean no payload
 
                     'not_found' => !empty($r['not_found']),
                     'job_id' => $this->jobId,
@@ -1097,7 +1096,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $usage > (int) ($limit * 0.70);
     }
 
-    // (1) Adicione este helper dentro da classe ProcessCltConsultJob
+    // Helper para converter SIM/NÃO/S/N etc. em boolean
     private function simNaoToBool($val): ?bool
     {
         if (is_bool($val))

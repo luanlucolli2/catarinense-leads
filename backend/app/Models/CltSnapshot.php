@@ -48,7 +48,7 @@ class CltSnapshot extends Model
         'valor_max_prestacao'               => 'decimal:2',
         'inicio_atividade_empregador'       => 'date',
         'qtd_emprestimos_ativos_suspensos'  => 'integer',
-        'emprestimos_legados'               => 'integer',
+        'emprestimos_legados'               => 'boolean', // ✅ era integer
         'not_found'                         => 'boolean',
         'updated_at'                        => 'datetime',
     ];

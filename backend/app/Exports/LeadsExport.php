@@ -33,6 +33,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
     public function headings(): array
     {
         $map = [
+            // básicos
             'id'                         => 'ID',
             'cpf'                        => 'CPF',
             'nome'                       => 'Nome',
@@ -45,7 +46,8 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
             'classe_fone2'               => 'Classe 2',
             'classe_fone3'               => 'Classe 3',
             'classe_fone4'               => 'Classe 4',
-            'status'                     => 'Status',
+
+            // FGTS
             'consulta'                   => 'Motivo (Consulta)',
             'saldo'                      => 'Saldo',
             'libera'                     => 'Libera',
@@ -55,9 +57,27 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
             'contracts_count'            => 'Qtde de Contratos',
             'vendedor'                   => 'Vendedor',
             'data_contrato_recente'      => 'Data de Contrato (mais recente)',
-            // ➕ FGTS OFF
+
+            // FGTS OFF
             'fgts_off_authorized'        => 'FGTS OFF Autorizado',
             'fgts_off_consultado_em'     => 'FGTS OFF Consultado em',
+
+            // CLT
+            'elegivel'                          => 'CLT Elegível',
+            'idade'                             => 'CLT Idade',
+            'sexo'                              => 'CLT Sexo',
+            'data_admissao'                     => 'CLT Data de Admissão',
+            'meses_admissao'                    => 'CLT Tempo de Casa (meses)',
+            'valor_renda'                       => 'CLT Renda Total',
+            'valor_base_margem'                 => 'CLT Base de Margem',
+            'margem_disponivel'                 => 'CLT Margem Disponível',
+            'valor_max_prestacao'               => 'CLT Valor Máx. Prestação',
+            'categoria_trabalhador_codigo'      => 'CLT Categoria do Trabalhador',
+            'inicio_atividade_empregador'       => 'CLT Início Atividade (Empregador)',
+            'qtd_emprestimos_ativos_suspensos'  => 'CLT Qtde Empréstimos Ativos/Suspensos',
+            'emprestimos_legados'               => 'CLT Empréstimos Legados',
+            'not_found'                         => 'CLT Não Encontrado',
+            'clt_consultado_em'                 => 'CLT Consultado em',
         ];
 
         return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);
@@ -73,25 +93,14 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                     $row[] = $this->cpfToNumber($lead->cpf);
                     break;
 
-                case 'status':
-                    $isElegivel = isset($lead->status_flag)
-                        ? ((int) $lead->status_flag === 1)
-                        : ($this->toFloat($lead->libera) > 0 && trim((string) $lead->consulta) === 'Saldo FACTA');
-                    $row[] = $isElegivel ? 'Elegível' : 'Inelegível';
-                    break;
-
+                // datas FGTS
                 case 'data_atualizacao':
-                    $row[] = $this->toExcelDate($lead->data_atualizacao);
-                    break;
-
                 case 'data_nascimento':
-                    $row[] = $this->toExcelDate($lead->data_nascimento, true);
-                    break;
-
                 case 'data_contrato_recente':
-                    $row[] = $this->toExcelDate($lead->data_contrato_recente, true);
+                    $row[] = $this->toExcelDate($lead->{$col}, in_array($col, ['data_nascimento','data_contrato_recente'], true));
                     break;
 
+                // números FGTS
                 case 'saldo':
                 case 'libera':
                     $row[] = $this->toFloat($lead->{$col});
@@ -101,13 +110,40 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                     $row[] = isset($lead->contracts_count) ? (int) $lead->contracts_count : null;
                     break;
 
+                // FGTS OFF
                 case 'fgts_off_authorized':
                     $val = $lead->fgts_off_authorized;
                     $row[] = $val === null ? null : ($val ? 'Sim' : 'Não');
                     break;
-
                 case 'fgts_off_consultado_em':
                     $row[] = $this->toExcelDate($lead->fgts_off_consultado_em);
+                    break;
+
+                // ===== CLT =====
+                case 'elegivel':
+                case 'not_found':
+                case 'emprestimos_legados':
+                    $v = $lead->{$col};
+                    $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
+                    break;
+
+                case 'data_admissao':
+                case 'inicio_atividade_empregador':
+                case 'clt_consultado_em':
+                    $row[] = $this->toExcelDate($lead->{$col}, true);
+                    break;
+
+                case 'valor_renda':
+                case 'valor_base_margem':
+                case 'margem_disponivel':
+                case 'valor_max_prestacao':
+                    $row[] = $this->toFloat($lead->{$col});
+                    break;
+
+                case 'meses_admissao':
+                case 'idade':
+                case 'qtd_emprestimos_ativos_suspensos':
+                    $row[] = isset($lead->{$col}) ? (int) $lead->{$col} : null;
                     break;
 
                 default:
@@ -125,11 +161,20 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         foreach ($this->columns as $idx => $col) {
             $colIndex = Coordinate::stringFromColumnIndex($idx + 1);
 
-            if (in_array($col, ['saldo', 'libera'], true)) {
+            // números com 2 casas (FGTS + CLT)
+            if (in_array($col, [
+                'saldo','libera',
+                'valor_renda','valor_base_margem','margem_disponivel','valor_max_prestacao'
+            ], true)) {
                 $formats[$colIndex] = NumberFormat::FORMAT_NUMBER_00;
             }
 
-            if (in_array($col, ['data_atualizacao', 'data_nascimento', 'data_contrato_recente', 'fgts_off_consultado_em'], true)) {
+            // datas (FGTS + CLT)
+            if (in_array($col, [
+                'data_atualizacao','data_nascimento','data_contrato_recente',
+                'data_admissao','inicio_atividade_empregador','clt_consultado_em',
+                'fgts_off_consultado_em'
+            ], true)) {
                 $formats[$colIndex] = NumberFormat::FORMAT_DATE_DDMMYYYY;
             }
 
@@ -166,10 +211,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
                 ? Carbon::instance($value)
                 : Carbon::parse((string)$value);
 
-            if ($isDateOnly) {
-                $dt = $dt->startOfDay();
-            }
-
+            if ($isDateOnly) $dt = $dt->startOfDay();
             return ExcelDate::dateTimeToExcel($dt);
         } catch (\Throwable $e) {
             return null;

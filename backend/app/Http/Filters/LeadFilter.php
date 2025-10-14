@@ -13,20 +13,17 @@ class LeadFilter
 {
     public static function apply(Request $r, ?array $columnsForExport = null): Builder
     {
-        $liberaExpr = "CAST(REPLACE(REGEXP_REPLACE(COALESCE(leads.libera, ''), '[^0-9.,-]', ''), ',', '.') AS DECIMAL(20,2))";
-        $consultaSaldoFacta = "TRIM(leads.consulta) = 'Saldo FACTA'";
-        $isElegivel = "CASE WHEN ($consultaSaldoFacta AND $liberaExpr > 0) THEN 1 ELSE 0 END";
-
         $exportMode = is_array($columnsForExport);
+        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt'
 
         // ---- FGTS OFF: colunas a projetar (só quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
             ? in_array('fgts_off_authorized', $columnsForExport, true)
-            : true; // no modo lista expomos para o front
+            : ($mode === 'fgts');
 
         $needFgtsConsultadoCol = $exportMode
             ? in_array('fgts_off_consultado_em', $columnsForExport, true)
-            : true;
+            : ($mode === 'fgts');
 
         if ($exportMode) {
             $select = ['leads.id'];
@@ -42,7 +39,7 @@ class LeadFilter
             }
             $query = Lead::query()->select($select);
 
-            // ===== novas colunas de origem (últimas) =====
+            // ===== novas colunas de origem (últimas) – somente se pedidas =====
             if (in_array('ultima_origem_cadastral', $columnsForExport, true)) {
                 $query->addSelect(['ultima_origem_cadastral' => function ($q) {
                     $q->select('ij.origin')
@@ -67,12 +64,6 @@ class LeadFilter
                       ->orderByDesc('li.import_job_id')
                       ->limit(1);
                 }]);
-            }
-
-            if (in_array('status', $columnsForExport, true)) {
-                if (!in_array('leads.consulta', $select, true)) $query->addSelect('leads.consulta');
-                if (!in_array('leads.libera', $select, true))   $query->addSelect('leads.libera');
-                $query->addSelect(DB::raw("$isElegivel AS status_flag"));
             }
 
             if (in_array('contracts_count', $columnsForExport, true)) {
@@ -100,7 +91,7 @@ class LeadFilter
                 ]);
             }
 
-            // Subselects do snapshot FGTS OFF apenas se requeridos/filtros
+            // FGTS OFF no export (se pedido)
             if ($needFgtsAuthorizedCol) {
                 $query->addSelect([
                     'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
@@ -117,12 +108,34 @@ class LeadFilter
                         ->limit(1),
                 ]);
             }
+
+            // CLT no export (se pedido explicitamente)
+            $cltFields = [
+                'elegivel','idade','sexo','data_admissao','meses_admissao','valor_renda',
+                'valor_base_margem','margem_disponivel','valor_max_prestacao',
+                'categoria_trabalhador_codigo','inicio_atividade_empregador',
+                'qtd_emprestimos_ativos_suspensos','emprestimos_legados','not_found'
+            ];
+            $needAnyClt = (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em']));
+            if ($needAnyClt) {
+                foreach ($cltFields as $f) {
+                    if (in_array($f, $columnsForExport, true)) {
+                        $query->addSelect([$f => DB::table('clt_snapshots as cs')->select($f)->whereColumn('cs.cpf','leads.cpf')->limit(1)]);
+                    }
+                }
+                if (in_array('clt_consultado_em', $columnsForExport, true)) {
+                    $query->addSelect(['clt_consultado_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf','leads.cpf')->limit(1)]);
+                }
+            }
         } else {
-            $query = Lead::query()
-                ->select('leads.*')
-                ->withCount('contracts')
-                // ===== novas colunas por padrão na lista =====
-                ->addSelect(['ultima_origem_cadastral' => function ($q) {
+            // ====== LISTA (API) ======
+            $query = Lead::query()->select('leads.*');
+
+            if ($mode === 'fgts') {
+                // dados adicionais do modo FGTS
+                $query->withCount('contracts');
+
+                $query->addSelect(['ultima_origem_cadastral' => function ($q) {
                     $q->select('ij.origin')
                       ->from('lead_imports as li')
                       ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
@@ -131,8 +144,9 @@ class LeadFilter
                       ->orderByDesc('li.created_at')
                       ->orderByDesc('li.import_job_id')
                       ->limit(1);
-                }])
-                ->addSelect(['ultima_origem_higienizacao' => function ($q) {
+                }]);
+
+                $query->addSelect(['ultima_origem_higienizacao' => function ($q) {
                     $q->select('ij.origin')
                       ->from('lead_imports as li')
                       ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
@@ -143,25 +157,56 @@ class LeadFilter
                       ->limit(1);
                 }]);
 
-            if ($needFgtsAuthorizedCol) {
+                if ($needFgtsAuthorizedCol) {
+                    $query->addSelect([
+                        'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
+                            ->select('authorized')
+                            ->whereColumn('fos.cpf', 'leads.cpf')
+                            ->limit(1),
+                    ]);
+                }
+                if ($needFgtsConsultadoCol) {
+                    $query->addSelect([
+                        'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
+                            ->select('updated_at')
+                            ->whereColumn('fos.cpf', 'leads.cpf')
+                            ->limit(1),
+                    ]);
+                }
+            } else {
+                // ===== MODO CLT: campos solicitados + origem cadastral =====
                 $query->addSelect([
-                    'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
-                        ->select('authorized')
-                        ->whereColumn('fos.cpf', 'leads.cpf')
-                        ->limit(1),
-                ]);
-            }
-            if ($needFgtsConsultadoCol) {
-                $query->addSelect([
-                    'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('updated_at')
-                        ->whereColumn('fos.cpf', 'leads.cpf')
-                        ->limit(1),
+                    'elegivel' => DB::table('clt_snapshots as cs')->select('elegivel')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'idade' => DB::table('clt_snapshots as cs')->select('idade')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'sexo' => DB::table('clt_snapshots as cs')->select('sexo')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'data_admissao' => DB::table('clt_snapshots as cs')->select('data_admissao')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'meses_admissao' => DB::table('clt_snapshots as cs')->select('meses_admissao')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'valor_renda' => DB::table('clt_snapshots as cs')->select('valor_renda')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'valor_base_margem' => DB::table('clt_snapshots as cs')->select('valor_base_margem')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'margem_disponivel' => DB::table('clt_snapshots as cs')->select('margem_disponivel')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'valor_max_prestacao' => DB::table('clt_snapshots as cs')->select('valor_max_prestacao')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'categoria_trabalhador_codigo' => DB::table('clt_snapshots as cs')->select('categoria_trabalhador_codigo')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'inicio_atividade_empregador' => DB::table('clt_snapshots as cs')->select('inicio_atividade_empregador')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'qtd_emprestimos_ativos_suspensos' => DB::table('clt_snapshots as cs')->select('qtd_emprestimos_ativos_suspensos')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'emprestimos_legados' => DB::table('clt_snapshots as cs')->select('emprestimos_legados')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'not_found' => DB::table('clt_snapshots as cs')->select('not_found')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    'clt_consultado_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf','leads.cpf')->limit(1),
+                    // origem cadastral (igual ao FGTS)
+                    'ultima_origem_cadastral' => function ($q) {
+                        $q->select('ij.origin')
+                          ->from('lead_imports as li')
+                          ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                          ->whereColumn('li.lead_id', 'leads.id')
+                          ->where('ij.type', 'cadastral')
+                          ->orderByDesc('li.created_at')
+                          ->orderByDesc('li.import_job_id')
+                          ->limit(1);
+                    },
                 ]);
             }
         }
 
-        // ----- filtros de busca -----
+        // ----- filtros de busca gerais -----
         if ($r->filled('search')) {
             $termRaw  = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
@@ -184,14 +229,44 @@ class LeadFilter
             });
         }
 
-        if ($r->filled('status') && $r->status !== 'todos') {
-            $query->whereRaw($r->status === 'elegiveis' ? "$isElegivel = 1" : "$isElegivel = 0");
+        // ===== filtros FGTS que NÃO se aplicam ao modo CLT =====
+        if ($mode === 'fgts') {
+            $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string)$r->motivos)) : [];
+            if ($motivos) $query->whereIn('consulta', $motivos);
+
+            $origHig = $r->filled('origens_hig') ? (is_array($r->origens_hig) ? $r->origens_hig : explode(',', (string)$r->origens_hig)) : [];
+            if ($origHig) {
+                $query->whereIn('leads.id', function ($sq) use ($origHig) {
+                    $sq->select('li.lead_id')
+                       ->from('lead_imports as li')
+                       ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                       ->where('ij.type', 'higienizacao')
+                       ->whereIn('ij.origin', $origHig)
+                       ->whereRaw('li.import_job_id = (
+                            SELECT li2.import_job_id
+                            FROM lead_imports li2
+                            JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = "higienizacao"
+                            WHERE li2.lead_id = li.lead_id
+                            ORDER BY li2.created_at DESC, li2.import_job_id DESC
+                            LIMIT 1
+                       )');
+                });
+            }
+
+            if ($r->filled('contract_from') || $r->filled('contract_to')) {
+                $from = $r->input('contract_from', '1900-01-01');
+                $to   = $r->input('contract_to',   now()->toDateString());
+                $query->whereHas('contracts', fn(Builder $q) => $q->whereBetween('data_contrato', [$from, $to]));
+            }
+
+            $vendors = $r->filled('vendors') ? (is_array($r->vendors) ? $r->vendors : explode(',', (string)$r->vendors)) : [];
+            if ($vendors) {
+                $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
+                $query->whereHas('contracts.vendor', fn(Builder $q) => $q->whereIn('name_clean', $clean));
+            }
         }
 
-        $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string)$r->motivos)) : [];
-        if ($motivos) $query->whereIn('consulta', $motivos);
-
-        // ======= NOVO: filtros de origem baseados na ÚLTIMA por tipo =======
+        // filtros de origem cadastral (válido para ambos)
         $origensCad = $r->filled('origens') ? (is_array($r->origens) ? $r->origens : explode(',', (string)$r->origens)) : [];
         if ($origensCad) {
             $query->whereIn('leads.id', function ($sq) use ($origensCad) {
@@ -211,47 +286,16 @@ class LeadFilter
             });
         }
 
-        $origHig = $r->filled('origens_hig') ? (is_array($r->origens_hig) ? $r->origens_hig : explode(',', (string)$r->origens_hig)) : [];
-        if ($origHig) {
-            $query->whereIn('leads.id', function ($sq) use ($origHig) {
-                $sq->select('li.lead_id')
-                   ->from('lead_imports as li')
-                   ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                   ->where('ij.type', 'higienizacao')
-                   ->whereIn('ij.origin', $origHig)
-                   ->whereRaw('li.import_job_id = (
-                        SELECT li2.import_job_id
-                        FROM lead_imports li2
-                        JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = "higienizacao"
-                        WHERE li2.lead_id = li.lead_id
-                        ORDER BY li2.created_at DESC, li2.import_job_id DESC
-                        LIMIT 1
-                   )');
-            });
-        }
-
-        // datas e demais
+        // datas gerais (mantém para ambos os modos)
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
             $to   = $r->input('date_to',   now()->toDateString());
             $query->whereBetween('data_atualizacao', ["{$from} 00:00:00","{$to} 23:59:59"]);
         }
 
-        if ($r->filled('contract_from') || $r->filled('contract_to')) {
-            $from = $r->input('contract_from', '1900-01-01');
-            $to   = $r->input('contract_to',   now()->toDateString());
-            $query->whereHas('contracts', fn(Builder $q) => $q->whereBetween('data_contrato', [$from, $to]));
-        }
-
         self::applyMassFilter($query, $r, 'cpf',    ['cpf']);
         self::applyMassFilter($query, $r, 'names',  ['nome']);
         self::applyMassFilter($query, $r, 'phones', ['fone1','fone2','fone3','fone4']);
-
-        $vendors = $r->filled('vendors') ? (is_array($r->vendors) ? $r->vendors : explode(',', (string)$r->vendors)) : [];
-        if ($vendors) {
-            $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
-            $query->whereHas('contracts.vendor', fn(Builder $q) => $q->whereIn('name_clean', $clean));
-        }
 
         $birth = $r->filled('birth_month') ? (is_array($r->birth_month) ? $r->birth_month : explode(',', (string)$r->birth_month)) : [];
         if ($birth) {
@@ -259,32 +303,169 @@ class LeadFilter
             if ($months) $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
         }
 
-        // ======== FGTS OFF ========
-        $fgtsStatus        = self::normalizeFgtsStatus($r->input('fgts_status', null));
-        $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
+        // ======== CLT – filtros específicos ========
+        if ($mode === 'clt') {
+            $consultado = self::yn($r->input('clt_consultado', null)); // 'sim'|'nao'|null
+            $situacao   = self::normalizeCltSituacao($r->input('clt_situacao', null)); // 'elegivel'|'nao_elegivel'|'nao_encontrado'|null
 
-        if ($fgtsStatus === 'autorizado') {
-            $query->whereIn('leads.cpf', function ($sq) {
-                $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1);
-            });
-        } elseif ($fgtsStatus === 'nao_autorizado') {
-            $query->whereIn('leads.cpf', function ($sq) {
-                $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0);
-            });
-        } elseif ($fgtsStatus === 'nao_consultado') {
-            $query->whereNotIn('leads.cpf', function ($sq) {
-                $sq->select('cpf')->from('fgts_off_snapshots');
-            });
+            // existe algum filtro CLT (sem legados_min/max; só boolean)
+            $hasCltFilters =
+                ($situacao !== null) ||
+                $r->filled('clt_elegivel') || $r->filled('clt_not_found') || // compat.
+                $r->filled('clt_consulta_from') || $r->filled('clt_consulta_to') ||
+                $r->filled('clt_admissao_from') || $r->filled('clt_admissao_to') ||
+                $r->filled('clt_meses_min') || $r->filled('clt_meses_max') ||
+                $r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to') ||
+                $r->filled('clt_categoria_codigos') ||
+                $r->filled('clt_idade_min') || $r->filled('clt_idade_max') ||
+                $r->filled('clt_sexo') ||
+                $r->filled('clt_renda_min') || $r->filled('clt_renda_max') ||
+                $r->filled('clt_base_min') || $r->filled('clt_base_max') ||
+                $r->filled('clt_margem_min') || $r->filled('clt_margem_max') ||
+                $r->filled('clt_prestacao_min') || $r->filled('clt_prestacao_max') ||
+                $r->filled('clt_ativos_min') || $r->filled('clt_ativos_max') || $r->filled('clt_tem_ativos') ||
+                $r->filled('clt_tem_legados');
+
+            if ($consultado === 'nao') {
+                $query->whereNotIn('leads.cpf', function ($sq) {
+                    $sq->select('cpf')->from('clt_snapshots');
+                });
+            } elseif ($consultado === 'sim' || $hasCltFilters) {
+                $query->whereIn('leads.cpf', function ($sq) use ($r, $situacao) {
+                    $sq->from('clt_snapshots as cs')->select('cpf');
+
+                    // 1) Situação (novo filtro unificado)
+                    if ($situacao !== null) {
+                        if ($situacao === 'elegivel') {
+                            $sq->where('cs.not_found', 0)->where('cs.elegivel', 1);
+                        } elseif ($situacao === 'nao_elegivel') {
+                            $sq->where('cs.not_found', 0)
+                               ->where(function($q){
+                                   $q->where('cs.elegivel', 0)->orWhereNull('cs.elegivel');
+                               });
+                        } elseif ($situacao === 'nao_encontrado') {
+                            $sq->where('cs.not_found', 1);
+                        }
+                    } else {
+                        // compatibilidade: filtros antigos (opcionais)
+                        if (($v = self::yn($r->input('clt_elegivel'))) !== null) {
+                            $sq->where('cs.elegivel', $v === 'sim' ? 1 : 0);
+                        }
+                        if (($v = self::yn($r->input('clt_not_found'))) !== null) {
+                            $sq->where('cs.not_found', $v === 'sim' ? 1 : 0);
+                        }
+                    }
+
+                    if ($r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')) {
+                        $from = $r->input('clt_consulta_from', '1900-01-01');
+                        $to   = $r->input('clt_consulta_to',   now()->toDateString());
+                        $sq->whereBetween('cs.updated_at', ["{$from} 00:00:00","{$to} 23:59:59"]);
+                    }
+
+                    // 2) Vínculo
+                    if ($r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')) {
+                        $from = $r->input('clt_admissao_from', '1900-01-01');
+                        $to   = $r->input('clt_admissao_to',   now()->toDateString());
+                        $sq->whereBetween('cs.data_admissao', [$from, $to]);
+                    }
+                    if ($r->filled('clt_meses_min') || $r->filled('clt_meses_max')) {
+                        $min = (int) $r->input('clt_meses_min', 0);
+                        $max = (int) $r->input('clt_meses_max', PHP_INT_MAX);
+                        $sq->whereBetween('cs.meses_admissao', [$min, $max]);
+                    }
+                    if ($r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to')) {
+                        $from = $r->input('clt_inicio_empregador_from', '1900-01-01');
+                        $to   = $r->input('clt_inicio_empregador_to',   now()->toDateString());
+                        $sq->whereBetween('cs.inicio_atividade_empregador', [$from, $to]);
+                    }
+                    if ($r->filled('clt_categoria_codigos')) {
+                        $raw = is_array($r->clt_categoria_codigos)
+                            ? $r->clt_categoria_codigos
+                            : preg_split('/[\s,;]+/', (string)$r->clt_categoria_codigos);
+                        $codes = array_values(array_filter(array_unique(array_map('trim', $raw)), fn($v) => $v !== ''));
+                        if ($codes) $sq->whereIn('cs.categoria_trabalhador_codigo', $codes);
+                    }
+
+                    // 3) Perfil
+                    if ($r->filled('clt_idade_min') || $r->filled('clt_idade_max')) {
+                        $min = (int) $r->input('clt_idade_min', 0);
+                        $max = (int) $r->input('clt_idade_max', 200);
+                        $sq->whereBetween('cs.idade', [$min, $max]);
+                    }
+                    if ($r->filled('clt_sexo')) {
+                        $raw = is_array($r->clt_sexo) ? $r->clt_sexo : [$r->clt_sexo];
+                        $vals = array_map(fn($s) => mb_strtoupper(trim((string)$s)), $raw);
+                        $map  = [];
+                        foreach ($vals as $v) {
+                            if ($v === 'M') $map[] = 'Masculino';
+                            if ($v === 'F') $map[] = 'Feminino';
+                        }
+                        $map = array_values(array_unique($map));
+                        if ($map) $sq->whereIn('cs.sexo', $map);
+                    }
+
+                    // 4) Renda e margem
+                    self::range($sq, $r, 'clt_renda_min',  'clt_renda_max',  'cs.valor_renda');
+                    self::range($sq, $r, 'clt_base_min',   'clt_base_max',   'cs.valor_base_margem');
+                    self::range($sq, $r, 'clt_margem_min', 'clt_margem_max', 'cs.margem_disponivel');
+                    self::range($sq, $r, 'clt_prestacao_min', 'clt_prestacao_max', 'cs.valor_max_prestacao');
+
+                    // 5) Histórico de crédito
+                    if ($r->filled('clt_ativos_min') || $r->filled('clt_ativos_max')) {
+                        $min = (int) $r->input('clt_ativos_min', 0);
+                        $max = (int) $r->input('clt_ativos_max', PHP_INT_MAX);
+                        $sq->whereBetween('cs.qtd_emprestimos_ativos_suspensos', [$min, $max]);
+                    }
+                    if (($v = self::yn($r->input('clt_tem_ativos'))) !== null) {
+                        if ($v === 'sim') $sq->where('cs.qtd_emprestimos_ativos_suspensos', '>', 0);
+                        else $sq->where(function($q){
+                            $q->whereNull('cs.qtd_emprestimos_ativos_suspensos')->orWhere('cs.qtd_emprestimos_ativos_suspensos', '=', 0);
+                        });
+                    }
+
+                    // Legados: apenas booleano
+                    if (($v = self::yn($r->input('clt_tem_legados'))) !== null) {
+                        if ($v === 'sim') {
+                            $sq->where('cs.emprestimos_legados', '=', 1);
+                        } else {
+                            $sq->where(function($q){
+                                $q->whereNull('cs.emprestimos_legados')->orWhere('cs.emprestimos_legados', '=', 0);
+                            });
+                        }
+                    }
+                });
+            }
+            // caso contrário (sem clt_consultado e sem filtros CLT), não restringe: retorna todos os leads
         }
 
-        if ($hasFgtsDateFilter) {
-            $from = $r->input('fgts_consulta_from', '1900-01-01');
-            $to   = $r->input('fgts_consulta_to',   now()->toDateString());
-            $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
-                $sq->select('cpf')
-                   ->from('fgts_off_snapshots')
-                   ->whereBetween('updated_at', ["{$from} 00:00:00","{$to} 23:59:59"]);
-            });
+        // ======== FGTS OFF – filtros específicos ========
+        if ($mode === 'fgts') {
+            $fgtsStatus = self::normalizeFgtsStatus($r->input('fgts_status', null));
+            $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
+
+            if ($fgtsStatus === 'autorizado') {
+                $query->whereIn('leads.cpf', function ($sq) {
+                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1);
+                });
+            } elseif ($fgtsStatus === 'nao_autorizado') {
+                $query->whereIn('leads.cpf', function ($sq) {
+                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0);
+                });
+            } elseif ($fgtsStatus === 'nao_consultado') {
+                $query->whereNotIn('leads.cpf', function ($sq) {
+                    $sq->select('cpf')->from('fgts_off_snapshots');
+                });
+            }
+
+            if ($hasFgtsDateFilter) {
+                $from = $r->input('fgts_consulta_from', '1900-01-01');
+                $to   = $r->input('fgts_consulta_to',   now()->toDateString());
+                $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
+                    $sq->select('cpf')
+                       ->from('fgts_off_snapshots')
+                       ->whereBetween('updated_at', ["{$from} 00:00:00","{$to} 23:59:59"]);
+                });
+            }
         }
 
         return $query->latest('updated_at');
@@ -343,6 +524,27 @@ class LeadFilter
         });
     }
 
+    private static function range($sq, Request $r, string $minKey, string $maxKey, string $column): void
+    {
+        $hasMin = $r->filled($minKey);
+        $hasMax = $r->filled($maxKey);
+        if (!$hasMin && !$hasMax) return;
+
+        $min = $hasMin ? (float) str_replace(',', '.', (string)$r->input($minKey)) : 0.0;
+        $max = $hasMax ? (float) str_replace(',', '.', (string)$r->input($maxKey)) : 1.0e18;
+        $sq->whereBetween($column, [$min, $max]);
+    }
+
+    private static function yn($v): ?string
+    {
+        if ($v === null || $v === '') return null;
+        $s = mb_strtolower(trim((string)$v));
+        $s = str_replace(['ã','â','á','à','ä'], 'a', $s);
+        if (in_array($s, ['sim','s','1','true','t','yes','y'], true)) return 'sim';
+        if (in_array($s, ['nao','n','0','false','f','no'], true))   return 'nao';
+        return null;
+    }
+
     private static function normalizeFgtsStatus($v): ?string
     {
         if ($v === null || $v === '') return null;
@@ -360,6 +562,25 @@ class LeadFilter
             'autorizado'      => 'autorizado',
             'nao_autorizado'  => 'nao_autorizado',
             'nao_consultado'  => 'nao_consultado',
+        ];
+
+        return $map[$s] ?? null;
+    }
+
+    private static function normalizeCltSituacao($v): ?string
+    {
+        if ($v === null || $v === '') return null;
+        if (!is_string($v)) return null;
+
+        $s = trim(mb_strtolower($v));
+        $s = str_replace(['ã','â','á','à','ä'], 'a', $s);
+        $s = str_replace(['ê','é','è','ë'], 'e', $s);
+        $s = preg_replace('/[\s\-]+/u', '_', $s);
+
+        $map = [
+            'elegivel'        => 'elegivel',
+            'nao_elegivel'    => 'nao_elegivel',
+            'nao_encontrado'  => 'nao_encontrado',
         ];
 
         return $map[$s] ?? null;
