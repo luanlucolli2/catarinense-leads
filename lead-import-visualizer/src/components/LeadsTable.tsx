@@ -50,6 +50,7 @@ type SortFieldFGTS =
   | "saldo"
   | "libera"
   | "data_atualizacao"
+  | "data_nascimento"
   | "contratos"
   | "ultima_origem_cadastral"
   | "ultima_origem_higienizacao"
@@ -86,6 +87,8 @@ const SkeletonRow = () => (
   <tr className="hover:bg-gray-50">
     <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-28" /></td>
     <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-40" /></td>
+    {/* Data nasc. */}
+    <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-24 mx-auto" /></td>
     <td className="px-3 xl:px-6 py-4 text-left"><Skeleton className="h-4 w-32" /></td>
     <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-20 mx-auto" /></td>
     <td className="px-3 xl:px-6 py-4 text-center"><Skeleton className="h-4 w-28 mx-auto" /></td>
@@ -142,7 +145,8 @@ export const LeadsTableFGTS = ({
     const valueForSort = (x: ProcessedLeadFGTS) => {
       switch (sortField) {
         case "data_atualizacao":
-          return x.data_atualizacao ? new Date(x.data_atualizacao).getTime() : Number.POSITIVE_INFINITY;
+        case "data_nascimento":
+          return (x as any)[sortField] ? new Date((x as any)[sortField]).getTime() : Number.POSITIVE_INFINITY;
         case "fgts_off_consultado_em":
           return x.fgts_off_consultado_em ? new Date(x.fgts_off_consultado_em).getTime() : Number.POSITIVE_INFINITY;
         case "fgts_off_authorized":
@@ -241,7 +245,7 @@ export const LeadsTableFGTS = ({
     if (leads.length === 0) {
       return (
         <tr>
-          <td colSpan={13} className="text-center py-12 text-gray-500">
+          <td colSpan={14} className="text-center py-12 text-gray-500">
             Nenhum lead encontrado com os filtros aplicados.
           </td>
         </tr>
@@ -263,6 +267,11 @@ export const LeadsTableFGTS = ({
           {/* Nome */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
             {display(lead.nome)}
+          </td>
+
+          {/* Data nasc. */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[120px]">
+            {display(lead.data_nascimento)}
           </td>
 
           {/* Telefone principal + contador */}
@@ -398,7 +407,7 @@ export const LeadsTableFGTS = ({
         {/* Desktop Table */}
         <div className="hidden lg:block w-full max-w-full">
           <div className="overflow-x-auto relative max-w-full">
-            <table className="w-full min-w-[1500px]">
+            <table className="w-full min-w-[1600px]">
               <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
                   <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-left">
@@ -406,6 +415,9 @@ export const LeadsTableFGTS = ({
                   </th>
                   <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-left">
                     <SortButton field="nome" align="left">Nome</SortButton>
+                  </th>
+                  <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-center">
+                    <SortButton field="data_nascimento" align="center">Data nasc.</SortButton>
                   </th>
                   <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px] text-left">
                     Telefone
@@ -480,6 +492,9 @@ export const LeadsTableFGTS = ({
                     </h3>
                     <p className="text-sm font-mono text-gray-600 truncate">
                       {lead.cpf || EMPTY}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Data nasc.: {display(lead.data_nascimento)}
                     </p>
                     <p className="text-sm font-mono text-gray-600 truncate">
                       {lead.telefones[0]?.fone || EMPTY}
@@ -574,21 +589,27 @@ export interface ProcessedLeadCLT {
 }
 
 type SortFieldCLT =
-  | "nome"
+  // Cadastrais
   | "cpf"
-  | "elegivel"
-  | "clt_consultado_em"
+  | "nome"
+  | "data_nascimento"
   | "idade"
   | "sexo"
+  | "ultima_origem_cadastral"
+  // Situação/consulta
+  | "elegivel"
+  | "clt_consultado_em"
+  // Vínculo
   | "data_admissao"
   | "meses_admissao"
+  | "categoria_trabalhador_codigo"
+  // Financeiro/histórico
   | "valor_renda"
   | "valor_base_margem"
   | "margem_disponivel"
   | "valor_max_prestacao"
   | "qtd_emprestimos_ativos_suspensos"
-  | "emprestimos_legados"
-  | "ultima_origem_cadastral";
+  | "emprestimos_legados";
 
 interface LeadsTableCLTProps {
   leads: ProcessedLeadCLT[];
@@ -631,33 +652,34 @@ export const LeadsTableCLT = ({
     switch (field) {
       case "clt_consultado_em":
       case "data_admissao":
-        return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY
+      case "data_nascimento":
+        return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
       case "elegivel":
-        return x.elegivel === true ? 0 : x.elegivel === false ? 1 : 2
+        return x.elegivel === true ? 0 : x.elegivel === false ? 1 : 2;
       case "idade":
       case "meses_admissao":
       case "qtd_emprestimos_ativos_suspensos":
       case "emprestimos_legados":
-        return (x as any)[field] ?? -1
+        return (x as any)[field] ?? -1;
       default: {
-        const v = (x as any)[field]
-        if (typeof v === "string") return v.toLowerCase()
-        return v ?? ""
+        const v = (x as any)[field];
+        if (typeof v === "string") return v.toLowerCase();
+        return v ?? "";
       }
     }
-  }
+  };
 
   const sortedLeads = useMemo(() => {
-    if (!sortField) return leads
+    if (!sortField) return leads;
     const sorted = [...leads].sort((a, b) => {
-      const av = valueForSort(a, sortField)
-      const bv = valueForSort(b, sortField)
-      if (av < bv) return -1
-      if (av > bv) return 1
-      return 0
-    })
-    return sortDirection === "asc" ? sorted : sorted.reverse()
-  }, [leads, sortField, sortDirection])
+      const av = valueForSort(a, sortField);
+      const bv = valueForSort(b, sortField);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return 0;
+    });
+    return sortDirection === "asc" ? sorted : sorted.reverse();
+  }, [leads, sortField, sortDirection]);
 
   const SortButton = ({
     field,
@@ -698,28 +720,28 @@ export const LeadsTableCLT = ({
         <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
           Não encontrado
         </span>
-      )
+      );
     }
     if (elegivel === true) {
       return (
         <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">
           Elegível
         </span>
-      )
+      );
     }
     if (elegivel === false) {
       return (
         <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">
           Não elegível
         </span>
-      )
+      );
     }
     return (
       <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
         Sem dados
       </span>
-    )
-  }
+    );
+  };
 
   const renderTableBody = () => {
     if (isLoading) {
@@ -728,7 +750,7 @@ export const LeadsTableCLT = ({
     if (leads.length === 0) {
       return (
         <tr>
-          <td colSpan={14} className="text-center py-12 text-gray-500">
+          <td colSpan={19} className="text-center py-12 text-gray-500">
             Nenhum lead encontrado com os filtros aplicados.
           </td>
         </tr>
@@ -739,18 +761,19 @@ export const LeadsTableCLT = ({
 
       return (
         <tr key={lead.id} className="group hover:bg-gray-50 transition-colors duration-150">
-          {/* CPF */}
+          {/* ===== Cadastrais ===== */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[110px]">
             {display(lead.cpf)}
           </td>
-
-          {/* Nome */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">
             {display(lead.nome)}
           </td>
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">
+            {display(lead.data_nascimento)}
+          </td>
 
-          {/* Telefone principal + contador */}
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-left min-w-[120px]">
+          {/* Telefone e Classe ANTES de Idade/Sexo */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[120px]">
             {lead.telefones.length > 0 ? (
               <div className="flex items-center space-x-2">
                 <span className="font-mono">{display(lead.telefones[0].fone)}</span>
@@ -774,20 +797,24 @@ export const LeadsTableCLT = ({
               EMPTY
             )}
           </td>
-
-          {/* Classe */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">
             <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", classeInfo.cls)}>
               {classeInfo.label}
             </span>
           </td>
 
-          {/* Situação da consulta */}
+          {/* Idade / Sexo */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">
+            {display(lead.idade)}
+          </td>
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">
+            {display(lead.sexo)}
+          </td>
+
+          {/* ===== Situação / Consulta CLT ===== */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">
             {renderElegivelPill(lead.elegivel, lead.not_found)}
           </td>
-
-          {/* Já consultado / Data */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[160px]">
             {lead.clt_consultado_em ? (
               <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
@@ -800,37 +827,33 @@ export const LeadsTableCLT = ({
             )}
           </td>
 
-          {/* Perfil */}
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">
-            {display(lead.idade)}
-          </td>
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">
-            {display(lead.sexo)}
-          </td>
-
-          {/* Vínculo */}
+          {/* ===== Vínculo ===== */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">
             {display(lead.data_admissao)}
           </td>
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">
             {display(lead.meses_admissao)}
           </td>
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">
+            {display(lead.categoria_trabalhador_codigo)}
+          </td>
+          {/* REMOVIDO: início_atividade_empregador */}
 
-          {/* Renda e margem */}
+          {/* ===== Renda / Margem ===== */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.valor_renda)}</td>
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.valor_base_margem)}</td>
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.margem_disponivel)}</td>
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.valor_max_prestacao)}</td>
 
-          {/* Hist. crédito */}
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">
+          {/* ===== Histórico de crédito ===== */}
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">
             {display(lead.qtd_emprestimos_ativos_suspensos)}
           </td>
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">
             {display(lead.emprestimos_legados)}
           </td>
 
-          {/* Última origem (cad.) */}
+          {/* ===== Última origem (cad.) — MOVIDA PARA O FINAL ===== */}
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">
             {lead.ultima_origem_cadastral ? (
               <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">
@@ -863,35 +886,52 @@ export const LeadsTableCLT = ({
             </div>
           </td>
         </tr>
-      )
-    })
-  }
+      );
+    });
+  };
 
   return (
     <>
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full max-w-full">
         <div className="hidden lg:block w-full max-w-full">
           <div className="overflow-x-auto relative max-w-full">
-            <table className="w-full min-w-[1700px]">
+            {/* largura mínima ajustada */}
+            <table className="w-full min-w-[1900px]">
               <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
+                  {/* Cadastrais primeiro */}
                   <Th><SortButton field="cpf">CPF</SortButton></Th>
                   <Th><SortButton field="nome">Nome</SortButton></Th>
+                  <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>
+                  {/* Telefone/Classe antes de Idade/Sexo */}
                   <Th>Telefone</Th>
                   <Th align="center">Classe</Th>
-                  <Th align="center"><SortButton field="elegivel" align="center">Situação</SortButton></Th>
-                  <Th align="center"><SortButton field="clt_consultado_em" align="center">Consulta (CLT)</SortButton></Th>
                   <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>
                   <Th align="center"><SortButton field="sexo" align="center">Sexo</SortButton></Th>
+
+                  {/* Situação/consulta */}
+                  <Th align="center"><SortButton field="elegivel" align="center">Situação</SortButton></Th>
+                  <Th align="center"><SortButton field="clt_consultado_em" align="center">Consulta (CLT)</SortButton></Th>
+
+                  {/* Vínculo */}
                   <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>
                   <Th align="center"><SortButton field="meses_admissao" align="center">Tempo (meses)</SortButton></Th>
+                  <Th align="center"><SortButton field="categoria_trabalhador_codigo" align="center">Categoria trab. (cód.)</SortButton></Th>
+                  {/* REMOVIDO: Início atv. empregador */}
+
+                  {/* Renda/Margem */}
                   <Th align="right"><SortButton field="valor_renda" align="right">Renda</SortButton></Th>
                   <Th align="right"><SortButton field="valor_base_margem" align="right">Base margem</SortButton></Th>
                   <Th align="right"><SortButton field="margem_disponivel" align="right">Margem disp.</SortButton></Th>
                   <Th align="right"><SortButton field="valor_max_prestacao" align="right">Prestação máx.</SortButton></Th>
+
+                  {/* Histórico */}
                   <Th align="center"><SortButton field="qtd_emprestimos_ativos_suspensos" align="center">Empréstimos ativos</SortButton></Th>
                   <Th align="center"><SortButton field="emprestimos_legados" align="center">Legados</SortButton></Th>
+
+                  {/* Última origem (cad.) — no final */}
                   <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>
+
                   <th
                     className={cn(
                       "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider text-center sticky right-0 z-40 bg-gray-50 border-l border-gray-200",
@@ -917,6 +957,8 @@ export const LeadsTableCLT = ({
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-gray-900 truncate">{display(lead.nome)}</h3>
                   <p className="text-sm font-mono text-gray-600 truncate">{display(lead.cpf)}</p>
+                  <p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p>
+                  <p className="text-xs text-gray-600">Categoria: {display(lead.categoria_trabalhador_codigo)}</p>
                 </div>
                 <Button
                   onClick={() => {
@@ -970,8 +1012,8 @@ export const LeadsTableCLT = ({
         leadId={selectedLeadId}
       />
     </>
-  )
-}
+  );
+};
 
 /* util header cell */
 const Th = ({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "center" | "right" }) => (

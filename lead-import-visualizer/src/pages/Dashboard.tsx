@@ -27,6 +27,7 @@ import {
   formatCurrency,
   formatDate,
   formatPhone,
+  formatDateOnly
 } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -251,7 +252,7 @@ const Dashboard = () => {
         id: lead.id,
         cpf: formatCPF(lead.cpf),
         nome: lead.nome || "--",
-        data_nascimento: lead.data_nascimento ? formatDate(lead.data_nascimento) : "",
+        data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         contratos: lead.contracts_count,
         saldo: formatCurrency(lead.saldo),
@@ -292,7 +293,7 @@ const Dashboard = () => {
         id: lead.id,
         cpf: formatCPF(lead.cpf),
         nome: lead.nome || "--",
-        data_nascimento: lead.data_nascimento ? formatDate(lead.data_nascimento) : "",
+        data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
         elegivel,
@@ -552,10 +553,10 @@ const Dashboard = () => {
   }
 
   const handleExport = async (columns: string[]) => {
-    // nesta etapa mantemos exportação somente para FGTS (como estava)
+    const mode = activeTab === "FGTS" ? "fgts" : "clt" as const
     toast.info("Exportação iniciada.")
     try {
-      await exportLeads(collectFilters(), columns)
+      await exportLeads(collectFilters(), columns, mode)
       toast.success("Exportação concluída!")
     } catch (err) {
       console.error(err)
@@ -786,6 +787,7 @@ const Dashboard = () => {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         onExport={handleExport}
+        mode={activeTab}
       />
     </div>
   )

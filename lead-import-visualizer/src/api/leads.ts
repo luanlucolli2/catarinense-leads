@@ -420,12 +420,13 @@ function normalizeFiltersForExport(filters: LeadFilters): LeadFilters {
   return normalized
 }
 
-/** Mantém export FGTS existente; depois criaremos a variação CLT */
+/** Exporta em ambos os modos (FGTS | CLT) */
 export async function exportLeads(
   filters: LeadFilters,
-  columns: string[]
+  columns: string[],
+  mode: Mode
 ): Promise<void> {
-  const payload = { ...normalizeFiltersForExport(filters), columns, mode: "fgts" }
+  const payload = { ...normalizeFiltersForExport(filters), columns, mode }
 
   const response = await axiosClient.post("/leads/export", payload, {
     responseType: "blob",
