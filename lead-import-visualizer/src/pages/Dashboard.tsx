@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils"
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
+type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
 type ActiveTab = "FGTS" | "CLT"
 
 const Dashboard = () => {
@@ -81,8 +82,7 @@ const Dashboard = () => {
 
   // —— CLT específicos ——
   const [cltConsultado, setCltConsultado] = usePersistedState<YesNoAll>("dashboard-clt:consultado", "todos")
-  const [cltElegivel, setCltElegivel] = usePersistedState<YesNoAll>("dashboard-clt:elegivel", "todos")
-  const [cltNotFound, setCltNotFound] = usePersistedState<YesNoAll>("dashboard-clt:not_found", "todos")
+  const [cltSituacao, setCltSituacao] = usePersistedState<CltSituacaoFilter>("dashboard-clt:situacao", "todos")
   const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
   const [cltConsultaTo,   setCltConsultaTo]   = usePersistedState<string>("dashboard-clt:consultaTo", "")
   const [cltAdmissaoFrom, setCltAdmissaoFrom] = usePersistedState<string>("dashboard-clt:admissaoFrom", "")
@@ -144,7 +144,7 @@ const Dashboard = () => {
       cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
       cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltVendorsFilter, cltBirthMonthFilter,
       // CLT específicos
-      cltConsultado, cltElegivel, cltNotFound,
+      cltConsultado, cltSituacao,
       cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
       cltSexo, cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax, cltMargemMin, cltMargemMax,
@@ -190,8 +190,7 @@ const Dashboard = () => {
         birth_month: cltBirthMonthFilter,
 
         clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
-        clt_elegivel: cltElegivel !== "todos" ? cltElegivel : undefined,
-        clt_not_found: cltNotFound !== "todos" ? cltNotFound : undefined,
+        clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
         clt_consulta_from: cltConsultaFrom || undefined,
         clt_consulta_to: cltConsultaTo || undefined,
 
@@ -395,8 +394,7 @@ const Dashboard = () => {
     setCltBirthMonthFilter([])
 
     setCltConsultado("todos")
-    setCltElegivel("todos")
-    setCltNotFound("todos")
+    setCltSituacao("todos")
     setCltConsultaFrom("")
     setCltConsultaTo("")
     setCltAdmissaoFrom("")
@@ -464,8 +462,7 @@ const Dashboard = () => {
     cltPhonesMassFilter ||
     cltBirthMonthFilter.length ||
     cltConsultado !== "todos" ||
-    cltElegivel !== "todos" ||
-    cltNotFound !== "todos" ||
+    cltSituacao !== "todos" ||
     cltConsultaFrom ||
     cltConsultaTo ||
     cltAdmissaoFrom ||
@@ -526,8 +523,7 @@ const Dashboard = () => {
       birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
 
       clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
-      clt_elegivel: cltElegivel !== "todos" ? cltElegivel : undefined,
-      clt_not_found: cltNotFound !== "todos" ? cltNotFound : undefined,
+      clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
       clt_consulta_from: cltConsultaFrom || undefined,
       clt_consulta_to: cltConsultaTo || undefined,
       clt_admissao_from: cltAdmissaoFrom || undefined,
@@ -622,7 +618,7 @@ const Dashboard = () => {
           Dashboard
         </h1>
         <p className="text-sm text-gray-600 lg:text-base">
-          {activeTab === "FGTS" ? "FGTS (Robô OFF)" : "CLT (Consignado)"} — {total} registros
+          {activeTab === "FGTS" ? "FGTS (Facta FGTS Base offline)" : "CLT (Facta Crédito do Trabalhador)"} — {total} registros
         </p>
       </div>
 
@@ -707,13 +703,11 @@ const Dashboard = () => {
         fgtsConsultaToFilter={ui.fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={ui.setFgtsConsultaToFilter}
 
-        
+        /* CLT – novos props */
         cltConsultado={cltConsultado}
         onCltConsultadoChange={setCltConsultado}
-        cltElegivel={cltElegivel}
-        onCltElegivelChange={setCltElegivel}
-        cltNotFound={cltNotFound}
-        onCltNotFoundChange={setCltNotFound}
+        cltSituacao={cltSituacao}
+        onCltSituacaoChange={setCltSituacao}
         cltConsultaFrom={cltConsultaFrom}
         onCltConsultaFromChange={setCltConsultaFrom}
         cltConsultaTo={cltConsultaTo}
@@ -760,7 +754,6 @@ const Dashboard = () => {
         onCltAtivosMaxChange={setCltAtivosMax}
         cltTemAtivos={cltTemAtivos}
         onCltTemAtivosChange={setCltTemAtivos}
-    
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={setCltTemLegados}
       />

@@ -68,10 +68,10 @@ interface LeadsControlsProps {
   /** ➕ CLT (filtros específicos) */
   cltConsultado: "todos" | "sim" | "nao";
   onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
-  cltElegivel: "todos" | "sim" | "nao";
-  onCltElegivelChange: (v: "todos" | "sim" | "nao") => void;
-  cltNotFound: "todos" | "sim" | "nao";
-  onCltNotFoundChange: (v: "todos" | "sim" | "nao") => void;
+
+  /** novo filtro unificado de situação (3 estados) */
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel";
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void;
 
   cltConsultaFrom: string;
   onCltConsultaFromChange: (v: string) => void;
@@ -131,9 +131,6 @@ interface LeadsControlsProps {
   cltTemAtivos: "todos" | "sim" | "nao";
   onCltTemAtivosChange: (v: "todos" | "sim" | "nao") => void;
 
-  /** Mantidos por compat (não usados na UI): */
- 
-
   /** Somente booleano de legados */
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
@@ -190,10 +187,8 @@ export const LeadsControls = ({
   // ➕ CLT específicos
   cltConsultado,
   onCltConsultadoChange,
-  cltElegivel,
-  onCltElegivelChange,
-  cltNotFound,
-  onCltNotFoundChange,
+  cltSituacao,
+  onCltSituacaoChange,
   cltConsultaFrom,
   onCltConsultaFromChange,
   cltConsultaTo,
@@ -240,7 +235,6 @@ export const LeadsControls = ({
   onCltAtivosMaxChange,
   cltTemAtivos,
   onCltTemAtivosChange,
- 
   cltTemLegados,
   onCltTemLegadosChange,
 }: LeadsControlsProps) => {
@@ -366,13 +360,11 @@ export const LeadsControls = ({
         onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
         fgtsConsultaToFilter={fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
-        /* CLT específicos */
+        /* CLT específicos – com situação unificada */
         cltConsultado={cltConsultado}
         onCltConsultadoChange={onCltConsultadoChange}
-        cltElegivel={cltElegivel}
-        onCltElegivelChange={onCltElegivelChange}
-        cltNotFound={cltNotFound}
-        onCltNotFoundChange={onCltNotFoundChange}
+        cltSituacao={cltSituacao}
+        onCltSituacaoChange={onCltSituacaoChange}
         cltConsultaFrom={cltConsultaFrom}
         onCltConsultaFromChange={onCltConsultaFromChange}
         cltConsultaTo={cltConsultaTo}
@@ -419,7 +411,6 @@ export const LeadsControls = ({
         onCltAtivosMaxChange={onCltAtivosMaxChange}
         cltTemAtivos={cltTemAtivos}
         onCltTemAtivosChange={onCltTemAtivosChange}
-       
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={onCltTemLegadosChange}
       />

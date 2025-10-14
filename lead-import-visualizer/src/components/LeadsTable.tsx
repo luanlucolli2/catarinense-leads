@@ -65,7 +65,7 @@ interface LeadsTableFGTSProps {
   isLoading: boolean;
 }
 
-const EMPTY = "—";
+const EMPTY = "--";
 const ACTIONS_COL_WIDTH = "w-[110px] min-w-[110px] max-w-[110px]";
 
 const getClasseBadge = (raw?: string | null) => {

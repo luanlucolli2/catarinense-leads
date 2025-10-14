@@ -65,10 +65,10 @@ interface FiltersModalProps {
   /** ➕ CLT (props) */
   cltConsultado: "todos" | "sim" | "nao"
   onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void
-  cltElegivel: "todos" | "sim" | "nao"
-  onCltElegivelChange: (v: "todos" | "sim" | "nao") => void
-  cltNotFound: "todos" | "sim" | "nao"
-  onCltNotFoundChange: (v: "todos" | "sim" | "nao") => void
+
+  /** novo filtro unificado de situação (3 estados) */
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void
 
   cltConsultaFrom: string
   onCltConsultaFromChange: (v: string) => void
@@ -128,9 +128,6 @@ interface FiltersModalProps {
   cltTemAtivos: "todos" | "sim" | "nao"
   onCltTemAtivosChange: (v: "todos" | "sim" | "nao") => void
 
-  /** Mantidos p/ compat., mas ignorados (sem min/máx legados no CLT) */
- 
-
   /** Somente booleano de legados */
   cltTemLegados: "todos" | "sim" | "nao"
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
@@ -164,6 +161,7 @@ const isValidMonth = (m: string) => {
 /* util de foco: remove outline/ring nativos */
 const NO_FOCUS = "focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none"
 
+/** Section com profundidade sutil (sombras/hover) */
 function Section({
   title,
   description,
@@ -178,19 +176,22 @@ function Section({
   return (
     <section
       className={cn(
-        "rounded-lg border p-4 sm:p-5 bg-white",
-        active ? "border-blue-300 ring-1 ring-blue-200" : "border-gray-200"
+        "rounded-lg border p-4 sm:p-5 bg-white transition-all duration-200",
+        "shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-md",
+        active
+          ? "border-blue-300 ring-1 ring-blue-200 shadow-md"
+          : "border-gray-200"
       )}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <h3 className={cn("text-sm font-semibold", active ? "text-blue-700" : "text-gray-800")}>
+          <h3 className={cn("text-sm font-semibold tracking-tight", active ? "text-blue-700" : "text-gray-800")}>
             {title}
           </h3>
           {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
         </div>
         {active && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50/80 px-2 py-0.5 text-[11px] font-medium text-blue-700 shadow-sm">
             <Check className="h-3 w-3" /> ativo
           </span>
         )}
@@ -203,6 +204,37 @@ function Section({
 const Label = ({ text, active = false }: { text: string; active?: boolean }) => (
   <label className={cn("text-xs font-medium", active ? "text-blue-700" : "text-gray-700")}>{text}</label>
 )
+
+/** Agrupador com grid “bento” (auto-fill) e densidade */
+function Group({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="mb-6">
+      <div className="mb-3 border-b pb-2 bg-gradient-to-r from-white to-transparent">
+        <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
+      </div>
+
+      {/* Grid responsivo que sempre ocupa toda a largura disponível.
+          - auto-fill com minmax garante quebra bonita em 2/3/4 colunas dependendo da largura
+          - grid-flow-dense “encaixa” os cards para evitar vãos */}
+      <div
+        className={cn(
+          "grid grid-flow-dense gap-4 sm:gap-5",
+          "[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]",
+          "lg:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]",
+          "xl:[grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]"
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
 
 export const FiltersModal = ({
   mode,
@@ -254,10 +286,8 @@ export const FiltersModal = ({
   // —— CLT
   cltConsultado,
   onCltConsultadoChange,
-  cltElegivel,
-  onCltElegivelChange,
-  cltNotFound,
-  onCltNotFoundChange,
+  cltSituacao,
+  onCltSituacaoChange,
   cltConsultaFrom,
   onCltConsultaFromChange,
   cltConsultaTo,
@@ -304,7 +334,6 @@ export const FiltersModal = ({
   onCltAtivosMaxChange,
   cltTemAtivos,
   onCltTemAtivosChange,
-  /* ignorados na UI: min/máx de legados */
   cltTemLegados,
   onCltTemLegadosChange,
 }: FiltersModalProps) => {
@@ -327,9 +356,8 @@ export const FiltersModal = ({
   const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
   // —— CLT locals ——
-  const [lCltConsultado, setLCltConsultado] = useState<"todos"|"sim"|"nao">(cltConsultado)
-  const [lCltElegivel, setLCltElegivel] = useState<"todos"|"sim"|"nao">(cltElegivel)
-  const [lCltNotFound, setLCltNotFound] = useState<"todos"|"sim"|"nao">(cltNotFound)
+  const [lCltConsultado, setLCltConsultado] = useState<"todos" | "sim" | "nao">(cltConsultado)
+  const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel">(cltSituacao)
   const [lCltConsultaFrom, setLCltConsultaFrom] = useState(cltConsultaFrom)
   const [lCltConsultaTo, setLCltConsultaTo] = useState(cltConsultaTo)
   const [lCltAdmissaoFrom, setLCltAdmissaoFrom] = useState(cltAdmissaoFrom)
@@ -352,8 +380,8 @@ export const FiltersModal = ({
   const [lCltPrestacaoMax, setLCltPrestacaoMax] = useState(cltPrestacaoMax)
   const [lCltAtivosMin, setLCltAtivosMin] = useState(cltAtivosMin)
   const [lCltAtivosMax, setLCltAtivosMax] = useState(cltAtivosMax)
-  const [lCltTemAtivos, setLCltTemAtivos] = useState<"todos"|"sim"|"nao">(cltTemAtivos)
-  const [lCltTemLegados, setLCltTemLegados] = useState<"todos"|"sim"|"nao">(cltTemLegados)
+  const [lCltTemAtivos, setLCltTemAtivos] = useState<"todos" | "sim" | "nao">(cltTemAtivos)
+  const [lCltTemLegados, setLCltTemLegados] = useState<"todos" | "sim" | "nao">(cltTemLegados)
 
   useEffect(() => {
     if (!isOpen) return
@@ -376,8 +404,7 @@ export const FiltersModal = ({
 
     // CLT locals
     setLCltConsultado(cltConsultado)
-    setLCltElegivel(cltElegivel)
-    setLCltNotFound(cltNotFound)
+    setLCltSituacao(cltSituacao)
     setLCltConsultaFrom(cltConsultaFrom)
     setLCltConsultaTo(cltConsultaTo)
     setLCltAdmissaoFrom(cltAdmissaoFrom)
@@ -421,7 +448,7 @@ export const FiltersModal = ({
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
     // CLT deps
-    cltConsultado, cltElegivel, cltNotFound, cltConsultaFrom, cltConsultaTo,
+    cltConsultado, cltSituacao, cltConsultaFrom, cltConsultaTo,
     cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
     cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos,
     cltIdadeMin, cltIdadeMax, cltSexo,
@@ -441,7 +468,6 @@ export const FiltersModal = ({
   const commitAndApply = () => {
     const normalizedMonths = localBirthMonths.map(monthLabelToNum).filter(isValidMonth)
     onSearchChange(localSearch.trim())
-    // elegibilidade não é mais aplicada
     onContractDateFromFilterChange(localContractFrom)
     onContractDateToFilterChange(localContractTo)
     onMotivosFilterChange(localMotivos)
@@ -463,8 +489,7 @@ export const FiltersModal = ({
 
     if (mode === "CLT") {
       onCltConsultadoChange(lCltConsultado)
-      onCltElegivelChange(lCltElegivel)
-      onCltNotFoundChange(lCltNotFound)
+      onCltSituacaoChange(lCltSituacao)
       onCltConsultaFromChange(lCltConsultaFrom)
       onCltConsultaToChange(lCltConsultaTo)
       onCltAdmissaoFromChange(lCltAdmissaoFrom)
@@ -488,7 +513,6 @@ export const FiltersModal = ({
       onCltAtivosMinChange(lCltAtivosMin)
       onCltAtivosMaxChange(lCltAtivosMax)
       onCltTemAtivosChange(lCltTemAtivos)
-      // apenas boolean de legados:
       onCltTemLegadosChange(lCltTemLegados)
     }
 
@@ -516,8 +540,7 @@ export const FiltersModal = ({
   // CLT actives
   const actCltSituacao =
     (lCltConsultado !== "todos") ||
-    (lCltElegivel !== "todos") ||
-    (lCltNotFound !== "todos") ||
+    (lCltSituacao !== "todos") ||
     any([lCltConsultaFrom, lCltConsultaTo])
 
   const actCltVinculo =
@@ -535,7 +558,6 @@ export const FiltersModal = ({
 
   const actCltHistorico =
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
-    /* apenas boolean de legados */
     lCltTemLegados !== "todos"
 
   const chips: string[] = []
@@ -559,14 +581,14 @@ export const FiltersModal = ({
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
   if (isMassActive) chips.push("Filtros em massa")
 
-  const modeLabel = mode === "FGTS" ? "FGTS (Robô OFF)" : "CLT (Consignado)"
+  const modeLabel = mode === "FGTS" ? "FGTS (Facta FGTS Base offline)" : "CLT (Facta Crédito do Trabalhador)"
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
       {/* Wrapper com escopo p/ reset de focus */}
-      <div className="filters-modal flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+      <div className="filters-modal flex max-h[90vh] max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
         {/* Cabeçalho */}
-        <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0">
+        <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Filter className="h-5 w-5 text-gray-600" />
@@ -588,9 +610,9 @@ export const FiltersModal = ({
               chips.map((c, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700"
+                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 shadow-[0_1px_0_rgba(0,0,0,0.05)]"
                 >
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-600" />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-600 shadow-inner" />
                   {c}
                 </span>
               ))
@@ -599,7 +621,7 @@ export const FiltersModal = ({
         </header>
 
         {/* Barra de modo */}
-        <div className="px-4 sm:px-6 py-2 bg-gray-50 border-b flex items-center gap-2">
+        <div className="px-4 sm:px-6 py-2 bg-gray-50/90 backdrop-blur border-b flex items-center gap-2 shadow-[inset_0_-1px_0_rgba(0,0,0,0.03)]">
           <Info className="w-4 h-4 text-gray-500" />
           <span className="text-xs sm:text-sm text-gray-700">
             Filtrando dados de: <strong>{modeLabel}</strong>
@@ -607,11 +629,11 @@ export const FiltersModal = ({
         </div>
 
         {/* Conteúdo rolável */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          {/* Grade responsiva com densidade + spans por card */}
-          <div className="grid grid-flow-dense gap-4 sm:gap-5 lg:grid-cols-12 xl:grid-cols-12">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gradient-to-b from-white to-gray-50">
+          {/* ======= Grupo: Geral ======= */}
+          <Group title="Geral">
             {/* Pesquisa */}
-            <div className="lg:col-span-6 xl:col-span-4">
+            <div>
               <Section title="Pesquisa" description="Busque por nome, CPF ou telefone." active={isSearchActive}>
                 <div className={cn(isSearchActive && "rounded-md ring-1 ring-blue-200")}>
                   <Label text="Pesquisa geral" active={isSearchActive} />
@@ -619,31 +641,19 @@ export const FiltersModal = ({
                     value={localSearch}
                     onChange={(e) => setLocalSearch(e.target.value)}
                     placeholder="Digite termos…"
-                    className={NO_FOCUS}
+                    className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
                   />
                 </div>
               </Section>
             </div>
 
-            {/* Origem / Motivos / Higienização */}
-            <div className="lg:col-span-6 xl:col-span-4">
+            {/* Origem (comum) */}
+            <div>
               <Section
-                title="Origem e Motivos"
-                description={mode === "FGTS" ? "Refine pela origem do lead, origem da higienização e motivo." : "Refine pela origem do lead."}
-                active={isOrigensActive || (mode === "FGTS" && (isHigienizacaoActive || isMotivosActive))}
+                title="Origem"
+                description="Refine pela origem do lead."
+                active={isOrigensActive}
               >
-                {mode === "FGTS" && (
-                  <div>
-                    <Label text="Motivos" active={isMotivosActive} />
-                    <MultiSelect
-                      options={availableMotivos}
-                      selected={localMotivos}
-                      onChange={setLocalMotivos}
-                      placeholder="Selecionar motivos…"
-                    />
-                  </div>
-                )}
-
                 <div>
                   <Label text="Origem dos leads" active={isOrigensActive} />
                   <MultiSelect
@@ -653,8 +663,45 @@ export const FiltersModal = ({
                     placeholder="Selecionar origens…"
                   />
                 </div>
+              </Section>
+            </div>
 
-                {mode === "FGTS" && (
+            {/* Aniversário */}
+            <div>
+              <Section title="Aniversário" description="Selecione um ou mais meses." active={isBirthActive}>
+                <div>
+                  <Label text="Mês(es) de aniversário" active={isBirthActive} />
+                  <MultiSelect
+                    options={MONTH_OPTIONS}
+                    selected={localBirthMonths}
+                    onChange={setLocalBirthMonths}
+                    placeholder="Selecione os meses…"
+                  />
+                </div>
+              </Section>
+            </div>
+          </Group>
+
+          {/* ======= Grupo: FGTS específico ======= */}
+          {mode === "FGTS" && (
+            <Group title="FGTS">
+              {/* Motivos e Higienização */}
+              <div>
+                <Section
+                  title="Motivos e Higienização"
+                  description="Motivos e origem das higienizações."
+                  active={isMotivosActive || isHigienizacaoActive}
+                >
+                  <div>
+                    <Label text="Motivos" active={isMotivosActive} />
+                    <MultiSelect
+                      options={availableMotivos}
+                      selected={localMotivos}
+                      onChange={setLocalMotivos}
+                      placeholder="Selecionar motivos…"
+                    />
+                  </div>
+
                   <div>
                     <Label text="Origem das higienizações" active={isHigienizacaoActive} />
                     <MultiSelect
@@ -664,13 +711,11 @@ export const FiltersModal = ({
                       placeholder="Selecionar origens…"
                     />
                   </div>
-                )}
-              </Section>
-            </div>
+                </Section>
+              </div>
 
-            {/* Vendedores (FGTS) */}
-            {mode === "FGTS" && (
-              <div className="lg:col-span-6 xl:col-span-4">
+              {/* Vendedores */}
+              <div>
                 <Section title="Vendedores" description="Filtre por responsável comercial." active={isVendorsActive}>
                   <div>
                     <Label text="Seleção de vendedores" active={isVendorsActive} />
@@ -683,63 +728,57 @@ export const FiltersModal = ({
                   </div>
                 </Section>
               </div>
-            )}
 
-            {/* Períodos (FGTS) – largura maior */}
-            {mode === "FGTS" && (
-              <div className="lg:col-span-12 xl:col-span-8">
+              {/* Períodos */}
+              <div>
                 <Section
                   title="Períodos"
-                  description="Defina intervalos de datas para contratos e higienização."
+                  description="Intervalos de datas para contratos e higienização."
                   active={isContractPeriodActive || isUpdatedPeriodActive}
                 >
-                  <div className="grid grid-cols-1 gap-3">
-                    <div>
-                      <Label text="Período de contratos" active={isContractPeriodActive} />
-                      <div className="mt-2 grid grid-cols-2 gap-3">
-                        <Input
-                          type="date"
-                          value={localContractFrom}
-                          onChange={(e) => setLocalContractFrom(e.target.value)}
-                          className={cn(NO_FOCUS, localContractFrom && "ring-1 ring-blue-200")}
-                        />
-                        <Input
-                          type="date"
-                          value={localContractTo}
-                          onChange={(e) => setLocalContractTo(e.target.value)}
-                          className={cn(NO_FOCUS, localContractTo && "ring-1 ring-blue-200")}
-                        />
-                      </div>
+                  <div>
+                    <Label text="Período de contratos" active={isContractPeriodActive} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input
+                        type="date"
+                        value={localContractFrom}
+                        onChange={(e) => setLocalContractFrom(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localContractFrom && "ring-1 ring-blue-200")}
+                      />
+                      <Input
+                        type="date"
+                        value={localContractTo}
+                        onChange={(e) => setLocalContractTo(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localContractTo && "ring-1 ring-blue-200")}
+                      />
                     </div>
+                  </div>
 
-                    <div>
-                      <Label text="Período de higienização" active={isUpdatedPeriodActive} />
-                      <div className="mt-2 grid grid-cols-2 gap-3">
-                        <Input
-                          type="date"
-                          value={localDateFrom}
-                          onChange={(e) => setLocalDateFrom(e.target.value)}
-                          className={cn(NO_FOCUS, localDateFrom && "ring-1 ring-blue-200")}
-                        />
-                        <Input
-                          type="date"
-                          value={localDateTo}
-                          onChange={(e) => setLocalDateTo(e.target.value)}
-                          className={cn(NO_FOCUS, localDateTo && "ring-1 ring-blue-200")}
-                        />
-                      </div>
+                  <div>
+                    <Label text="Período de higienização" active={isUpdatedPeriodActive} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input
+                        type="date"
+                        value={localDateFrom}
+                        onChange={(e) => setLocalDateFrom(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localDateFrom && "ring-1 ring-blue-200")}
+                      />
+                      <Input
+                        type="date"
+                        value={localDateTo}
+                        onChange={(e) => setLocalDateTo(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localDateTo && "ring-1 ring-blue-200")}
+                      />
                     </div>
                   </div>
                 </Section>
               </div>
-            )}
 
-            {/* FGTS OFF */}
-            {mode === "FGTS" && (
-              <div className="lg:col-span-12 xl:col-span-4">
+              {/* FGTS OFF */}
+              <div>
                 <Section
                   title="FGTS OFF"
-                  description="Filtre por status da autorização e período da consulta."
+                  description="Status da autorização e período da consulta."
                   active={isFgtsStatusActive || isFgtsPeriodActive}
                 >
                   <div>
@@ -750,10 +789,10 @@ export const FiltersModal = ({
                         setLocalFgtsAuthorized(v as "todos" | "autorizado" | "nao_autorizado" | "nao_consultado")
                       }
                     >
-                      <SelectTrigger className={cn(NO_FOCUS, isFgtsStatusActive && "ring-1 ring-blue-200")}>
+                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", isFgtsStatusActive && "ring-1 ring-blue-200")}>
                         <SelectValue placeholder="Selecionar..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="shadow-lg">
                         <SelectItem value="todos">Todos</SelectItem>
                         <SelectItem value="autorizado">Autorizado</SelectItem>
                         <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
@@ -769,260 +808,237 @@ export const FiltersModal = ({
                         type="date"
                         value={localFgtsFrom}
                         onChange={(e) => setLocalFgtsFrom(e.target.value)}
-                        className={cn(NO_FOCUS, localFgtsFrom && "ring-1 ring-blue-200")}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localFgtsFrom && "ring-1 ring-blue-200")}
                       />
                       <Input
                         type="date"
                         value={localFgtsTo}
                         onChange={(e) => setLocalFgtsTo(e.target.value)}
-                        className={cn(NO_FOCUS, localFgtsTo && "ring-1 ring-blue-200")}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localFgtsTo && "ring-1 ring-blue-200")}
                       />
                     </div>
                   </div>
                 </Section>
               </div>
-            )}
+            </Group>
+          )}
 
-            {/* CLT – blocos distribuídos */}
-            {mode === "CLT" && (
-              <>
-                <div className="lg:col-span-6 xl:col-span-4">
-                  <Section
-                    title="CLT · Situação"
-                    description="Consultado, elegibilidade e período da última consulta."
-                    active={actCltSituacao}
-                  >
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <Label text="Consultado?" active={lCltConsultado !== "todos"} />
-                        <Select value={lCltConsultado} onValueChange={(v)=>setLCltConsultado(v as any)}>
-                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="todos">Todos</SelectItem>
-                            <SelectItem value="sim">Sim</SelectItem>
-                            <SelectItem value="nao">Não</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label text="Elegível?" active={lCltElegivel !== "todos"} />
-                        <Select value={lCltElegivel} onValueChange={(v)=>setLCltElegivel(v as any)}>
-                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="todos">Todos</SelectItem>
-                            <SelectItem value="sim">Sim</SelectItem>
-                            <SelectItem value="nao">Não</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label text="Not Found?" active={lCltNotFound !== "todos"} />
-                        <Select value={lCltNotFound} onValueChange={(v)=>setLCltNotFound(v as any)}>
-                          <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="todos">Todos</SelectItem>
-                            <SelectItem value="sim">Sim</SelectItem>
-                            <SelectItem value="nao">Não</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
+          {/* ======= Grupo: CLT específico ======= */}
+          {mode === "CLT" && (
+            <Group title="CLT">
+              <div>
+                <Section
+                  title="Situação"
+                  description="Consultado, situação unificada e período da última consulta."
+                  active={actCltSituacao}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <Label text="Período da consulta CLT" active={any([lCltConsultaFrom, lCltConsultaTo])} />
-                      <div className="mt-2 grid grid-cols-2 gap-3">
-                        <Input type="date" value={lCltConsultaFrom} onChange={(e)=>setLCltConsultaFrom(e.target.value)} className={NO_FOCUS}/>
-                        <Input type="date" value={lCltConsultaTo} onChange={(e)=>setLCltConsultaTo(e.target.value)} className={NO_FOCUS}/>
-                      </div>
-                    </div>
-                  </Section>
-                </div>
-
-                <div className="lg:col-span-6 xl:col-span-4">
-                  <Section
-                    title="CLT · Vínculo"
-                    description="Admissão, tempo de casa, início de atividade do empregador e categoria do trabalhador."
-                    active={actCltVinculo}
-                  >
-                    <div>
-                      <Label text="Período de admissão" active={any([lCltAdmissaoFrom, lCltAdmissaoTo])} />
-                      <div className="mt-2 grid grid-cols-2 gap-3">
-                        <Input type="date" value={lCltAdmissaoFrom} onChange={(e)=>setLCltAdmissaoFrom(e.target.value)} className={NO_FOCUS}/>
-                        <Input type="date" value={lCltAdmissaoTo} onChange={(e)=>setLCltAdmissaoTo(e.target.value)} className={NO_FOCUS}/>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label text="Meses de admissão (mín)" active={!!lCltMesesMin} />
-                        <Input value={lCltMesesMin} onChange={(e)=>setLCltMesesMin(e.target.value)} placeholder="ex.: 6" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Meses de admissão (máx)" active={!!lCltMesesMax} />
-                        <Input value={lCltMesesMax} onChange={(e)=>setLCltMesesMax(e.target.value)} placeholder="ex.: 120" className={NO_FOCUS}/>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label text="Início atividade do empregador" active={any([lCltInicioEmpFrom, lCltInicioEmpTo])} />
-                      <div className="mt-2 grid grid-cols-2 gap-3">
-                        <Input type="date" value={lCltInicioEmpFrom} onChange={(e)=>setLCltInicioEmpFrom(e.target.value)} className={NO_FOCUS}/>
-                        <Input type="date" value={lCltInicioEmpTo} onChange={(e)=>setLCltInicioEmpTo(e.target.value)} className={NO_FOCUS}/>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label text="Categoria(s) trabalhador (códigos)" active={!!lCltCategoria.trim()} />
-                      <Textarea
-                        rows={2}
-                        placeholder="Ex.: 123, 456, 789"
-                        value={lCltCategoria}
-                        onChange={(e)=>setLCltCategoria(e.target.value)}
-                        className={NO_FOCUS}
-                      />
-                    </div>
-                  </Section>
-                </div>
-
-                <div className="lg:col-span-6 xl:col-span-4">
-                  <Section
-                    title="CLT · Perfil"
-                    description="Idade e sexo."
-                    active={actCltPerfil}
-                  >
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label text="Idade mín." active={!!lCltIdadeMin} />
-                        <Input value={lCltIdadeMin} onChange={(e)=>setLCltIdadeMin(e.target.value)} placeholder="ex.: 18" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Idade máx." active={!!lCltIdadeMax} />
-                        <Input value={lCltIdadeMax} onChange={(e)=>setLCltIdadeMax(e.target.value)} placeholder="ex.: 75" className={NO_FOCUS}/>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label text="Sexo" active={lCltSexo.length>0} />
-                      <MultiSelect
-                        options={["M","F"]}
-                        selected={lCltSexo}
-                        onChange={setLCltSexo}
-                        placeholder="Selecionar sexo…"
-                      />
-                    </div>
-                  </Section>
-                </div>
-
-                <div className="lg:col-span-12 xl:col-span-8">
-                  <Section
-                    title="CLT · Renda e Margem"
-                    description="Faixas de renda, base, margem e prestação."
-                    active={actCltRenda}
-                  >
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label text="Renda mín." active={!!lCltRendaMin} />
-                        <Input value={lCltRendaMin} onChange={(e)=>setLCltRendaMin(e.target.value)} placeholder="ex.: 1200,00" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Renda máx." active={!!lCltRendaMax} />
-                        <Input value={lCltRendaMax} onChange={(e)=>setLCltRendaMax(e.target.value)} placeholder="ex.: 5000,00" className={NO_FOCUS}/>
-                      </div>
-
-                      <div>
-                        <Label text="Base mín." active={!!lCltBaseMin} />
-                        <Input value={lCltBaseMin} onChange={(e)=>setLCltBaseMin(e.target.value)} placeholder="ex.: 1000,00" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Base máx." active={!!lCltBaseMax} />
-                        <Input value={lCltBaseMax} onChange={(e)=>setLCltBaseMax(e.target.value)} placeholder="ex.: 4000,00" className={NO_FOCUS}/>
-                      </div>
-
-                      <div>
-                        <Label text="Margem mín." active={!!lCltMargemMin} />
-                        <Input value={lCltMargemMin} onChange={(e)=>setLCltMargemMin(e.target.value)} placeholder="ex.: 100,00" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Margem máx." active={!!lCltMargemMax} />
-                        <Input value={lCltMargemMax} onChange={(e)=>setLCltMargemMax(e.target.value)} placeholder="ex.: 2000,00" className={NO_FOCUS}/>
-                      </div>
-
-                      <div>
-                        <Label text="Prestação mín." active={!!lCltPrestacaoMin} />
-                        <Input value={lCltPrestacaoMin} onChange={(e)=>setLCltPrestacaoMin(e.target.value)} placeholder="ex.: 100,00" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Prestação máx." active={!!lCltPrestacaoMax} />
-                        <Input value={lCltPrestacaoMax} onChange={(e)=>setLCltPrestacaoMax(e.target.value)} placeholder="ex.: 800,00" className={NO_FOCUS}/>
-                      </div>
-                    </div>
-                  </Section>
-                </div>
-
-                <div className="lg:col-span-12 xl:col-span-4">
-                  <Section
-                    title="CLT · Histórico de Crédito"
-                    description="Quantidade de empréstimos ativos/suspensos e legados."
-                    active={actCltHistorico}
-                  >
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label text="Ativos/Susp. mín." active={!!lCltAtivosMin} />
-                        <Input value={lCltAtivosMin} onChange={(e)=>setLCltAtivosMin(e.target.value)} placeholder="ex.: 0" className={NO_FOCUS}/>
-                      </div>
-                      <div>
-                        <Label text="Ativos/Susp. máx." active={!!lCltAtivosMax} />
-                        <Input value={lCltAtivosMax} onChange={(e)=>setLCltAtivosMax(e.target.value)} placeholder="ex.: 10" className={NO_FOCUS}/>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label text="Tem ativos/suspensos?" active={lCltTemAtivos !== "todos"} />
-                      <Select value={lCltTemAtivos} onValueChange={(v)=>setLCltTemAtivos(v as any)}>
-                        <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                        <SelectContent>
+                      <Label text="Consultado?" active={lCltConsultado !== "todos"} />
+                      <Select value={lCltConsultado} onValueChange={(v) => setLCltConsultado(v as any)}>
+                        <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                        <SelectContent className="shadow-lg">
                           <SelectItem value="todos">Todos</SelectItem>
                           <SelectItem value="sim">Sim</SelectItem>
                           <SelectItem value="nao">Não</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-
-                    {/* Apenas booleano de legados */}
                     <div>
-                      <Label text="Tem legados?" active={lCltTemLegados !== "todos"} />
-                      <Select value={lCltTemLegados} onValueChange={(v)=>setLCltTemLegados(v as any)}>
-                        <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                        <SelectContent>
+                      <Label text="Situação" active={lCltSituacao !== "todos"} />
+                      <Select value={lCltSituacao} onValueChange={(v) => setLCltSituacao(v as any)}>
+                        <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                        <SelectContent className="shadow-lg">
                           <SelectItem value="todos">Todos</SelectItem>
-                          <SelectItem value="sim">Sim</SelectItem>
-                          <SelectItem value="nao">Não</SelectItem>
+                          <SelectItem value="elegivel">Elegível</SelectItem>
+                          <SelectItem value="nao_elegivel">Não elegível</SelectItem>
+                          <SelectItem value="nao_encontrado">Não encontrado</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                  </Section>
-                </div>
-              </>
-            )}
+                  </div>
 
-            {/* Aniversário (compacto) */}
-            <div className="lg:col-span-6 xl:col-span-4">
-              <Section title="Aniversário" description="Selecione um ou mais meses." active={isBirthActive}>
-                <div>
-                  <Label text="Mês(es) de aniversário" active={isBirthActive} />
-                  <MultiSelect
-                    options={MONTH_OPTIONS}
-                    selected={localBirthMonths}
-                    onChange={setLocalBirthMonths}
-                    placeholder="Selecione os meses…"
-                  />
-                </div>
-              </Section>
-            </div>
+                  <div>
+                    <Label text="Período da consulta CLT" active={any([lCltConsultaFrom, lCltConsultaTo])} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input type="date" value={lCltConsultaFrom} onChange={(e) => setLCltConsultaFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                      <Input type="date" value={lCltConsultaTo} onChange={(e) => setLCltConsultaTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+                </Section>
+              </div>
 
-            {/* Filtros em massa (mais largo) */}
-            <div className="lg:col-span-12 xl:col-span-8">
-              <Section title="Filtros em massa" description="Cole uma lista de valores para filtrar rapidamente." active={isMassActive}>
+              <div>
+                <Section
+                  title="Vínculo"
+                  description="Admissão, tempo de casa, início de atividade do empregador e categoria."
+                  active={actCltVinculo}
+                >
+                  <div>
+                    <Label text="Período de admissão" active={any([lCltAdmissaoFrom, lCltAdmissaoTo])} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input type="date" value={lCltAdmissaoFrom} onChange={(e) => setLCltAdmissaoFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                      <Input type="date" value={lCltAdmissaoTo} onChange={(e) => setLCltAdmissaoTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Meses de admissão (mín)" active={!!lCltMesesMin} />
+                      <Input value={lCltMesesMin} onChange={(e) => setLCltMesesMin(e.target.value)} placeholder="ex.: 6" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Meses de admissão (máx)" active={!!lCltMesesMax} />
+                      <Input value={lCltMesesMax} onChange={(e) => setLCltMesesMax(e.target.value)} placeholder="ex.: 120" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label text="Início atividade do empregador" active={any([lCltInicioEmpFrom, lCltInicioEmpTo])} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input type="date" value={lCltInicioEmpFrom} onChange={(e) => setLCltInicioEmpFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                      <Input type="date" value={lCltInicioEmpTo} onChange={(e) => setLCltInicioEmpTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label text="Categoria(s) trabalhador (códigos)" active={!!lCltCategoria.trim()} />
+                    <Textarea
+                      rows={2}
+                      placeholder="Ex.: 123, 456, 789"
+                      value={lCltCategoria}
+                      onChange={(e) => setLCltCategoria(e.target.value)}
+                      className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                    />
+                  </div>
+                </Section>
+              </div>
+
+              <div>
+                <Section
+                  title="Perfil"
+                  description="Idade e sexo."
+                  active={actCltPerfil}
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Idade mín." active={!!lCltIdadeMin} />
+                      <Input value={lCltIdadeMin} onChange={(e) => setLCltIdadeMin(e.target.value)} placeholder="ex.: 18" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Idade máx." active={!!lCltIdadeMax} />
+                      <Input value={lCltIdadeMax} onChange={(e) => setLCltIdadeMax(e.target.value)} placeholder="ex.: 75" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label text="Sexo" active={lCltSexo.length > 0} />
+                    <MultiSelect
+                      options={["M", "F"]}
+                      selected={lCltSexo}
+                      onChange={setLCltSexo}
+                      placeholder="Selecionar sexo…"
+                    />
+                  </div>
+                </Section>
+              </div>
+
+              <div>
+                <Section
+                  title="Renda e Margem"
+                  description="Faixas de renda, base, margem e prestação."
+                  active={actCltRenda}
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Renda mín." active={!!lCltRendaMin} />
+                      <Input value={lCltRendaMin} onChange={(e) => setLCltRendaMin(e.target.value)} placeholder="ex.: 1200,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Renda máx." active={!!lCltRendaMax} />
+                      <Input value={lCltRendaMax} onChange={(e) => setLCltRendaMax(e.target.value)} placeholder="ex.: 5000,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+
+                    <div>
+                      <Label text="Base mín." active={!!lCltBaseMin} />
+                      <Input value={lCltBaseMin} onChange={(e) => setLCltBaseMin(e.target.value)} placeholder="ex.: 1000,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Base máx." active={!!lCltBaseMax} />
+                      <Input value={lCltBaseMax} onChange={(e) => setLCltBaseMax(e.target.value)} placeholder="ex.: 4000,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+
+                    <div>
+                      <Label text="Margem mín." active={!!lCltMargemMin} />
+                      <Input value={lCltMargemMin} onChange={(e) => setLCltMargemMin(e.target.value)} placeholder="ex.: 100,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Margem máx." active={!!lCltMargemMax} />
+                      <Input value={lCltMargemMax} onChange={(e) => setLCltMargemMax(e.target.value)} placeholder="ex.: 2000,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+
+                    <div>
+                      <Label text="Prestação mín." active={!!lCltPrestacaoMin} />
+                      <Input value={lCltPrestacaoMin} onChange={(e) => setLCltPrestacaoMin(e.target.value)} placeholder="ex.: 100,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Prestação máx." active={!!lCltPrestacaoMax} />
+                      <Input value={lCltPrestacaoMax} onChange={(e) => setLCltPrestacaoMax(e.target.value)} placeholder="ex.: 800,00" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              <div>
+                <Section
+                  title="Histórico de Crédito"
+                  description="Qtd. de empréstimos ativos/suspensos e legados."
+                  active={actCltHistorico}
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Ativos/Susp. mín." active={!!lCltAtivosMin} />
+                      <Input value={lCltAtivosMin} onChange={(e) => setLCltAtivosMin(e.target.value)} placeholder="ex.: 0" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                    <div>
+                      <Label text="Ativos/Susp. máx." active={!!lCltAtivosMax} />
+                      <Input value={lCltAtivosMax} onChange={(e) => setLCltAtivosMax(e.target.value)} placeholder="ex.: 10" className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label text="Tem ativos/suspensos?" active={lCltTemAtivos !== "todos"} />
+                    <Select value={lCltTemAtivos} onValueChange={(v) => setLCltTemAtivos(v as any)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent className="shadow-lg">
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="sim">Sim</SelectItem>
+                        <SelectItem value="nao">Não</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Apenas booleano de legados */}
+                  <div>
+                    <Label text="Tem legados?" active={lCltTemLegados !== "todos"} />
+                    <Select value={lCltTemLegados} onValueChange={(v) => setLCltTemLegados(v as any)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent className="shadow-lg">
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="sim">Sim</SelectItem>
+                        <SelectItem value="nao">Não</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </Section>
+              </div>
+            </Group>
+          )}
+
+          {/* ======= Grupo: Em massa (sempre por último, full width) ======= */}
+          <Group title="Em massa">
+            <div className="col-span-full">
+              <Section title="Filtros em massa" description="Cole listas para filtrar rapidamente." active={isMassActive}>
                 <div className="grid grid-cols-1 gap-3">
                   <div>
                     <Label text="CPFs" active={!!localCpfMass.trim()} />
@@ -1031,7 +1047,7 @@ export const FiltersModal = ({
                       placeholder="CPFs separados por vírgula, ponto e vírgula ou quebra de linha"
                       value={localCpfMass}
                       onChange={(e) => setLocalCpfMass(e.target.value)}
-                      className={cn(NO_FOCUS, !!localCpfMass.trim() && "ring-1 ring-blue-200")}
+                      className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", !!localCpfMass.trim() && "ring-1 ring-blue-200")}
                     />
                   </div>
 
@@ -1042,7 +1058,7 @@ export const FiltersModal = ({
                       placeholder="Nomes separados por quebra de linha"
                       value={localNamesMass}
                       onChange={(e) => setLocalNamesMass(e.target.value)}
-                      className={cn(NO_FOCUS, !!localNamesMass.trim() && "ring-1 ring-blue-200")}
+                      className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", !!localNamesMass.trim() && "ring-1 ring-blue-200")}
                     />
                   </div>
 
@@ -1053,17 +1069,17 @@ export const FiltersModal = ({
                       placeholder="Telefones separados por quebra de linha"
                       value={localPhonesMass}
                       onChange={(e) => setLocalPhonesMass(e.target.value)}
-                      className={cn(NO_FOCUS, !!localPhonesMass.trim() && "ring-1 ring-blue-200")}
+                      className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", !!localPhonesMass.trim() && "ring-1 ring-blue-200")}
                     />
                   </div>
                 </div>
               </Section>
             </div>
-          </div>
+          </Group>
         </main>
 
-        {/* Rodapé fixo */}
-        <footer className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end sm:gap-2 flex-shrink-0 bg-white">
+        {/* Rodapé */}
+        <footer className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end sm:gap-2 flex-shrink-0 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 shadow-sm">
           <Button
             variant="outline"
             className={cn("border-gray-300 text-gray-700 hover:bg-gray-50", NO_FOCUS)}
@@ -1083,7 +1099,7 @@ export const FiltersModal = ({
             Cancelar
           </Button>
 
-          <Button className={cn("bg-blue-600 hover:bg-blue-700", NO_FOCUS)} onClick={commitAndApply}>
+          <Button className={cn("bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg transition-shadow", NO_FOCUS)} onClick={commitAndApply}>
             Aplicar filtros
           </Button>
         </footer>

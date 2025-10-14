@@ -156,8 +156,8 @@ export interface LeadFilters {
 
   /** ➕ CLT — filtros específicos */
   clt_consultado?: "sim" | "nao"
-  clt_elegivel?: "sim" | "nao"
-  clt_not_found?: "sim" | "nao"
+  /** novo filtro unificado de situação */
+  clt_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel"
   clt_consulta_from?: string
   clt_consulta_to?: string
   clt_admissao_from?: string
@@ -181,7 +181,7 @@ export interface LeadFilters {
   clt_ativos_min?: string | number
   clt_ativos_max?: string | number
   clt_tem_ativos?: "sim" | "nao"
-  /** 🔁 removidos min/max: manter apenas boolean */
+  /** 🔁 apenas boolean */
   clt_tem_legados?: "sim" | "nao"
 }
 
@@ -233,8 +233,7 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   // ➕ CLT – somente quando mode = "clt"
   if (mode === "clt") {
     if (f.clt_consultado) p.set("clt_consultado", f.clt_consultado)
-    if (f.clt_elegivel) p.set("clt_elegivel", f.clt_elegivel)
-    if (f.clt_not_found) p.set("clt_not_found", f.clt_not_found)
+    if (f.clt_situacao) p.set("clt_situacao", f.clt_situacao)
     if (f.clt_consulta_from) p.set("clt_consulta_from", f.clt_consulta_from)
     if (f.clt_consulta_to) p.set("clt_consulta_to", f.clt_consulta_to)
 
@@ -356,8 +355,7 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
 
       // ➕ CLT
       clt_consultado: filters.clt_consultado || undefined,
-      clt_elegivel: filters.clt_elegivel || undefined,
-      clt_not_found: filters.clt_not_found || undefined,
+      clt_situacao: filters.clt_situacao || undefined,
       clt_consulta_from: filters.clt_consulta_from || undefined,
       clt_consulta_to: filters.clt_consulta_to || undefined,
       clt_admissao_from: filters.clt_admissao_from || undefined,
