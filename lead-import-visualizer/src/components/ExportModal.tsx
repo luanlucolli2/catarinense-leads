@@ -10,77 +10,79 @@ interface ExportModalProps {
   mode: "FGTS" | "CLT";
 }
 
+type Group = "Cadastral" | "Produto" | "Registro";
+
 type ColumnDef = {
   id: string;
   label: string;
   selected: boolean;
-  group: "Cadastrais" | "Produto" | "Registro";
+  group: Group;
 };
 
-/** Catálogo de colunas por modo (alinhado ao ALLOWED_COLUMNS do backend) com grupos */
+/** Catálogo de colunas por modo (alinhado ao backend) com a MESMA organização de grupos do ColumnsModal */
 const COLUMNS_FGTS: ColumnDef[] = [
-  // Cadastrais
-  { id: "cpf", label: "CPF", selected: true, group: "Cadastrais" },
-  { id: "nome", label: "Nome", selected: true, group: "Cadastrais" },
-  { id: "data_nascimento", label: "Data de Nascimento", selected: true, group: "Cadastrais" },
-  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastrais" },
-  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastrais" },
-  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastrais" },
-  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastrais" },
-  { id: "classe_fone1", label: "Classe 1", selected: true, group: "Cadastrais" },
-  { id: "classe_fone2", label: "Classe 2", selected: true, group: "Cadastrais" },
-  { id: "classe_fone3", label: "Classe 3", selected: true, group: "Cadastrais" },
-  { id: "classe_fone4", label: "Classe 4", selected: true, group: "Cadastrais" },
+  // Cadastral
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
+  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastral" },
+  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastral" },
+  { id: "classe_fone1", label: "Classe do telefone 1", selected: true, group: "Cadastral" },
+  { id: "classe_fone2", label: "Classe do telefone 2", selected: true, group: "Cadastral" },
+  { id: "classe_fone3", label: "Classe do telefone 3", selected: true, group: "Cadastral" },
+  { id: "classe_fone4", label: "Classe do telefone 4", selected: true, group: "Cadastral" },
 
   // Produto (FGTS)
-  { id: "consulta", label: "Motivo (Consulta)", selected: true, group: "Produto" },
+  { id: "consulta", label: "Motivo da consulta", selected: true, group: "Produto" },
   { id: "saldo", label: "Saldo", selected: true, group: "Produto" },
-  { id: "libera", label: "Libera", selected: true, group: "Produto" },
-  { id: "data_atualizacao", label: "Data de Atualização", selected: true, group: "Produto" },
-  { id: "contracts_count", label: "Qtde de Contratos", selected: true, group: "Produto" },
-  { id: "data_contrato_recente", label: "Data de Contrato (mais recente)", selected: true, group: "Produto" },
+  { id: "libera", label: "Valor liberado", selected: true, group: "Produto" },
+  { id: "data_atualizacao", label: "Data de higienização", selected: true, group: "Produto" },
+  { id: "contracts_count", label: "Quantidade de contratos", selected: true, group: "Produto" },
+  { id: "data_contrato_recente", label: "Contrato mais recente (data)", selected: true, group: "Produto" },
   { id: "vendedor", label: "Vendedor", selected: true, group: "Produto" },
-  { id: "fgts_off_authorized", label: "Autorizado (FGTS OFF)", selected: true, group: "Produto" },
-  { id: "fgts_off_consultado_em", label: "Data consulta (FGTS OFF)", selected: true, group: "Produto" },
+  { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", selected: true, group: "Produto" },
+  { id: "fgts_off_consultado_em", label: "Consultado em (FGTS Off)", selected: true, group: "Produto" },
 
   // Registro
-  { id: "ultima_origem_cadastral", label: "Última Origem (Cadastral)", selected: true, group: "Registro" },
-  { id: "ultima_origem_higienizacao", label: "Última Origem (Higienização)", selected: true, group: "Registro" },
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
+  { id: "ultima_origem_higienizacao", label: "Origem de higienização", selected: true, group: "Registro" },
 ];
 
 const COLUMNS_CLT: ColumnDef[] = [
-  // Cadastrais
-  { id: "cpf", label: "CPF", selected: true, group: "Cadastrais" },
-  { id: "nome", label: "Nome", selected: true, group: "Cadastrais" },
-  { id: "data_nascimento", label: "Data de Nascimento", selected: true, group: "Cadastrais" },
-  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastrais" },
-  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastrais" },
-  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastrais" },
-  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastrais" },
-  { id: "classe_fone1", label: "Classe 1", selected: true, group: "Cadastrais" },
-  { id: "classe_fone2", label: "Classe 2", selected: true, group: "Cadastrais" },
-  { id: "classe_fone3", label: "Classe 3", selected: true, group: "Cadastrais" },
-  { id: "classe_fone4", label: "Classe 4", selected: true, group: "Cadastrais" },
+  // Cadastral
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
+  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastral" },
+  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastral" },
+  { id: "classe_fone1", label: "Classe do telefone 1", selected: true, group: "Cadastral" },
+  { id: "classe_fone2", label: "Classe do telefone 2", selected: true, group: "Cadastral" },
+  { id: "classe_fone3", label: "Classe do telefone 3", selected: true, group: "Cadastral" },
+  { id: "classe_fone4", label: "Classe do telefone 4", selected: true, group: "Cadastral" },
 
-  // Produto (snapshot CLT)
-  { id: "elegivel", label: "CLT Elegível", selected: true, group: "Produto" },
-  { id: "idade", label: "CLT Idade", selected: true, group: "Produto" },
-  { id: "sexo", label: "CLT Sexo", selected: true, group: "Produto" },
-  { id: "data_admissao", label: "CLT Data de Admissão", selected: true, group: "Produto" },
-  { id: "meses_admissao", label: "CLT Tempo de Casa (meses)", selected: true, group: "Produto" },
-  { id: "valor_renda", label: "CLT Renda Total", selected: true, group: "Produto" },
-  { id: "valor_base_margem", label: "CLT Base de Margem", selected: true, group: "Produto" },
-  { id: "margem_disponivel", label: "CLT Margem Disponível", selected: true, group: "Produto" },
-  { id: "valor_max_prestacao", label: "CLT Valor Máx. Prestação", selected: true, group: "Produto" },
-  { id: "categoria_trabalhador_codigo", label: "CLT Categoria do Trabalhador", selected: true, group: "Produto" },
-  { id: "inicio_atividade_empregador", label: "CLT Início Atividade (Empregador)", selected: true, group: "Produto" },
-  { id: "qtd_emprestimos_ativos_suspensos", label: "CLT Qtde Empréstimos Ativos/Suspensos", selected: true, group: "Produto" },
-  { id: "emprestimos_legados", label: "CLT Empréstimos Legados", selected: true, group: "Produto" },
-  { id: "not_found", label: "CLT Não Encontrado", selected: true, group: "Produto" },
-  { id: "clt_consultado_em", label: "CLT Consultado em", selected: true, group: "Produto" },
+  // Produto (CLT)
+  { id: "elegivel", label: "Elegível", selected: true, group: "Produto" },
+  { id: "clt_consultado_em", label: "Consultado em", selected: true, group: "Produto" },
+  { id: "idade", label: "Idade", selected: true, group: "Produto" },
+  { id: "sexo", label: "Sexo", selected: true, group: "Produto" },
+  { id: "data_admissao", label: "Admissão", selected: true, group: "Produto" },
+  { id: "meses_admissao", label: "Tempo de casa (meses)", selected: true, group: "Produto" },
+  { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", selected: true, group: "Produto" },
+  { id: "inicio_atividade_empregador", label: "Início de atividade (empregador)", selected: true, group: "Produto" },
+  { id: "valor_renda", label: "Renda", selected: true, group: "Produto" },
+  { id: "valor_base_margem", label: "Base de margem", selected: true, group: "Produto" },
+  { id: "margem_disponivel", label: "Margem disponível", selected: true, group: "Produto" },
+  { id: "valor_max_prestacao", label: "Prestação máxima", selected: true, group: "Produto" },
+  { id: "qtd_emprestimos_ativos_suspensos", label: "Empréstimos ativos/suspensos", selected: true, group: "Produto" },
+  { id: "emprestimos_legados", label: "Empréstimos legados", selected: true, group: "Produto" },
+  { id: "not_found", label: "Não encontrado", selected: true, group: "Produto" },
 
   // Registro
-  { id: "ultima_origem_cadastral", label: "Última Origem (Cadastral)", selected: true, group: "Registro" },
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
 ];
 
 export const ExportModal = ({
@@ -133,7 +135,7 @@ export const ExportModal = ({
     setSelectedColumns(newState);
   };
 
-  const handleSelectGroup = (group: ColumnDef["group"]) => {
+  const handleSelectGroup = (group: Group) => {
     const groupCols = columnsSource.filter(c => c.group === group);
     const allGroupSelected = groupCols.every(c => selectedColumns[c.id]);
     const newState = { ...selectedColumns };
@@ -150,8 +152,7 @@ export const ExportModal = ({
   };
 
   const selectedCount = Object.values(selectedColumns).filter(Boolean).length;
-
-  const groupsOrdered: ColumnDef["group"][] = ["Cadastrais", "Produto", "Registro"];
+  const groupsOrdered: Group[] = ["Cadastral", "Produto", "Registro"];
 
   if (!isOpen) return null;
 

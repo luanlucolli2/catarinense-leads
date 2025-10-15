@@ -18,54 +18,64 @@ interface ColumnsModalProps {
   defaultVisibleColumns: string[];
 }
 
-/** Catálogo (somente colunas configuráveis; Ações é sempre fixa e não aparece aqui) */
-const CATALOG: Record<Mode, { id: string; label: string; group: string; pinned?: boolean }[]> = {
+type Group = "Cadastral" | "Produto" | "Registro";
+
+type CatalogItem = {
+  id: string;
+  label: string;
+  group: Group;
+  pinned?: boolean;
+};
+
+/** Catálogo (somente colunas configuráveis; Ações é fixa) */
+const CATALOG: Record<Mode, CatalogItem[]> = {
   FGTS: [
-    { id: "cpf", label: "CPF", group: "Cadastrais", pinned: true },
-    { id: "nome", label: "Nome", group: "Cadastrais", pinned: true },
-    { id: "data_nascimento", label: "Data de Nascimento", group: "Cadastrais" },
-    { id: "telefone", label: "Telefone", group: "Cadastrais" },
-    { id: "classe", label: "Classe do Telefone", group: "Cadastrais" },
+    // Cadastral
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+    { id: "telefone", label: "Telefone", group: "Cadastral" },
+    { id: "classe", label: "Classe do telefone", group: "Cadastral" },
 
-    { id: "consulta", label: "Motivo (Consulta)", group: "Consulta" },
+    // Produto (FGTS)
+    { id: "consulta", label: "Motivo da consulta", group: "Produto" },
+    { id: "saldo", label: "Saldo", group: "Produto" },
+    { id: "libera", label: "Valor liberado", group: "Produto" },
+    { id: "data_atualizacao", label: "Data de higienização", group: "Produto" },
+    { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", group: "Produto" },
+    { id: "fgts_off_consultado_em", label: "Consultado em (FGTS Off)", group: "Produto" },
+    { id: "contratos", label: "Quantidade de contratos", group: "Produto" },
 
-    { id: "saldo", label: "Saldo", group: "Financeiro" },
-    { id: "libera", label: "Libera", group: "Financeiro" },
-
-    { id: "data_atualizacao", label: "Data de Higienização", group: "Datas" },
-    { id: "fgts_off_authorized", label: "FGTS OFF Autorizado", group: "FGTS OFF" },
-    { id: "fgts_off_consultado_em", label: "FGTS OFF Consultado em", group: "FGTS OFF" },
-
-    { id: "contratos", label: "Qtde de Contratos", group: "Histórico" },
-
-    { id: "ultima_origem_cadastral", label: "Última Origem (Cadastral)", group: "Origens" },
-    { id: "ultima_origem_higienizacao", label: "Última Origem (Higienização)", group: "Origens" },
+    // Registro
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
+    { id: "ultima_origem_higienizacao", label: "Origem de higienização", group: "Registro" },
   ],
+
   CLT: [
-    { id: "cpf", label: "CPF", group: "Cadastrais", pinned: true },
-    { id: "nome", label: "Nome", group: "Cadastrais", pinned: true },
-    { id: "data_nascimento", label: "Data de Nascimento", group: "Cadastrais" },
-    { id: "telefone", label: "Telefone", group: "Cadastrais" },
-    { id: "classe", label: "Classe do Telefone", group: "Cadastrais" },
-    { id: "idade", label: "Idade", group: "Cadastrais" },
-    { id: "sexo", label: "Sexo", group: "Cadastrais" },
+    // Cadastral
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+    { id: "telefone", label: "Telefone", group: "Cadastral" },
+    { id: "classe", label: "Classe do telefone", group: "Cadastral" },
 
-    { id: "elegivel", label: "Situação (Elegível/Não)", group: "Consulta CLT" },
-    { id: "clt_consultado_em", label: "Consulta CLT — Data", group: "Consulta CLT" },
+    // Produto (CLT) — (idade e sexo vêm do produto)
+    { id: "elegivel", label: "Elegível", group: "Produto" },
+    { id: "clt_consultado_em", label: "Consultado em", group: "Produto" },
+    { id: "idade", label: "Idade", group: "Produto" },
+    { id: "sexo", label: "Sexo", group: "Produto" },
+    { id: "data_admissao", label: "Admissão", group: "Produto" },
+    { id: "meses_admissao", label: "Tempo de casa (meses)", group: "Produto" },
+    { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", group: "Produto" },
+    { id: "valor_renda", label: "Renda", group: "Produto" },
+    { id: "valor_base_margem", label: "Base de margem", group: "Produto" },
+    { id: "margem_disponivel", label: "Margem disponível", group: "Produto" },
+    { id: "valor_max_prestacao", label: "Prestação máxima", group: "Produto" },
+    { id: "qtd_emprestimos_ativos_suspensos", label: "Empréstimos ativos/suspensos", group: "Produto" },
+    { id: "emprestimos_legados", label: "Empréstimos legados", group: "Produto" },
 
-    { id: "data_admissao", label: "Admissão", group: "Vínculo" },
-    { id: "meses_admissao", label: "Tempo de Casa (meses)", group: "Vínculo" },
-    { id: "categoria_trabalhador_codigo", label: "Categoria Trab. (cód.)", group: "Vínculo" },
-
-    { id: "valor_renda", label: "Renda", group: "Financeiro" },
-    { id: "valor_base_margem", label: "Base de Margem", group: "Financeiro" },
-    { id: "margem_disponivel", label: "Margem Disponível", group: "Financeiro" },
-    { id: "valor_max_prestacao", label: "Prestação Máx.", group: "Financeiro" },
-
-    { id: "qtd_emprestimos_ativos_suspensos", label: "Empréstimos Ativos/Suspensos", group: "Histórico" },
-    { id: "emprestimos_legados", label: "Empréstimos Legados", group: "Histórico" },
-
-    { id: "ultima_origem_cadastral", label: "Última Origem (Cadastral)", group: "Origens" }, // no final da tabela
+    // Registro
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
   ],
 };
 
@@ -100,7 +110,7 @@ export const ColumnsModal = ({
 
   const toggle = (id: string) => {
     const col = columnsSource.find(c => c.id === id);
-    if (col?.pinned) return; // não permite desmarcar fixas
+    if (col?.pinned) return;
     setSelected(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -131,8 +141,7 @@ export const ColumnsModal = ({
 
   const selectedCount = columnsSource.filter(c => selected[c.id] || c.pinned).length;
 
-  /** Agrupamento simples para UI */
-  const groups = Array.from(new Set(columnsSource.map(c => c.group)));
+  const groups: Group[] = ["Cadastral", "Produto", "Registro"];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
