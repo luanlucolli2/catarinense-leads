@@ -332,7 +332,7 @@ const CLTConsultaPage = () => {
     <div className="p-4 lg:p-6 max-w-full min-w-0">
       <div className="mb-6 max-w-full">
         <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">
-          Consulta CLT (Consignado em Folha)
+          Consulta CLT (Facta Crédito do Trabalhador)
         </h1>
         <p className="text-gray-600 text-sm lg:text-base">
           Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.
