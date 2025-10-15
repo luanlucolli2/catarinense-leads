@@ -72,6 +72,7 @@ const COLUMNS_CLT: ColumnDef[] = [
   { id: "data_admissao", label: "Data admissão", selected: true, group: "Produto" },
   { id: "meses_admissao", label: "Tempo de casa (meses)", selected: true, group: "Produto" },
   { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", selected: true, group: "Produto" },
+  { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", selected: true, group: "Produto" },
   { id: "valor_renda", label: "Renda", selected: true, group: "Produto" },
   { id: "valor_base_margem", label: "Base de margem", selected: true, group: "Produto" },
   { id: "margem_disponivel", label: "Margem disponível", selected: true, group: "Produto" },

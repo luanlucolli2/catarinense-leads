@@ -42,8 +42,14 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "data_nascimento",
-  "telefone",
-  "classe",
+
+  // 📱 por padrão só Fone 1 + Classe 1
+  "telefone_1",
+  "classe_1",
+
+  // os pares 2–4 ficam desmarcados por padrão
+  // "telefone_2","classe_2","telefone_3","classe_3","telefone_4","classe_4",
+
   "consulta",
   "saldo",
   "libera",
@@ -53,14 +59,20 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
   "contratos",
   "ultima_origem_cadastral",
   "ultima_origem_higienizacao",
-]
+];
 
 export const CLT_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "data_nascimento",
-  "telefone",
-  "classe",
+
+  // 📱 por padrão só Fone 1 + Classe 1
+  "telefone_1",
+  "classe_1",
+
+  // os pares 2–4 ficam desmarcados por padrão
+  // "telefone_2","classe_2","telefone_3","classe_3","telefone_4","classe_4",
+
   "idade",
   "sexo",
   "elegivel",
@@ -68,14 +80,18 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "data_admissao",
   "meses_admissao",
   "categoria_trabalhador_codigo",
+
+  // inicio_atividade_empregador fica disponível no modal, mas OFF no default
+  // "inicio_atividade_empregador",
+
   "valor_renda",
   "valor_base_margem",
   "margem_disponivel",
   "valor_max_prestacao",
   "qtd_emprestimos_ativos_suspensos",
   "emprestimos_legados",
-  "ultima_origem_cadastral", // mantida no final na tabela
-]
+  "ultima_origem_cadastral",
+];
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
@@ -98,12 +114,12 @@ const Dashboard = () => {
   const [origemFilter, setOrigemFilter] = usePersistedState<string[]>("dashboard:origemFilter", [])
   const [higienizacaoFilter, setHigienizacaoFilter] = usePersistedState<string[]>("dashboard:higienizacaoFilter", [])
   const [dateFromFilter, setDateFromFilter] = usePersistedState<string>("dashboard:dateFromFilter", "")
-  const [dateToFilter,    setDateToFilter] = usePersistedState<string>("dashboard:dateToFilter", "")
+  const [dateToFilter, setDateToFilter] = usePersistedState<string>("dashboard:dateToFilter", "")
   const [contractDateFromFilter, setContractDateFromFilter] = usePersistedState<string>("dashboard:contractDateFromFilter", "")
-  const [contractDateToFilter,   setContractDateToFilter]   = usePersistedState<string>("dashboard:contractDateToFilter", "")
-  const [cpfMassFilter,   setCpfMassFilter]   = usePersistedState<string>("dashboard:cpfMassFilter", "")
+  const [contractDateToFilter, setContractDateToFilter] = usePersistedState<string>("dashboard:contractDateToFilter", "")
+  const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>("dashboard:cpfMassFilter", "")
   const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>("dashboard:namesMassFilter", "")
-  const [phonesMassFilter,setPhonesMassFilter]= usePersistedState<string>("dashboard:phonesMassFilter", "")
+  const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
@@ -122,11 +138,11 @@ const Dashboard = () => {
   const [cltOrigemFilter, setCltOrigemFilter] = usePersistedState<string[]>("dashboard-clt:origemFilter", [])
   const [cltHigienizacaoFilter, setCltHigienizacaoFilter] = usePersistedState<string[]>("dashboard-clt:higienizacaoFilter", [])
   const [cltDateFromFilter, setCltDateFromFilter] = usePersistedState<string>("dashboard-clt:dateFromFilter", "")
-  const [cltDateToFilter,   setCltDateToFilter]   = usePersistedState<string>("dashboard-clt:dateToFilter", "")
+  const [cltDateToFilter, setCltDateToFilter] = usePersistedState<string>("dashboard-clt:dateToFilter", "")
   const [cltContractFromFilter, setCltContractFromFilter] = usePersistedState<string>("dashboard-clt:contractDateFromFilter", "")
-  const [cltContractToFilter,   setCltContractToFilter]   = usePersistedState<string>("dashboard-clt:contractDateToFilter", "")
-  const [cltCpfMassFilter,    setCltCpfMassFilter]    = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
-  const [cltNamesMassFilter,  setCltNamesMassFilter]  = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
+  const [cltContractToFilter, setCltContractToFilter] = usePersistedState<string>("dashboard-clt:contractDateToFilter", "")
+  const [cltCpfMassFilter, setCltCpfMassFilter] = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
+  const [cltNamesMassFilter, setCltNamesMassFilter] = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
   const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-clt:phonesMassFilter", "")
   const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
   const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
@@ -135,13 +151,13 @@ const Dashboard = () => {
   const [cltConsultado, setCltConsultado] = usePersistedState<YesNoAll>("dashboard-clt:consultado", "todos")
   const [cltSituacao, setCltSituacao] = usePersistedState<CltSituacaoFilter>("dashboard-clt:situacao", "todos")
   const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
-  const [cltConsultaTo,   setCltConsultaTo]   = usePersistedState<string>("dashboard-clt:consultaTo", "")
+  const [cltConsultaTo, setCltConsultaTo] = usePersistedState<string>("dashboard-clt:consultaTo", "")
   const [cltAdmissaoFrom, setCltAdmissaoFrom] = usePersistedState<string>("dashboard-clt:admissaoFrom", "")
-  const [cltAdmissaoTo,   setCltAdmissaoTo]   = usePersistedState<string>("dashboard-clt:admissaoTo", "")
+  const [cltAdmissaoTo, setCltAdmissaoTo] = usePersistedState<string>("dashboard-clt:admissaoTo", "")
   const [cltMesesMin, setCltMesesMin] = usePersistedState<string>("dashboard-clt:mesesMin", "")
   const [cltMesesMax, setCltMesesMax] = usePersistedState<string>("dashboard-clt:mesesMax", "")
   const [cltInicioEmpregadorFrom, setCltInicioEmpregadorFrom] = usePersistedState<string>("dashboard-clt:inicioEmpFrom", "")
-  const [cltInicioEmpregadorTo,   setCltInicioEmpregadorTo]   = usePersistedState<string>("dashboard-clt:inicioEmpTo", "")
+  const [cltInicioEmpregadorTo, setCltInicioEmpregadorTo] = usePersistedState<string>("dashboard-clt:inicioEmpTo", "")
   const [cltCategoriaCodigos, setCltCategoriaCodigos] = usePersistedState<string>("dashboard-clt:categoriaCodigos", "")
   const [cltIdadeMin, setCltIdadeMin] = usePersistedState<string>("dashboard-clt:idadeMin", "")
   const [cltIdadeMax, setCltIdadeMax] = usePersistedState<string>("dashboard-clt:idadeMax", "")
@@ -295,8 +311,8 @@ const Dashboard = () => {
         rawAuth === true || rawAuth === 1 || rawAuth === "1"
           ? true
           : rawAuth === false || rawAuth === 0 || rawAuth === "0"
-          ? false
-          : null
+            ? false
+            : null
 
       return {
         id: lead.id,
@@ -336,8 +352,8 @@ const Dashboard = () => {
         rawElegivel === true || rawElegivel === 1 || rawElegivel === "1"
           ? true
           : rawElegivel === false || rawElegivel === 0 || rawElegivel === "0"
-          ? false
-          : null
+            ? false
+            : null
 
       return {
         id: lead.id,
@@ -586,7 +602,7 @@ const Dashboard = () => {
       clt_categoria_codigos: catCodes,
       clt_idade_min: cltIdadeMin || undefined,
       clt_idade_max: cltIdadeMax || undefined,
-      clt_sexo: cltSexo.length ? (cltSexo as ("M"|"F")[]) : undefined,
+      clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
       clt_renda_min: cltRendaMin || undefined,
       clt_renda_max: cltRendaMax || undefined,
       clt_base_min: cltBaseMin || undefined,
@@ -621,46 +637,46 @@ const Dashboard = () => {
   // ======== Projeção de estados para o componente de controles (modo atual) ========
   const ui = activeTab === "FGTS"
     ? {
-        mode: "FGTS" as const,
-        searchValue, setSearchValue,
-        statusFilter, setStatusFilter,
-        motivosFilter, setMotivosFilter,
-        origemFilter, setOrigemFilter,
-        higienizacaoFilter, setHigienizacaoFilter,
-        dateFromFilter, setDateFromFilter,
-        dateToFilter, setDateToFilter,
-        contractDateFromFilter, setContractDateFromFilter,
-        contractDateToFilter, setContractDateToFilter,
-        cpfMassFilter, setCpfMassFilter,
-        namesMassFilter, setNamesMassFilter,
-        phonesMassFilter, setPhonesMassFilter,
-        vendorsFilter, setVendorsFilter,
-        birthMonthFilter, setBirthMonthFilter,
-        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
-        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
-        fgtsConsultaToFilter, setFgtsConsultaToFilter,
-      }
+      mode: "FGTS" as const,
+      searchValue, setSearchValue,
+      statusFilter, setStatusFilter,
+      motivosFilter, setMotivosFilter,
+      origemFilter, setOrigemFilter,
+      higienizacaoFilter, setHigienizacaoFilter,
+      dateFromFilter, setDateFromFilter,
+      dateToFilter, setDateToFilter,
+      contractDateFromFilter, setContractDateFromFilter,
+      contractDateToFilter, setContractDateToFilter,
+      cpfMassFilter, setCpfMassFilter,
+      namesMassFilter, setNamesMassFilter,
+      phonesMassFilter, setPhonesMassFilter,
+      vendorsFilter, setVendorsFilter,
+      birthMonthFilter, setBirthMonthFilter,
+      fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+      fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+      fgtsConsultaToFilter, setFgtsConsultaToFilter,
+    }
     : {
-        mode: "CLT" as const,
-        searchValue: cltSearchValue, setSearchValue: setCltSearchValue,
-        statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
-        motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
-        origemFilter: cltOrigemFilter, setOrigemFilter: setCltOrigemFilter,
-        higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
-        dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
-        dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
-        contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
-        contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
-        cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
-        namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
-        phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
-        vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
-        birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
-        // FGTS OFF não se aplica no CLT (passamos defaults não usados no modal CLT)
-        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
-        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
-        fgtsConsultaToFilter, setFgtsConsultaToFilter,
-      }
+      mode: "CLT" as const,
+      searchValue: cltSearchValue, setSearchValue: setCltSearchValue,
+      statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
+      motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
+      origemFilter: cltOrigemFilter, setOrigemFilter: setCltOrigemFilter,
+      higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
+      dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
+      dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
+      contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
+      contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
+      cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
+      namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
+      phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
+      vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
+      birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
+      // FGTS OFF não se aplica no CLT (passamos defaults não usados no modal CLT)
+      fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+      fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+      fgtsConsultaToFilter, setFgtsConsultaToFilter,
+    }
 
   return (
     <div className="max-w-full p-4 lg:p-6">

@@ -43,6 +43,7 @@ export interface ProcessedLeadFGTS {
   fgts_off_consultado_em: string; // string data formatada OU ""
 }
 
+// 🔁 ajustado: removemos ids antigos "telefone" e "classe" e adicionamos telefone_1..4 e classe_1..4
 type SortFieldFGTS =
   | "nome"
   | "cpf"
@@ -56,6 +57,7 @@ type SortFieldFGTS =
   | "ultima_origem_higienizacao"
   | "fgts_off_authorized"
   | "fgts_off_consultado_em";
+
 type SortDirection = "asc" | "desc";
 
 interface LeadsTableFGTSProps {
@@ -242,60 +244,38 @@ export const LeadsTableFGTS = ({
     </span>
   );
 
+  // helper para header genérico
+  const Th = ({
+    children,
+    align = "left",
+    minW = "min-w-[120px]",
+  }: {
+    children: React.ReactNode;
+    align?: "left" | "center" | "right";
+    minW?: string;
+  }) => (
+    <th
+      className={cn(
+        "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider",
+        align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left",
+        minW
+      )}
+    >
+      {children}
+    </th>
+  );
+
   /** ===== catálogo de colunas FGTS ===== */
-  const cols = [
+  const phonePairCols = (idx: 1 | 2 | 3 | 4) => ([
     {
-      id: "cpf",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[96px] text-left">
-          <SortButton field="cpf" align="left">CPF</SortButton>
-        </th>
-      ),
-      cell: (lead: ProcessedLeadFGTS) => (
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[96px]">
-          {display(lead.cpf)}
-        </td>
-      ),
-    },
-    {
-      id: "nome",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[140px] text-left">
-          <SortButton field="nome" align="left">Nome</SortButton>
-        </th>
-      ),
-      cell: (lead: ProcessedLeadFGTS) => (
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
-          {display(lead.nome)}
-        </td>
-      ),
-    },
-    {
-      id: "data_nascimento",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-center">
-          <SortButton field="data_nascimento" align="center">Data nasc.</SortButton>
-        </th>
-      ),
-      cell: (lead: ProcessedLeadFGTS) => (
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[110px]">
-          {display(lead.data_nascimento)}
-        </td>
-      ),
-    },
-    {
-      id: "telefone",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-left">
-          Telefone
-        </th>
-      ),
+      id: `telefone_${idx}`,
+      header: <Th minW="min-w-[110px]">Fone {idx}</Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[110px]">
-          {lead.telefones.length > 0 ? (
+          {lead.telefones[idx - 1]?.fone ? (
             <div className="flex items-center space-x-2">
-              <span className="font-mono">{display(lead.telefones[0].fone)}</span>
-              {lead.telefones.length > 1 && (
+              <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span>
+              {idx === 1 && lead.telefones.length > 1 && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -318,14 +298,10 @@ export const LeadsTableFGTS = ({
       ),
     },
     {
-      id: "classe",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[84px] text-center">
-          Classe
-        </th>
-      ),
+      id: `classe_${idx}`,
+      header: <Th align="center" minW="min-w-[84px]">Classe {idx}</Th>,
       cell: (lead: ProcessedLeadFGTS) => {
-        const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
+        const classeInfo = getClasseBadge(lead.telefones[idx - 1]?.classe);
         return (
           <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[84px]">
             <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", classeInfo.cls)}>
@@ -335,13 +311,46 @@ export const LeadsTableFGTS = ({
         );
       },
     },
+  ] as const);
+
+  const cols = [
+    {
+      id: "cpf",
+      header: <Th minW="min-w-[96px]"><SortButton field="cpf">CPF</SortButton></Th>,
+      cell: (lead: ProcessedLeadFGTS) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[96px]">
+          {display(lead.cpf)}
+        </td>
+      ),
+    },
+    {
+      id: "nome",
+      header: <Th minW="min-w-[140px]"><SortButton field="nome">Nome</SortButton></Th>,
+      cell: (lead: ProcessedLeadFGTS) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">
+          {display(lead.nome)}
+        </td>
+      ),
+    },
+    {
+      id: "data_nascimento",
+      header: <Th align="center" minW="min-w-[110px]"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>,
+      cell: (lead: ProcessedLeadFGTS) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[110px]">
+          {display(lead.data_nascimento)}
+        </td>
+      ),
+    },
+
+    // 👉 pares: Fone 1/Classe1 … Fone 4/Classe4
+    ...phonePairCols(1),
+    ...phonePairCols(2),
+    ...phonePairCols(3),
+    ...phonePairCols(4),
+
     {
       id: "consulta",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[150px] text-center">
-          <SortButton field="consulta" align="center">Motivo</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[150px]"><SortButton field="consulta" align="center">Motivo</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[150px]">
           <span className="text-xs text-gray-600 truncate max-w-[150px] inline-block">
@@ -352,11 +361,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "saldo",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[96px] text-right">
-          <SortButton field="saldo" align="right">Saldo</SortButton>
-        </th>
-      ),
+      header: <Th align="right" minW="min-w-[96px]"><SortButton field="saldo" align="right">Saldo</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[96px]">
           {display(lead.saldo)}
@@ -365,11 +370,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "libera",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[96px] text-right">
-          <SortButton field="libera" align="right">Libera</SortButton>
-        </th>
-      ),
+      header: <Th align="right" minW="min-w-[96px]"><SortButton field="libera" align="right">Libera</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[96px]">
           {display(lead.libera)}
@@ -378,11 +379,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "data_atualizacao",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[110px] text-center">
-          <SortButton field="data_atualizacao" align="center">Data hig.</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[110px]"><SortButton field="data_atualizacao" align="center">Data hig.</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[110px]">
           {display(lead.data_atualizacao)}
@@ -391,11 +388,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "fgts_off_authorized",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[150px] text-center">
-          <SortButton field="fgts_off_authorized" align="center">Autorizado (FGTS OFF)</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[150px]"><SortButton field="fgts_off_authorized" align="center">Autorizado (FGTS OFF)</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[150px]">
           {renderFgtsOffPill(lead.fgts_off_authorized)}
@@ -404,11 +397,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "fgts_off_consultado_em",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[150px] text-center">
-          <SortButton field="fgts_off_consultado_em" align="center">Data consulta (FGTS OFF)</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[150px]"><SortButton field="fgts_off_consultado_em" align="center">Data consulta (FGTS OFF)</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[150px]">
           {lead.fgts_off_consultado_em ? lead.fgts_off_consultado_em : renderNotConsultedBadge()}
@@ -417,11 +406,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "contratos",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[72px] text-right">
-          <SortButton field="contratos" align="right">Contratos</SortButton>
-        </th>
-      ),
+      header: <Th align="right" minW="min-w-[72px]"><SortButton field="contratos" align="right">Contratos</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[72px]">
           {typeof lead.contratos === "number" ? lead.contratos : EMPTY}
@@ -430,11 +415,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "ultima_origem_cadastral",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[130px] text-center">
-          <SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[130px]"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">
           {lead.ultima_origem_cadastral ? (
@@ -451,11 +432,7 @@ export const LeadsTableFGTS = ({
     },
     {
       id: "ultima_origem_higienizacao",
-      header: (
-        <th className="px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[130px] text-center">
-          <SortButton field="ultima_origem_higienizacao" align="center">Última origem (hig.)</SortButton>
-        </th>
-      ),
+      header: <Th align="center" minW="min-w-[130px]"><SortButton field="ultima_origem_higienizacao" align="center">Última origem (hig.)</SortButton></Th>,
       cell: (lead: ProcessedLeadFGTS) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">
           {lead.ultima_origem_higienizacao ? (
@@ -491,16 +468,20 @@ export const LeadsTableFGTS = ({
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
         if (c.id === "data_nascimento" || c.id === "data_atualizacao" || c.id === "fgts_off_consultado_em")
           return <SkeletonCell key={idx} w="w-24" align="center" />;
+
         if (
-          c.id === "classe" ||
+          c.id.startsWith("classe_") ||
           c.id === "consulta" ||
           c.id === "ultima_origem_cadastral" ||
           c.id === "ultima_origem_higienizacao" ||
           c.id === "fgts_off_authorized"
         )
           return <SkeletonCell key={idx} w="w-24" align="center" />;
+
         if (c.id === "saldo" || c.id === "libera" || c.id === "contratos")
           return <SkeletonCell key={idx} w="w-16" align="right" />;
+
+        // telefones_X e default
         return <SkeletonCell key={idx} w="w-32" align="left" />;
       })}
       <td
@@ -564,7 +545,7 @@ export const LeadsTableFGTS = ({
             <table className={cn("w-full", tableMinWidthFGTS)}>
               <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
-                  {visibleCols.map((c) => React.cloneElement(c.header, { key: c.id }))}
+                  {visibleCols.map((c) => React.cloneElement(c.header as any, { key: c.id }))}
                   {/* Header Ações sticky */}
                   <th
                     className={cn(
@@ -730,12 +711,8 @@ export const LeadsTableCLT = ({
     setSelectedLeadId(null);
   };
   const handleSort = (field: SortFieldCLT) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
-    }
+    if (sortField === field) setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDirection("asc"); }
   };
 
   const valueForSort = (x: ProcessedLeadCLT, field: SortFieldCLT) => {
@@ -790,11 +767,7 @@ export const LeadsTableCLT = ({
     >
       <span>{children}</span>
       {sortField === field ? (
-        sortDirection === "asc" ? (
-          <ChevronUp className="w-3 h-3" />
-        ) : (
-          <ChevronDown className="w-3 h-3" />
-        )
+        sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
       ) : (
         <div className="w-3 h-3" />
       )}
@@ -833,6 +806,55 @@ export const LeadsTableCLT = ({
     );
   };
 
+  /* util header cell */
+  const Th = ({
+    children,
+    align = "left",
+  }: {
+    children: React.ReactNode;
+    align?: "left" | "center" | "right";
+  }) => (
+    <th
+      className={cn(
+        "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider",
+        align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left",
+        "min-w-[120px]"
+      )}
+    >
+      {children}
+    </th>
+  );
+
+  const phonePairCols = (idx: 1 | 2 | 3 | 4) => ([
+    {
+      id: `telefone_${idx}`,
+      header: <Th>Fone {idx}</Th>,
+      cell: (lead: ProcessedLeadCLT) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">
+          {lead.telefones[idx - 1]?.fone ? (
+            <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span>
+          ) : (
+            EMPTY
+          )}
+        </td>
+      ),
+    },
+    {
+      id: `classe_${idx}`,
+      header: <Th align="center">Classe {idx}</Th>,
+      cell: (lead: ProcessedLeadCLT) => {
+        const classeInfo = getClasseBadge(lead.telefones[idx - 1]?.classe);
+        return (
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]">
+            <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", classeInfo.cls)}>
+              {classeInfo.label}
+            </span>
+          </td>
+        );
+      },
+    },
+  ] as const);
+
   /** ===== catálogo de colunas CLT ===== */
   const cols = [
     {
@@ -862,50 +884,13 @@ export const LeadsTableCLT = ({
         </td>
       ),
     },
-    {
-      id: "telefone",
-      header: <Th>Telefone</Th>,
-      cell: (lead: ProcessedLeadCLT) => (
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">
-          {lead.telefones.length > 0 ? (
-            <div className="flex items-center space-x-2">
-              <span className="font-mono">{display(lead.telefones[0].fone)}</span>
-              {lead.telefones.length > 1 && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="flex items-center text-xs bg-gray-200 text-gray-600 rounded-full px-2 py-0.5">
-                        <Phone className="w-3 h-3 mr-1" />
-                        +{lead.telefones.length - 1}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Este lead possui mais telefones.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          ) : (
-            EMPTY
-          )}
-        </td>
-      ),
-    },
-    {
-      id: "classe",
-      header: <Th align="center">Classe</Th>,
-      cell: (lead: ProcessedLeadCLT) => {
-        const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
-        return (
-          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]">
-            <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", classeInfo.cls)}>
-              {classeInfo.label}
-            </span>
-          </td>
-        );
-      },
-    },
+
+    // 👉 pares: Fone/Classe (1..4)
+    ...phonePairCols(1),
+    ...phonePairCols(2),
+    ...phonePairCols(3),
+    ...phonePairCols(4),
+
     {
       id: "idade",
       header: <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>,
@@ -977,6 +962,18 @@ export const LeadsTableCLT = ({
         </td>
       ),
     },
+
+    // 🆕 início atividade do empregador (configurável)
+    {
+      id: "inicio_atividade_empregador",
+      header: <Th align="center">Início atividade (empregador)</Th>,
+      cell: (lead: ProcessedLeadCLT) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">
+          {display(lead.inicio_atividade_empregador)}
+        </td>
+      ),
+    },
+
     {
       id: "valor_renda",
       header: <Th align="right"><SortButton field="valor_renda" align="right">Renda</SortButton></Th>,
@@ -1025,12 +1022,17 @@ export const LeadsTableCLT = ({
     {
       id: "emprestimos_legados",
       header: <Th align="center"><SortButton field="emprestimos_legados" align="center">Legados</SortButton></Th>,
-      cell: (lead: ProcessedLeadCLT) => (
-        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">
-          {display(lead.emprestimos_legados)}
-        </td>
-      ),
+      cell: (lead: ProcessedLeadCLT) => {
+        const v = lead.emprestimos_legados;
+        const label = v === 1 ? "Sim" : v === 0 ? "Não" : (v ?? EMPTY);
+        return (
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">
+            {label}
+          </td>
+        );
+      },
     },
+
     {
       id: "ultima_origem_cadastral",
       header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>,
@@ -1071,14 +1073,10 @@ export const LeadsTableCLT = ({
           return <SkeletonCell key={idx} w="w-24" align="center" />;
         if (
           [
-            "classe",
-            "idade",
-            "sexo",
-            "categoria_trabalhador_codigo",
-            "qtd_emprestimos_ativos_suspensos",
-            "emprestimos_legados",
-            "ultima_origem_cadastral",
-            "elegivel",
+            "classe_1", "classe_2", "classe_3", "classe_4",
+            "idade", "sexo", "categoria_trabalhador_codigo",
+            "qtd_emprestimos_ativos_suspensos", "emprestimos_legados",
+            "ultima_origem_cadastral", "elegivel", "inicio_atividade_empregador"
           ].includes(c.id)
         )
           return <SkeletonCell key={idx} w="w-24" align="center" />;
@@ -1098,9 +1096,7 @@ export const LeadsTableCLT = ({
   );
 
   const renderTableBody = () => {
-    if (isLoading) {
-      return Array.from({ length: 8 }).map((_, i) => renderSkeleton(i));
-    }
+    if (isLoading) return Array.from({ length: 8 }).map((_, i) => renderSkeleton(i));
     if (leads.length === 0) {
       return (
         <tr>
@@ -1147,7 +1143,7 @@ export const LeadsTableCLT = ({
             <table className={cn("w-full", tableMinWidthCLT)}>
               <thead className="bg-gray-50 sticky top-0 z-30">
                 <tr>
-                  {visibleCols.map((c) => React.cloneElement(c.header, { key: c.id }))}
+                  {visibleCols.map((c) => React.cloneElement(c.header as any, { key: c.id }))}
                   <th
                     className={cn(
                       "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider text-center sticky right-0 z-40 bg-gray-50 border-l border-gray-200",
@@ -1172,7 +1168,7 @@ export const LeadsTableCLT = ({
                   <h3 className="font-medium text-gray-900 truncate">{display(lead.nome)}</h3>
                   <p className="text-sm font-mono text-gray-600 truncate">{display(lead.cpf)}</p>
                   <p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p>
-                  <p className="text-xs text-gray-600">Categoria: {display(lead.categoria_trabalhador_codigo)}</p>
+                  <p className="text-sm font-mono text-gray-600 truncate">{lead.telefones[0]?.fone || EMPTY}</p>
                 </div>
                 <Button
                   onClick={() => {
@@ -1192,10 +1188,10 @@ export const LeadsTableCLT = ({
                   {lead.not_found
                     ? "Não encontrado"
                     : lead.elegivel === true
-                    ? "Elegível"
-                    : lead.elegivel === false
-                    ? "Não elegível"
-                    : "—"}
+                      ? "Elegível"
+                      : lead.elegivel === false
+                        ? "Não elegível"
+                        : "—"}
                 </p>
               </div>
             </div>
@@ -1232,22 +1228,3 @@ export const LeadsTableCLT = ({
     </>
   );
 };
-
-/* util header cell */
-const Th = ({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "center" | "right";
-}) => (
-  <th
-    className={cn(
-      "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider",
-      align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left",
-      "min-w-[120px]"
-    )}
-  >
-    {children}
-  </th>
-);
