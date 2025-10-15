@@ -1,9 +1,10 @@
-import { Search, Upload, Download, Filter } from "lucide-react";
+import { Search, Upload, Download, Filter, Columns as ColumnsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { FiltersModal } from "./FiltersModal";
+import { ColumnsModal } from "./columns/ColumnsModal";
 
 interface LeadsControlsProps {
   /** Modo atual da listagem / filtros */
@@ -134,6 +135,16 @@ interface LeadsControlsProps {
   /** Somente booleano de legados */
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
+
+  /** ===== Colunas visíveis (por modo) ===== */
+  visibleColumnsFGTS: string[];
+  onVisibleColumnsFGTSChange: (cols: string[]) => void;
+  visibleColumnsCLT: string[];
+  onVisibleColumnsCLTChange: (cols: string[]) => void;
+
+  /** Defaults (para botão "Redefinir") */
+  defaultVisibleColumnsFGTS: string[];
+  defaultVisibleColumnsCLT: string[];
 }
 
 export const LeadsControls = ({
@@ -237,8 +248,37 @@ export const LeadsControls = ({
   onCltTemAtivosChange,
   cltTemLegados,
   onCltTemLegadosChange,
+
+  /** Colunas visíveis */
+  visibleColumnsFGTS,
+  onVisibleColumnsFGTSChange,
+  visibleColumnsCLT,
+  onVisibleColumnsCLTChange,
+  defaultVisibleColumnsFGTS,
+  defaultVisibleColumnsCLT,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
+  const [isColumnsModalOpen, setIsColumnsModalOpen] = useState(false);
+
+  const currentVisible = mode === "FGTS" ? visibleColumnsFGTS : visibleColumnsCLT;
+  const currentDefaults = mode === "FGTS" ? defaultVisibleColumnsFGTS : defaultVisibleColumnsCLT;
+
+  const onSaveVisible = (cols: string[]) => {
+    if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
+    else onVisibleColumnsCLTChange(cols);
+  };
+
+  // === Detecta customização de colunas (diferente do padrão "todas") ===
+  const hasCustomColumns = useMemo(() => {
+    if (!currentDefaults?.length) return false;
+    if (!currentVisible?.length) return false;
+    if (currentVisible.length !== currentDefaults.length) return true;
+    const a = new Set(currentVisible);
+    for (const d of currentDefaults) {
+      if (!a.has(d)) return true;
+    }
+    return false;
+  }, [currentVisible, currentDefaults]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm mb-6">
@@ -258,6 +298,23 @@ export const LeadsControls = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setIsColumnsModalOpen(true)}
+              variant="outline"
+              size="sm"
+              className={cn(
+                "flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative",
+                hasCustomColumns && "border-blue-500 bg-blue-50 text-blue-700"
+              )}
+              title="Selecionar colunas visíveis"
+            >
+              <ColumnsIcon className="w-4 h-4" />
+              Colunas
+              {hasCustomColumns && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
+              )}
+            </Button>
+
             <Button
               onClick={() => setIsFiltersModalOpen(true)}
               variant="outline"
@@ -413,6 +470,15 @@ export const LeadsControls = ({
         onCltTemAtivosChange={onCltTemAtivosChange}
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={onCltTemLegadosChange}
+      />
+
+      <ColumnsModal
+        isOpen={isColumnsModalOpen}
+        onClose={() => setIsColumnsModalOpen(false)}
+        mode={mode}
+        visibleColumns={currentVisible}
+        onSave={onSaveVisible}
+        defaultVisibleColumns={currentDefaults}
       />
     </div>
   );
