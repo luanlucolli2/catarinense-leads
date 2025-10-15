@@ -37,9 +37,59 @@ type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
 type ActiveTab = "FGTS" | "CLT"
 
+/** =================== Visibilidade de colunas (defaults) =================== */
+export const FGTS_COLUMNS_DEFAULT: string[] = [
+  "cpf",
+  "nome",
+  "data_nascimento",
+  "telefone",
+  "classe",
+  "consulta",
+  "saldo",
+  "libera",
+  "data_atualizacao",
+  "fgts_off_authorized",
+  "fgts_off_consultado_em",
+  "contratos",
+  "ultima_origem_cadastral",
+  "ultima_origem_higienizacao",
+]
+
+export const CLT_COLUMNS_DEFAULT: string[] = [
+  "cpf",
+  "nome",
+  "data_nascimento",
+  "telefone",
+  "classe",
+  "idade",
+  "sexo",
+  "elegivel",
+  "clt_consultado_em",
+  "data_admissao",
+  "meses_admissao",
+  "categoria_trabalhador_codigo",
+  "valor_renda",
+  "valor_base_margem",
+  "margem_disponivel",
+  "valor_max_prestacao",
+  "qtd_emprestimos_ativos_suspensos",
+  "emprestimos_legados",
+  "ultima_origem_cadastral", // mantida no final na tabela
+]
+
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
   const [currentPage, setCurrentPage] = useState(1)
+
+  /** =================== Estado persistido de colunas visíveis =================== */
+  const [fgtsVisibleColumns, setFgtsVisibleColumns] = usePersistedState<string[]>(
+    "leadstable:fgts:visibleColumns:v1",
+    FGTS_COLUMNS_DEFAULT
+  )
+  const [cltVisibleColumns, setCltVisibleColumns] = usePersistedState<string[]>(
+    "leadstable:clt:visibleColumns:v1",
+    CLT_COLUMNS_DEFAULT
+  )
 
   /* =========================  FGTS (persistido)  ========================= */
   const [searchValue, setSearchValue] = usePersistedState<string>("dashboard:searchValue", "")
@@ -757,6 +807,14 @@ const Dashboard = () => {
         onCltTemAtivosChange={setCltTemAtivos}
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={setCltTemLegados}
+
+        /* ====== Colunas visíveis ====== */
+        visibleColumnsFGTS={fgtsVisibleColumns}
+        onVisibleColumnsFGTSChange={setFgtsVisibleColumns}
+        visibleColumnsCLT={cltVisibleColumns}
+        onVisibleColumnsCLTChange={setCltVisibleColumns}
+        defaultVisibleColumnsFGTS={FGTS_COLUMNS_DEFAULT}
+        defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
       />
 
       {activeTab === "FGTS" ? (
@@ -766,6 +824,7 @@ const Dashboard = () => {
           totalPages={last_page}
           onPageChange={setCurrentPage}
           isLoading={isLoading || loadingOptions}
+          visibleColumns={fgtsVisibleColumns}
         />
       ) : (
         <LeadsTableCLT
@@ -774,6 +833,7 @@ const Dashboard = () => {
           totalPages={last_page}
           onPageChange={setCurrentPage}
           isLoading={isLoading || loadingOptions}
+          visibleColumns={cltVisibleColumns}
         />
       )}
 
