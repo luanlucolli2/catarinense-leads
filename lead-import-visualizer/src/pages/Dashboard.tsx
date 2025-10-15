@@ -13,14 +13,14 @@ import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
 import { ExportModal } from "@/components/ExportModal"
 import {
-  fetchLeadsFGTS,
-  fetchLeadsCLT,
-  fetchLeadsFilters,
-  exportLeads,
-  LeadFromApiFGTS,
-  LeadFromApiCLT,
-  PaginatedLeadsResponseFGTS,
-  PaginatedLeadsResponseCLT,
+    fetchLeadsFGTS,
+    fetchLeadsCLT,
+    fetchLeadsFilters,
+    exportLeads,
+    LeadFromApiFGTS,
+    LeadFromApiCLT,
+    PaginatedLeadsResponseFGTS,
+    PaginatedLeadsResponseCLT,
 } from "@/api/leads"
 import {
   formatCPF,
@@ -37,19 +37,12 @@ type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
 type ActiveTab = "FGTS" | "CLT"
 
-/** =================== Visibilidade de colunas (defaults) =================== */
 export const FGTS_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "data_nascimento",
-
-  // 📱 por padrão só Fone 1 + Classe 1
   "telefone_1",
   "classe_1",
-
-  // os pares 2–4 ficam desmarcados por padrão
-  // "telefone_2","classe_2","telefone_3","classe_3","telefone_4","classe_4",
-
   "consulta",
   "saldo",
   "libera",
@@ -65,14 +58,8 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "data_nascimento",
-
-  // 📱 por padrão só Fone 1 + Classe 1
   "telefone_1",
   "classe_1",
-
-  // os pares 2–4 ficam desmarcados por padrão
-  // "telefone_2","classe_2","telefone_3","classe_3","telefone_4","classe_4",
-
   "idade",
   "sexo",
   "elegivel",
@@ -80,10 +67,6 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "data_admissao",
   "meses_admissao",
   "categoria_trabalhador_codigo",
-
-  // inicio_atividade_empregador fica disponível no modal, mas OFF no default
-  // "inicio_atividade_empregador",
-
   "valor_renda",
   "valor_base_margem",
   "margem_disponivel",
@@ -97,7 +80,6 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
   const [currentPage, setCurrentPage] = useState(1)
 
-  /** =================== Estado persistido de colunas visíveis =================== */
   const [fgtsVisibleColumns, setFgtsVisibleColumns] = usePersistedState<string[]>(
     "leadstable:fgts:visibleColumns:v1",
     FGTS_COLUMNS_DEFAULT
@@ -123,7 +105,7 @@ const Dashboard = () => {
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
-  /** ➕ FGTS OFF (tri-estado) – só fazem efeito no modo FGTS */
+  /** ➕ FGTS OFF */
   const [fgtsAuthorizedFilter, setFgtsAuthorizedFilter] =
     usePersistedState<FgtsStatusFilter>("dashboard:fgtsAuthorizedFilter", "todos")
   const [fgtsConsultaFromFilter, setFgtsConsultaFromFilter] =
@@ -147,7 +129,6 @@ const Dashboard = () => {
   const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
   const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
 
-  // —— CLT específicos ——
   const [cltConsultado, setCltConsultado] = usePersistedState<YesNoAll>("dashboard-clt:consultado", "todos")
   const [cltSituacao, setCltSituacao] = usePersistedState<CltSituacaoFilter>("dashboard-clt:situacao", "todos")
   const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
@@ -187,11 +168,10 @@ const Dashboard = () => {
     staleTime: 1000 * 60 * 5,
   })
 
-  /** fetch paginado – chave inclui aba ativa e filtros do modo ativo */
   const {
     data: paginatedData,
     isLoading,
-    isFetching,
+    isFetching, // ← usado no skeleton durante mudança de filtros/página
     isError,
     refetch,
   } = useQuery<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT>({
@@ -199,18 +179,15 @@ const Dashboard = () => {
       "leads",
       activeTab,
       currentPage,
-
-      // —— FGTS comuns
+      // FGTS
       searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
       dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
       cpfMassFilter, namesMassFilter, phonesMassFilter, vendorsFilter, birthMonthFilter,
       fgtsAuthorizedFilter, fgtsConsultaFromFilter, fgtsConsultaToFilter,
-
-      // —— CLT comuns
+      // CLT
       cltSearchValue, cltStatusFilter, cltMotivosFilter, cltOrigemFilter, cltHigienizacaoFilter,
       cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
       cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltVendorsFilter, cltBirthMonthFilter,
-      // CLT específicos
       cltConsultado, cltSituacao,
       cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
@@ -241,7 +218,6 @@ const Dashboard = () => {
         })
       }
 
-      // —— CLT
       const catCodes = cltCategoriaCodigos
         ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
         : undefined
@@ -249,18 +225,15 @@ const Dashboard = () => {
         page: currentPage,
         search: cltSearchValue,
         status: cltStatusFilter,
-        // CLT: apenas filtros válidos
         origens: cltOrigemFilter,
         cpf: cltCpfMassFilter,
         names: cltNamesMassFilter,
         phones: cltPhonesMassFilter,
         birth_month: cltBirthMonthFilter,
-
         clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
         clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
         clt_consulta_from: cltConsultaFrom || undefined,
         clt_consulta_to: cltConsultaTo || undefined,
-
         clt_admissao_from: cltAdmissaoFrom || undefined,
         clt_admissao_to: cltAdmissaoTo || undefined,
         clt_meses_min: cltMesesMin || undefined,
@@ -271,7 +244,6 @@ const Dashboard = () => {
         clt_idade_min: cltIdadeMin || undefined,
         clt_idade_max: cltIdadeMax || undefined,
         clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
-
         clt_renda_min: cltRendaMin || undefined,
         clt_renda_max: cltRendaMax || undefined,
         clt_base_min: cltBaseMin || undefined,
@@ -280,12 +252,9 @@ const Dashboard = () => {
         clt_margem_max: cltMargemMax || undefined,
         clt_prestacao_min: cltPrestacaoMin || undefined,
         clt_prestacao_max: cltPrestacaoMax || undefined,
-
         clt_ativos_min: cltAtivosMin || undefined,
         clt_ativos_max: cltAtivosMax || undefined,
         clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
-
-        // somente boolean de legados (sem min/max)
         clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
       })
     },
@@ -293,7 +262,6 @@ const Dashboard = () => {
     refetchOnWindowFocus: true,
   })
 
-  /** mapeamentos FGTS / CLT */
   const processedLeadsFGTS: ProcessedLeadFGTS[] = useMemo(() => {
     if (activeTab !== "FGTS") return []
     const resp = paginatedData as PaginatedLeadsResponseFGTS | undefined
@@ -383,7 +351,6 @@ const Dashboard = () => {
     })
   }, [paginatedData, activeTab])
 
-  /* ---------- toasts controlados ---------- */
   const [awaitingFetch, setAwaitingFetch] = useState<null | "apply" | "clear">(null)
   const [pendingToastId, setPendingToastId] = useState<string | number | null>(null)
 
@@ -415,7 +382,6 @@ const Dashboard = () => {
     }
   }, [pendingToastId])
 
-  /* ---------- handlers ---------- */
   const handleApplyFilters = () => {
     setCurrentPage(1)
     setAwaitingFetch("apply")
@@ -459,7 +425,6 @@ const Dashboard = () => {
     setCltPhonesMassFilter("")
     setCltVendorsFilter([])
     setCltBirthMonthFilter([])
-
     setCltConsultado("todos")
     setCltSituacao("todos")
     setCltConsultaFrom("")
@@ -485,14 +450,12 @@ const Dashboard = () => {
     setCltAtivosMin("")
     setCltAtivosMax("")
     setCltTemAtivos("todos")
-
     setCltTemLegados("todos")
   }
 
   const handleClearFilters = () => {
     if (activeTab === "FGTS") clearFgts()
     else clearClt()
-
     setCurrentPage(1)
     setAwaitingFetch("clear")
     if (pendingToastId) toast.dismiss(pendingToastId)
@@ -519,11 +482,10 @@ const Dashboard = () => {
     fgtsConsultaFromFilter ||
     fgtsConsultaToFilter
 
-  // CLT: removemos contagem de filtros que não se aplicam (motivos, higienização, período hig., período de contrato, vendors)
   const hasActiveFiltersCLT =
     cltSearchValue ||
     cltStatusFilter !== "todos" ||
-    cltOrigemFilter.length || // cadastral ok
+    cltOrigemFilter.length ||
     cltCpfMassFilter ||
     cltNamesMassFilter ||
     cltPhonesMassFilter ||
@@ -547,7 +509,6 @@ const Dashboard = () => {
     cltMargemMin || cltMargemMax ||
     cltPrestacaoMin || cltPrestacaoMax ||
     cltAtivosMin || cltAtivosMax || cltTemAtivos !== "todos" ||
-    /* apenas boolean de legados */
     cltTemLegados !== "todos"
 
   const hasActiveFilters = activeTab === "FGTS" ? hasActiveFiltersFGTS : hasActiveFiltersCLT
@@ -582,13 +543,11 @@ const Dashboard = () => {
     return {
       search: cltSearchValue || undefined,
       status: cltStatusFilter !== "todos" ? cltStatusFilter : undefined,
-      // CLT válidos
       origens: cltOrigemFilter.length ? cltOrigemFilter : undefined,
       cpf: cltCpfMassFilter || undefined,
       names: cltNamesMassFilter || undefined,
       phones: cltPhonesMassFilter || undefined,
       birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
-
       clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
       clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
       clt_consulta_from: cltConsultaFrom || undefined,
@@ -634,7 +593,6 @@ const Dashboard = () => {
   const current_page = (paginatedData as any)?.current_page ?? 1
   const last_page = (paginatedData as any)?.last_page ?? 1
 
-  // ======== Projeção de estados para o componente de controles (modo atual) ========
   const ui = activeTab === "FGTS"
     ? {
       mode: "FGTS" as const,
@@ -672,7 +630,6 @@ const Dashboard = () => {
       phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
       vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
       birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
-      // FGTS OFF não se aplica no CLT (passamos defaults não usados no modal CLT)
       fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
       fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
       fgtsConsultaToFilter, setFgtsConsultaToFilter,
@@ -689,7 +646,6 @@ const Dashboard = () => {
         </p>
       </div>
 
-      {/* --------- Abas (acima do LeadsControls) --------- */}
       <div className="mb-4 flex gap-2">
         <button
           onClick={() => {
@@ -718,7 +674,7 @@ const Dashboard = () => {
               : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
           )}
         >
-          CLT (Consignado)
+          CLT (Facta)
         </button>
       </div>
 
@@ -726,7 +682,6 @@ const Dashboard = () => {
         mode={ui.mode}
         onImportClick={() => setIsImportModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
-
         searchValue={ui.searchValue}
         onSearchChange={ui.setSearchValue}
         eligibleFilter={ui.statusFilter}
@@ -762,15 +717,13 @@ const Dashboard = () => {
         onVendorsFilterChange={ui.setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
-        // ➕ FGTS OFF (só tem UI no modo FGTS)
         fgtsAuthorizedFilter={ui.fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={ui.setFgtsAuthorizedFilter}
         fgtsConsultaFromFilter={ui.fgtsConsultaFromFilter}
         onFgtsConsultaFromFilterChange={ui.setFgtsConsultaFromFilter}
         fgtsConsultaToFilter={ui.fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={ui.setFgtsConsultaToFilter}
-
-        /* CLT – novos props */
+        /* CLT */
         cltConsultado={cltConsultado}
         onCltConsultadoChange={setCltConsultado}
         cltSituacao={cltSituacao}
@@ -823,8 +776,6 @@ const Dashboard = () => {
         onCltTemAtivosChange={setCltTemAtivos}
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={setCltTemLegados}
-
-        /* ====== Colunas visíveis ====== */
         visibleColumnsFGTS={fgtsVisibleColumns}
         onVisibleColumnsFGTSChange={setFgtsVisibleColumns}
         visibleColumnsCLT={cltVisibleColumns}
@@ -839,7 +790,7 @@ const Dashboard = () => {
           currentPage={current_page}
           totalPages={last_page}
           onPageChange={setCurrentPage}
-          isLoading={isLoading || loadingOptions}
+          isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={fgtsVisibleColumns}
         />
       ) : (
@@ -848,7 +799,7 @@ const Dashboard = () => {
           currentPage={current_page}
           totalPages={last_page}
           onPageChange={setCurrentPage}
-          isLoading={isLoading || loadingOptions}
+          isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={cltVisibleColumns}
         />
       )}
