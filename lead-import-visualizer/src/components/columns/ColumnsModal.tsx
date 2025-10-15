@@ -43,7 +43,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "libera", label: "Valor liberado", group: "Produto" },
     { id: "data_atualizacao", label: "Data de higienização", group: "Produto" },
     { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", group: "Produto" },
-    { id: "fgts_off_consultado_em", label: "Consultado em (FGTS Off)", group: "Produto" },
+    { id: "fgts_off_consultado_em", label: "Data consulta (FGTS Off)", group: "Produto" },
     { id: "contratos", label: "Quantidade de contratos", group: "Produto" },
 
     // Registro
@@ -61,10 +61,10 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
 
     // Produto (CLT) — (idade e sexo vêm do produto)
     { id: "elegivel", label: "Elegível", group: "Produto" },
-    { id: "clt_consultado_em", label: "Consultado em", group: "Produto" },
+    { id: "clt_consultado_em", label: "Data consulta", group: "Produto" },
     { id: "idade", label: "Idade", group: "Produto" },
     { id: "sexo", label: "Sexo", group: "Produto" },
-    { id: "data_admissao", label: "Admissão", group: "Produto" },
+    { id: "data_admissao", label: "Data admissão", group: "Produto" },
     { id: "meses_admissao", label: "Tempo de casa (meses)", group: "Produto" },
     { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", group: "Produto" },
     { id: "valor_renda", label: "Renda", group: "Produto" },

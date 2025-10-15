@@ -43,7 +43,7 @@ const COLUMNS_FGTS: ColumnDef[] = [
   { id: "data_contrato_recente", label: "Contrato mais recente (data)", selected: true, group: "Produto" },
   { id: "vendedor", label: "Vendedor", selected: true, group: "Produto" },
   { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", selected: true, group: "Produto" },
-  { id: "fgts_off_consultado_em", label: "Consultado em (FGTS Off)", selected: true, group: "Produto" },
+  { id: "fgts_off_consultado_em", label: "Data consulta (FGTS Off)", selected: true, group: "Produto" },
 
   // Registro
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
@@ -66,13 +66,12 @@ const COLUMNS_CLT: ColumnDef[] = [
 
   // Produto (CLT)
   { id: "elegivel", label: "Elegível", selected: true, group: "Produto" },
-  { id: "clt_consultado_em", label: "Consultado em", selected: true, group: "Produto" },
+  { id: "clt_consultado_em", label: "Data consulta", selected: true, group: "Produto" },
   { id: "idade", label: "Idade", selected: true, group: "Produto" },
   { id: "sexo", label: "Sexo", selected: true, group: "Produto" },
-  { id: "data_admissao", label: "Admissão", selected: true, group: "Produto" },
+  { id: "data_admissao", label: "Data admissão", selected: true, group: "Produto" },
   { id: "meses_admissao", label: "Tempo de casa (meses)", selected: true, group: "Produto" },
   { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", selected: true, group: "Produto" },
-  { id: "inicio_atividade_empregador", label: "Início de atividade (empregador)", selected: true, group: "Produto" },
   { id: "valor_renda", label: "Renda", selected: true, group: "Produto" },
   { id: "valor_base_margem", label: "Base de margem", selected: true, group: "Produto" },
   { id: "margem_disponivel", label: "Margem disponível", selected: true, group: "Produto" },
@@ -109,25 +108,17 @@ export const ExportModal = ({
   }, [isOpen, columnsSource]);
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
+    if (isOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
   const handleColumnToggle = (columnId: string) => {
-    setSelectedColumns((prev) => ({
-      ...prev,
-      [columnId]: !prev[columnId],
-    }));
+    setSelectedColumns(prev => ({ ...prev, [columnId]: !prev[columnId] }));
   };
 
   const handleSelectAll = () => {
-    const allSelected = columnsSource.every((col) => selectedColumns[col.id]);
+    const allSelected = columnsSource.every(col => selectedColumns[col.id]);
     const newState = columnsSource.reduce((acc, col) => {
       acc[col.id] = !allSelected;
       return acc;
@@ -139,14 +130,12 @@ export const ExportModal = ({
     const groupCols = columnsSource.filter(c => c.group === group);
     const allGroupSelected = groupCols.every(c => selectedColumns[c.id]);
     const newState = { ...selectedColumns };
-    groupCols.forEach(c => {
-      newState[c.id] = !allGroupSelected;
-    });
+    groupCols.forEach(c => { newState[c.id] = !allGroupSelected; });
     setSelectedColumns(newState);
   };
 
   const handleExportClick = () => {
-    const columnsToExport = Object.keys(selectedColumns).filter((key) => selectedColumns[key]);
+    const columnsToExport = Object.keys(selectedColumns).filter(key => selectedColumns[key]);
     onExport(columnsToExport);
     onClose();
   };
@@ -164,10 +153,7 @@ export const ExportModal = ({
           <h2 className="text-xl font-semibold text-gray-900">
             Exportar para Excel — {mode}
           </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors duration-200">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -175,16 +161,9 @@ export const ExportModal = ({
         {/* Content */}
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700">
-              Selecione as colunas para exportar
-            </h3>
+            <h3 className="text-sm font-medium text-gray-700">Selecione as colunas para exportar</h3>
             <div className="space-x-2">
-              <Button
-                onClick={handleSelectAll}
-                variant="outline"
-                size="sm"
-                className="text-xs"
-              >
+              <Button onClick={handleSelectAll} variant="outline" size="sm" className="text-xs">
                 {selectedCount === columnsSource.length ? "Desmarcar todas" : "Selecionar todas"}
               </Button>
             </div>
@@ -192,35 +171,39 @@ export const ExportModal = ({
 
           <div className="max-h-80 overflow-y-auto border border-gray-200 rounded-lg p-3">
             {groupsOrdered.map((group) => {
-              const items = columnsSource.filter((c) => c.group === group);
+              const items = columnsSource.filter(c => c.group === group);
               if (!items.length) return null;
+
               const groupSelectedCount = items.filter(i => selectedColumns[i.id]).length;
               const allGroupSelected = groupSelectedCount === items.length;
               const someGroupSelected = groupSelectedCount > 0 && !allGroupSelected;
+
+              const groupTitle =
+                group === "Produto" ? `Produto (${mode})` : group;
 
               return (
                 <div key={group} className="mb-4">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      {group}
+                      {groupTitle}
                     </div>
                     <button
                       onClick={() => handleSelectGroup(group)}
                       className={`text-[11px] px-2 py-1 rounded border transition
-                        ${allGroupSelected ? "border-gray-300 text-gray-700 hover:bg-gray-50"
-                          : someGroupSelected ? "border-blue-300 text-blue-700 hover:bg-blue-50"
+                        ${allGroupSelected
+                          ? "border-gray-300 text-gray-700 hover:bg-gray-50"
+                          : someGroupSelected
+                          ? "border-blue-300 text-blue-700 hover:bg-blue-50"
                           : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                       title={allGroupSelected ? "Desmarcar grupo" : "Selecionar grupo"}
                     >
                       {allGroupSelected ? "Desmarcar grupo" : "Selecionar grupo"}
                     </button>
                   </div>
+
                   <div className="space-y-1">
                     {items.map((column) => (
-                      <label
-                        key={column.id}
-                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                      >
+                      <label key={column.id} className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
                         <input
                           type="checkbox"
                           checked={!!selectedColumns[column.id]}
@@ -245,11 +228,7 @@ export const ExportModal = ({
 
         {/* Footer */}
         <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            className="text-gray-700 border-gray-300 hover:bg-gray-50"
-          >
+          <Button variant="outline" onClick={onClose} className="text-gray-700 border-gray-300 hover:bg-gray-50">
             Cancelar
           </Button>
           <Button
