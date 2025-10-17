@@ -16,8 +16,8 @@ class ImportController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'file'   => ['required', 'file', 'mimes:xlsx,xls'],
-            'type'   => ['required', 'string', 'in:cadastral,higienizacao'],
+            'file' => ['required', 'file', 'mimes:xlsx,xls'],
+            'type' => ['required', 'string', 'in:cadastral,higienizacao,clt'],
             'origin' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -25,9 +25,8 @@ class ImportController extends Controller
         $file = $validated['file'];
         $type = $validated['type'];
 
-        // Mutex para evitar corrida de “duplo start”
         $locked = DB::selectOne('SELECT GET_LOCK(?, ? ) AS l', ['imports_mutex', 5]);
-        if (!$locked || (int)$locked->l !== 1) {
+        if (!$locked || (int) $locked->l !== 1) {
             return response()->json([
                 'message' => 'Outro processo de importação está iniciando. Tente novamente.'
             ], Response::HTTP_CONFLICT);
@@ -41,17 +40,16 @@ class ImportController extends Controller
                 ], Response::HTTP_CONFLICT);
             }
 
-            // NÃO abrimos a planilha aqui.
             $path = $file->store('imports', 'local');
 
             $importJob = ImportJob::create([
-                'user_id'        => Auth::id(),
-                'type'           => $type,
-                'origin'         => $validated['origin'] ?? 'Upload Padrão',
-                'file_name'      => $file->getClientOriginalName(),
-                'file_path'      => $path,
-                'status'         => 'pendente',
-                'total_rows'     => 0, // será calculado no job
+                'user_id' => Auth::id(),
+                'type' => $type,
+                'origin' => $validated['origin'] ?? 'Upload Padrão',
+                'file_name' => $file->getClientOriginalName(),
+                'file_path' => $path,
+                'status' => 'pendente',
+                'total_rows' => 0,
                 'processed_rows' => 0,
             ]);
         } finally {
@@ -62,7 +60,7 @@ class ImportController extends Controller
 
         return response()->json([
             'message' => 'Arquivo recebido. A importação será processada em segundo plano.',
-            'job_id'  => $importJob->id,
+            'job_id' => $importJob->id,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -75,11 +73,11 @@ class ImportController extends Controller
             : 0;
 
         return response()->json([
-            'status'          => $importJob->status,
-            'processed_rows'  => (int) $importJob->processed_rows,
-            'total_rows'      => (int) $importJob->total_rows,
-            'percent'         => min($percent, 100),
-            'errors'          => $errors,
+            'status' => $importJob->status,
+            'processed_rows' => (int) $importJob->processed_rows,
+            'total_rows' => (int) $importJob->total_rows,
+            'percent' => min($percent, 100),
+            'errors' => $errors,
         ]);
     }
 

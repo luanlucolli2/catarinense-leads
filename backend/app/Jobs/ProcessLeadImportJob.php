@@ -6,6 +6,7 @@ use App\Models\ImportJob;
 use App\Models\ImportError;
 use App\Imports\CadastralImport;
 use App\Imports\HigienizacaoImport;
+use App\Imports\CltSnapshotImport;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Excel as ExcelReaderType;
 use Illuminate\Bus\Queueable;
@@ -57,44 +58,46 @@ class ProcessLeadImportJob implements ShouldQueue
                 throw new \RuntimeException('Arquivo de importação não encontrado ou ilegível: ' . ($fullPath ?? $path));
             }
 
-            // ====== Pré-validação dentro do JOB ======
             $type = $this->importJob->type;
-            $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
 
-            // 1) Headers (barato: só 1ª linha)
-            $headers = $this->readHeaders($fullPath);
-
-            $missing = $this->diffMissingHeadersIndexed($headers, $requiredHeaders);
-            if (!empty($missing)) {
-                foreach ($missing as $h) {
-                    ImportError::create([
-                        'import_job_id' => $this->importJob->id,
-                        'row_number'    => 1,
-                        'column_name'   => $h,
-                        'error_message' => 'Cabeçalho ausente.',
+            // ===== Pré-validação leve =====
+            // Para "clt", os arquivos vêm do próprio export, então não travamos por cabeçalho.
+            if ($type !== 'clt') {
+                $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
+                $headers = $this->readHeaders($fullPath);
+                $missing = $this->diffMissingHeadersIndexed($headers, $requiredHeaders);
+                if (!empty($missing)) {
+                    foreach ($missing as $h) {
+                        ImportError::create([
+                            'import_job_id' => $this->importJob->id,
+                            'row_number'    => 1,
+                            'column_name'   => $h,
+                            'error_message' => 'Cabeçalho ausente.',
+                        ]);
+                    }
+                    $this->importJob->update([
+                        'status'      => 'falhou',
+                        'finished_at' => now(),
                     ]);
+                    return;
                 }
-                $this->importJob->update([
-                    'status'      => 'falhou',
-                    'finished_at' => now(),
-                ]);
-                return;
             }
 
-            // 2) Total de linhas leve (sem varrer células)
+            // total de linhas estimado (não trava se falhar)
             try {
                 $totalRows = $this->quickTotalRows($fullPath);
                 if ($totalRows > 0 && (int)$this->importJob->total_rows !== (int)$totalRows) {
                     $this->importJob->update(['total_rows' => (int)$totalRows]);
                 }
-            } catch (ReaderException $e) {
-                // não bloqueia; segue com 0 (vai atualizar durante o import)
-            }
+            } catch (ReaderException $e) {}
 
-            // ====== Importa (chunked) ======
-            $importer = $type === 'cadastral'
-                ? new CadastralImport($this->importJob, app(\App\Services\BackupService::class))
-                : new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class));
+            // ===== Importar =====
+            $importer = match ($type) {
+                'cadastral'    => new CadastralImport($this->importJob, app(\App\Services\BackupService::class)),
+                'higienizacao' => new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class)),
+                'clt'          => new CltSnapshotImport($this->importJob),
+                default        => throw new \InvalidArgumentException("Tipo de import não suportado: {$type}"),
+            };
 
             $ext = strtolower(pathinfo($this->importJob->file_name ?? $fullPath, PATHINFO_EXTENSION));
             $readerType = $ext === 'xls' ? ExcelReaderType::XLS : ExcelReaderType::XLSX;
@@ -110,9 +113,6 @@ class ProcessLeadImportJob implements ShouldQueue
         }
     }
 
-    /* ===================== Helpers internos ===================== */
-
-    /** Lê apenas a 1ª linha (cabeçalho) da 1ª aba. */
     private function readHeaders(string $fullPath): array
     {
         $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
@@ -136,9 +136,8 @@ class ProcessLeadImportJob implements ShouldQueue
         unset($sheet, $spreadsheet);
 
         return $headers;
-        }
+    }
 
-    /** Contagem leve de linhas (sem varrer CPF). */
     private function quickTotalRows(string $fullPath): int
     {
         $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
@@ -165,16 +164,10 @@ class ProcessLeadImportJob implements ShouldQueue
     }
 }
 
-/* ===================== ReadFilter local ===================== */
-
+/* ReadFilter inalterado */
 class HeaderRowReadFilter implements IReadFilter
 {
     private int $row;
-
     public function __construct(int $row = 1) { $this->row = $row; }
-
-    public function readCell($column, $row, $worksheetName = '')
-    {
-        return $row === $this->row;
-    }
+    public function readCell($column, $row, $worksheetName = '') { return $row === $this->row; }
 }
