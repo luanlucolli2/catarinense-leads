@@ -321,15 +321,29 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         try { return Carbon::parse($ymd)->age; } catch (\Throwable) { return null; }
     }
 
-    private function computeTempoAdmissaoMeses(?string $admissaoYmd, ?string $desligYmd): ?int
-    {
-        try {
-            if (!$admissaoYmd) return null;
-            $a = Carbon::parse($admissaoYmd);
-            $b = $desligYmd ? Carbon::parse($desligYmd) : Carbon::now('America/Sao_Paulo');
-            return $a->diffInMonths($b);
-        } catch (\Throwable) { return null; }
+   private function computeTempoAdmissaoMeses(?string $admissaoYmd, ?string $desligYmd): ?int
+{
+    try {
+        if (!$admissaoYmd) return null;
+        $a = Carbon::parse($admissaoYmd);
+        $b = $desligYmd ? Carbon::parse($desligYmd) : Carbon::now('America/Sao_Paulo');
+
+        if ($b->lt($a)) return 0; // admissão no futuro => 0
+
+        return $a->diffInMonths($b); // sempre >= 0
+    } catch (\Throwable) {
+        return null;
     }
+}
+
+private function clampInt(?int $v, int $min, int $max): ?int
+{
+    if ($v === null) return null;
+    if ($v < $min) return $min;
+    if ($v > $max) return $max;
+    return $v;
+}
+
 
     private function toFloat($val): ?float
     {
