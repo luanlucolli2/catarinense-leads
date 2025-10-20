@@ -39,6 +39,9 @@ class ProcessLeadImportJob implements ShouldQueue
             'started_at' => now(),
         ]);
 
+        // caminho relativo salvo no job (ex.: "imports/abc.xlsx")
+        $uploadPath = $this->importJob->file_path;
+
         try {
             $disk = 'local';
             $path = $this->importJob->file_path;
@@ -60,8 +63,7 @@ class ProcessLeadImportJob implements ShouldQueue
 
             $type = $this->importJob->type;
 
-            // ===== Pré-validação leve =====
-            // Para "clt", os arquivos vêm do próprio export, então não travamos por cabeçalho.
+            // pré-validação leve
             if ($type !== 'clt') {
                 $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
                 $headers = $this->readHeaders($fullPath);
@@ -83,7 +85,7 @@ class ProcessLeadImportJob implements ShouldQueue
                 }
             }
 
-            // total de linhas estimado (não trava se falhar)
+            // total de linhas estimado
             try {
                 $totalRows = $this->quickTotalRows($fullPath);
                 if ($totalRows > 0 && (int)$this->importJob->total_rows !== (int)$totalRows) {
@@ -91,7 +93,7 @@ class ProcessLeadImportJob implements ShouldQueue
                 }
             } catch (ReaderException $e) {}
 
-            // ===== Importar =====
+            // importar
             $importer = match ($type) {
                 'cadastral'    => new CadastralImport($this->importJob, app(\App\Services\BackupService::class)),
                 'higienizacao' => new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class)),
@@ -110,6 +112,13 @@ class ProcessLeadImportJob implements ShouldQueue
                 'finished_at' => now(),
             ]);
             Log::error("Falha na importação do Job ID {$this->importJob->id}", ['exception' => $e]);
+        } finally {
+            // apaga o arquivo enviado, independente de sucesso ou falha
+            try {
+                $this->deleteUploadedFile($uploadPath);
+            } catch (Throwable $t) {
+                Log::warning("Não foi possível apagar o arquivo do Job ID {$this->importJob->id}", ['path' => $uploadPath, 'exception' => $t]);
+            }
         }
     }
 
@@ -161,6 +170,22 @@ class ProcessLeadImportJob implements ShouldQueue
             }
         }
         return $missing;
+    }
+
+    private function deleteUploadedFile(?string $relativePath): void
+    {
+        if (!$relativePath) return;
+
+        // tenta nos discos "local" e "public"
+        foreach (['local', 'public'] as $disk) {
+            try {
+                if (Storage::disk($disk)->exists($relativePath)) {
+                    Storage::disk($disk)->delete($relativePath);
+                }
+            } catch (Throwable $t) {
+                // continua tentando nos demais discos
+            }
+        }
     }
 }
 
