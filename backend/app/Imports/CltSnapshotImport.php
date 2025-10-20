@@ -35,17 +35,15 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         $r = $row->toArray();
         $this->rowsInCurrentChunk++;
 
-        // ✅ Normaliza CPF preservando zeros à esquerda mesmo quando o Excel envia como número
+        // CPF
         $cpfRaw = $r['cpf'] ?? ($r['c_p_f'] ?? null);
         $cpf = Cpf::normalize((string) $cpfRaw);
-        if ($cpf === null) {
-            return;
-        }
+        if ($cpf === null) return;
 
         $msg = trim((string)($r['mensagem'] ?? ($r['status_code'] ?? '')));
         $isNotFound = $this->isNaoEncontradoMessage($msg);
 
-        // Detecta se é linha de vínculo pela presença de data de admissão
+        // vínculo?
         $dataAdm = $this->parseDateCell($r['data_de_admissao'] ?? ($r['data_admissao'] ?? null));
         $temVinculo = !is_null($dataAdm);
 
@@ -54,6 +52,14 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         }
 
         if ($temVinculo) {
+            // leitura robusta do cabeçalho "Qtde Empréstimos Ativos Suspensos"
+            $emsRaw = $this->cell($r, [
+                'qtde_empréstimos_ativos_suspensos',
+                'qtde_emprestimos_ativos_suspensos',
+                'qtde-emprestimos-ativos-suspensos',
+                'qtde emprestimos ativos suspensos',
+            ]);
+
             $cand = [
                 'cpf'   => $cpf,
                 'nome'  => $this->cleanName($r['nome'] ?? null),
@@ -72,13 +78,14 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                 'vrenda'   => $this->toFloat($r['valor_da_renda'] ?? null),
                 'vbase'    => $this->toFloat($r['valor_base_da_margem'] ?? null),
                 'margem'   => $this->toFloat($r['margem_disponivel'] ?? null),
-                // compat: valor_max_prestacao = margem_disponivel
-                'vmax'     => $this->toFloat($r['margem_disponivel'] ?? null),
+                'vmax'     => $this->toFloat($r['margem_disponivel'] ?? null), // compat
 
-                'cat_cod'  => $this->nullableString($r['categoria_do_trabalhador_código'] ?? ($r['categoria_do_trabalhador_codigo'] ?? ($r['categoria_do_trabalhador__código_'] ?? null))),
+                'cat_cod'    => $this->nullableString($r['categoria_do_trabalhador_código'] ?? ($r['categoria_do_trabalhador_codigo'] ?? ($r['categoria_do_trabalhador__código_'] ?? null))),
                 'inicio_emp' => $this->parseDateCell($r['início_da_atividade_do_empregador'] ?? ($r['inicio_da_atividade_do_empregador'] ?? null)),
 
-                'qtd_ems'  => $this->toInt($r['qtde_empréstimos_ativos_suspensos'] ?? ($r['qtde_emprestimos_ativos_suspensos'] ?? null)),
+                // ✅ agora encontra mesmo com variações do cabeçalho
+                'qtd_ems' => $this->toInt($emsRaw),
+
                 'legados'  => $this->simNaoToBool($r['empréstimos_legados'] ?? ($r['emprestimos_legados'] ?? null)),
             ];
 
@@ -321,29 +328,16 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         try { return Carbon::parse($ymd)->age; } catch (\Throwable) { return null; }
     }
 
-   private function computeTempoAdmissaoMeses(?string $admissaoYmd, ?string $desligYmd): ?int
-{
-    try {
-        if (!$admissaoYmd) return null;
-        $a = Carbon::parse($admissaoYmd);
-        $b = $desligYmd ? Carbon::parse($desligYmd) : Carbon::now('America/Sao_Paulo');
-
-        if ($b->lt($a)) return 0; // admissão no futuro => 0
-
-        return $a->diffInMonths($b); // sempre >= 0
-    } catch (\Throwable) {
-        return null;
+    private function computeTempoAdmissaoMeses(?string $admissaoYmd, ?string $desligYmd): ?int
+    {
+        try {
+            if (!$admissaoYmd) return null;
+            $a = Carbon::parse($admissaoYmd);
+            $b = $desligYmd ? Carbon::parse($desligYmd) : Carbon::now('America/Sao_Paulo');
+            if ($b->lt($a)) return 0;
+            return $a->diffInMonths($b);
+        } catch (\Throwable) { return null; }
     }
-}
-
-private function clampInt(?int $v, int $min, int $max): ?int
-{
-    if ($v === null) return null;
-    if ($v < $min) return $min;
-    if ($v > $max) return $max;
-    return $v;
-}
-
 
     private function toFloat($val): ?float
     {
@@ -412,5 +406,25 @@ private function clampInt(?int $v, int $min, int $max): ?int
         $s = strtr($s, $map);
         $s = preg_replace('/\s+/', ' ', $s) ?? $s;
         return trim($s);
+    }
+
+    /** Busca por aliases e por chave “normalizada” em ASCII sem separadores. */
+    private function cell(array $row, array $aliases)
+    {
+        foreach ($aliases as $k) {
+            if (array_key_exists($k, $row)) return $row[$k];
+        }
+        $norm = function (string $s): string {
+            $s = mb_strtolower($s, 'UTF-8');
+            $map = ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','ä'=>'a','é'=>'e','è'=>'e','ê'=>'e','ë'=>'e','í'=>'i','ì'=>'i','î'=>'i','ï'=>'i','ó'=>'o','ò'=>'o','ô'=>'o','õ'=>'o','ö'=>'o','ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ç'=>'c'];
+            $s = strtr($s, $map);
+            $s = preg_replace('/[^a-z0-9]+/i', '', $s) ?? $s;
+            return $s;
+        };
+        $want = $norm($aliases[0] ?? '');
+        foreach ($row as $key => $val) {
+            if ($norm((string)$key) === $want) return $val;
+        }
+        return null;
     }
 }
