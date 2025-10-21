@@ -13,14 +13,14 @@ import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
 import { ExportModal } from "@/components/ExportModal"
 import {
-    fetchLeadsFGTS,
-    fetchLeadsCLT,
-    fetchLeadsFilters,
-    exportLeads,
-    LeadFromApiFGTS,
-    LeadFromApiCLT,
-    PaginatedLeadsResponseFGTS,
-    PaginatedLeadsResponseCLT,
+  fetchLeadsFGTS,
+  fetchLeadsCLT,
+  fetchLeadsFilters,
+  exportLeads,
+  LeadFromApiFGTS,
+  LeadFromApiCLT,
+  PaginatedLeadsResponseFGTS,
+  PaginatedLeadsResponseCLT,
 } from "@/api/leads"
 import {
   formatCPF,
@@ -37,6 +37,7 @@ type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
 type ActiveTab = "FGTS" | "CLT"
 
+// SUBSTITUA a constante FGTS_COLUMNS_DEFAULT por:
 export const FGTS_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
@@ -47,12 +48,16 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
   "saldo",
   "libera",
   "data_atualizacao",
+  // 🆕 último contrato
+  "data_contrato_recente",
+  "vendedor",
   "fgts_off_authorized",
   "fgts_off_consultado_em",
   "contratos",
   "ultima_origem_cadastral",
   "ultima_origem_higienizacao",
 ];
+
 
 export const CLT_COLUMNS_DEFAULT: string[] = [
   "cpf",
@@ -266,6 +271,7 @@ const Dashboard = () => {
     if (activeTab !== "FGTS") return []
     const resp = paginatedData as PaginatedLeadsResponseFGTS | undefined
     if (!resp?.data) return []
+    // DENTRO do useMemo processedLeadsFGTS, ajuste o retorno do map:
     return resp.data.map((lead: LeadFromApiFGTS) => {
       const telefones = [
         { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
@@ -289,6 +295,9 @@ const Dashboard = () => {
         data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         contratos: lead.contracts_count,
+        // 🆕 campos do último contrato
+        data_contrato_recente: lead.data_contrato_recente ? formatDateOnly(lead.data_contrato_recente) : "",
+        vendedor: lead.vendedor || "",
         saldo: formatCurrency(lead.saldo),
         libera: formatCurrency(lead.libera),
         data_atualizacao: formatDate(lead.data_atualizacao),
@@ -301,6 +310,7 @@ const Dashboard = () => {
           : "",
       }
     })
+
   }, [paginatedData, activeTab])
 
   const processedLeadsCLT: ProcessedLeadCLT[] = useMemo(() => {

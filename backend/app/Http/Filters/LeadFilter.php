@@ -135,6 +135,27 @@ class LeadFilter
                 // dados adicionais do modo FGTS
                 $query->withCount('contracts');
 
+                // último contrato (data)
+                $query->addSelect([
+                    'data_contrato_recente' => DB::table('lead_contracts as lc')
+                        ->whereColumn('lc.lead_id', 'leads.id')
+                        ->select('lc.data_contrato')
+                        ->orderByDesc('lc.data_contrato')
+                        ->orderByDesc('lc.id')
+                        ->limit(1),
+                ]);
+
+                // vendedor do último contrato
+                $query->addSelect([
+                    'vendedor' => DB::table('lead_contracts as lc')
+                        ->join('vendors as v', 'v.id', '=', 'lc.vendor_id')
+                        ->whereColumn('lc.lead_id', 'leads.id')
+                        ->select('v.name')
+                        ->orderByDesc('lc.data_contrato')
+                        ->orderByDesc('lc.id')
+                        ->limit(1),
+                ]);
+
                 $query->addSelect(['ultima_origem_cadastral' => function ($q) {
                     $q->select('ij.origin')
                       ->from('lead_imports as li')
@@ -435,7 +456,7 @@ class LeadFilter
                     }
                 });
             }
-            // caso contrário (sem clt_consultado e sem filtros CLT), não restringe: retorna todos os leads
+            // caso contrário, retorna todos
         }
 
         // ======== FGTS OFF – filtros específicos ========
