@@ -53,6 +53,25 @@ services:
     mem_reservation: 384m
     cpu_shares: 1024
 
+  # ===== SCHEDULER (executa tarefas agendadas do Laravel) =====
+  scheduler:
+    image: leads-backend
+    container_name: leads-scheduler
+    command: php artisan schedule:work
+    env_file: .env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - .:/var/www/html
+      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    networks: [sail]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    mem_limit: 192m
+    mem_reservation: 128m
+    cpu_shares: 256
+
   queue:
     image: leads-backend
     container_name: leads-queue
@@ -144,7 +163,7 @@ services:
     mem_reservation: 20m
     cpu_shares: 128
 
-  # ====== REDIS (novo) ======
+  # ====== REDIS ======
   redis:
     image: redis:7-alpine
     container_name: leads-redis
