@@ -33,6 +33,9 @@ export interface ProcessedLeadFGTS {
   data_nascimento: string;
   telefones: Telefone[];
   contratos: number;
+  /** 🆕 último contrato (já formatado p/ exibição; "" se não houver) */
+  data_contrato_recente?: string;
+  vendedor?: string;
   saldo: string;
   libera: string;
   data_atualizacao: string;
@@ -43,7 +46,7 @@ export interface ProcessedLeadFGTS {
   fgts_off_consultado_em: string; // string data formatada OU ""
 }
 
-// 🔁 ajustado: removemos ids antigos "telefone" e "classe" e adicionamos telefone_1..4 e classe_1..4
+// 🔁 ajustado: adicionamos campos de último contrato
 type SortFieldFGTS =
   | "nome"
   | "cpf"
@@ -53,6 +56,8 @@ type SortFieldFGTS =
   | "data_atualizacao"
   | "data_nascimento"
   | "contratos"
+  | "data_contrato_recente"
+  | "vendedor"
   | "ultima_origem_cadastral"
   | "ultima_origem_higienizacao"
   | "fgts_off_authorized"
@@ -152,7 +157,8 @@ export const LeadsTableFGTS = ({
       switch (sortField) {
         case "data_atualizacao":
         case "data_nascimento":
-          return (x as any)[sortField] ? new Date((x as any)[sortField]).getTime() : Number.POSITIVE_INFINITY;
+        case "data_contrato_recente":
+          return (x as any)[sortField] ? new Date((x as any)[sortField] as string).getTime() : Number.POSITIVE_INFINITY;
         case "fgts_off_consultado_em":
           return x.fgts_off_consultado_em ? new Date(x.fgts_off_consultado_em).getTime() : Number.POSITIVE_INFINITY;
         case "fgts_off_authorized":
@@ -163,6 +169,7 @@ export const LeadsTableFGTS = ({
           return x.contratos ?? -1;
         case "saldo":
         case "libera":
+        case "vendedor":
           return (x as any)[sortField] ?? "";
         default: {
           const v = (x as any)[sortField];
@@ -386,6 +393,26 @@ export const LeadsTableFGTS = ({
         </td>
       ),
     },
+    /** 🆕 bloco último contrato */
+    {
+      id: "data_contrato_recente",
+      header: <Th align="center" minW="min-w-[130px]"><SortButton field="data_contrato_recente" align="center">Último contrato</SortButton></Th>,
+      cell: (lead: ProcessedLeadFGTS) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">
+          {display(lead.data_contrato_recente)}
+        </td>
+      ),
+    },
+    {
+      id: "vendedor",
+      header: <Th minW="min-w-[160px]"><SortButton field="vendedor">Vendedor</SortButton></Th>,
+      cell: (lead: ProcessedLeadFGTS) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[160px] max-w-[220px] truncate">
+          {display(lead.vendedor)}
+        </td>
+      ),
+    },
+
     {
       id: "fgts_off_authorized",
       header: <Th align="center" minW="min-w-[150px]"><SortButton field="fgts_off_authorized" align="center">Autorizado (FGTS OFF)</SortButton></Th>,
@@ -458,7 +485,7 @@ export const LeadsTableFGTS = ({
     if (colsCount <= 3) return "min-w-[520px]";
     if (colsCount <= 6) return "min-w-[900px]";
     if (colsCount <= 10) return "min-w-[1200px]";
-    return "min-w-[1600px]";
+    return "min-w-[1700px]";
   }, [headerColCount]);
 
   const renderSkeleton = (key: number) => (
@@ -466,20 +493,19 @@ export const LeadsTableFGTS = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (c.id === "data_nascimento" || c.id === "data_atualizacao" || c.id === "fgts_off_consultado_em")
+        if (["data_nascimento","data_atualizacao","fgts_off_consultado_em","data_contrato_recente"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
         if (
           c.id.startsWith("classe_") ||
-          c.id === "consulta" ||
-          c.id === "ultima_origem_cadastral" ||
-          c.id === "ultima_origem_higienizacao" ||
-          c.id === "fgts_off_authorized"
+          ["consulta","ultima_origem_cadastral","ultima_origem_higienizacao","fgts_off_authorized"].includes(c.id)
         )
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
-        if (c.id === "saldo" || c.id === "libera" || c.id === "contratos")
+        if (["saldo","libera","contratos"].includes(c.id))
           return <SkeletonCell key={idx} w="w-16" align="right" />;
+
+        if (c.id === "vendedor") return <SkeletonCell key={idx} w="w-40" align="left" />;
 
         // telefones_X e default
         return <SkeletonCell key={idx} w="w-32" align="left" />;
@@ -573,6 +599,12 @@ export const LeadsTableFGTS = ({
                     <h3 className="font-medium text-gray-900 truncate">{lead.nome || EMPTY}</h3>
                     <p className="text-sm font-mono text-gray-600 truncate">{lead.cpf || EMPTY}</p>
                     <p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p>
+                    {!!lead.data_contrato_recente && (
+                      <p className="text-xs text-gray-600">Último contrato: {lead.data_contrato_recente}</p>
+                    )}
+                    {!!lead.vendedor && (
+                      <p className="text-xs text-gray-600">Vendedor: {lead.vendedor}</p>
+                    )}
                     <p className="text-sm font-mono text-gray-600 truncate">{lead.telefones[0]?.fone || EMPTY}</p>
                     <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1", classeInfo.cls)}>
                       {classeInfo.label}

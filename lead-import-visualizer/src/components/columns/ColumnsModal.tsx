@@ -53,6 +53,9 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", group: "Produto" },
     { id: "fgts_off_consultado_em", label: "Data consulta (FGTS Off)", group: "Produto" },
     { id: "contratos", label: "Quantidade de contratos", group: "Produto" },
+    /** 🆕 último contrato */
+    { id: "data_contrato_recente", label: "Último contrato (data)", group: "Produto" },
+    { id: "vendedor", label: "Vendedor do último contrato", group: "Produto" },
 
     // Registro
     { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
@@ -83,7 +86,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "data_admissao", label: "Data admissão", group: "Produto" },
     { id: "meses_admissao", label: "Tempo de casa (meses)", group: "Produto" },
     { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", group: "Produto" },
-    { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", group: "Produto" }, // 🆕
+    { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", group: "Produto" },
     { id: "valor_renda", label: "Renda", group: "Produto" },
     { id: "valor_base_margem", label: "Base de margem", group: "Produto" },
     { id: "margem_disponivel", label: "Margem disponível", group: "Produto" },

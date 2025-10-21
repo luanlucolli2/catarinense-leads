@@ -31,6 +31,22 @@ services:
       - mysql
       - redis
 
+  # ===== SCHEDULER (executa tarefas agendadas do Laravel) =====
+  scheduler:
+    image: sail-8.4/app
+    command: "php artisan schedule:work"
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - sail
+    restart: unless-stopped
+    stop_grace_period: 60s
+
   # ===== WORKER DEDICADO: FILA CLT =====
   queue-clt:
     image: sail-8.4/app

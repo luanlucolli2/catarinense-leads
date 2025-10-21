@@ -26,6 +26,9 @@ export interface LeadFromApiFGTS {
   saldo: string | null
   libera: string | null
   contracts_count: number
+  /** 🆕 último contrato (FGTS) */
+  data_contrato_recente: string | null
+  vendedor: string | null
   /** ➕ FGTS OFF */
   fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
