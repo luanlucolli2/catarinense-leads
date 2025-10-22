@@ -29,7 +29,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/imports', [ImportController::class, 'index']);
     Route::get('/import/{importJob}/errors', [ImportController::class, 'errors'])->whereNumber('importJob');
     Route::get('/import/{importJob}/errors/export', [ImportController::class, 'exportErrors'])->whereNumber('importJob');
-    Route::post('/leads/export', [LeadExportController::class, 'export']);
+
+    /* Leads Export (assíncrono) */
+    Route::post('/leads/export', [LeadExportController::class, 'export']); // enfileira e retorna token
+    Route::get('/leads/export/{token}', [LeadExportController::class, 'status']); // status
+    Route::get('/leads/export/{token}/download', [LeadExportController::class, 'download']); // download
 
     /* Rollback da última importação */
     Route::post('/import/{importJob}/rollback', [RollbackController::class, 'store'])->whereNumber('importJob');
