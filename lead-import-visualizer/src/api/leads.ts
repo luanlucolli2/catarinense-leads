@@ -303,7 +303,7 @@ const shouldUsePost = (filters: LeadFilters, mode: Mode) => {
   return totalMass > 200
 }
 
-/* ---------- Endpoints ---------- */
+/* ---------- Endpoints: lista ---------- */
 export async function fetchLeadsFGTS(filters: LeadFilters) {
   const mode: Mode = "fgts"
   if (shouldUsePost(filters, mode)) {
@@ -423,15 +423,44 @@ function normalizeFiltersForExport(filters: LeadFilters): LeadFilters {
   return normalized
 }
 
-/** Exporta em ambos os modos (FGTS | CLT) */
-export async function exportLeads(
+/* ======================= EXPORT ASSÍNCRONO ======================= */
+
+export type LeadsExportStatus =
+  | "queued"
+  | "running"
+  | "ready"
+  | "error"
+  | "none"
+  | "deleted"
+
+export interface LeadsExportStatusDTO {
+  status: LeadsExportStatus
+  message?: string
+  filename?: string | null
+  size_bytes?: number
+  updated_at?: string
+}
+
+/** Inicia o export e retorna o token. */
+export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
   mode: Mode
-): Promise<void> {
+): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
+  const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)
+  return { token: data.token }
+}
 
-  const response = await axiosClient.post("/leads/export", payload, {
+/** Consulta status pelo token. */
+export async function getLeadsExportStatus(token: string): Promise<LeadsExportStatusDTO> {
+  const { data } = await axiosClient.get<LeadsExportStatusDTO>(`/leads/export/${token}`)
+  return data
+}
+
+/** Faz download quando pronto. */
+export async function downloadLeadsExport(token: string): Promise<void> {
+  const response = await axiosClient.get(`/leads/export/${token}/download`, {
     responseType: "blob",
   })
 
@@ -462,3 +491,102 @@ export async function exportLeads(
   link.remove()
   window.URL.revokeObjectURL(url)
 }
+
+/* ============ Poller Singleton: persistência e retomada ============ */
+
+type ExportRecord = {
+  token: string
+  startedAt: number
+}
+
+const LS_KEY = "leads:export:active:v1"
+
+function loadActive(): ExportRecord[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter(x => x && typeof x.token === "string")
+  } catch { return [] }
+}
+
+function saveActive(list: ExportRecord[]) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)) } catch {}
+}
+
+function addActive(token: string) {
+  const list = loadActive()
+  if (!list.find(x => x.token === token)) {
+    list.push({ token, startedAt: Date.now() })
+    saveActive(list)
+  }
+}
+
+function removeActive(token: string) {
+  const list = loadActive().filter(x => x.token !== token)
+  saveActive(list)
+}
+
+type Listener = (e: { token: string; status: LeadsExportStatusDTO }) => void
+
+class LeadsExportPoller {
+  private timers = new Map<string, number>()
+  private listeners = new Set<Listener>()
+  private backoff = new Map<string, { attempts: number; interval: number }>()
+
+  on(l: Listener) { this.listeners.add(l) }
+  off(l: Listener) { this.listeners.delete(l) }
+
+  private emit(token: string, status: LeadsExportStatusDTO) {
+    for (const l of this.listeners) l({ token, status })
+  }
+
+  start(token: string) {
+    if (this.timers.has(token)) return
+    addActive(token)
+    this.backoff.set(token, { attempts: 0, interval: 2000 })
+    const tick = async () => {
+      try {
+        const st = await getLeadsExportStatus(token)
+        this.emit(token, st)
+
+        if (st.status === "ready" || st.status === "error" || st.status === "deleted") {
+          this.stop(token)
+          return
+        }
+      } catch {
+        // mantém polling; evita parar por falha transitória
+      }
+
+      const cfg = this.backoff.get(token)!
+      cfg.attempts += 1
+      if (cfg.attempts % 10 === 0 && cfg.interval < 5000) cfg.interval += 500
+      this.backoff.set(token, cfg)
+      const id = window.setTimeout(tick, cfg.interval)
+      this.timers.set(token, id)
+    }
+    const id = window.setTimeout(tick, 0)
+    this.timers.set(token, id)
+  }
+
+  stop(token: string) {
+    const t = this.timers.get(token)
+    if (t) window.clearTimeout(t)
+    this.timers.delete(token)
+    this.backoff.delete(token)
+    removeActive(token)
+  }
+
+  resumeAll() {
+    const list = loadActive()
+    for (const { token } of list) this.start(token)
+  }
+
+  clearAll() {
+    for (const token of Array.from(this.timers.keys())) this.stop(token)
+    saveActive([])
+  }
+}
+
+export const leadsExportPoller = new LeadsExportPoller()

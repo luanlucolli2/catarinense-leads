@@ -16,11 +16,16 @@ import {
   fetchLeadsFGTS,
   fetchLeadsCLT,
   fetchLeadsFilters,
-  exportLeads,
+  // export async + poller
+  startLeadsExport,
+  downloadLeadsExport,
+  getLeadsExportStatus,
+  leadsExportPoller,
   LeadFromApiFGTS,
   LeadFromApiCLT,
   PaginatedLeadsResponseFGTS,
   PaginatedLeadsResponseCLT,
+  LeadsExportStatusDTO,
 } from "@/api/leads"
 import {
   formatCPF,
@@ -57,7 +62,6 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
   "ultima_origem_cadastral",
   "ultima_origem_higienizacao",
 ];
-
 
 export const CLT_COLUMNS_DEFAULT: string[] = [
   "cpf",
@@ -176,7 +180,7 @@ const Dashboard = () => {
   const {
     data: paginatedData,
     isLoading,
-    isFetching, // ← usado no skeleton durante mudança de filtros/página
+    isFetching,
     isError,
     refetch,
   } = useQuery<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT>({
@@ -271,7 +275,6 @@ const Dashboard = () => {
     if (activeTab !== "FGTS") return []
     const resp = paginatedData as PaginatedLeadsResponseFGTS | undefined
     if (!resp?.data) return []
-    // DENTRO do useMemo processedLeadsFGTS, ajuste o retorno do map:
     return resp.data.map((lead: LeadFromApiFGTS) => {
       const telefones = [
         { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
@@ -295,7 +298,6 @@ const Dashboard = () => {
         data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         contratos: lead.contracts_count,
-        // 🆕 campos do último contrato
         data_contrato_recente: lead.data_contrato_recente ? formatDateOnly(lead.data_contrato_recente) : "",
         vendedor: lead.vendedor || "",
         saldo: formatCurrency(lead.saldo),
@@ -310,7 +312,6 @@ const Dashboard = () => {
           : "",
       }
     })
-
   }, [paginatedData, activeTab])
 
   const processedLeadsCLT: ProcessedLeadCLT[] = useMemo(() => {
@@ -366,9 +367,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (awaitingFetch && (isFetching || isLoading) && !pendingToastId) {
-      const id = toast.loading(
-        awaitingFetch === "apply" ? "Aplicando filtros…" : "Limpando filtros…"
-      )
+      const id = toast.loading("Aplicando filtros…")
       setPendingToastId(id)
     }
     if (!isFetching && !isLoading && pendingToastId) {
@@ -587,15 +586,59 @@ const Dashboard = () => {
     }
   }
 
+  /* ================= EXPORT: UI + Polling persistente ================= */
+
+  // Assinar eventos do poller com ID fixo por token
+  useEffect(() => {
+    const listener = async ({ token, status }: { token: string; status: LeadsExportStatusDTO }) => {
+      const tid = `export:${token}`
+
+      // idempotente: cria ou mantém um único toast por token
+      toast.loading("Exportando leads", { id: tid, duration: Infinity })
+
+      if (status.status === "ready") {
+        toast.success("Export pronto. Baixando…", { id: tid })
+        try { await downloadLeadsExport(token) } catch {}
+        toast.dismiss(tid)
+      } else if (status.status === "error") {
+        const msg = status.message || "Falha ao gerar export."
+        toast.error(msg, { id: tid })
+        toast.dismiss(tid)
+      } else if (status.status === "deleted") {
+        toast.info("Export finalizado.", { id: tid })
+        toast.dismiss(tid)
+      } // queued/running: mantém
+    }
+
+    leadsExportPoller.on(listener)
+    leadsExportPoller.resumeAll()
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        leadsExportPoller.resumeAll()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+
+    return () => {
+      leadsExportPoller.off(listener)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [])
+
+  // Inicia export e delega o polling ao singleton
   const handleExport = async (columns: string[]) => {
     const mode = activeTab === "FGTS" ? "fgts" : "clt" as const
-    toast.info("Exportação iniciada.")
+    const preId = toast.loading("Exportando leads", { duration: Infinity })
     try {
-      await exportLeads(collectFilters(), columns, mode)
-      toast.success("Exportação concluída!")
-    } catch (err) {
-      console.error(err)
-      toast.error("Falha ao exportar. Tente novamente.")
+      const { token } = await startLeadsExport(collectFilters(), columns, mode)
+      toast.dismiss(preId)
+      const tid = `export:${token}`
+      toast.loading("Exportando leads", { id: tid, duration: Infinity })
+      leadsExportPoller.start(token)
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || "Falha ao iniciar export."
+      toast.error(msg, { id: preId })
     }
   }
 
