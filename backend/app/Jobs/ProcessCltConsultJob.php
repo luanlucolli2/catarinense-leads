@@ -1,4 +1,4 @@
-<?php
+<?php 
 
 namespace App\Jobs;
 
@@ -21,7 +21,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 18300;
+    public int $uniqueFor = 115260;
     public function uniqueId(): string
     {
         return (string) $this->jobId;
@@ -61,7 +61,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->onQueue((string) config('cltfacta.job.queue', 'clt'));
 
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 18000);
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
@@ -428,6 +428,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                             $row['elegivel'] = $v['elegivel'] ?? null;
                             $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
+                            // 70% da margem disponível, formatado pt-BR
                             $row['valorMaximoPrestacao'] = $this->computeValorMaxPrest($v['valorMargemDisponivel'] ?? null);
                             $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
                             $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
@@ -465,10 +466,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         // SNAPSHOT: apenas vínculo mais recente
                         $best = $this->pickLatestVinculo($vinculos);
                         if ($best) {
+                            $margemFloat = $this->toFloatPtBr($best['valorMargemDisponivel'] ?? null);
+                            $valorMaxFloat = $margemFloat !== null ? round($margemFloat * 0.70, 2) : null;
+
                             $snapRows[] = [
                                 'cpf' => $cpf,
                                 'nome' => $best['nome'] ?? null,
-                                'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null), // já corrigido
+                                'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null),
                                 'data_nasc' => $this->parseDateBr($best['dataNascimento'] ?? null),
                                 'idade' => $this->computeIdadeAnos($best['dataNascimento'] ?? null),
                                 'sexo' => $best['sexo_descricao'] ?? null,
@@ -478,15 +482,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                                 'valor_renda' => $this->toFloatPtBr($best['valorTotalVencimentos'] ?? null),
                                 'valor_base' => $this->toFloatPtBr($best['valorBaseMargem'] ?? null),
-                                'margem_disp' => $this->toFloatPtBr($best['valorMargemDisponivel'] ?? null),
-                                'valor_max' => $this->toFloatPtBr($best['valorMargemDisponivel'] ?? null),
+                                'margem_disp' => $margemFloat,
+                                // 70% da margem disponível no snapshot como float
+                                'valor_max' => $valorMaxFloat,
 
                                 'cat_cod' => $best['codigoCategoriaTrabalhador'] ?? null,
                                 'inicio_emp' => $this->parseDateBr($best['dataInicioAtividadeEmpregador'] ?? null),
 
                                 'qtd_ems' => isset($best['qtdEmprestimosAtivosSuspensos']) ? (int) $best['qtdEmprestimosAtivosSuspensos'] : null,
                                 'legados' => array_key_exists('emprestimosLegados', $best)
-                                    ? $this->simNaoToBool($best['emprestimosLegados'])  // ✅ era (int) "S"/"N"
+                                    ? $this->simNaoToBool($best['emprestimosLegados'])
                                     : null,
 
                                 'not_found' => false,
@@ -659,7 +664,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $f = $this->toFloatPtBr($valor);
         if ($f === null)
             return null;
-        $n = round($f, 2);
+        // 70% da margem disponível, arredondado e formatado para CSV
+        $n = round($f * 0.70, 2);
         return number_format($n, 2, ',', '');
     }
 
@@ -780,7 +786,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'inicio_atividade_empregador' => $r['inicio_emp'] ?? null,
 
                     'qtd_emprestimos_ativos_suspensos' => $r['qtd_ems'] ?? null,
-                    'emprestimos_legados' => $r['legados'] ?? null, // ✅ agora boolean no payload
+                    'emprestimos_legados' => $r['legados'] ?? null,
 
                     'not_found' => !empty($r['not_found']),
                     'job_id' => $this->jobId,
