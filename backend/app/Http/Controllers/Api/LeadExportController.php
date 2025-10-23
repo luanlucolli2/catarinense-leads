@@ -13,15 +13,18 @@ use Symfony\Component\HttpFoundation\Response;
 
 class LeadExportController extends Controller
 {
+    /** Inicia geração assíncrona e retorna token. */
     public function export(ExportLeadsRequest $request)
     {
         $token  = (string) Str::uuid();
         $userId = (int) $request->user()->id;
-        $ttl    = (int) env('LEADS_EXPORT_TTL_SECONDS', 6 * 3600);
+
+        $ttlSeconds = (int) env('LEADS_EXPORT_TTL_SECONDS', 6 * 3600);
 
         $payload = $request->validated();
 
-        Cache::put($this->cacheKey($userId, $token), [
+        $key = $this->cacheKey($userId, $token);
+        Cache::put($key, [
             'status'       => 'queued',
             'message'      => 'Export enfileirado.',
             'created_at'   => now()->toIso8601String(),
@@ -31,19 +34,26 @@ class LeadExportController extends Controller
             'filename'     => null,
             'size_bytes'   => 0,
             'error'        => null,
-            'ttl_seconds'  => $ttl,
-        ], $ttl);
+            'ttl_seconds'  => $ttlSeconds,
+        ], $ttlSeconds);
 
-        GenerateLeadsExportJob::dispatch($userId, $token, $payload, $ttl);
+        GenerateLeadsExportJob::dispatch($userId, $token, $payload, $ttlSeconds);
 
-        return response()->json(['token' => $token, 'status' => 'queued'], Response::HTTP_ACCEPTED);
+        return response()->json([
+            'token'  => $token,
+            'status' => 'queued',
+        ], Response::HTTP_ACCEPTED);
     }
 
+    /** Consulta status pelo token. */
     public function status(Request $request, string $token)
     {
         $userId = (int) $request->user()->id;
-        $data = Cache::get($this->cacheKey($userId, $token));
-        if (!$data) return response()->json(['message' => 'Token inválido ou expirado.'], 404);
+        $data   = Cache::get($this->cacheKey($userId, $token));
+
+        if (!$data) {
+            return response()->json(['message' => 'Token inválido ou expirado.'], Response::HTTP_NOT_FOUND);
+        }
 
         return response()->json([
             'status'     => $data['status'],
@@ -54,54 +64,84 @@ class LeadExportController extends Controller
         ]);
     }
 
-    /** Stream + delete-at-end + marca como "deleted". */
+    /** Download do arquivo pronto + deleção imediata e status=deleted. */
     public function download(Request $request, string $token)
     {
-        $userId = (int) $request->user()->id;
-        $key = $this->cacheKey($userId, $token);
-        $data = Cache::get($key);
+        $userId   = (int) $request->user()->id;
+        $cacheKey = $this->cacheKey($userId, $token);
+        $data     = Cache::get($cacheKey);
 
         if (!$data) {
-            return response()->json(['message' => 'Token inválido ou expirado.'], 404);
+            return response()->json(['message' => 'Token inválido ou expirado.'], Response::HTTP_NOT_FOUND);
         }
         if (($data['status'] ?? 'none') !== 'ready') {
             return response()->json([
                 'message' => 'Arquivo ainda não está pronto.',
                 'status'  => $data['status'] ?? 'none',
-            ], 409);
+            ], Response::HTTP_CONFLICT);
         }
 
-        $disk = Storage::disk($data['disk'] ?: 'local');
-        $path = $data['path'];
-        if (!$path || !$disk->exists($path)) {
-            return response()->json(['message' => 'Arquivo não encontrado.'], 410);
+        $diskName = $data['disk'] ?: 'local';
+        $path     = $data['path'] ?? null;
+        if (!$path) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
         }
 
-        $name = $data['filename'] ?: 'leads_export.xlsx';
+        $disk = Storage::disk($diskName);
+        if (!$disk->exists($path)) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
+        }
+
+        $name = $data['filename'] ?: 'leads_export.csv';
+
+        // stream manual para poder deletar e atualizar o cache após o envio
         $stream = $disk->readStream($path);
         if ($stream === false) {
             return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        return response()->streamDownload(function () use ($disk, $path, $stream, $key, $data) {
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering'   => 'no',
+        ];
+
+        return response()->streamDownload(function () use ($stream, $diskName, $path, $cacheKey, $data) {
             try {
                 fpassthru($stream);
             } finally {
-                if (is_resource($stream)) fclose($stream);
-                // tenta apagar o arquivo após envio
-                try { $disk->delete($path); } catch (\Throwable $e) {}
-                // marca como deletado; mantém metadados mínimos até expirar o TTL
-                Cache::put($key, array_merge($data, [
-                    'status'     => 'deleted',
-                    'message'    => 'Arquivo removido após download.',
-                    'updated_at' => now()->toIso8601String(),
-                    'path'       => null,
-                    'size_bytes' => 0,
-                ]), (int) ($data['ttl_seconds'] ?? 3600));
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+                try {
+                    // apaga o arquivo
+                    $d = Storage::disk($diskName);
+                    if ($d->exists($path)) {
+                        $d->delete($path);
+                    }
+                } catch (\Throwable $e) {
+                    // log opcional
+                }
+                // publica status=deleted para o poller
+                try {
+                    $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
+                    $cache = [
+                        'status'      => 'deleted',
+                        'message'     => 'Arquivo removido após download.',
+                        'created_at'  => $data['created_at'] ?? now()->toIso8601String(),
+                        'updated_at'  => now()->toIso8601String(),
+                        'disk'        => $diskName,
+                        'path'        => $path,
+                        'filename'    => $data['filename'] ?? null,
+                        'size_bytes'  => 0,
+                        'error'       => null,
+                        'ttl_seconds' => $ttl,
+                    ];
+                    Cache::put($cacheKey, $cache, min($ttl, 600)); // mantém por até 10 min
+                } catch (\Throwable $e) {
+                    // ignore
+                }
             }
-        }, $name, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        }, $name, $headers);
     }
 
     private function cacheKey(int $userId, string $token): string

@@ -2,22 +2,22 @@
 
 namespace App\Exports;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
-use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
-use Maatwebsite\Excel\Concerns\WithColumnFormatting;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-use Carbon\Carbon;
-use Maatwebsite\Excel\Concerns\WithEvents;
-use Maatwebsite\Excel\Events\BeforeExport;
 
-class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFormatting, WithEvents
+/**
+ * Export orientado a CSV:
+ * - Datas como strings "dd/MM/yyyy"
+ * - Números normalizados (ponto decimal)
+ * - CPF como dígitos SEM zeros à esquerda (string)
+ */
+class LeadsExport implements FromQuery, WithHeadings, WithMapping
 {
     protected Builder $query;
-    protected array   $columns;
+    protected array $columns;
 
     public function __construct(Builder $query, array $columns)
     {
@@ -90,14 +90,15 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         foreach ($this->columns as $col) {
             switch ($col) {
                 case 'cpf':
-                    $row[] = $this->cpfToNumber($lead->cpf);
+                    // dígitos, sem zeros à esquerda, como STRING
+                    $row[] = $this->cpfDigits($lead->cpf);
                     break;
 
                 // datas FGTS
                 case 'data_atualizacao':
                 case 'data_nascimento':
                 case 'data_contrato_recente':
-                    $row[] = $this->toExcelDate($lead->{$col}, in_array($col, ['data_nascimento','data_contrato_recente'], true));
+                    $row[] = $this->formatDate($lead->{$col}, in_array($col, ['data_nascimento','data_contrato_recente'], true));
                     break;
 
                 // números FGTS
@@ -112,25 +113,25 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
 
                 // FGTS OFF
                 case 'fgts_off_authorized':
-                    $val = $lead->fgts_off_authorized;
+                    $val   = $lead->fgts_off_authorized;
                     $row[] = $val === null ? null : ($val ? 'Sim' : 'Não');
                     break;
                 case 'fgts_off_consultado_em':
-                    $row[] = $this->toExcelDate($lead->fgts_off_consultado_em);
+                    $row[] = $this->formatDate($lead->fgts_off_consultado_em);
                     break;
 
                 // ===== CLT =====
                 case 'elegivel':
                 case 'not_found':
                 case 'emprestimos_legados':
-                    $v = $lead->{$col};
+                    $v     = $lead->{$col};
                     $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
                     break;
 
                 case 'data_admissao':
                 case 'inicio_atividade_empregador':
                 case 'clt_consultado_em':
-                    $row[] = $this->toExcelDate($lead->{$col}, true);
+                    $row[] = $this->formatDate($lead->{$col}, true);
                     break;
 
                 case 'valor_renda':
@@ -154,66 +155,18 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         return $row;
     }
 
-    public function columnFormats(): array
-    {
-        $formats = [];
-
-        foreach ($this->columns as $idx => $col) {
-            $colIndex = Coordinate::stringFromColumnIndex($idx + 1);
-
-            // números com 2 casas (FGTS + CLT)
-            if (in_array($col, [
-                'saldo','libera',
-                'valor_renda','valor_base_margem','margem_disponivel','valor_max_prestacao'
-            ], true)) {
-                $formats[$colIndex] = NumberFormat::FORMAT_NUMBER_00;
-            }
-
-            // datas (FGTS + CLT)
-            if (in_array($col, [
-                'data_atualizacao','data_nascimento','data_contrato_recente',
-                'data_admissao','inicio_atividade_empregador','clt_consultado_em',
-                'fgts_off_consultado_em'
-            ], true)) {
-                $formats[$colIndex] = NumberFormat::FORMAT_DATE_DDMMYYYY;
-            }
-
-            if ($col === 'cpf') {
-                $formats[$colIndex] = '0';
-            }
-        }
-
-        return $formats;
-    }
-
-    public function registerEvents(): array
-    {
-        return [
-            BeforeExport::class => function (BeforeExport $event) {
-                $delegate = method_exists($event->writer, 'getDelegate')
-                    ? $event->writer->getDelegate()
-                    : null;
-
-                if ($delegate instanceof \PhpOffice\PhpSpreadsheet\Writer\Xlsx
-                    && method_exists($delegate, 'setUseInlineStrings')) {
-                    $delegate->setUseInlineStrings(true);
-                }
-            },
-        ];
-    }
-
-    private function toExcelDate($value, bool $isDateOnly = false): ?float
+    private function formatDate($value, bool $isDateOnly = false): ?string
     {
         if (empty($value)) return null;
 
         try {
             $dt = $value instanceof \DateTimeInterface
                 ? Carbon::instance($value)
-                : Carbon::parse((string)$value);
+                : Carbon::parse((string) $value);
 
             if ($isDateOnly) $dt = $dt->startOfDay();
-            return ExcelDate::dateTimeToExcel($dt);
-        } catch (\Throwable $e) {
+            return $dt->format('d/m/Y');
+        } catch (\Throwable) {
             return null;
         }
     }
@@ -248,7 +201,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         return is_numeric($normalized) ? (float)$normalized : null;
     }
 
-    private function cpfToNumber($val): int|float|null
+    private function cpfDigits($val): ?string
     {
         if ($val === null || $val === '') return null;
 
@@ -256,6 +209,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping, WithColumnFor
         $digits = ltrim($digits, '0');
         if ($digits === '') $digits = '0';
 
-        return PHP_INT_SIZE >= 8 ? (int)$digits : (float)$digits;
+        // retorna string para evitar notação científica ao abrir no Excel
+        return $digits;
     }
 }
