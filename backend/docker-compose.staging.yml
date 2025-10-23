@@ -23,8 +23,8 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
-    mem_limit: 384m
-    mem_reservation: 320m
+    mem_limit: 512m           # <--- MUDANÇA (Aumentado de 384m)
+    # mem_reservation: 320m   # <--- MUDANÇA (Removido)
     cpu_shares: 1024
 
   laravel:
@@ -50,7 +50,7 @@ services:
     networks: [sail]
     restart: unless-stopped
     mem_limit: 512m
-    mem_reservation: 384m
+    # mem_reservation: 384m   # <--- MUDANÇA (Removido)
     cpu_shares: 1024
 
   # ===== SCHEDULER (executa tarefas agendadas do Laravel) =====
@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
     mem_limit: 192m
-    mem_reservation: 128m
+    # mem_reservation: 128m   # <--- MUDANÇA (Removido)
     cpu_shares: 256
 
   queue:
@@ -87,7 +87,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 1024m
-    mem_reservation: 768m
+    # mem_reservation: 768m   # <--- MUDANÇA (Removido)
     memswap_limit: "1536m"
     cpu_shares: 1536
 
@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 352m
-    mem_reservation: 288m
+    # mem_reservation: 288m   # <--- MUDANÇA (Removido)
     memswap_limit: "768m"
     cpu_shares: 768
 
@@ -114,7 +114,8 @@ services:
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=700 --tries=1 --backoff=60
+    # <--- MUDANÇA (aumentei tries=1 para tries=3)
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=700 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -126,7 +127,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 732m
-    mem_reservation: 608m
+    # mem_reservation: 608m   # <--- MUDANÇA (Removido)
     memswap_limit: "1536m"
     cpu_shares: 2048
 
@@ -134,7 +135,8 @@ services:
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=480 --tries=1 --backoff=30
+    # <--- MUDANÇA (aumentei tries=1 para tries=3)
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30 # <--- MUDANÇA (memory=360 para bater com o limite)
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -145,8 +147,8 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 512m
-    mem_reservation: 384m
+    mem_limit: 384m           # <--- MUDANÇA (Reduzido de 512m)
+    # mem_reservation: 384m   # <--- MUDANÇA (Removido)
     memswap_limit: "1024m"
     cpu_shares: 1536
 
@@ -160,14 +162,15 @@ services:
     networks: [sail]
     depends_on: [laravel]
     mem_limit: 24m
-    mem_reservation: 20m
+    # mem_reservation: 20m    # <--- MUDANÇA (Removido)
     cpu_shares: 128
 
   # ====== REDIS ======
   redis:
     image: redis:7-alpine
     container_name: leads-redis
-    command: ["redis-server","--appendonly","yes","--maxmemory","128mb","--maxmemory-policy","volatile-lru"]
+    # <--- MUDANÇA (troquei 'yes' para 'no' para acelerar reinícios)
+    command: ["redis-server","--appendonly","no","--maxmemory","128mb","--maxmemory-policy","volatile-lru"]
     volumes:
       - redis-data:/data
     networks: [sail]
@@ -178,7 +181,7 @@ services:
       timeout: 3s
       retries: 20
     mem_limit: 160m
-    mem_reservation: 96m
+    # mem_reservation: 96m    # <--- MUDANÇA (Removido)
     cpu_shares: 256
 
 networks:
