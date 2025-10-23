@@ -62,7 +62,7 @@ services:
     environment: { <<: *app-env }
     volumes:
       - .:/var/www/html
-      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
+      - ./docker/php-cli.scheduler.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     networks: [sail]
