@@ -61,9 +61,9 @@ class GenerateLeadsExportJob implements ShouldQueue
         $path      = "{$dir}/{$filename}";
         $tmpPath   = "{$dir}/{$this->token}.tmp.csv";
 
-        $delimiter  = env('LEADS_EXPORT_CSV_DELIMITER', ',');
+        $delimiter  = env('LEADS_EXPORT_CSV_DELIMITER', ';');
         $enclosure  = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
-        $writeBOM   = (bool) env('LEADS_EXPORT_CSV_BOM', false);
+        $writeBOM   = (bool) env('LEADS_EXPORT_CSV_BOM', true);
         $chunkSize  = (int) env('LEADS_EXPORT_CHUNK', 800);
         $flushEvery = (int) env('LEADS_EXPORT_FLUSH_EVERY', 2000);
 
