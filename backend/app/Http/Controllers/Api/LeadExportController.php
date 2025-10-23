@@ -64,11 +64,12 @@ class LeadExportController extends Controller
         ]);
     }
 
-    /** Download do arquivo pronto. */
+    /** Download do arquivo pronto + deleção imediata e status=deleted. */
     public function download(Request $request, string $token)
     {
-        $userId = (int) $request->user()->id;
-        $data   = Cache::get($this->cacheKey($userId, $token));
+        $userId   = (int) $request->user()->id;
+        $cacheKey = $this->cacheKey($userId, $token);
+        $data     = Cache::get($cacheKey);
 
         if (!$data) {
             return response()->json(['message' => 'Token inválido ou expirado.'], Response::HTTP_NOT_FOUND);
@@ -80,30 +81,67 @@ class LeadExportController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        $disk = Storage::disk($data['disk'] ?: 'local');
-        if (!$disk->exists($data['path'])) {
+        $diskName = $data['disk'] ?: 'local';
+        $path     = $data['path'] ?? null;
+        if (!$path) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
+        }
+
+        $disk = Storage::disk($diskName);
+        if (!$disk->exists($path)) {
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
         }
 
         $name = $data['filename'] ?: 'leads_export.csv';
 
-        // Preferir o helper nativo que define o Content-Type correto por extensão
-        if (method_exists($disk, 'download')) {
-            return $disk->download($data['path'], $name);
-        }
-
-        $stream = $disk->readStream($data['path']);
+        // stream manual para poder deletar e atualizar o cache após o envio
+        $stream = $disk->readStream($path);
         if ($stream === false) {
             return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        // CSV por padrão
-        return response()->streamDownload(function () use ($stream) {
-            fpassthru($stream);
-            if (is_resource($stream)) fclose($stream);
-        }, $name, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering'   => 'no',
+        ];
+
+        return response()->streamDownload(function () use ($stream, $diskName, $path, $cacheKey, $data) {
+            try {
+                fpassthru($stream);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+                try {
+                    // apaga o arquivo
+                    $d = Storage::disk($diskName);
+                    if ($d->exists($path)) {
+                        $d->delete($path);
+                    }
+                } catch (\Throwable $e) {
+                    // log opcional
+                }
+                // publica status=deleted para o poller
+                try {
+                    $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
+                    $cache = [
+                        'status'      => 'deleted',
+                        'message'     => 'Arquivo removido após download.',
+                        'created_at'  => $data['created_at'] ?? now()->toIso8601String(),
+                        'updated_at'  => now()->toIso8601String(),
+                        'disk'        => $diskName,
+                        'path'        => $path,
+                        'filename'    => $data['filename'] ?? null,
+                        'size_bytes'  => 0,
+                        'error'       => null,
+                        'ttl_seconds' => $ttl,
+                    ];
+                    Cache::put($cacheKey, $cache, min($ttl, 600)); // mantém por até 10 min
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            }
+        }, $name, $headers);
     }
 
     private function cacheKey(int $userId, string $token): string

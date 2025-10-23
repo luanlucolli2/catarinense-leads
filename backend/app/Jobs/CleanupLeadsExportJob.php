@@ -29,7 +29,7 @@ class CleanupLeadsExportJob implements ShouldQueue
         $data = Cache::get($key);
         if (!$data) return;
 
-        // se já foi deletado no download, nada a fazer
+        // já removido por download
         if (($data['status'] ?? null) === 'deleted') {
             Cache::forget($key);
             return;
@@ -48,7 +48,24 @@ class CleanupLeadsExportJob implements ShouldQueue
             }
         }
 
-        Cache::forget($key); // remove status residual
+        // publica "deleted" por curto período para o poller, depois some
+        try {
+            $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
+            Cache::put($key, [
+                'status'      => 'deleted',
+                'message'     => 'Arquivo removido por expiração.',
+                'created_at'  => $data['created_at'] ?? now()->toIso8601String(),
+                'updated_at'  => now()->toIso8601String(),
+                'disk'        => $diskName,
+                'path'        => $path,
+                'filename'    => $data['filename'] ?? null,
+                'size_bytes'  => 0,
+                'error'       => null,
+                'ttl_seconds' => $ttl,
+            ], min($ttl, 600));
+        } catch (\Throwable $e) {
+            Cache::forget($key);
+        }
     }
 
     private function cacheKey(int $userId, string $token): string

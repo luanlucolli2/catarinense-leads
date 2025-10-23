@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace App\Jobs;
 
@@ -35,98 +36,118 @@ class GenerateLeadsExportJob implements ShouldQueue
     {
         $key = $this->cacheKey($this->userId, $this->token);
 
-        // Alvos: uso de RAM mínimo e IO sequencial
         if (function_exists('ini_set')) {
             @ini_set('memory_limit', env('LEADS_EXPORT_MEMORY', '256M'));
             @ini_set('max_execution_time', '0');
             @ini_set('zend.enable_gc', '1');
             @ini_set('output_buffering', '0');
         }
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
 
-        // Desliga query log para não acumular memória
-        try { DB::connection()->disableQueryLog(); } catch (\Throwable) {}
+        try {
+            DB::connection()->disableQueryLog();
+            // Cursor não-bufferizado para reduzir RSS nas consultas
+            DB::connection()->getPdo()->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+        } catch (\Throwable) {
+        }
 
-        // Pasta temporária de arquivos
         Config::set('excel.temporary_files.local_path', storage_path('framework/cache/excel-temp'));
 
-        $diskName = (string) env('LEADS_EXPORT_DISK', 'local');
-        $dir      = trim((string) env('LEADS_EXPORT_DIR', 'leads-exports'), '/');
-        $filename = "leads_export_{$this->token}.csv";
-        $path     = "{$dir}/{$filename}";
-        $tmpPath  = "{$dir}/{$this->token}.tmp.csv";
+        $diskName  = (string) env('LEADS_EXPORT_DISK', 'local');
+        $dir       = trim((string) env('LEADS_EXPORT_DIR', 'leads-exports'), '/');
+        $filename  = "leads_export_{$this->token}.csv";
+        $path      = "{$dir}/{$filename}";
+        $tmpPath   = "{$dir}/{$this->token}.tmp.csv";
 
-        $delimiter = env('LEADS_EXPORT_CSV_DELIMITER', ',');
-        $enclosure = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
-        $writeBOM  = (bool) env('LEADS_EXPORT_CSV_BOM', false); // opcional para Excel
-
-        $chunkSize = (int) env('LEADS_EXPORT_CHUNK', 800); // pequeno para RAM baixa
+        $delimiter  = env('LEADS_EXPORT_CSV_DELIMITER', ',');
+        $enclosure  = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
+        $writeBOM   = (bool) env('LEADS_EXPORT_CSV_BOM', false);
+        $chunkSize  = (int) env('LEADS_EXPORT_CHUNK', 800);
         $flushEvery = (int) env('LEADS_EXPORT_FLUSH_EVERY', 2000);
 
         try {
             $req = new HttpRequest();
             $req->replace($this->payload);
 
-            $columns = (array) ($this->payload['columns'] ?? []);
+            $columns  = (array) ($this->payload['columns'] ?? []);
+            $eloquent = LeadFilter::apply($req, $columns); // export-mode
 
-            // Builder original (Eloquent) com filtros/joins já aplicados
-            $eloquent = LeadFilter::apply($req, $columns);
-
-            // Chave primária e tabela p/ ordenação estável
             $table = $eloquent->getModel()->getTable();
             $pk    = $eloquent->getModel()->getKeyName() ?: 'id';
             $pkCol = "{$table}.{$pk}";
 
-            // Query base (sem hidratar modelos) para reduzir RAM
+            // Query Builder sem Eloquent, ordenado por PK
             $base = $eloquent->toBase()->orderBy($pkCol, 'asc');
 
             $disk = Storage::disk($diskName);
-            if (!$disk->exists($dir)) $disk->makeDirectory($dir);
+            if (!$disk->exists($dir)) {
+                $disk->makeDirectory($dir);
+            }
 
-            // Caminho absoluto no disco local
-            $absTmp = $disk->path($tmpPath);
+            $absTmp = method_exists($disk, 'path')
+                ? $disk->path($tmpPath)
+                : storage_path('app/' . $tmpPath);
 
-            // Abre stream e ajusta buffer
+            $parent = dirname($absTmp);
+            if (!is_dir($parent)) {
+                @mkdir($parent, 0775, true);
+            }
+
             $fh = @fopen($absTmp, 'wb');
             if ($fh === false) {
                 throw new \RuntimeException("Falha ao abrir arquivo temporário para escrita: {$absTmp}");
             }
-            // Buffer de 1MB reduz syscalls; mantém RAM controlada
+            // buffer de escrita de 1 MiB
             @stream_set_write_buffer($fh, 1024 * 1024);
 
-            // BOM opcional para Excel (UTF-8)
             if ($writeBOM) {
                 fwrite($fh, "\xEF\xBB\xBF");
             }
 
-            // Cabeçalho
             fputcsv($fh, $this->headings($columns), $delimiter, $enclosure);
 
-            // Linhas
             $written = 0;
-            $base->chunk($chunkSize, function ($rows) use ($fh, $columns, $delimiter, $enclosure, $flushEvery, &$written) {
-                foreach ($rows as $row) {
-                    fputcsv($fh, $this->mapRecord($row, $columns), $delimiter, $enclosure);
-                    $written++;
-                    if ($written % $flushEvery === 0) {
-                        fflush($fh);
-                        if (function_exists('gc_collect_cycles')) gc_collect_cycles();
+
+            // Menor uso de RAM: itera 1 a 1 com lazyById
+            foreach ($base->lazyById($chunkSize, $pk, $pk) as $row) {
+                fputcsv($fh, $this->mapRecord($row, $columns), $delimiter, $enclosure);
+                $written++;
+                if ($written % $flushEvery === 0) {
+                    fflush($fh);
+                    if (function_exists('gc_collect_cycles')) {
+                        gc_collect_cycles();
                     }
                 }
-                // libera lote
-                unset($rows);
-            });
+            }
 
             fflush($fh);
             fclose($fh);
 
-            // Move p/ destino final
-            $disk->move($tmpPath, $path);
-            if (!$disk->exists($path)) {
-                throw new \RuntimeException("Arquivo não encontrado após move");
+            // move para destino final
+            if ($diskName === 'local' && method_exists($disk, 'move') && method_exists($disk, 'exists')) {
+                $disk->move($tmpPath, $path);
+                if (!$disk->exists($path)) {
+                    throw new \RuntimeException("Arquivo não encontrado após move");
+                }
+            } else {
+                $stream = @fopen($absTmp, 'rb');
+                if ($stream === false) {
+                    throw new \RuntimeException("Falha ao reabrir tmp para upload");
+                }
+                $disk->put($path, $stream);
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+                @unlink($absTmp);
             }
 
             $size = 0;
-            try { $size = (int) $disk->size($path); } catch (Throwable) {}
+            try {
+                $size = (int) $disk->size($path);
+            } catch (Throwable) {
+            }
 
             Cache::put($key, [
                 'status'      => 'ready',
@@ -141,18 +162,17 @@ class GenerateLeadsExportJob implements ShouldQueue
                 'ttl_seconds' => $this->ttlSeconds,
             ], $this->ttlSeconds);
 
-            // limpeza tardia
             $grace = (int) env('LEADS_EXPORT_GRACE_SECONDS', 600);
             \App\Jobs\CleanupLeadsExportJob::dispatch($this->userId, $this->token)
                 ->delay(now()->addSeconds(max(60, $this->ttlSeconds + $grace)));
         } catch (Throwable $e) {
-            Log::warning("[LEADS][EXPORT] Falha token={$this->token}: ".$e->getMessage(), ['exception' => $e]);
-
-            // Tenta fechar e remover tmp se existir
+            Log::warning("[LEADS][EXPORT] Falha token={$this->token}: " . $e->getMessage(), ['exception' => $e]);
             try {
                 if (isset($fh) && is_resource($fh)) fclose($fh);
+                if (isset($absTmp) && is_file($absTmp)) @unlink($absTmp);
                 if (isset($disk, $tmpPath) && $disk->exists($tmpPath)) $disk->delete($tmpPath);
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
 
             Cache::put($key, [
                 'status'      => 'error',
@@ -173,8 +193,6 @@ class GenerateLeadsExportJob implements ShouldQueue
     {
         return "leads_export:{$userId}:{$token}";
     }
-
-    /* ===================== Map helpers (constante em RAM) ===================== */
 
     private function headings(array $columns): array
     {
@@ -218,7 +236,6 @@ class GenerateLeadsExportJob implements ShouldQueue
             'not_found' => 'CLT Não Encontrado',
             'clt_consultado_em' => 'CLT Consultado em',
         ];
-
         return array_map(static fn($c) => $map[$c] ?? $c, $columns);
     }
 
@@ -230,57 +247,47 @@ class GenerateLeadsExportJob implements ShouldQueue
                 case 'cpf':
                     $row[] = $this->cpfDigits($lead->cpf ?? null);
                     break;
-
                 case 'data_atualizacao':
                 case 'data_nascimento':
                 case 'data_contrato_recente':
-                    $row[] = $this->formatDate($lead->{$col} ?? null, in_array($col, ['data_nascimento','data_contrato_recente'], true));
+                    $row[] = $this->formatDate($lead->{$col} ?? null, in_array($col, ['data_nascimento', 'data_contrato_recente'], true));
                     break;
-
                 case 'saldo':
                 case 'libera':
                     $row[] = $this->toFloat($lead->{$col} ?? null);
                     break;
-
                 case 'contracts_count':
                     $row[] = isset($lead->contracts_count) ? (int) $lead->contracts_count : null;
                     break;
-
                 case 'fgts_off_authorized':
                     $v = $lead->fgts_off_authorized ?? null;
                     $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
                     break;
-
                 case 'fgts_off_consultado_em':
                     $row[] = $this->formatDate($lead->fgts_off_consultado_em ?? null);
                     break;
-
                 case 'elegivel':
                 case 'not_found':
                 case 'emprestimos_legados':
                     $v = $lead->{$col} ?? null;
                     $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
                     break;
-
                 case 'data_admissao':
                 case 'inicio_atividade_empregador':
                 case 'clt_consultado_em':
                     $row[] = $this->formatDate($lead->{$col} ?? null, true);
                     break;
-
                 case 'valor_renda':
                 case 'valor_base_margem':
                 case 'margem_disponivel':
                 case 'valor_max_prestacao':
                     $row[] = $this->toFloat($lead->{$col} ?? null);
                     break;
-
                 case 'meses_admissao':
                 case 'idade':
                 case 'qtd_emprestimos_ativos_suspensos':
                     $row[] = isset($lead->{$col}) ? (int) $lead->{$col} : null;
                     break;
-
                 default:
                     $row[] = $lead->{$col} ?? null;
             }
@@ -293,37 +300,40 @@ class GenerateLeadsExportJob implements ShouldQueue
         if (empty($value)) return null;
         try {
             $ts = is_string($value) ? strtotime($value) : (is_int($value) ? $value : null);
-            if ($ts === null) $ts = strtotime((string)$value);
+            if ($ts === null) $ts = strtotime((string) $value);
             if ($ts === false) return null;
             if ($isDateOnly) {
-                $d = getdate($ts);
+                $d  = getdate($ts);
                 $ts = mktime(0, 0, 0, $d['mon'], $d['mday'], $d['year']);
             }
             return date('d/m/Y', $ts);
-        } catch (\Throwable) { return null; }
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function toFloat($val): ?float
     {
         if ($val === null || $val === '') return null;
-        $s = preg_replace('/[^0-9.,-]/', '', (string)$val);
+        $s = preg_replace('/[^0-9.,-]/', '', (string) $val);
         if ($s === '') return null;
-        $lastDot = strrpos($s, '.'); $lastComma = strrpos($s, ',');
-        if ($lastDot === false && $lastComma === false) return is_numeric($s) ? (float)$s : null;
+        $lastDot = strrpos($s, '.');
+        $lastComma = strrpos($s, ',');
+        if ($lastDot === false && $lastComma === false) return is_numeric($s) ? (float) $s : null;
         $dec = ($lastDot !== false && $lastComma !== false) ? (($lastDot > $lastComma) ? '.' : ',') : (($lastDot !== false) ? '.' : ',');
-        $th = ($dec === '.') ? ',' : '.';
-        $n = str_replace($th, '', $s);
-        $n = str_replace($dec, '.', $n);
+        $th  = ($dec === '.') ? ',' : '.';
+        $n   = str_replace($th, '', $s);
+        $n   = str_replace($dec, '.', $n);
         if (substr_count($n, '.') > 1) $n = preg_replace('/\.(?=.*\.)/', '', $n);
-        return is_numeric($n) ? (float)$n : null;
+        return is_numeric($n) ? (float) $n : null;
     }
 
     private function cpfDigits($val): ?string
     {
         if ($val === null || $val === '') return null;
-        $d = preg_replace('/\D+/', '', (string)$val) ?? '';
+        $d = preg_replace('/\D+/', '', (string) $val) ?? '';
         $d = ltrim($d, '0');
         if ($d === '') $d = '0';
-        return $d; // string evita notação científica no Excel
+        return $d;
     }
 }
