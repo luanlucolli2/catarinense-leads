@@ -60,6 +60,11 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                 'qtde emprestimos ativos suspensos',
             ]);
 
+            // margem disponível
+            $margemDisp = $this->toFloat($r['margem_disponivel'] ?? null);
+            // valor máximo = 70% da margem disponível
+            $valorMax = is_null($margemDisp) ? null : round($margemDisp * 0.70, 2);
+
             $cand = [
                 'cpf'   => $cpf,
                 'nome'  => $this->cleanName($r['nome'] ?? null),
@@ -77,15 +82,13 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
 
                 'vrenda'   => $this->toFloat($r['valor_da_renda'] ?? null),
                 'vbase'    => $this->toFloat($r['valor_base_da_margem'] ?? null),
-                'margem'   => $this->toFloat($r['margem_disponivel'] ?? null),
-                'vmax'     => $this->toFloat($r['margem_disponivel'] ?? null), // compat
+                'margem'   => $margemDisp,
+                'vmax'     => $valorMax,
 
                 'cat_cod'    => $this->nullableString($r['categoria_do_trabalhador_código'] ?? ($r['categoria_do_trabalhador_codigo'] ?? ($r['categoria_do_trabalhador__código_'] ?? null))),
                 'inicio_emp' => $this->parseDateCell($r['início_da_atividade_do_empregador'] ?? ($r['inicio_da_atividade_do_empregador'] ?? null)),
 
-                // ✅ agora encontra mesmo com variações do cabeçalho
                 'qtd_ems' => $this->toInt($emsRaw),
-
                 'legados'  => $this->simNaoToBool($r['empréstimos_legados'] ?? ($r['emprestimos_legados'] ?? null)),
             ];
 
