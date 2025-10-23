@@ -132,7 +132,7 @@ export interface PaginatedResponse<T> {
 }
 
 export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
-export type PaginatedLeadsResponseCLT  = PaginatedResponse<LeadFromApiCLT>
+export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
 
 export interface LeadFilters {
   page?: number
@@ -458,18 +458,18 @@ export async function getLeadsExportStatus(token: string): Promise<LeadsExportSt
   return data
 }
 
-/** Faz download quando pronto. */
 export async function downloadLeadsExport(token: string): Promise<void> {
   const response = await axiosClient.get(`/leads/export/${token}/download`, {
     responseType: "blob",
   })
 
-  const blob = new Blob([response.data], { type: response.headers["content-type"] })
+  const ct = (response.headers["content-type"] as string | undefined) || "text/csv;charset=utf-8"
+  const blob = new Blob([response.data], { type: ct })
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement("a")
 
   const cd = response.headers["content-disposition"] as string | undefined
-  let filename = "leads_export.xlsx"
+  let filename = "leads_export.csv" // <- fallback agora CSV
   if (cd) {
     const star = cd.match(/filename\*\=([^;]+)/i)
     if (star?.[1]) {
@@ -477,7 +477,7 @@ export async function downloadLeadsExport(token: string): Promise<void> {
         const v = star[1].trim()
         const parts = v.split("''")
         filename = decodeURIComponent(parts.pop() || filename)
-      } catch {}
+      } catch { }
     } else {
       const simple = cd.match(/filename="?([^"]+)"?/i)
       if (simple?.[1]) filename = simple[1]
@@ -512,7 +512,7 @@ function loadActive(): ExportRecord[] {
 }
 
 function saveActive(list: ExportRecord[]) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(list)) } catch {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)) } catch { }
 }
 
 function addActive(token: string) {
