@@ -1,10 +1,9 @@
-<?php 
+<?php
 
 namespace App\Jobs;
 
 use App\Exports\CltConsultExport;
 use App\Models\CltConsultJob;
-// REMOVIDO: use App\Services\FactaApiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -82,7 +81,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        // provider dinâmico
         $api = $job->variant === 'offline'
             ? app(\App\Services\CltOfflineApiService::class)
             : app(\App\Services\FactaApiService::class);
@@ -162,7 +160,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         continue;
 
                     if (!\App\Support\Cpf::isValid($cpf)) {
-                        // inválido → só no CSV, NÃO snapshot
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
@@ -364,12 +361,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $t0 = microtime(true);
         $chunkCount = count($chunkCpfs);
 
-        // micro-batching
         $micro = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
 
         $rows = [];
-        $snapRows = []; // ← snapshots por CPF
+        $snapRows = [];
         $successInChunk = 0;
         $notFoundInChunk = 0;
         $failTermInChunk = 0;
@@ -426,7 +422,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $total = is_array($vinculos) ? count($vinculos) : 0;
 
                     if ($total > 0) {
-                        // CSV: pode escrever todos os vínculos
                         foreach ($vinculos as $v) {
                             $row = $this->baseRow($cpf);
                             $row['numeroVinculos'] = $total;
@@ -467,7 +462,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $rows[] = $row;
                         }
 
-                        // SNAPSHOT: vínculo mais recente
                         $best = $this->pickLatestVinculo($vinculos);
                         if ($best) {
                             $margemFloat = $this->toFloatPtBr($best['valorMargemDisponivel'] ?? null);
@@ -497,6 +491,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                     ? $this->simNaoToBool($best['emprestimosLegados'])
                                     : null,
 
+                                // timestamps vindos da origem (quando existirem)
                                 'src_updated_at' => $best['updated_at'] ?? ($best['created_at'] ?? null),
 
                                 'not_found' => false,
@@ -523,6 +518,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $snapRows[] = [
                             'cpf' => $cpf,
                             'not_found' => true,
+                            'src_updated_at' => null,
                         ];
 
                         $notFoundInChunk++;
@@ -566,12 +562,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $elapsed = microtime(true) - $t0;
         $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
-        Log::debug(
-            "[CLT] job={$this->jobId} chunk=OK size={$chunkCount}"
-            . " sub={$micro}"
-            . " time=" . number_format($elapsed, 3, ',', '.') . "s"
-            . " rate={$rps} cps"
-        );
+        Log::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
     }
 
     private function baseRow(string $cpf): array
@@ -641,12 +632,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $updates['fail_count'] = DB::raw('fail_count + ' . $this->accFail);
 
         try {
-            Log::info('[CLT][FLUSH]', [
-                'job' => $this->jobId,
-                'force' => $force,
-                'rows_since' => $this->rowsSinceFlush,
-                'bytes_now' => $bytes,
-            ]);
+            Log::info('[CLT][FLUSH]', ['job' => $this->jobId, 'force' => $force, 'rows_since' => $this->rowsSinceFlush, 'bytes_now' => $bytes]);
         } catch (Throwable $e) {
         }
 
@@ -673,7 +659,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         try {
             $a = $this->parseCarbonDateFlexible($admissao);
-            if (!$a) return null;
+            if (!$a)
+                return null;
             $b = $this->parseCarbonDateFlexible($deslig) ?? Carbon::now('America/Sao_Paulo');
             return $a->diffInMonths($b);
         } catch (\Throwable) {
@@ -685,7 +672,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         try {
             $d = $this->parseCarbonDateFlexible($nasc);
-            if (!$d) return null;
+            if (!$d)
+                return null;
             return $d->age;
         } catch (\Throwable) {
             return null;
@@ -706,7 +694,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return (float) $s;
     }
 
-    /** Escolhe o vínculo mais recente pela maior dataAdmissao (aceita dd/mm/yyyy ou yyyy-mm-dd). */
     private function pickLatestVinculo(array $vinculos): ?array
     {
         $best = null;
@@ -716,11 +703,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $key = null;
             try {
                 $c = $this->parseCarbonDateFlexible($d);
-                if ($c) $key = $c->timestamp;
+                if ($c)
+                    $key = $c->timestamp;
             } catch (\Throwable) {
                 $key = null;
             }
-            if ($key === null) continue;
+            if ($key === null)
+                continue;
             if ($best === null || $key > $bestKey) {
                 $best = $v;
                 $bestKey = $key;
@@ -729,7 +718,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $best ?? ($vinculos[0] ?? null);
     }
 
-    /** Parse flexível: 'dd/mm/YYYY' ou 'YYYY-mm-dd' → 'Y-m-d' */
     private function parseDateFlexible(?string $s): ?string
     {
         $c = $this->parseCarbonDateFlexible($s);
@@ -738,26 +726,27 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function parseCarbonDateFlexible(?string $s): ?Carbon
     {
-        if (!$s || !is_string($s)) return null;
+        if (!$s || !is_string($s))
+            return null;
         $t = trim($s);
-        if ($t === '') return null;
+        if ($t === '')
+            return null;
 
-        if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $t)) {
+        if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $t))
             return Carbon::createFromFormat('d/m/Y', $t);
-        }
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $t)) {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $t))
             return Carbon::createFromFormat('Y-m-d', $t);
-        }
         return null;
     }
 
     private function parseDateTimeFlexible(?string $s): ?string
     {
-        if (!$s || !is_string($s)) return null;
+        if (!$s || !is_string($s))
+            return null;
         $t = trim($s);
-        if ($t === '') return null;
+        if ($t === '')
+            return null;
         try {
-            // assume origem em America/Sao_Paulo; salva UTC
             $c = Carbon::parse($t, 'America/Sao_Paulo')->setTimezone('UTC');
             return $c->format('Y-m-d H:i:s');
         } catch (\Throwable) {
@@ -765,7 +754,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    /** Upsert seletivo na clt_snapshots com regra "só se data_admissao crescer" + updated_at da fonte. */
+    /** Upsert com updated_at = data da ORIGEM e consulted_at = agora UTC. */
     private function persistSnapshots(array $snapRows): void
     {
         if (empty($snapRows))
@@ -807,14 +796,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'emprestimos_legados' => $r['legados'] ?? null,
 
                     'not_found' => !empty($r['not_found']),
-                    // job_id e updated_at só serão aplicados no upsert efetivo
+
                     '_src_updated_at' => $srcUpdated,
                 ];
             }
             if (empty($payload))
                 return;
 
-            // lookup lead_id
             $leadMap = DB::table('leads')
                 ->whereIn('cpf', array_values(array_unique($cpfs)))
                 ->pluck('id', 'cpf');
@@ -824,39 +812,44 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
             unset($row);
 
-            // mapa existente
             $existMap = DB::table('clt_snapshots')
                 ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->pluck('data_admissao', 'cpf'); // Y-m-d|NULL
+                ->pluck('data_admissao', 'cpf');
 
             $toUpsert = [];
             $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
 
             foreach ($payload as $row) {
                 $cpf = $row['cpf'];
-                $old = $existMap[$cpf] ?? null;                 // 'Y-m-d'|null
-                $new = $row['data_admissao'] ?? null;           // 'Y-m-d'|null
+                $old = $existMap[$cpf] ?? null;
+                $new = $row['data_admissao'] ?? null;
                 $isNotFound = !empty($row['not_found']);
 
-                // não degradar um snapshot existente com not_found
                 if (isset($existMap[$cpf]) && $isNotFound) {
                     continue;
                 }
 
                 $shouldUpdate =
-                    (!isset($existMap[$cpf]))                                  // não existia
-                    || ($old === null && $new !== null)                         // existia sem data e nova tem
-                    || ($old === null && $new === null && !isset($existMap[$cpf])) // novo cpf sem data
-                    || ($new !== null && $old !== null && strcmp($new, $old) > 0); // nova data maior
+                    (!isset($existMap[$cpf]))
+                    || ($old === null && $new !== null)
+                    || ($old === null && $new === null && !isset($existMap[$cpf]))
+                    || ($new !== null && $old !== null && strcmp($new, $old) > 0);
 
                 if (!$shouldUpdate) {
+                    // mesmo sem “melhor vínculo”, ainda queremos carimbar consulted_at se não existia snapshot
+                    if (!isset($existMap[$cpf])) {
+                        $row['job_id'] = $this->jobId;
+                        $row['updated_at'] = $row['_src_updated_at'] ?? $nowUtc;
+                        $row['consulted_at'] = $nowUtc;
+                        unset($row['_src_updated_at']);
+                        $toUpsert[] = $row;
+                    }
                     continue;
                 }
 
                 $row['job_id'] = $this->jobId;
-                $row['updated_at'] = $row['_src_updated_at'] ?? $nowUtc;
-
-                // limpar campo interno auxiliar
+                $row['updated_at'] = $row['_src_updated_at'] ?? $nowUtc; // origem
+                $row['consulted_at'] = $nowUtc;                          // nossa consulta
                 unset($row['_src_updated_at']);
 
                 $toUpsert[] = $row;
@@ -885,7 +878,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         'emprestimos_legados',
                         'not_found',
                         'job_id',
-                        'updated_at'
+                        'updated_at',    // origem
+                        'consulted_at',  // nossa consulta
                     ]
                 );
             }
@@ -919,10 +913,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $this->finishIfStopped($job);
     }
 
-    /** micro-sleep cooperativo em milissegundos */
     private function microSleepCoop(int $ms, CltConsultJob $job): bool
     {
-        $remain = max(0, $ms) * 1000; // us
+        $remain = max(0, $ms) * 1000;
         if ($remain <= 0)
             return $this->finishIfStopped($job);
 
@@ -1159,7 +1152,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $usage > (int) ($limit * 0.70);
     }
 
-    // Helper para converter SIM/NÃO/S/N etc. em boolean
     private function simNaoToBool($val): ?bool
     {
         if (is_bool($val))
@@ -1195,7 +1187,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         return null;
     }
-
 
     private function memoryLimitBytes(): int
     {

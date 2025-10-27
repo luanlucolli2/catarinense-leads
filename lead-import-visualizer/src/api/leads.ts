@@ -55,6 +55,7 @@ export interface LeadFromApiCLT {
   elegivel: boolean | null
   not_found: boolean | null
   clt_consultado_em: string | null
+  clt_dados_atualizados_em: string | null,
 
   idade: number | null
   sexo: "M" | "F" | string | null
@@ -106,6 +107,8 @@ export interface LeadDetailFromApi {
   /** ➕ FGTS OFF */
   fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
+  clt_dados_atualizados_em: string | null,
+
   /** ➕ CLT */
   elegivel: boolean | null
   idade: number | null

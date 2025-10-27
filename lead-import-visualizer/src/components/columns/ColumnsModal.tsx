@@ -81,6 +81,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     // Produto (CLT)
     { id: "elegivel", label: "Elegível", group: "Produto" },
     { id: "clt_consultado_em", label: "Data consulta", group: "Produto" },
+    { id: "clt_dados_atualizados_em", label: "Data dados", group: "Produto" }, // 🆕
     { id: "idade", label: "Idade", group: "Produto" },
     { id: "sexo", label: "Sexo", group: "Produto" },
     { id: "data_admissao", label: "Data admissão", group: "Produto" },

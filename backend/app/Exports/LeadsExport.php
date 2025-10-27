@@ -77,7 +77,8 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
             'qtd_emprestimos_ativos_suspensos'  => 'CLT Qtde Empréstimos Ativos/Suspensos',
             'emprestimos_legados'               => 'CLT Empréstimos Legados',
             'not_found'                         => 'CLT Não Encontrado',
-            'clt_consultado_em'                 => 'CLT Consultado em',
+            'clt_consultado_em'                 => 'CLT Data consulta',
+            'clt_dados_atualizados_em'          => 'CLT Data dados',
         ];
 
         return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);
@@ -90,7 +91,6 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
         foreach ($this->columns as $col) {
             switch ($col) {
                 case 'cpf':
-                    // dígitos, sem zeros à esquerda, como STRING
                     $row[] = $this->cpfDigits($lead->cpf);
                     break;
 
@@ -131,6 +131,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
                 case 'data_admissao':
                 case 'inicio_atividade_empregador':
                 case 'clt_consultado_em':
+                case 'clt_dados_atualizados_em':
                     $row[] = $this->formatDate($lead->{$col}, true);
                     break;
 
