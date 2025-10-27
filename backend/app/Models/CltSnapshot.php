@@ -11,7 +11,7 @@ class CltSnapshot extends Model
     protected $primaryKey = 'cpf';
     public $incrementing = false;
     protected $keyType = 'string';
-    public $timestamps = false; // gerenciamos updated_at manualmente
+    public $timestamps = false; // gerenciamos updated_at/consulted_at manualmente
 
     protected $fillable = [
         'cpf',
@@ -33,7 +33,8 @@ class CltSnapshot extends Model
         'emprestimos_legados',
         'not_found',
         'job_id',
-        'updated_at',
+        'updated_at',    // última atualização do DADO na origem
+        'consulted_at',  // quando NÓS consultamos
     ];
 
     protected $casts = [
@@ -48,8 +49,9 @@ class CltSnapshot extends Model
         'valor_max_prestacao'               => 'decimal:2',
         'inicio_atividade_empregador'       => 'date',
         'qtd_emprestimos_ativos_suspensos'  => 'integer',
-        'emprestimos_legados'               => 'boolean', // ✅ era integer
+        'emprestimos_legados'               => 'boolean',
         'not_found'                         => 'boolean',
         'updated_at'                        => 'datetime',
+        'consulted_at'                      => 'datetime',
     ];
 }

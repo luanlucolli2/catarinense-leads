@@ -37,6 +37,7 @@ class CltConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
+            'variant' => $job->variant,
             'status' => $job->status,
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
@@ -62,6 +63,7 @@ class CltConsultController extends Controller
         $rules = [
             'title' => ['required', 'string', 'max:191'],
             'cpfs' => ['required'],
+            'variant' => ['nullable', 'in:online,offline'],
         ];
         $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -71,11 +73,13 @@ class CltConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $data = $validator->validated();
+        $variant = $data['variant'] ?? 'online';
 
         $job = CltConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
             'status' => 'pendente',
+            'variant' => $variant,
             'total_cpfs' => 0,
             'success_count' => 0,
             'not_found_count' => 0,

@@ -67,6 +67,9 @@ const COLUMNS_CLT: ColumnDef[] = [
   // Produto (CLT)
   { id: "elegivel", label: "Elegível", selected: true, group: "Produto" },
   { id: "clt_consultado_em", label: "Data consulta", selected: true, group: "Produto" },
+  // 🆕 novo campo no export
+  { id: "clt_dados_atualizados_em", label: "Data dados", selected: true, group: "Produto" },
+
   { id: "idade", label: "Idade", selected: true, group: "Produto" },
   { id: "sexo", label: "Sexo", selected: true, group: "Produto" },
   { id: "data_admissao", label: "Data admissão", selected: true, group: "Produto" },
@@ -194,8 +197,8 @@ export const ExportModal = ({
                         ${allGroupSelected
                           ? "border-gray-300 text-gray-700 hover:bg-gray-50"
                           : someGroupSelected
-                          ? "border-blue-300 text-blue-700 hover:bg-blue-50"
-                          : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                            ? "border-blue-300 text-blue-700 hover:bg-blue-50"
+                            : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                       title={allGroupSelected ? "Desmarcar grupo" : "Selecionar grupo"}
                     >
                       {allGroupSelected ? "Desmarcar grupo" : "Selecionar grupo"}

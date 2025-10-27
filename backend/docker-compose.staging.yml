@@ -23,8 +23,7 @@ services:
       retries: 10
       start_period: 10s
     networks: [sail]
-    mem_limit: 512m           # <--- MUDANÇA (Aumentado de 384m)
-    # mem_reservation: 320m   # <--- MUDANÇA (Removido)
+    mem_limit: 512m
     cpu_shares: 1024
 
   laravel:
@@ -50,7 +49,6 @@ services:
     networks: [sail]
     restart: unless-stopped
     mem_limit: 512m
-    # mem_reservation: 384m   # <--- MUDANÇA (Removido)
     cpu_shares: 1024
 
   # ===== SCHEDULER (executa tarefas agendadas do Laravel) =====
@@ -69,7 +67,6 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
     mem_limit: 192m
-    # mem_reservation: 128m   # <--- MUDANÇA (Removido)
     cpu_shares: 256
 
   queue:
@@ -87,14 +84,14 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     mem_limit: 1024m
-    # mem_reservation: 768m   # <--- MUDANÇA (Removido)
     memswap_limit: "1536m"
     cpu_shares: 1536
 
   queue-clt:
     image: leads-backend
     container_name: leads-queue-clt
-    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=288 --tries=3 --backoff=60
+    # ↑ mais memória para CLT
+    command: php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=560 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -105,17 +102,16 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 352m
-    # mem_reservation: 288m   # <--- MUDANÇA (Removido)
-    memswap_limit: "768m"
+    mem_limit: 608m
+    memswap_limit: "1024m"
     cpu_shares: 768
 
   # FGTS OFF (alta)
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    # <--- MUDANÇA (aumentei tries=1 para tries=3)
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=700 --tries=3 --backoff=60
+    # ↓ menos memória para FGTS
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -126,8 +122,7 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 732m
-    # mem_reservation: 608m   # <--- MUDANÇA (Removido)
+    mem_limit: 472m
     memswap_limit: "1536m"
     cpu_shares: 2048
 
@@ -135,8 +130,7 @@ services:
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    # <--- MUDANÇA (aumentei tries=1 para tries=3)
-    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30 # <--- MUDANÇA (memory=360 para bater com o limite)
+    command: php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -147,8 +141,7 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 384m           # <--- MUDANÇA (Reduzido de 512m)
-    # mem_reservation: 384m   # <--- MUDANÇA (Removido)
+    mem_limit: 384m
     memswap_limit: "1024m"
     cpu_shares: 1536
 
@@ -162,14 +155,12 @@ services:
     networks: [sail]
     depends_on: [laravel]
     mem_limit: 24m
-    # mem_reservation: 20m    # <--- MUDANÇA (Removido)
     cpu_shares: 128
 
   # ====== REDIS ======
   redis:
     image: redis:7-alpine
     container_name: leads-redis
-    # <--- MUDANÇA (troquei 'yes' para 'no' para acelerar reinícios)
     command: ["redis-server","--appendonly","no","--maxmemory","128mb","--maxmemory-policy","volatile-lru"]
     volumes:
       - redis-data:/data
@@ -181,7 +172,6 @@ services:
       timeout: 3s
       retries: 20
     mem_limit: 160m
-    # mem_reservation: 96m    # <--- MUDANÇA (Removido)
     cpu_shares: 256
 
 networks:

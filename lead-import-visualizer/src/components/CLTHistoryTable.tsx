@@ -12,6 +12,8 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Wifi,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -114,7 +116,6 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
     item.fail_count
   ).toLocaleString();
 
-  // Mostrar “preparando/contando…” até total_cpfs ser preenchido
   const isCounting =
     total === 0 &&
     (item.status === "pendente" || item.status === "em_progresso");
@@ -213,7 +214,7 @@ export const CLTHistoryTable = ({
 
   const canDownloadFinal = (i: CltConsultJobListItem) =>
     (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") &&
-    Boolean(i.file_path ?? (i as any).has_file); // usa file_path (DTO da lista) e, por compatibilidade, fallback no has_file via any
+    Boolean(i.file_path ?? (i as any).has_file);
 
   const canDownloadPreview = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -256,9 +257,6 @@ export const CLTHistoryTable = ({
     }
   };
 
-  const handlePrev = () => onPageChange(Math.max(1, page - 1));
-  const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
-
   return (
     <div className="space-y-4">
       {loading ? (
@@ -284,6 +282,41 @@ export const CLTHistoryTable = ({
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
 
+          // Modo/variant vindo da API: "online" | "offline"
+          const variant = String((i as any).variant ?? "")
+            .trim()
+            .toLowerCase();
+          const type =
+            variant === "offline"
+              ? "OFF"
+              : variant === "online"
+                ? "ONLINE"
+                : ((i as any).mode ??
+                  (i as any).tipo ??
+                  (i as any).type ??
+                  ((i as any).is_offline ? "OFF" : "ONLINE"))
+                  .toString()
+                  .toUpperCase();
+
+          // Badge de modo copiado do protótipo
+          const modeBadge = (() => {
+            if (type === "OFF") {
+              return {
+                icon: <Database className="w-3.5 h-3.5" />,
+                className:
+                  "bg-gradient-to-r from-slate-100 to-stone-50 text-slate-700 border-slate-300 dark:from-slate-800/30 dark:to-stone-800/20 dark:text-slate-300 dark:border-slate-700 shadow-sm",
+                label: "Base Offline",
+              };
+            }
+            return {
+              icon: <Wifi className="w-3.5 h-3.5" />,
+              className:
+                "bg-gradient-to-r from-emerald-100 to-teal-50 text-emerald-700 border-emerald-300 dark:from-emerald-900/30 dark:to-teal-800/20 dark:text-emerald-300 dark:border-emerald-700 shadow-sm",
+              label: "Online",
+            };
+          })();
+
+
           return (
             <Card
               key={i.id}
@@ -305,6 +338,18 @@ export const CLTHistoryTable = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-3 ml-4">
+                    {/* Badge de modo (ONLINE/OFF) do protótipo */}
+                    <Badge
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1 font-medium pointer-events-none select-none",
+                        modeBadge.className
+                      )}
+                    >
+                      {modeBadge.icon}
+                      {modeBadge.label}
+                    </Badge>
+
+                    {/* Badge de status */}
                     <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
                       {statusInfo.icon}
                       {statusInfo.label}
@@ -407,7 +452,7 @@ export const CLTHistoryTable = ({
         })
       )}
 
-      {/* Paginação (somente anterior/próxima) */}
+      {/* Paginação */}
       <div className="bg-white px-4 lg:px-6 py-3 border border-border rounded-md flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           Página {page} de {lastPage || 1}
@@ -467,7 +512,7 @@ export const CLTHistoryTable = ({
               }}
             >
               {cancelingId === confirmJob?.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 h-4 animate-spin" />
               ) : (
                 "Sim, cancelar"
               )}

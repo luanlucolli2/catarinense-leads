@@ -21,6 +21,31 @@ return [
         'second_connect_timeout'  => (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', 5),
     ],
 
+    // ===== OFFLINE (CLT-OFF) =====
+    'clt_off' => [
+        'api' => [
+            'base_url'        => env('CLT_OFF_BASE_URL', ''),
+            'basic_auth'      => env('CLT_OFF_BASIC_AUTH'),
+            'token_ttl'       => (int) env('CLT_OFF_TOKEN_TTL_SECONDS', 3600),
+            'token_lock_ttl'  => (int) env('CLT_OFF_TOKEN_LOCK_TTL', 10),
+            'token_lock_wait' => (int) env('CLT_OFF_TOKEN_LOCK_WAIT', 5),
+            'token_ttl_skew'  => (int) env('CLT_OFF_TOKEN_TTL_SKEW', 30),
+        ],
+        'http' => [
+            'timeout'                 => (int) env('CLT_OFF_HTTP_TIMEOUT', 10),
+            'connect_timeout'         => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
+            'retry'                   => (int) env('CLT_OFF_HTTP_RETRY', 1),
+            'retry_delay_ms'          => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
+            'second_try'              => (bool) env('CLT_OFF_HTTP_SECOND_TRY', true),
+            'second_timeout'          => (int) env('CLT_OFF_HTTP_TIMEOUT_SECOND', 8),
+            'second_connect_timeout'  => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT_SECOND', 4),
+        ],
+        'storage' => [
+            // não usado agora para nome de planilha
+            'final_prefix' => env('CLT_OFF_FINAL_PREFIX', 'clt-offline'),
+        ],
+    ],
+
     'job' => [
         'queue'               => env('CLT_JOB_QUEUE', 'clt'),
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
@@ -30,7 +55,6 @@ return [
         'min_chunk'           => (int) env('CLT_HTTP_MIN_CHUNK', 5),
         'retry_after_max'     => (int) env('CLT_HTTP_RETRY_AFTER_MAX', 120),
 
-        // NOVOS (pacing)
         'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 200),
         'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 5),
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 120),
@@ -42,6 +66,8 @@ return [
         'dir_previews' => env('CLT_PREVIEWS_DIR', 'clt-previews'),
         'dir_spool'    => env('CLT_SPOOL_DIR', 'clt-spool'),
         'final_prefix' => env('CLT_FINAL_PREFIX', 'clt-consulta'),
+        // não usar para nomear agora; reservado
+        'clt_off_final_prefix' => env('CLT_OFF_FINAL_PREFIX', 'clt-offline'),
     ],
 
 ];

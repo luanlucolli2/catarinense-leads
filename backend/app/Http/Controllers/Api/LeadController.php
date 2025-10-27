@@ -75,14 +75,13 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        // carrega ambos snapshots para a tela de detalhes
         $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'cltSnapshot']);
 
         // FGTS OFF
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
         $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->updated_at);
 
-        // CLT – expõe exatamente os campos pedidos
+        // CLT – expõe campos e datas separadas
         $clt = $lead->cltSnapshot;
         if ($clt) {
             $lead->setAttribute('elegivel', $clt->elegivel);
@@ -99,7 +98,10 @@ class LeadController extends Controller
             $lead->setAttribute('qtd_emprestimos_ativos_suspensos', $clt->qtd_emprestimos_ativos_suspensos);
             $lead->setAttribute('emprestimos_legados', $clt->emprestimos_legados);
             $lead->setAttribute('not_found', $clt->not_found);
-            $lead->setAttribute('clt_consultado_em', $clt->updated_at); // evita colidir com leads.updated_at
+
+            // datas:
+            $lead->setAttribute('clt_consultado_em', $clt->consulted_at);          // quando consultamos
+            $lead->setAttribute('clt_dados_atualizados_em', $clt->updated_at);     // quando a origem atualizou
         }
 
         // últimas origens por tipo

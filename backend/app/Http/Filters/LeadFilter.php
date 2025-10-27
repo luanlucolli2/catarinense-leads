@@ -16,7 +16,7 @@ class LeadFilter
         $exportMode = is_array($columnsForExport);
         $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt'
 
-        // ---- FGTS OFF: colunas a projetar (só quando necessário) ----
+        // ---- FGTS OFF: colunas projetadas (quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
             ? in_array('fgts_off_authorized', $columnsForExport, true)
             : ($mode === 'fgts');
@@ -142,7 +142,7 @@ class LeadFilter
                 'emprestimos_legados',
                 'not_found'
             ];
-            $needAnyClt = (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em']));
+            $needAnyClt = (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em', 'clt_dados_atualizados_em']));
             if ($needAnyClt) {
                 foreach ($cltFields as $f) {
                     if (in_array($f, $columnsForExport, true)) {
@@ -150,7 +150,10 @@ class LeadFilter
                     }
                 }
                 if (in_array('clt_consultado_em', $columnsForExport, true)) {
-                    $query->addSelect(['clt_consultado_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
+                    $query->addSelect(['clt_consultado_em' => DB::table('clt_snapshots as cs')->select('consulted_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
+                }
+                if (in_array('clt_dados_atualizados_em', $columnsForExport, true)) {
+                    $query->addSelect(['clt_dados_atualizados_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
                 }
             }
         } else {
@@ -238,7 +241,11 @@ class LeadFilter
                     'qtd_emprestimos_ativos_suspensos' => DB::table('clt_snapshots as cs')->select('qtd_emprestimos_ativos_suspensos')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
                     'emprestimos_legados' => DB::table('clt_snapshots as cs')->select('emprestimos_legados')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
                     'not_found' => DB::table('clt_snapshots as cs')->select('not_found')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'clt_consultado_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
+
+                    // datas separadas
+                    'clt_consultado_em' => DB::table('clt_snapshots as cs')->select('consulted_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
+                    'clt_dados_atualizados_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
+
                     'ultima_origem_cadastral' => function ($q) {
                         $q->select('ij.origin')
                             ->from('lead_imports as li')
@@ -253,7 +260,7 @@ class LeadFilter
             }
         }
 
-        // ----- filtros de busca gerais -----
+        // ----- busca geral -----
         if ($r->filled('search')) {
             $termRaw = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
@@ -277,7 +284,7 @@ class LeadFilter
             });
         }
 
-        // ===== filtros FGTS que NÃO se aplicam ao modo CLT =====
+        // ===== filtros FGTS (não se aplicam ao CLT) =====
         if ($mode === 'fgts') {
             $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string) $r->motivos)) : [];
             if ($motivos)
@@ -335,7 +342,7 @@ class LeadFilter
             });
         }
 
-        // datas gerais
+        // datas gerais de atualização do LEAD
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
             $to = $r->input('date_to', now()->toDateString());
@@ -389,8 +396,7 @@ class LeadFilter
                         } elseif ($situacao === 'nao_elegivel') {
                             $sq->where('cs.not_found', 0)
                                 ->where(function ($q) {
-                                    $q->where('cs.elegivel', 0)->orWhereNull('cs.elegivel');
-                                });
+                                    $q->where('cs.elegivel', 0)->orWhereNull('cs.elegivel'); });
                         } elseif ($situacao === 'nao_encontrado') {
                             $sq->where('cs.not_found', 1);
                         }
@@ -403,10 +409,11 @@ class LeadFilter
                         }
                     }
 
+                    // AGORA filtra por quando NÓS consultamos
                     if ($r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')) {
                         $from = $r->input('clt_consulta_from', '1900-01-01');
                         $to = $r->input('clt_consulta_to', now()->toDateString());
-                        $sq->whereBetween('cs.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                        $sq->whereBetween('cs.consulted_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
                     }
 
                     if ($r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')) {
@@ -468,16 +475,14 @@ class LeadFilter
                             $sq->where('cs.qtd_emprestimos_ativos_suspensos', '>', 0);
                         else
                             $sq->where(function ($q) {
-                                $q->whereNull('cs.qtd_emprestimos_ativos_suspensos')->orWhere('cs.qtd_emprestimos_ativos_suspensos', '=', 0);
-                            });
+                                $q->whereNull('cs.qtd_emprestimos_ativos_suspensos')->orWhere('cs.qtd_emprestimos_ativos_suspensos', '=', 0); });
                     }
                     if (($v = self::yn($r->input('clt_tem_legados'))) !== null) {
                         if ($v === 'sim') {
                             $sq->where('cs.emprestimos_legados', '=', 1);
                         } else {
                             $sq->where(function ($q) {
-                                $q->whereNull('cs.emprestimos_legados')->orWhere('cs.emprestimos_legados', '=', 0);
-                            });
+                                $q->whereNull('cs.emprestimos_legados')->orWhere('cs.emprestimos_legados', '=', 0); });
                         }
                     }
                 });
@@ -491,25 +496,20 @@ class LeadFilter
 
             if ($fgtsStatus === 'autorizado') {
                 $query->whereIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1);
-                });
+                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1); });
             } elseif ($fgtsStatus === 'nao_autorizado') {
                 $query->whereIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0);
-                });
+                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0); });
             } elseif ($fgtsStatus === 'nao_consultado') {
                 $query->whereNotIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots');
-                });
+                    $sq->select('cpf')->from('fgts_off_snapshots'); });
             }
 
             if ($hasFgtsDateFilter) {
                 $from = $r->input('fgts_consulta_from', '1900-01-01');
                 $to = $r->input('fgts_consulta_to', now()->toDateString());
                 $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
-                    $sq->select('cpf')
-                        ->from('fgts_off_snapshots')
-                        ->whereBetween('updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                    $sq->select('cpf')->from('fgts_off_snapshots')->whereBetween('updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
                 });
             }
         }
@@ -526,9 +526,7 @@ class LeadFilter
             return;
 
         $input = $r->input($key);
-        $raw = is_array($input)
-            ? $input
-            : preg_split('/[\s,;]+/', (string) $input);
+        $raw = is_array($input) ? $input : preg_split('/[\s,;]+/', (string) $input);
 
         $raw = array_values(array_filter($raw, fn($v) => $v !== '' && $v !== null));
         if (empty($raw))

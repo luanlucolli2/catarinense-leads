@@ -64,25 +64,14 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
 ];
 
 export const CLT_COLUMNS_DEFAULT: string[] = [
-  "cpf",
-  "nome",
-  "data_nascimento",
-  "telefone_1",
-  "classe_1",
-  "idade",
-  "sexo",
+  "cpf", "nome", "data_nascimento", "telefone_1", "classe_1",
+  "idade", "sexo",
   "elegivel",
   "clt_consultado_em",
-  "data_admissao",
-  "meses_admissao",
-  "categoria_trabalhador_codigo",
-  "valor_renda",
-  "valor_base_margem",
-  "margem_disponivel",
-  "valor_max_prestacao",
-  "qtd_emprestimos_ativos_suspensos",
-  "emprestimos_legados",
-  "ultima_origem_cadastral",
+  "clt_dados_atualizados_em", // 🆕
+  "data_admissao", "meses_admissao", "categoria_trabalhador_codigo",
+  "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao",
+  "qtd_emprestimos_ativos_suspensos", "emprestimos_legados", "ultima_origem_cadastral",
 ];
 
 const Dashboard = () => {
@@ -344,6 +333,8 @@ const Dashboard = () => {
         elegivel,
         not_found: !!lead.not_found,
         clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
+        // 🆕
+        clt_dados_atualizados_em: lead.clt_dados_atualizados_em ? formatDate(lead.clt_dados_atualizados_em) : "",
         idade: lead.idade ?? null,
         sexo: lead.sexo ?? null,
         data_admissao: lead.data_admissao ? formatDate(lead.data_admissao) : "",
@@ -598,7 +589,7 @@ const Dashboard = () => {
 
       if (status.status === "ready") {
         toast.success("Export pronto. Baixando…", { id: tid })
-        try { await downloadLeadsExport(token) } catch {}
+        try { await downloadLeadsExport(token) } catch { }
         toast.dismiss(tid)
       } else if (status.status === "error") {
         const msg = status.message || "Falha ao gerar export."

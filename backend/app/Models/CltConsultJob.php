@@ -9,7 +9,7 @@ class CltConsultJob extends Model
     protected $table = 'clt_consult_jobs';
 
     protected $fillable = [
-        'user_id','title','status',
+        'user_id','title','status','variant',
         'total_cpfs','success_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
         'started_at','finished_at','paused_at','canceled_at','cancel_reason',

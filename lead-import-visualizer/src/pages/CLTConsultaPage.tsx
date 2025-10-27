@@ -38,22 +38,18 @@ const CLTConsultaPage = () => {
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-
   const [page, setPage] = useState(1);
-  // persiste o job observado entre reloads/voltas
+
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
     "clt:watchJobId",
     null
   );
 
-  // 🔒 evita cliques repetidos (um lock por jobId)
   const inFlight = useRef<Set<number>>(new Set());
-  // controla “esperando prévia” + toasts por job
   const waitingPreview = useRef<Set<number>>(new Set());
   const previewToastById = useRef<Map<number, string | number>>(new Map());
   const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null } | null>(null);
 
-  /** ---------- LISTA (React Query) ---------- */
   const {
     data: jobsPage,
     isLoading: listLoading,
@@ -63,7 +59,7 @@ const CLTConsultaPage = () => {
     queryFn: () => listCltConsultJobs(page),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
-    refetchInterval: 30000, // polling lento fixo (30s)
+    refetchInterval: 30000,
   });
 
   const items = jobsPage?.data ?? [];
@@ -72,7 +68,6 @@ const CLTConsultaPage = () => {
   const titleOf = (id: number) =>
     (jobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
-  /** ---------- WATCH de 1 job (React Query) ---------- */
   const { data: watchedJob } = useQuery<CltConsultJobShow>({
     queryKey: ["clt:job", watchingJobId],
     queryFn: () => getCltConsultJob(watchingJobId as number),
@@ -80,18 +75,14 @@ const CLTConsultaPage = () => {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchOnMount: "always",
-    // polling rápido (5s) somente quando aberto
     refetchInterval: (query) => {
       const job = query.state.data as CltConsultJobShow | undefined;
       if (!job) return false;
-      const open =
-        job.status === "pendente" ||
-        job.status === "em_progresso";
+      const open = job.status === "pendente" || job.status === "em_progresso";
       return open ? 5000 : false;
     },
   });
 
-  /** 🔁 Overlay do watchedJob por cima da lista para refletir progresso/status na UI */
   const itemsWithOverlay: CltConsultJobListItem[] = useMemo(() => {
     if (!watchedJob) return items;
     return items.map((i) => {
@@ -114,14 +105,12 @@ const CLTConsultaPage = () => {
     return itemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [itemsWithOverlay, searchValue]);
 
-  /** Reações a mudanças do job observado */
   useEffect(() => {
     if (!watchedJob) return;
 
     const niceTitle = watchedJob.title ?? titleOf(watchedJob.id);
     const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedJob.status);
 
-    // Evita repetir toasts em cada tick
     const prev = lastWatchedSnapshot.current;
     const changed =
       !prev ||
@@ -136,7 +125,6 @@ const CLTConsultaPage = () => {
       pstatus: watchedJob.preview_status,
     };
 
-    // Se estamos aguardando prévia desse id:
     if (waitingPreview.current.has(watchedJob.id)) {
       if (watchedJob.has_file) {
         const tid = previewToastById.current.get(watchedJob.id);
@@ -169,18 +157,18 @@ const CLTConsultaPage = () => {
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
       else if (watchedJob.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
 
-      setWatchingJobId(null); // para o polling do job (e limpa persistência)
+      setWatchingJobId(null);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
     }
   }, [watchedJob, qc, setWatchingJobId]);
 
-  /** ---------- MUTATIONS ---------- */
-
-  const createMutation = useMutation({
-    mutationFn: createCltConsultJob,
+  // Aceita payload estendido
+  const createMutation = useMutation<any, any, any>({
+    mutationFn: (vars: any) => createCltConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
-      toast.success(`Consulta "${(vars as any).title}" criada.`);
+      const t = (vars as any).title;
+      toast.success(`Consulta "${t}" criada.`);
       setPage(1);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
     },
@@ -214,9 +202,12 @@ const CLTConsultaPage = () => {
     mutationFn: (id: number) => requestCltPreview(id),
   });
 
-  /** ---------- Helpers ---------- */
+  // Mapear modo → variant esperado pelo backend
+  const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE") => {
+    const variant = modo === "OFF" ? "offline" : "online";
+    await createMutation.mutateAsync({ title: titulo, cpfs, variant });
+  };
 
-  // Usa sempre o mesmo id de toast por job; evita duplicatas
   const getOrCreatePreviewToast = (id: number) => {
     const existing = previewToastById.current.get(id);
     if (existing) return existing;
@@ -224,26 +215,17 @@ const CLTConsultaPage = () => {
     toast.info("Gerando prévia…", {
       id: stableId,
       description: "Aguarde enquanto preparamos o XLSX.",
-      duration: Infinity, // controlamos manualmente
+      duration: Infinity,
     });
     previewToastById.current.set(id, stableId);
     return stableId;
   };
 
-  /** ---------- Handlers ---------- */
-
-  const handleNewConsult = async (titulo: string, cpfs: string) => {
-    await createMutation.mutateAsync({ title: titulo, cpfs });
-  };
-
-  /** Botão único: decide final vs. prévia sob demanda. */
   const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
-    // Se já estamos aguardando a prévia desse job, não criamos outro toast nem outro POST
     if (waitingPreview.current.has(id)) {
       toast.warning("Já estamos gerando a prévia deste job.");
       return;
     }
-
     if (inFlight.current.has(id)) {
       toast.warning("Já estamos gerando/baixando para este job.");
       return;
@@ -256,23 +238,20 @@ const CLTConsultaPage = () => {
         queryFn: () => getCltConsultJob(id),
       });
 
-      // FINAL disponível → baixa
       if (!opts?.preview && j.has_file) {
         await downloadCltReport(id);
         inFlight.current.delete(id);
         return;
       }
 
-      // Intenção: PRÉVIA (força generate sempre)
       if (opts?.preview) {
         const tid = getOrCreatePreviewToast(id);
         waitingPreview.current.add(id);
-        setWatchingJobId(id); // ativa o polling rápido do job (5s)
+        setWatchingJobId(id);
 
         const status = await requestPreviewMutation.mutateAsync(id);
 
         if (status === 200) {
-          // já pronta → fecha toast e baixa imediatamente
           toast.dismiss(tid);
           previewToastById.current.delete(id);
           waitingPreview.current.delete(id);
@@ -283,12 +262,10 @@ const CLTConsultaPage = () => {
           return;
         }
 
-        // 202/409 → aguarda via polling
         void qc.invalidateQueries({ queryKey: ["clt:job", id] });
         return;
       }
 
-      // Sem final ainda → comportamento igual ao da prévia
       const tid = getOrCreatePreviewToast(id);
       waitingPreview.current.add(id);
       setWatchingJobId(id);
@@ -309,7 +286,6 @@ const CLTConsultaPage = () => {
       const apiMsg = e?.response?.data?.message || e?.message;
       toast.error(apiMsg ?? "Falha no download");
 
-      // limpeza defensiva
       waitingPreview.current.delete(id);
       const tid = previewToastById.current.get(id);
       if (tid) {
@@ -348,7 +324,6 @@ const CLTConsultaPage = () => {
 
         <CLTHistoryTable
           items={filteredItems}
-          // evita “piscar” em refetch: só mostra loading no 1º load (sem dados ainda)
           loading={!!(listLoading && !jobsPage)}
           onDownload={handleDownload}
           onCancel={handleCancel}

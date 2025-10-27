@@ -493,16 +493,16 @@ export const LeadsTableFGTS = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (["data_nascimento","data_atualizacao","fgts_off_consultado_em","data_contrato_recente"].includes(c.id))
+        if (["data_nascimento", "data_atualizacao", "fgts_off_consultado_em", "data_contrato_recente"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
         if (
           c.id.startsWith("classe_") ||
-          ["consulta","ultima_origem_cadastral","ultima_origem_higienizacao","fgts_off_authorized"].includes(c.id)
+          ["consulta", "ultima_origem_cadastral", "ultima_origem_higienizacao", "fgts_off_authorized"].includes(c.id)
         )
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
-        if (["saldo","libera","contratos"].includes(c.id))
+        if (["saldo", "libera", "contratos"].includes(c.id))
           return <SkeletonCell key={idx} w="w-16" align="right" />;
 
         if (c.id === "vendedor") return <SkeletonCell key={idx} w="w-40" align="left" />;
@@ -673,12 +673,12 @@ export interface ProcessedLeadCLT {
   elegivel: boolean | null;
   not_found: boolean;
   clt_consultado_em: string;
+  clt_dados_atualizados_em: string; // 🆕
 
   idade: number | null;
   sexo: string | null;
   data_admissao: string;
   meses_admissao: number | null;
-
   valor_renda: string;
   valor_base_margem: string;
   margem_disponivel: string;
@@ -692,23 +692,15 @@ export interface ProcessedLeadCLT {
 }
 
 type SortFieldCLT =
-  | "cpf"
-  | "nome"
-  | "data_nascimento"
-  | "idade"
-  | "sexo"
-  | "ultima_origem_cadastral"
-  | "elegivel"
+  | "cpf" | "nome" | "data_nascimento" | "idade" | "sexo"
+  | "ultima_origem_cadastral" | "elegivel"
   | "clt_consultado_em"
-  | "data_admissao"
-  | "meses_admissao"
+  | "clt_dados_atualizados_em" // 🆕
+  | "data_admissao" | "meses_admissao"
   | "categoria_trabalhador_codigo"
-  | "valor_renda"
-  | "valor_base_margem"
-  | "margem_disponivel"
-  | "valor_max_prestacao"
-  | "qtd_emprestimos_ativos_suspensos"
-  | "emprestimos_legados";
+  | "valor_renda" | "valor_base_margem" | "margem_disponivel" | "valor_max_prestacao"
+  | "qtd_emprestimos_ativos_suspensos" | "emprestimos_legados";
+
 
 interface LeadsTableCLTProps {
   leads: ProcessedLeadCLT[];
@@ -750,6 +742,7 @@ export const LeadsTableCLT = ({
   const valueForSort = (x: ProcessedLeadCLT, field: SortFieldCLT) => {
     switch (field) {
       case "clt_consultado_em":
+      case "clt_dados_atualizados_em": // 🆕
       case "data_admissao":
       case "data_nascimento":
         return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
@@ -952,7 +945,7 @@ export const LeadsTableCLT = ({
     },
     {
       id: "clt_consultado_em",
-      header: <Th align="center"><SortButton field="clt_consultado_em" align="center">Consulta (CLT)</SortButton></Th>,
+      header: <Th align="center"><SortButton field="clt_consultado_em" align="center">Data consulta</SortButton></Th>,
       cell: (lead: ProcessedLeadCLT) => (
         <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">
           {lead.clt_consultado_em ? (
@@ -967,6 +960,25 @@ export const LeadsTableCLT = ({
         </td>
       ),
     },
+
+    {
+      id: "clt_dados_atualizados_em",
+      header: <Th align="center"><SortButton field="clt_dados_atualizados_em" align="center">Data dados</SortButton></Th>,
+      cell: (lead: ProcessedLeadCLT) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">
+          {lead.clt_dados_atualizados_em ? (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+              {lead.clt_dados_atualizados_em}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+              --
+            </span>
+          )}
+        </td>
+      ),
+    },
+
     {
       id: "data_admissao",
       header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>,
@@ -1101,8 +1113,10 @@ export const LeadsTableCLT = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (["data_nascimento", "data_admissao", "clt_consultado_em"].includes(c.id))
+        // incluir no bloco de skeleton das datas
+        if (["data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
+
         if (
           [
             "classe_1", "classe_2", "classe_3", "classe_4",
@@ -1214,7 +1228,7 @@ export const LeadsTableCLT = ({
                 </Button>
               </div>
               <div className="text-xs text-gray-600">
-                <p>Consulta CLT: {lead.clt_consultado_em || "—"}</p>
+                <p>Consulta CLT: {lead.clt_consultado_em || "--"}</p>
                 <p>
                   Situação:{" "}
                   {lead.not_found
@@ -1223,7 +1237,7 @@ export const LeadsTableCLT = ({
                       ? "Elegível"
                       : lead.elegivel === false
                         ? "Não elegível"
-                        : "—"}
+                        : "--"}
                 </p>
               </div>
             </div>

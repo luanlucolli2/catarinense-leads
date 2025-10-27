@@ -48,37 +48,35 @@ class GenerateLeadsExportJob implements ShouldQueue
 
         try {
             DB::connection()->disableQueryLog();
-            // Cursor não-bufferizado para reduzir RSS nas consultas
             DB::connection()->getPdo()->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
         } catch (\Throwable) {
         }
 
         Config::set('excel.temporary_files.local_path', storage_path('framework/cache/excel-temp'));
 
-        $diskName  = (string) env('LEADS_EXPORT_DISK', 'local');
-        $dir       = trim((string) env('LEADS_EXPORT_DIR', 'leads-exports'), '/');
-        $filename  = "leads_export_{$this->token}.csv";
-        $path      = "{$dir}/{$filename}";
-        $tmpPath   = "{$dir}/{$this->token}.tmp.csv";
+        $diskName = (string) env('LEADS_EXPORT_DISK', 'local');
+        $dir = trim((string) env('LEADS_EXPORT_DIR', 'leads-exports'), '/');
+        $filename = "leads_export_{$this->token}.csv";
+        $path = "{$dir}/{$filename}";
+        $tmpPath = "{$dir}/{$this->token}.tmp.csv";
 
-        $delimiter  = env('LEADS_EXPORT_CSV_DELIMITER', ';');
-        $enclosure  = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
-        $writeBOM   = (bool) env('LEADS_EXPORT_CSV_BOM', true);
-        $chunkSize  = (int) env('LEADS_EXPORT_CHUNK', 800);
+        $delimiter = env('LEADS_EXPORT_CSV_DELIMITER', ';');
+        $enclosure = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
+        $writeBOM = (bool) env('LEADS_EXPORT_CSV_BOM', true);
+        $chunkSize = (int) env('LEADS_EXPORT_CHUNK', 800);
         $flushEvery = (int) env('LEADS_EXPORT_FLUSH_EVERY', 2000);
 
         try {
             $req = new HttpRequest();
             $req->replace($this->payload);
 
-            $columns  = (array) ($this->payload['columns'] ?? []);
+            $columns = (array) ($this->payload['columns'] ?? []);
             $eloquent = LeadFilter::apply($req, $columns); // export-mode
 
             $table = $eloquent->getModel()->getTable();
-            $pk    = $eloquent->getModel()->getKeyName() ?: 'id';
+            $pk = $eloquent->getModel()->getKeyName() ?: 'id';
             $pkCol = "{$table}.{$pk}";
 
-            // Query Builder sem Eloquent, ordenado por PK
             $base = $eloquent->toBase()->orderBy($pkCol, 'asc');
 
             $disk = Storage::disk($diskName);
@@ -99,7 +97,6 @@ class GenerateLeadsExportJob implements ShouldQueue
             if ($fh === false) {
                 throw new \RuntimeException("Falha ao abrir arquivo temporário para escrita: {$absTmp}");
             }
-            // buffer de escrita de 1 MiB
             @stream_set_write_buffer($fh, 1024 * 1024);
 
             if ($writeBOM) {
@@ -110,7 +107,6 @@ class GenerateLeadsExportJob implements ShouldQueue
 
             $written = 0;
 
-            // Menor uso de RAM: itera 1 a 1 com lazyById
             foreach ($base->lazyById($chunkSize, $pk, $pk) as $row) {
                 fputcsv($fh, $this->mapRecord($row, $columns), $delimiter, $enclosure);
                 $written++;
@@ -125,7 +121,6 @@ class GenerateLeadsExportJob implements ShouldQueue
             fflush($fh);
             fclose($fh);
 
-            // move para destino final
             if ($diskName === 'local' && method_exists($disk, 'move') && method_exists($disk, 'exists')) {
                 $disk->move($tmpPath, $path);
                 if (!$disk->exists($path)) {
@@ -150,15 +145,15 @@ class GenerateLeadsExportJob implements ShouldQueue
             }
 
             Cache::put($key, [
-                'status'      => 'ready',
-                'message'     => 'Export pronto para download.',
-                'created_at'  => now()->toIso8601String(),
-                'updated_at'  => now()->toIso8601String(),
-                'disk'        => $diskName,
-                'path'        => $path,
-                'filename'    => $filename,
-                'size_bytes'  => $size,
-                'error'       => null,
+                'status' => 'ready',
+                'message' => 'Export pronto para download.',
+                'created_at' => now()->toIso8601String(),
+                'updated_at' => now()->toIso8601String(),
+                'disk' => $diskName,
+                'path' => $path,
+                'filename' => $filename,
+                'size_bytes' => $size,
+                'error' => null,
                 'ttl_seconds' => $this->ttlSeconds,
             ], $this->ttlSeconds);
 
@@ -168,22 +163,25 @@ class GenerateLeadsExportJob implements ShouldQueue
         } catch (Throwable $e) {
             Log::warning("[LEADS][EXPORT] Falha token={$this->token}: " . $e->getMessage(), ['exception' => $e]);
             try {
-                if (isset($fh) && is_resource($fh)) fclose($fh);
-                if (isset($absTmp) && is_file($absTmp)) @unlink($absTmp);
-                if (isset($disk, $tmpPath) && $disk->exists($tmpPath)) $disk->delete($tmpPath);
+                if (isset($fh) && is_resource($fh))
+                    fclose($fh);
+                if (isset($absTmp) && is_file($absTmp))
+                    @unlink($absTmp);
+                if (isset($disk, $tmpPath) && $disk->exists($tmpPath))
+                    $disk->delete($tmpPath);
             } catch (\Throwable) {
             }
 
             Cache::put($key, [
-                'status'      => 'error',
-                'message'     => 'Falha ao gerar export.',
-                'created_at'  => now()->toIso8601String(),
-                'updated_at'  => now()->toIso8601String(),
-                'disk'        => null,
-                'path'        => null,
-                'filename'    => null,
-                'size_bytes'  => 0,
-                'error'       => mb_strimwidth($e->getMessage(), 0, 1000, '…', 'UTF-8'),
+                'status' => 'error',
+                'message' => 'Falha ao gerar export.',
+                'created_at' => now()->toIso8601String(),
+                'updated_at' => now()->toIso8601String(),
+                'disk' => null,
+                'path' => null,
+                'filename' => null,
+                'size_bytes' => 0,
+                'error' => mb_strimwidth($e->getMessage(), 0, 1000, '…', 'UTF-8'),
                 'ttl_seconds' => $this->ttlSeconds,
             ], $this->ttlSeconds);
         }
@@ -234,7 +232,8 @@ class GenerateLeadsExportJob implements ShouldQueue
             'qtd_emprestimos_ativos_suspensos' => 'CLT Qtde Empréstimos Ativos/Suspensos',
             'emprestimos_legados' => 'CLT Empréstimos Legados',
             'not_found' => 'CLT Não Encontrado',
-            'clt_consultado_em' => 'CLT Consultado em',
+            'clt_consultado_em' => 'CLT Data consulta',
+            'clt_dados_atualizados_em' => 'CLT Data dados',
         ];
         return array_map(static fn($c) => $map[$c] ?? $c, $columns);
     }
@@ -275,6 +274,7 @@ class GenerateLeadsExportJob implements ShouldQueue
                 case 'data_admissao':
                 case 'inicio_atividade_empregador':
                 case 'clt_consultado_em':
+                case 'clt_dados_atualizados_em':
                     $row[] = $this->formatDate($lead->{$col} ?? null, true);
                     break;
                 case 'valor_renda':
@@ -297,13 +297,16 @@ class GenerateLeadsExportJob implements ShouldQueue
 
     private function formatDate($value, bool $isDateOnly = false): ?string
     {
-        if (empty($value)) return null;
+        if (empty($value))
+            return null;
         try {
             $ts = is_string($value) ? strtotime($value) : (is_int($value) ? $value : null);
-            if ($ts === null) $ts = strtotime((string) $value);
-            if ($ts === false) return null;
+            if ($ts === null)
+                $ts = strtotime((string) $value);
+            if ($ts === false)
+                return null;
             if ($isDateOnly) {
-                $d  = getdate($ts);
+                $d = getdate($ts);
                 $ts = mktime(0, 0, 0, $d['mon'], $d['mday'], $d['year']);
             }
             return date('d/m/Y', $ts);
@@ -314,26 +317,32 @@ class GenerateLeadsExportJob implements ShouldQueue
 
     private function toFloat($val): ?float
     {
-        if ($val === null || $val === '') return null;
+        if ($val === null || $val === '')
+            return null;
         $s = preg_replace('/[^0-9.,-]/', '', (string) $val);
-        if ($s === '') return null;
+        if ($s === '')
+            return null;
         $lastDot = strrpos($s, '.');
         $lastComma = strrpos($s, ',');
-        if ($lastDot === false && $lastComma === false) return is_numeric($s) ? (float) $s : null;
+        if ($lastDot === false && $lastComma === false)
+            return is_numeric($s) ? (float) $s : null;
         $dec = ($lastDot !== false && $lastComma !== false) ? (($lastDot > $lastComma) ? '.' : ',') : (($lastDot !== false) ? '.' : ',');
-        $th  = ($dec === '.') ? ',' : '.';
-        $n   = str_replace($th, '', $s);
-        $n   = str_replace($dec, '.', $n);
-        if (substr_count($n, '.') > 1) $n = preg_replace('/\.(?=.*\.)/', '', $n);
+        $th = ($dec === '.') ? ',' : '.';
+        $n = str_replace($th, '', $s);
+        $n = str_replace($dec, '.', $n);
+        if (substr_count($n, '.') > 1)
+            $n = preg_replace('/\.(?=.*\.)/', '', $n);
         return is_numeric($n) ? (float) $n : null;
     }
 
     private function cpfDigits($val): ?string
     {
-        if ($val === null || $val === '') return null;
+        if ($val === null || $val === '')
+            return null;
         $d = preg_replace('/\D+/', '', (string) $val) ?? '';
         $d = ltrim($d, '0');
-        if ($d === '') $d = '0';
+        if ($d === '')
+            $d = '0';
         return $d;
     }
 }
