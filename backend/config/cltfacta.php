@@ -1,3 +1,4 @@
+// config/cltfacta.php
 <?php
 
 return [
@@ -36,16 +37,16 @@ return [
             'connect_timeout'         => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
             'retry'                   => (int) env('CLT_OFF_HTTP_RETRY', 1),
             'retry_delay_ms'          => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
-            'second_try'              => (bool) env('CLT_OFF_HTTP_SECOND_TRY', true),
+            'second_try'              => (bool) env('CLT_OFF_HTTP_SECOND_TRY', false),
             'second_timeout'          => (int) env('CLT_OFF_HTTP_TIMEOUT_SECOND', 8),
             'second_connect_timeout'  => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT_SECOND', 4),
         ],
         'storage' => [
-            // não usado agora para nome de planilha
             'final_prefix' => env('CLT_OFF_FINAL_PREFIX', 'clt-offline'),
         ],
     ],
 
+    // ===== JOB (CLT online e offline) =====
     'job' => [
         'queue'               => env('CLT_JOB_QUEUE', 'clt'),
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
@@ -60,14 +61,19 @@ return [
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 120),
     ],
 
+    // onde salvar relatórios / prévias / spool
     'storage' => [
         'reports_disk' => env('CLT_REPORTS_DISK', 'local'),
         'dir_reports'  => env('CLT_REPORTS_DIR', 'clt-reports'),
         'dir_previews' => env('CLT_PREVIEWS_DIR', 'clt-previews'),
         'dir_spool'    => env('CLT_SPOOL_DIR', 'clt-spool'),
         'final_prefix' => env('CLT_FINAL_PREFIX', 'clt-consulta'),
-        // não usar para nomear agora; reservado
         'clt_off_final_prefix' => env('CLT_OFF_FINAL_PREFIX', 'clt-offline'),
+    ],
+
+    // fila usada para gerar prévias (reutiliza PREVIEW_JOB_QUEUE)
+    'preview' => [
+        'queue' => env('PREVIEW_JOB_QUEUE', 'reports'),
     ],
 
 ];
