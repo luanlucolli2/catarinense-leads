@@ -75,6 +75,14 @@ export interface CltConsultJobShow {
   created_at: string
 }
 
+/** Payload de criação alinhado ao backend */
+export interface CreateCltConsultInput {
+  title: string
+  cpfs: string | string[]
+  /** 'online' | 'offline' */
+  variant?: 'online' | 'offline'
+}
+
 /** Resposta de paginação Laravel */
 export interface Paginated<T> {
   data: T[]
@@ -100,7 +108,7 @@ export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsult
 }
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
-export async function createCltConsultJob(input: { title: string; cpfs: string | string[] }) {
+export async function createCltConsultJob(input: CreateCltConsultInput) {
   const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
     BASE,
     input
@@ -150,7 +158,6 @@ export async function downloadCltReport(id: number) {
 export async function downloadCltPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
-    // evita baixar versão antiga por cache do navegador/CDN
     params: { t: Date.now() },
   })
 
