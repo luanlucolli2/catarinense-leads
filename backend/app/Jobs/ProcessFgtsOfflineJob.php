@@ -165,14 +165,15 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     }
 
                     if (!Cpf::isValid($cpf)) {
+                        // Linha para o CSV
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - CPF inválido (dígitos verificadores)';
                         $row['consultadoEm'] = $this->nowBrString();
                         $batchRows[] = $row;
 
+                        // Snapshot: apenas authorized=false (sem 'situacao')
                         $snapRows[] = [
                             'cpf' => $cpf,
-                            'situacao' => $row['situacao'],
                             'authorized' => false,
                         ];
 
@@ -411,15 +412,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         if ($cpf === '' || strlen($cpf) !== 11)
                             continue;
 
+                        // CSV mantém o texto da situação
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - Sem resposta após ' . $maxAttempts . ' tentativas';
                         $row['consultadoEm'] = $this->nowBrString();
                         $rows[] = $row;
                         $leftoverCount++;
 
+                        // Snapshot: apenas authorized=false
                         $snapRows[] = [
                             'cpf' => $cpf,
-                            'situacao' => $row['situacao'],
                             'authorized' => false,
                         ];
 
@@ -517,6 +519,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             }
 
             if (!empty($res['ok'])) {
+                // CSV: texto da situação
                 $row = $this->baseRow($cpf);
                 $row['situacao'] = ($res['authorized'] ?? null) === true ? 'Autorizado' : 'Não autorizado';
                 if ($row['situacao'] === 'Autorizado')
@@ -528,25 +531,26 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $rows[] = $row;
                 $successThisAttempt++;
 
+                // Snapshot: só booleano
                 $snapRows[] = [
                     'cpf' => $cpf,
-                    'situacao' => $row['situacao'],
                     'authorized' => ($res['authorized'] ?? null) === true,
                 ];
             } else {
-                $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
                 $retriable = $res['retriable'] ?? true;
 
                 if ($retriable === false) {
+                    // CSV: motivo textual permanece
                     $row = $this->baseRow($cpf);
+                    $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
                     $row['situacao'] = 'Não autorizado - ' . $msg;
                     $row['consultadoEm'] = $this->nowBrString();
                     $rows[] = $row;
                     $terminalFailsInChunk++;
 
+                    // Snapshot: só authorized=false
                     $snapRows[] = [
                         'cpf' => $cpf,
-                        'situacao' => $row['situacao'],
                         'authorized' => false,
                     ];
                 } else {
@@ -692,7 +696,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk($this->disk);
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) { // <-- sem o $
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field} ?? null;
                 if ($p && $disk->exists($p)) {
                     try {
@@ -710,7 +714,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             ]);
         }
     }
-
 
     private function deletePendFiles(): void
     {
@@ -912,6 +915,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return $num > 0 ? $num : PHP_INT_MAX;
     }
 
+    /**
+     * Persiste snapshots FGTS OFF apenas com 'cpf', 'authorized', 'job_id', 'updated_at', 'lead_id'.
+     */
     private function persistSnapshots(array $snapRows): void
     {
         if (empty($snapRows))
@@ -930,7 +936,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                 $payload[] = [
                     'cpf' => $cpf,
-                    'situacao' => $r['situacao'] ?? null,
                     'authorized' => array_key_exists('authorized', $r) ? (bool) $r['authorized'] : null,
                     'job_id' => $this->jobId,
                     'updated_at' => $now,
@@ -951,7 +956,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             DB::table('fgts_off_snapshots')->upsert(
                 $payload,
                 ['cpf'],
-                ['situacao', 'authorized', 'job_id', 'updated_at', 'lead_id']
+                ['authorized', 'job_id', 'updated_at', 'lead_id']
             );
         } catch (\Throwable $e) {
             Log::warning("[FGTS-OFF] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage());
