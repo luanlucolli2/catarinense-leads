@@ -21,34 +21,27 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Timeout por job (segundos). */
     public int $timeout;
 
     private int $jobId;
 
-    /** Storage / Spool */
     private string $disk;
     private string $dirReports;
-    private string $dirPreviews;
     private string $dirSpool;
     private string $finalPrefix;
 
-    /** Arquivo(s) de pendências por tentativa (para reduzir RAM). */
     private array $pendFiles = [];
 
-    /** Writer persistente do spool */
     private $spoolFp = null;
     private string $spoolReal = '';
 
-    /** Throttling de updates */
     private int $flushEveryRows = 4000;
     private int $flushEverySecs = 5;
-    private int $flushBytesStep = 262144;   // 256 KiB
+    private int $flushBytesStep = 262144;
     private float $nextFlushAt = 0.0;
     private int $rowsSinceFlush = 0;
     private int $lastFlushedBytes = 0;
 
-    /** Acumuladores de contadores (evita increment() miúdo) */
     private int $accSuccess = 0;
     private int $accNotAuth = 0;
     private int $accFail = 0;
@@ -59,34 +52,30 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
         $this->onQueue((string) config('facta_off.job.queue', 'fgts'));
 
-        // Configs
         $this->timeout     = (int) config('facta_off.job.timeout_seconds', 115200);
         $this->disk        = (string) config('facta_off.storage.reports_disk', 'public');
         $this->dirReports  = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
-        $this->dirPreviews = (string) config('facta_off.storage.dir_previews', 'fgts-off-previews');
         $this->dirSpool    = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
         $this->finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
     }
 
     public function handle(FactaOfflineApiService $api): void
     {
-        /** @var FgtsOfflineJob|null $job */
         $job = FgtsOfflineJob::query()->whereKey($this->jobId)->first();
         if (!$job) {
-            Log::info("[FGTS-OFF] Job {$this->jobId} não encontrado (provavelmente removido). Encerrando sem retry.");
+            Log::info("[FGTS-OFF] Job {$this->jobId} não encontrado. Encerrando.");
             $this->deletePendFiles();
             return;
         }
 
         if ($this->isCancelled()) {
-            Log::info("[FGTS-OFF] Job {$this->jobId} já cancelado antes do início.");
-            $this->deletePreview($job);
+            Log::info("[FGTS-OFF] Job {$this->jobId} cancelado antes do início.");
+            $this->cleanupSpool($job);
             return;
         }
 
         $deadlineUtc = $job->scheduled_until ? Carbon::parse($job->scheduled_until, 'UTC') : null;
 
-        // Verifica spool criado pelo Controller
         $disk = Storage::disk($this->disk);
         if (
             empty($job->spool_path) || empty($job->spool_cpfs_path) ||
@@ -98,19 +87,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             return;
         }
 
-        // Atualiza estado inicial
         $job->update([
             'status' => 'em_progresso',
             'started_at' => Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
-            'preview_dirty' => false,
         ]);
 
-        // Abre writer persistente do spool
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
-            Log::error("[FGTS-OFF] Job {$this->jobId} falha ao abrir spool para append persistente.");
+            Log::error("[FGTS-OFF] Job {$this->jobId} falha ao abrir spool para append.");
             dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
@@ -119,9 +105,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $this->nextFlushAt = microtime(true) + $this->flushEverySecs;
 
         try {
-            // ==========================
-            // 0) DEDUP EXTERNO (em disco)
-            // ==========================
             $cpfsReal = $disk->path($job->spool_cpfs_path);
             $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
             $uniqReal = $disk->path($uniqRel);
@@ -133,9 +116,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 return;
             }
 
-            // ==========================
-            // 1) CLASSIFICAÇÃO STREAMING (com lista única)
-            // ==========================
             $pend1Rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a1.txt";
             $pend1Real = $disk->path($pend1Rel);
             $this->pendFiles[] = $pend1Rel;
@@ -143,7 +123,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $invalidCnt = 0;
             $batchRows = [];
             $batchSize = 500;
-            $snapRows = []; // snapshots para upsert em lote
+            $snapRows = [];
 
             $pf = fopen($pend1Real, 'c+');
             if ($pf === false) {
@@ -185,13 +165,11 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     }
 
                     if (!Cpf::isValid($cpf)) {
-                        // spool
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - CPF inválido (dígitos verificadores)';
                         $row['consultadoEm'] = $this->nowBrString();
                         $batchRows[] = $row;
 
-                        // snapshot (final) → updated_at (agora UTC) será usado
                         $snapRows[] = [
                             'cpf'        => $cpf,
                             'situacao'   => $row['situacao'],
@@ -207,7 +185,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                             $snapRows  = [];
                         }
                     } else {
-                        fwrite($pf, $cpf . "\n"); // válidos únicos para pendências
+                        fwrite($pf, $cpf . "\n");
                     }
                 }
 
@@ -223,7 +201,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 fclose($pf);
             }
 
-            // Atualiza contadores e total únicos
             $this->accFail += $invalidCnt;
             if ($uniqueCount > 0) {
                 $this->updateTotalsThrottled($job, $job->spool_path, ['total_cpfs' => $uniqueCount], true);
@@ -237,9 +214,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 return;
             }
 
-            // ======================================
-            // 2) TENTATIVAS COM TEIMOSINHA (STREAM)
-            // ======================================
             $maxAttempts = (int) config('facta_off.job.max_attempts', 5);
             $retryDelay = (int) config('facta_off.job.retry_delay_seconds', 30);
             $chunkSize = (int) config('facta_off.job.chunk', 6);
@@ -260,7 +234,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 }
 
                 if (!$disk->exists($currPendRel) || ((int) $disk->size($currPendRel)) === 0) {
-                    break; // nada a processar
+                    break;
                 }
 
                 $nextPendRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a" . ($attempt + 1) . ".txt";
@@ -351,7 +325,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     fclose($nf);
                 }
 
-                // Ajustes de chunk conforme qualidade das respostas
                 $semRespRatio = $totalInAttempt > 0 ? ($semRespTotal / $totalInAttempt) : 0.0;
                 if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
                     $old = $chunkSize;
@@ -373,7 +346,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     : ''
                 );
 
-                // Backoff entre tentativas (sleep)
                 if ($attempt < $maxAttempts) {
                     if ($this->finishIfCancelled($job)) {
                         $this->deletePendFiles();
@@ -402,7 +374,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     sleep($sleepSecs);
                 }
 
-                // Limpeza: se próxima pendência ficou vazia, apaga já e quebra
                 $nextSize = (int) ($disk->exists($nextPendRel) ? $disk->size($nextPendRel) : 0);
                 try {
                     if ($disk->exists($currPendRel))
@@ -425,9 +396,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 }
             }
 
-            // ==========================
-            // Varredura final de pendências (100% garantido)
-            // ==========================
             $leftoverCount = 0;
             if ($disk->exists($currPendRel) && ((int) $disk->size($currPendRel)) > 0) {
                 $currPendReal = $disk->path($currPendRel);
@@ -443,14 +411,12 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         if ($cpf === '' || strlen($cpf) !== 11)
                             continue;
 
-                        // spool
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - Sem resposta após ' . $maxAttempts . ' tentativas';
                         $row['consultadoEm'] = $this->nowBrString();
                         $rows[] = $row;
                         $leftoverCount++;
 
-                        // snapshot (final) → updated_at (agora UTC) será usado
                         $snapRows[] = [
                             'cpf'        => $cpf,
                             'situacao'   => $row['situacao'],
@@ -486,10 +452,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 }
             }
 
-            // Flush final de contadores/bytes
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
-            // Finalização: delega geração do FINAL
             dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'concluido'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
         } finally {
             if (is_resource($this->spoolFp)) {
@@ -500,7 +464,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         }
     }
 
-    /** Processa um chunk de CPFs: consulta, escreve spool (em lote) e encaminha pendentes retriáveis ao arquivo. */
     private function processChunk(
         FactaOfflineApiService $api,
         FgtsOfflineJob $job,
@@ -565,7 +528,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $rows[] = $row;
                 $successThisAttempt++;
 
-                // snapshot (final para "ok") → updated_at (agora UTC) será usado
                 $snapRows[] = [
                     'cpf'        => $cpf,
                     'situacao'   => $row['situacao'],
@@ -582,14 +544,12 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $rows[] = $row;
                     $terminalFailsInChunk++;
 
-                    // snapshot (falha terminal) → updated_at (agora UTC)
                     $snapRows[] = [
                         'cpf'        => $cpf,
                         'situacao'   => $row['situacao'],
                         'authorized' => false,
                     ];
                 } else {
-                    // mantém para próxima tentativa
                     fwrite($nextPendHandle, $cpf . "\n");
                 }
             }
@@ -615,8 +575,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         }
     }
 
-    /** ----------------------- Helpers ----------------------- */
-
     private function isCancelled(): bool
     {
         $status = DB::table('fgts_off_consult_jobs')->where('id', $this->jobId)->value('status');
@@ -627,7 +585,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         if ($this->isCancelled()) {
             $job->update(['finished_at' => Carbon::now()]);
-            $this->deletePreview($job);
             $this->cleanupSpool($job);
             Log::info("[FGTS-OFF] Job {$this->jobId} interrompido por cancelamento (spool removido).");
             $this->deletePendFiles();
@@ -700,7 +657,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
         $updates = [
             'spool_bytes' => $bytes,
-            'preview_dirty' => true,
             'updated_at' => Carbon::now(),
         ];
         foreach ($extraSet as $k => $v) {
@@ -722,10 +678,9 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             ->update($updates);
 
         $job->spool_bytes = $bytes;
-        $job->preview_dirty = true;
 
         $this->rowsSinceFlush = 0;
-               $this->nextFlushAt = $now + $this->flushEverySecs;
+        $this->nextFlushAt = $now + $this->flushEverySecs;
         $this->lastFlushedBytes = $bytes;
 
         $this->accSuccess = 0;
@@ -752,28 +707,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 'spool_path' => null,
                 'spool_cpfs_path' => null,
                 'spool_bytes' => 0,
-            ]);
-        }
-    }
-
-    private function deletePreview(FgtsOfflineJob $job): void
-    {
-        try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
-                }
-            }
-        } catch (Throwable $e) {
-            Log::warning("[FGTS-OFF] Job {$this->jobId} falha ao apagar prévia: " . $e->getMessage());
-        } finally {
-            $job->updateQuietly([
-                'preview_disk' => null,
-                'preview_path' => null,
-                'preview_name' => null,
-                'preview_updated_at' => null,
-                'preview_dirty' => false,
             ]);
         }
     }
@@ -975,9 +908,6 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         return $num > 0 ? $num : PHP_INT_MAX;
     }
 
-    /* ===================== SNAPSHOTS (helpers) ===================== */
-
-    /** Upsert em lote na fgts_off_snapshots + lookup de lead_id em UMA query. */
     private function persistSnapshots(array $snapRows): void
     {
         if (empty($snapRows)) return;
@@ -997,16 +927,14 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     'situacao'   => $r['situacao'] ?? null,
                     'authorized' => array_key_exists('authorized', $r) ? (bool)$r['authorized'] : null,
                     'job_id'     => $this->jobId,
-                    'updated_at' => $now, // ← passa a ser o "consultado em"
-                    // lead_id será preenchido abaixo
+                    'updated_at' => $now,
                 ];
             }
             if (empty($payload)) return;
 
-            // lookup de lead_id (1 query por batch)
             $leadMap = DB::table('leads')
                 ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->pluck('id', 'cpf'); // [cpf => id]
+                ->pluck('id', 'cpf');
 
             foreach ($payload as &$row) {
                 $row['lead_id'] = $leadMap[$row['cpf']] ?? null;
@@ -1016,7 +944,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             DB::table('fgts_off_snapshots')->upsert(
                 $payload,
                 ['cpf'],
-                ['situacao','authorized','job_id','updated_at','lead_id'] // removido consultado_em
+                ['situacao','authorized','job_id','updated_at','lead_id']
             );
         } catch (\Throwable $e) {
             Log::warning("[FGTS-OFF] Upsert snapshots falhou no job {$this->jobId}: ".$e->getMessage());

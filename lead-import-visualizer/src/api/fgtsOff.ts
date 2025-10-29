@@ -10,9 +10,6 @@ export type FgtsOffJobStatus =
   | 'agendado'
   | 'expirado'
 
-/** Estados da PRÉVIA (alinhado ao backend) */
-export type PreviewStatus = 'none' | 'queued' | 'running' | 'ready' | 'error'
-
 /** DTO básico (index) */
 export interface FgtsOffConsultJobListItem {
   id: number
@@ -25,11 +22,6 @@ export interface FgtsOffConsultJobListItem {
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
-  // PRÉVIA (opcional)
-  preview_disk?: string | null
-  preview_path?: string | null
-  preview_name?: string | null
-  preview_updated_at?: string | null
   // telemetria opcional
   spool_bytes?: number | null
 
@@ -42,7 +34,7 @@ export interface FgtsOffConsultJobListItem {
   created_at: string
 }
 
-/** DTO de show() */
+/** DTO de show() – enxuto conforme novo backend */
 export interface FgtsOffConsultJobShow {
   id: number
   title: string
@@ -53,17 +45,8 @@ export interface FgtsOffConsultJobShow {
   fail_count: number
   has_file: boolean
 
-  // PRÉVIA
-  has_preview?: boolean
-  preview_status?: PreviewStatus
-  preview_updated_at?: string | null
-  preview_requested_at?: string | null
-  preview_started_at?: string | null
-  preview_finished_at?: string | null
-  preview_size_bytes?: number | null
-  preview_rows?: number | null
-  preview_error?: string | null
-
+  // novo: prévia é “espelho” do spool (boolean calculado)
+  preview_running?: boolean
   // telemetria
   spool_bytes?: number | null
 
@@ -123,26 +106,15 @@ export async function getFgtsOffConsultJob(id: number): Promise<FgtsOffConsultJo
   return data
 }
 
-/** Solicita geração da PRÉVIA (202=aceita/andando, 200=já pronta, 409=indisponível). */
-export async function requestFgtsOffPreview(id: number): Promise<200 | 202 | 409> {
-  const resp = await axiosClient.post(
-    `${BASE}/${id}/preview/generate`,
-    null,
-    {
-      validateStatus: (s) => (s >= 200 && s < 300) || s === 409
-    }
-  )
-  return resp.status as 200 | 202 | 409
-}
-/** (opcional) também pode aplicar cache-busting no FINAL */
+/** Download do RELATÓRIO FINAL (CSV) */
 export async function downloadFgtsOffReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
-    params: { t: Date.now() }, // seguro aplicar; final não muda, mas evita cache agressivo
+    params: { t: Date.now() },
   });
 
   const cd = resp.headers['content-disposition'] || '';
-  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}.xlsx`;
+  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}.csv`;
 
   const url = window.URL.createObjectURL(resp.data);
   const a = document.createElement('a');
@@ -154,16 +126,23 @@ export async function downloadFgtsOffReport(id: number) {
   window.URL.revokeObjectURL(url);
 }
 
-/** Faz o download da PRÉVIA já pronta (NÃO força regeneração) */
+/** Download da PRÉVIA (espelho do spool CSV). Backend retorna 409 se ainda não há spool. */
 export async function downloadFgtsOffPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
-    // 👇 evita baixar versão antiga por cache do navegador/CDN
     params: { t: Date.now() },
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 409,
   });
 
+  if (resp.status === 409) {
+    const err = new Error('Prévia indisponível ainda (spool ausente).');
+    // @ts-expect-error attach status
+    err.status = 409;
+    throw err;
+  }
+
   const cd = resp.headers['content-disposition'] || '';
-  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}-preview.xlsx`;
+  const name = parseContentDispositionFilename(cd) || `fgts-offline-${id}-preview.csv`;
 
   const url = window.URL.createObjectURL(resp.data);
   const a = document.createElement('a');

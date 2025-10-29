@@ -17,7 +17,6 @@ import {
   FgtsOffConsultJobListItem,
   FgtsOffConsultJobShow,
   getFgtsOffConsultJob,
-  requestFgtsOffPreview,
 } from "@/api/fgtsOff";
 
 function formatDateTimeBR(iso: string | null | undefined) {
@@ -47,10 +46,6 @@ const FGTSOfflineConsultaPage = () => {
 
   // 🔒 evita cliques repetidos (um lock por jobId)
   const inFlight = useRef<Set<number>>(new Set());
-  // controla “esperando prévia” + toasts por job
-  const waitingPreview = useRef<Set<number>>(new Set());
-  const previewToastById = useRef<Map<number, string | number>>(new Map());
-  const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null } | null>(null);
 
   /** ---------- LISTA (React Query) ---------- */
   const {
@@ -103,7 +98,6 @@ const FGTSOfflineConsultaPage = () => {
         success_count: watchedJob.success_count,
         not_authorized_count: watchedJob.not_authorized_count,
         fail_count: watchedJob.fail_count,
-        preview_updated_at: watchedJob.preview_updated_at ?? i.preview_updated_at,
       };
     });
   }, [items, watchedJob]);
@@ -114,55 +108,12 @@ const FGTSOfflineConsultaPage = () => {
     return itemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [itemsWithOverlay, searchValue]);
 
-  /** Reações a mudanças do job observado */
+  /** Reações a mudanças do job observado (somente término) */
   useEffect(() => {
     if (!watchedJob) return;
 
     const niceTitle = watchedJob.title ?? titleOf(watchedJob.id);
     const isTerminal = ["concluido", "falhou", "cancelado", "expirado"].includes(watchedJob.status);
-
-    // Evita repetir toasts em cada tick
-    const prev = lastWatchedSnapshot.current;
-    const changed =
-      !prev ||
-      prev.id !== watchedJob.id ||
-      prev.status !== watchedJob.status ||
-      prev.pstatus !== watchedJob.preview_status;
-
-    if (!changed) return;
-    lastWatchedSnapshot.current = {
-      id: watchedJob.id,
-      status: watchedJob.status,
-      pstatus: watchedJob.preview_status,
-    };
-
-    // Se estamos aguardando prévia desse id:
-    if (waitingPreview.current.has(watchedJob.id)) {
-      if (watchedJob.has_file) {
-        const tid = previewToastById.current.get(watchedJob.id);
-        if (tid) toast.dismiss(tid);
-        void downloadFgtsOffReport(watchedJob.id);
-        waitingPreview.current.delete(watchedJob.id);
-        previewToastById.current.delete(watchedJob.id);
-        inFlight.current.delete(watchedJob.id);
-      } else if (watchedJob.preview_status === "ready") {
-        const tid = previewToastById.current.get(watchedJob.id);
-        if (tid) toast.success("Prévia pronta! Baixando planilha…", { id: tid });
-        void downloadFgtsOffPreview(watchedJob.id);
-        waitingPreview.current.delete(watchedJob.id);
-        previewToastById.current.delete(watchedJob.id);
-        inFlight.current.delete(watchedJob.id);
-      } else if (watchedJob.preview_status === "error") {
-        const tid = previewToastById.current.get(watchedJob.id);
-        const msg = watchedJob.preview_error
-          ? `Falha ao gerar prévia: ${watchedJob.preview_error}`
-          : "Falha ao gerar prévia.";
-        tid ? toast.error(msg, { id: tid }) : toast.error(msg);
-        waitingPreview.current.delete(watchedJob.id);
-        previewToastById.current.delete(watchedJob.id);
-        inFlight.current.delete(watchedJob.id);
-      }
-    }
 
     if (isTerminal) {
       if (watchedJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
@@ -211,25 +162,7 @@ const FGTSOfflineConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
   });
 
-  const requestPreviewMutation = useMutation({
-    mutationFn: (id: number) => requestFgtsOffPreview(id),
-  });
-
   /** ---------- Helpers ---------- */
-
-  // Usa sempre o mesmo id de toast por job; evita duplicatas
-  const getOrCreatePreviewToast = (id: number) => {
-    const existing = previewToastById.current.get(id);
-    if (existing) return existing;
-    const stableId = `fgts-prev-${id}`;
-    toast.info("Gerando prévia…", {
-      id: stableId,
-      description: "Aguarde enquanto preparamos o XLSX.",
-      duration: Infinity, // controlamos manualmente
-    });
-    previewToastById.current.set(id, stableId);
-    return stableId;
-  };
 
   /** ---------- Handlers ---------- */
 
@@ -247,12 +180,6 @@ const FGTSOfflineConsultaPage = () => {
 
   /** Botão único: decide final vs. prévia sob demanda. */
   const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
-    // Se já estamos aguardando a prévia desse job, não criamos outro toast nem outro POST
-    if (waitingPreview.current.has(id)) {
-      toast.warning("Já estamos gerando a prévia deste job.");
-      return;
-    }
-
     if (inFlight.current.has(id)) {
       toast.warning("Já estamos gerando/baixando para este job.");
       return;
@@ -265,66 +192,30 @@ const FGTSOfflineConsultaPage = () => {
         queryFn: () => getFgtsOffConsultJob(id),
       });
 
-      // FINAL disponível → baixa
+      // FINAL disponível → baixa CSV final
       if (!opts?.preview && j.has_file) {
         await downloadFgtsOffReport(id);
         inFlight.current.delete(id);
         return;
       }
 
-      // Intenção: PRÉVIA (força generate sempre)
-      if (opts?.preview) {
-        const tid = getOrCreatePreviewToast(id);
-        waitingPreview.current.add(id);
-        setWatchingJobId(id); // ativa o polling rápido do job (5s)
-
-        const status = await requestPreviewMutation.mutateAsync(id);
-
-        if (status === 200) {
-          // já pronta → fecha toast e baixa imediatamente
-          toast.dismiss(tid);
-          previewToastById.current.delete(id);
-          waitingPreview.current.delete(id);
-
-          await downloadFgtsOffPreview(id);
-          inFlight.current.delete(id);
-          void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
-          return;
-        }
-
-        // 202/409 → aguarda via polling
-        void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
-        return;
-      }
-
-      // Sem final ainda → comportamento igual ao da prévia
-      const tid = getOrCreatePreviewToast(id);
-      waitingPreview.current.add(id);
-      setWatchingJobId(id);
-
-      const status = await requestPreviewMutation.mutateAsync(id);
-      if (status === 200) {
-        toast.dismiss(tid);
-        previewToastById.current.delete(id);
-        waitingPreview.current.delete(id);
-
+      // Sem final (ou intenção explícita de prévia): tenta baixar PRÉVIA CSV do spool
+      try {
         await downloadFgtsOffPreview(id);
+      } catch (e: any) {
+        if (e?.status === 409) {
+          toast.info("Prévia indisponível ainda. Aguarde o início do processamento.");
+        } else {
+          const apiMsg = e?.response?.data?.message || e?.message;
+          toast.error(apiMsg ?? "Falha ao baixar a prévia");
+        }
+      } finally {
         inFlight.current.delete(id);
         void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
-        return;
       }
-      void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
     } catch (e: any) {
       const apiMsg = e?.response?.data?.message || e?.message;
       toast.error(apiMsg ?? "Falha no download");
-
-      // limpeza defensiva
-      waitingPreview.current.delete(id);
-      const tid = previewToastById.current.get(id);
-      if (tid) {
-        toast.dismiss(tid);
-        previewToastById.current.delete(id);
-      }
       inFlight.current.delete(id);
     }
   };
@@ -344,7 +235,8 @@ const FGTSOfflineConsultaPage = () => {
           Consulta FGTS (Base Offline)
         </h1>
         <p className="text-gray-600 text-sm lg:text-base">
-          Faça consultas em massa na FGTS Base Offline (Facta). Os resultados são gerados em .xlsx e, quando possível, vinculados automaticamente aos leads cadastrados.        </p>
+          Faça consultas em massa na FGTS Base Offline (Facta). Os resultados são gerados em <b>.csv</b> e, quando possível, vinculados automaticamente aos leads cadastrados.
+        </p>
       </div>
 
       <div className="space-y-6">

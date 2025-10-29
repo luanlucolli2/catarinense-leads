@@ -156,7 +156,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                 ->whereIn('cpf', array_merge($cpfsVinc, $cpfsNF))
                 ->pluck('id', 'cpf');
 
-            $now = now();
+            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s'); // consulted_at
 
             if (!empty($cpfsVinc)) {
                 $rows = [];
@@ -185,7 +185,8 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                         'emprestimos_legados'          => $b['legados'],
                         'not_found'                    => 0,
                         'job_id'                       => $this->importJob->id,
-                        'updated_at'                   => $now,
+                        'updated_at'                   => $nowUtc,
+                        'consulted_at'                 => $nowUtc,
                     ];
                 }
 
@@ -202,11 +203,12 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                     $leadId = $leadMap[$cpf] ?? null;
                     if (!$leadId) continue;
                     $rowsNF[] = [
-                        'cpf'        => $cpf,
-                        'lead_id'    => $leadId,
-                        'not_found'  => 1,
-                        'job_id'     => $this->importJob->id,
-                        'updated_at' => $now,
+                        'cpf'         => $cpf,
+                        'lead_id'     => $leadId,
+                        'not_found'   => 1,
+                        'job_id'      => $this->importJob->id,
+                        'updated_at'  => $nowUtc,
+                        'consulted_at'=> $nowUtc,
                     ];
                 }
 
@@ -231,7 +233,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             'valor_renda','valor_base_margem','margem_disponivel','valor_max_prestacao',
             'categoria_trabalhador_codigo','inicio_atividade_empregador',
             'qtd_emprestimos_ativos_suspensos','emprestimos_legados',
-            'not_found','job_id','updated_at'
+            'not_found','job_id','updated_at','consulted_at'
         ];
 
         $placeholders = '(' . implode(',', array_fill(0, count($cols), '?')) . ')';
@@ -245,6 +247,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         }
 
         $cond = "IFNULL(VALUES(data_admissao),'1000-01-01') > IFNULL(data_admissao,'1000-01-01')";
+        $gtt  = "GREATEST(IFNULL(consulted_at,'1000-01-01 00:00:00'), IFNULL(VALUES(consulted_at),'1000-01-01 00:00:00'))";
 
         $sets = [
             "lead_id = IF(lead_id IS NULL, VALUES(lead_id), IF({$cond}, VALUES(lead_id), lead_id))",
@@ -254,7 +257,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             "idade = IF({$cond}, VALUES(idade), idade)",
             "sexo = IF({$cond}, VALUES(sexo), sexo)",
             "data_admissao = IF({$cond}, VALUES(data_admissao), data_admissao)",
-            "meses_admissao = IF({$cond}, VALUES(meses_admissao), meses_admissao)",
+            "meses_admissao = IF({$cond}, VALUES(meses_admissao), mes es_admissao)",
             "valor_renda = IF({$cond}, VALUES(valor_renda), valor_renda)",
             "valor_base_margem = IF({$cond}, VALUES(valor_base_margem), valor_base_margem)",
             "margem_disponivel = IF({$cond}, VALUES(margem_disponivel), margem_disponivel)",
@@ -266,6 +269,8 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             "not_found = IF({$cond}, 0, not_found)",
             "job_id = IF({$cond}, VALUES(job_id), job_id)",
             "updated_at = IF({$cond}, VALUES(updated_at), updated_at)",
+            // sempre mantém o consulted_at mais recente
+            "consulted_at = {$gtt}",
         ];
 
         $sql = "INSERT INTO clt_snapshots (" . implode(',', $cols) . ") VALUES "
@@ -278,7 +283,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
     private function insertIgnoreNotFound(array $rows): void
     {
         if (empty($rows)) return;
-        $cols = ['cpf','lead_id','not_found','job_id','updated_at'];
+        $cols = ['cpf','lead_id','not_found','job_id','updated_at','consulted_at'];
         $placeholders = '(' . implode(',', array_fill(0, count($cols), '?')) . ')';
         $values = [];
         $rowsSql = [];

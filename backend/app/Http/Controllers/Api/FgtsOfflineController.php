@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\GenerateFgtsOffPreviewJob;
 use App\Jobs\ProcessFgtsOfflineJob;
 use App\Models\FgtsOfflineJob;
 use App\Support\Cpf;
@@ -33,6 +32,10 @@ class FgtsOfflineController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        $reportsDiskName = (string) config('facta_off.storage.reports_disk', 'public');
+        $reportsDisk = Storage::disk($reportsDiskName);
+        $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
@@ -47,15 +50,8 @@ class FgtsOfflineController extends Controller
             'scheduled_for' => $job->scheduled_for,
             'scheduled_until' => $job->scheduled_until,
             'created_at' => $job->created_at,
-            'has_preview' => (bool) $job->has_preview,
-            'preview_updated_at' => $job->preview_updated_at,
-            'preview_status' => $job->preview_status,
-            'preview_requested_at' => $job->preview_requested_at,
-            'preview_started_at' => $job->preview_started_at,
-            'preview_finished_at' => $job->preview_finished_at,
-            'preview_size_bytes' => $job->preview_size_bytes,
-            'preview_rows' => $job->preview_rows,
-            'preview_error' => $job->preview_error,
+            // novo contrato de “prévia”
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -88,7 +84,6 @@ class FgtsOfflineController extends Controller
         $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $tz) : null;
         $endAt = isset($data['end_at']) ? Carbon::parse($data['end_at'], $tz) : null;
 
-        // Cria registro do job (total_cpfs = 0; job calculará o total único na classificação)
         $job = FgtsOfflineJob::create([
             'user_id'               => $request->user()->id,
             'title'                 => $data['title'],
@@ -99,18 +94,14 @@ class FgtsOfflineController extends Controller
             'fail_count'            => 0,
             'scheduled_for'         => $runAt ? $runAt->clone()->setTimezone('UTC') : null,
             'scheduled_until'       => $endAt ? $endAt->clone()->setTimezone('UTC') : null,
-            'preview_dirty'         => false,
-            'preview_status'        => 'none',
         ]);
 
-        // Cria spool e arquivo de CPFs em streaming — SEM materializar arrays, sem "primeira passada"
         try {
             [$spoolPath, $cpfsPath, $spoolBytes, $cpfsCount] = $this->createInitialSpool(
                 $job->id,
                 $this->tokenizeCpfsLazy($data['cpfs'])
             );
         } catch (\Throwable $e) {
-            // Limpeza defensiva de caminhos esperados
             try {
                 $diskName = (string) config('facta_off.storage.reports_disk', 'public');
                 $disk     = Storage::disk($diskName);
@@ -127,7 +118,6 @@ class FgtsOfflineController extends Controller
 
             $job->delete();
 
-            // Heurística simples: InvalidArgument => 422; demais => 500
             $code = ($e instanceof \InvalidArgumentException)
                 ? Response::HTTP_UNPROCESSABLE_ENTITY
                 : Response::HTTP_INTERNAL_SERVER_ERROR;
@@ -142,7 +132,6 @@ class FgtsOfflineController extends Controller
         }
 
         if ($cpfsCount === 0) {
-            // Limpa arquivos criados e remove o job
             try {
                 $diskName = (string) config('facta_off.storage.reports_disk', 'public');
                 $disk = Storage::disk($diskName);
@@ -163,10 +152,8 @@ class FgtsOfflineController extends Controller
             'spool_path'      => $spoolPath,
             'spool_cpfs_path' => $cpfsPath,
             'spool_bytes'     => $spoolBytes,
-            // total_cpfs ficará para o Job calcular com dedup de válidos e inválidos
         ]);
 
-        // Enfileira somente com o ID (sem payload)
         if ($job->status === 'agendado') {
             ProcessFgtsOfflineJob::dispatch($job->id)->delay($job->scheduled_for);
             return response()->json([
@@ -185,98 +172,62 @@ class FgtsOfflineController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
+    /** Estado “prévia” leve. Não enfileira nada. */
     public function requestPreview(Request $request, int $id)
     {
         $job = FgtsOfflineJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $force = (bool) $request->boolean('force', false);
-
-        $reportsDiskName = (string) config('facta_off.storage.reports_disk', 'public');
-        $reportsDisk = Storage::disk($reportsDiskName);
-
-        if (
-            empty($job->spool_path) || empty($job->spool_cpfs_path) ||
-            !$reportsDisk->exists($job->spool_path) || !$reportsDisk->exists($job->spool_cpfs_path)
-        ) {
-            return response()->json(['message' => 'Prévia não disponível ainda (spool ausente).'], Response::HTTP_CONFLICT);
-        }
-
-        $hasFileReady = false;
-        if ($job->preview_disk && $job->preview_path) {
-            $pDisk = Storage::disk($job->preview_disk);
-            $hasFileReady = $pDisk->exists($job->preview_path);
-        }
-        if ($hasFileReady && !$force && !$job->preview_dirty && $job->preview_status === 'ready') {
-            return response()->json([
-                'message' => 'Prévia já está pronta.',
-                'preview_status' => $job->preview_status,
-                'preview_rows' => $job->preview_rows,
-                'preview_size_bytes' => $job->preview_size_bytes,
-                'preview_updated_at' => $job->preview_updated_at,
-            ], Response::HTTP_OK);
-        }
-
-        if (in_array($job->preview_status, ['queued', 'running'], true)) {
-            return response()->json([
-                'message' => 'Prévia já está sendo gerada.',
-                'preview_status' => $job->preview_status,
-            ], Response::HTTP_ACCEPTED);
-        }
-
-        $job->update([
-            'preview_status' => 'queued',
-            'preview_requested_at' => Carbon::now(),
-            'preview_error' => null,
-        ]);
-
-        GenerateFgtsOffPreviewJob::dispatch($job->id);
+        $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+        $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
 
         return response()->json([
-            'message' => 'Geração de prévia enfileirada.',
-            'preview_status' => 'queued',
-        ], Response::HTTP_ACCEPTED);
+            'queued' => false,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
+            'message' => 'Prévia espelha o spool no momento da leitura.',
+        ], Response::HTTP_OK);
     }
 
-    /** 📥 Download da PRÉVIA (streaming) */
+    /** Streaming da “prévia” lendo o spool com LOCK_SH. */
     public function downloadPreview(Request $request, int $id)
     {
         $job = FgtsOfflineJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $diskName = $job->preview_disk ?: (string) config('facta_off.storage.reports_disk', 'public');
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
-        $disk = Storage::disk($diskName);
+        $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
 
-        if (!$job->preview_path || !$disk->exists($job->preview_path)) {
-            return response()->json([
-                'message' => 'Prévia ainda não está pronta.',
-                'preview_status' => $job->preview_status ?? 'none',
-            ], Response::HTTP_CONFLICT);
+        if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
+            return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
         }
 
-        $fileName = $job->preview_name ?: "{$this->finalPrefix()}_{$job->id}_preview.xlsx";
-
-        if (method_exists($disk, 'download')) {
-            return $disk->download($job->preview_path, $fileName);
+        $real = $disk->path($job->spool_path);
+        $fh = @fopen($real, 'rb');
+        if ($fh === false) {
+            return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        $stream = $disk->readStream($job->preview_path);
-        if ($stream === false) {
-            return response()->json(['message' => 'Falha ao abrir arquivo.'], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
+        $filename = "{$this->finalPrefix()}_{$job->id}_preview.csv";
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ];
+        $withBOM = (bool) env('FGTS_OFF_CSV_BOM', true);
 
-        return response()->streamDownload(function () use ($stream) {
-            fpassthru($stream);
-            if (is_resource($stream)) fclose($stream);
-        }, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        return response()->streamDownload(function () use ($fh, $withBOM) {
+            try {
+                flock($fh, LOCK_SH);
+                if ($withBOM) echo "\xEF\xBB\xBF";
+                fpassthru($fh);
+            } finally {
+                flock($fh, LOCK_UN);
+                if (is_resource($fh)) fclose($fh);
+            }
+        }, $filename, $headers);
     }
 
-    /** Download do relatório FINAL (streaming) */
+    /** Download do relatório FINAL (CSV) sem apagar. */
     public function download(int $id)
     {
         $job = FgtsOfflineJob::query()
@@ -287,29 +238,31 @@ class FgtsOfflineController extends Controller
             return response()->json(['message' => 'Relatório ainda não disponível.'], Response::HTTP_CONFLICT);
         }
 
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
         $disk = Storage::disk($job->file_disk);
-        $filename = $job->file_name ?: "fgts-offline-{$job->id}.xlsx";
-
         if (!$disk->exists($job->file_path)) {
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
         }
 
-        if (method_exists($disk, 'download')) {
-            return $disk->download($job->file_path, $filename);
+        $filename = $job->file_name ?: "fgts-offline-{$job->id}.csv";
+        $fh = $disk->readStream($job->file_path);
+        if ($fh === false) {
+            return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        $stream = $disk->readStream($job->file_path);
-        if ($stream === false) {
-            return response()->json(['message' => 'Falha ao abrir arquivo.'], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ];
+        $withBOM = (bool) env('FGTS_OFF_CSV_BOM', false);
 
-        return response()->streamDownload(function () use ($stream) {
-            fpassthru($stream);
-            if (is_resource($stream)) fclose($stream);
-        }, $filename, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        return response()->streamDownload(function () use ($fh, $withBOM) {
+            try {
+                if ($withBOM) echo "\xEF\xBB\xBF";
+                fpassthru($fh);
+            } finally {
+                if (is_resource($fh)) fclose($fh);
+            }
+        }, $filename, $headers);
     }
 
     public function cancel(Request $request, int $id)
@@ -336,36 +289,7 @@ class FgtsOfflineController extends Controller
         ]);
 
         try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Erro ao apagar prévia no cancel (job {$job->id}): ".$e->getMessage(), ['exception' => $e]);
-        } finally {
-            $job->update([
-                'preview_disk' => null,
-                'preview_path' => null,
-                'preview_name' => null,
-                'preview_updated_at' => null,
-                'preview_dirty' => false,
-                'preview_status' => 'none',
-                'preview_requested_at' => null,
-                'preview_started_at' => null,
-                'preview_finished_at' => null,
-                'preview_size_bytes' => 0,
-                'preview_rows' => 0,
-                'preview_error' => null,
-            ]);
-        }
-
-        // Spool é apagado pelo Process job ao detectar cancelamento,
-        // mas tentamos limpar aqui também por segurança.
-        try {
-            $diskName = (string) config('facta_off.storage.reports_disk', 'public');
-            $disk = Storage::disk($diskName);
+            $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
             foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
@@ -375,6 +299,12 @@ class FgtsOfflineController extends Controller
         } catch (\Throwable $e) {
             Log::warning("[FGTS-OFF] Erro ao apagar spool no cancel (job {$job->id}): ".$e->getMessage());
         }
+
+        $job->update([
+            'spool_path' => null,
+            'spool_cpfs_path' => null,
+            'spool_bytes' => 0,
+        ]);
 
         return response()->json([
             'id' => $job->id,
@@ -409,19 +339,7 @@ class FgtsOfflineController extends Controller
         }
 
         try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Erro ao apagar arquivo de prévia (job {$job->id}): ".$e->getMessage());
-        }
-
-        try {
-            $diskName = (string) config('facta_off.storage.reports_disk', 'public');
-            $disk = Storage::disk($diskName);
+            $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
             foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
@@ -442,17 +360,9 @@ class FgtsOfflineController extends Controller
         return (string) config('facta_off.storage.final_prefix', 'fgts-offline');
     }
 
-    /**
-     * Generator/lazy tokenizer para entrada de CPFs (string ou array).
-     * Não materializa listas grandes em memória.
-     *
-     * @param string|array $cpfs
-     * @return \Generator<string>
-     */
     private function tokenizeCpfsLazy($cpfs): \Generator
     {
         if (is_string($cpfs)) {
-            // Delimiters: espaço, tab, quebra de linha, vírgula e ponto e vírgula
             $delims = " \t\n\r,;";
             $tok = strtok($cpfs, $delims);
             while ($tok !== false) {
@@ -469,7 +379,6 @@ class FgtsOfflineController extends Controller
             return;
         }
 
-        // Fallback seguro
         if ($cpfs instanceof \Traversable) {
             foreach ($cpfs as $t) {
                 yield $t;
@@ -477,15 +386,6 @@ class FgtsOfflineController extends Controller
         }
     }
 
-    /**
-     * Cria spool inicial (CSV com cabeçalho) e arquivo de CPFs (um por linha),
-     * escrevendo em streaming e sem deduplicar em memória.
-     * Retorna [spoolPath, cpfsPath, spoolBytes, cpfsCount].
-     *
-     * @param int $jobId
-     * @param iterable $allCpfs
-     * @return array{0:string,1:string,2:int,3:int}
-     */
     private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
         $diskName = (string) config('facta_off.storage.reports_disk', 'public');
@@ -504,7 +404,6 @@ class FgtsOfflineController extends Controller
         $spoolPath = "{$dirSpool}/{$spoolName}";
         $cpfsPath  = "{$dirSpool}/{$cpfsName}";
 
-        // Cria spool CSV com cabeçalho
         $spoolReal = $disk->path($spoolPath);
         $fp = fopen($spoolReal, 'c+');
         if ($fp === false) {
@@ -521,7 +420,6 @@ class FgtsOfflineController extends Controller
             fclose($fp);
         }
 
-        // Escreve CPFs normalizados (um por linha), sem arrays gigantes na memória
         $cpfsReal = $disk->path($cpfsPath);
         $fp2 = fopen($cpfsReal, 'c+');
         if ($fp2 === false) {

@@ -345,9 +345,9 @@ export const FgtsOffHistoryTable = ({
                           className="h-8"
                           title={
                             finalReady
-                              ? "Baixar planilha final"
+                              ? "Baixar CSV final"
                               : previewReady
-                                ? "Gerar & baixar prévia"
+                                ? "Baixar prévia (espelho do spool CSV)"
                                 : "Baixar indisponível"
                           }
                         >
@@ -519,7 +519,7 @@ export const FgtsOffHistoryTable = ({
           </AlertDialogHeader>
           <div className="text-sm text-gray-700">
             <p>
-              Arquivos vinculados (final, prévia e spool) serão removidos:
+              Arquivos vinculados (final e spool) serão removidos:
             </p>
             {confirmDeleteJob && (
               <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
