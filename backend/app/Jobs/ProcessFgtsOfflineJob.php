@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Exports\FgtsOfflineExport;
 use App\Models\FgtsOfflineJob;
 use App\Services\FactaOfflineApiService;
 use App\Support\Cpf;
+use App\Support\FgtsOffSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -52,10 +52,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
         $this->onQueue((string) config('facta_off.job.queue', 'fgts'));
 
-        $this->timeout     = (int) config('facta_off.job.timeout_seconds', 115200);
-        $this->disk        = (string) config('facta_off.storage.reports_disk', 'public');
-        $this->dirReports  = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
-        $this->dirSpool    = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
+        $this->timeout = (int) config('facta_off.job.timeout_seconds', 115200);
+        $this->disk = (string) config('facta_off.storage.reports_disk', 'public');
+        $this->dirReports = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
+        $this->dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
         $this->finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
     }
 
@@ -171,8 +171,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         $batchRows[] = $row;
 
                         $snapRows[] = [
-                            'cpf'        => $cpf,
-                            'situacao'   => $row['situacao'],
+                            'cpf' => $cpf,
+                            'situacao' => $row['situacao'],
                             'authorized' => false,
                         ];
 
@@ -182,7 +182,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                             $this->spoolAppendManyPersist($job, $batchRows);
                             $this->persistSnapshots($snapRows);
                             $batchRows = [];
-                            $snapRows  = [];
+                            $snapRows = [];
                         }
                     } else {
                         fwrite($pf, $cpf . "\n");
@@ -193,7 +193,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $this->spoolAppendManyPersist($job, $batchRows);
                     $this->persistSnapshots($snapRows);
                     $batchRows = [];
-                    $snapRows  = [];
+                    $snapRows = [];
                 }
             } finally {
                 fclose($reader);
@@ -418,8 +418,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         $leftoverCount++;
 
                         $snapRows[] = [
-                            'cpf'        => $cpf,
-                            'situacao'   => $row['situacao'],
+                            'cpf' => $cpf,
+                            'situacao' => $row['situacao'],
                             'authorized' => false,
                         ];
 
@@ -529,8 +529,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $successThisAttempt++;
 
                 $snapRows[] = [
-                    'cpf'        => $cpf,
-                    'situacao'   => $row['situacao'],
+                    'cpf' => $cpf,
+                    'situacao' => $row['situacao'],
                     'authorized' => ($res['authorized'] ?? null) === true,
                 ];
             } else {
@@ -545,8 +545,8 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $terminalFailsInChunk++;
 
                     $snapRows[] = [
-                        'cpf'        => $cpf,
-                        'situacao'   => $row['situacao'],
+                        'cpf' => $cpf,
+                        'situacao' => $row['situacao'],
                         'authorized' => false,
                     ];
                 } else {
@@ -602,7 +602,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         static $cols = null;
         if ($cols === null)
-            $cols = FgtsOfflineExport::COLS;
+            $cols = FgtsOffSchema::COLS;
 
         $row = array_fill_keys($cols, null);
         $row['cpf'] = $cpf;
@@ -618,7 +618,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         if (flock($this->spoolFp, LOCK_EX)) {
             foreach ($rows as $row) {
                 $ordered = [];
-                foreach (FgtsOfflineExport::COLS as $key) {
+                foreach (FgtsOffSchema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
                 }
                 fputcsv($this->spoolFp, $ordered, ';');
@@ -692,7 +692,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk($this->disk);
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) { // <-- sem o $
                 $p = $job->{$field} ?? null;
                 if ($p && $disk->exists($p)) {
                     try {
@@ -710,6 +710,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             ]);
         }
     }
+
 
     private function deletePendFiles(): void
     {
@@ -901,16 +902,20 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $last = strtolower($val[strlen($val) - 1]);
         $num = (int) $val;
         switch ($last) {
-            case 'g': $num *= 1024;
-            case 'm': $num *= 1024;
-            case 'k': $num *= 1024;
+            case 'g':
+                $num *= 1024;
+            case 'm':
+                $num *= 1024;
+            case 'k':
+                $num *= 1024;
         }
         return $num > 0 ? $num : PHP_INT_MAX;
     }
 
     private function persistSnapshots(array $snapRows): void
     {
-        if (empty($snapRows)) return;
+        if (empty($snapRows))
+            return;
 
         try {
             $now = Carbon::now('UTC');
@@ -919,18 +924,20 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
             foreach ($snapRows as $r) {
                 $cpf = (string) ($r['cpf'] ?? '');
-                if ($cpf === '' || strlen($cpf) !== 11) continue;
+                if ($cpf === '' || strlen($cpf) !== 11)
+                    continue;
                 $cpfs[] = $cpf;
 
                 $payload[] = [
-                    'cpf'        => $cpf,
-                    'situacao'   => $r['situacao'] ?? null,
-                    'authorized' => array_key_exists('authorized', $r) ? (bool)$r['authorized'] : null,
-                    'job_id'     => $this->jobId,
+                    'cpf' => $cpf,
+                    'situacao' => $r['situacao'] ?? null,
+                    'authorized' => array_key_exists('authorized', $r) ? (bool) $r['authorized'] : null,
+                    'job_id' => $this->jobId,
                     'updated_at' => $now,
                 ];
             }
-            if (empty($payload)) return;
+            if (empty($payload))
+                return;
 
             $leadMap = DB::table('leads')
                 ->whereIn('cpf', array_values(array_unique($cpfs)))
@@ -944,10 +951,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             DB::table('fgts_off_snapshots')->upsert(
                 $payload,
                 ['cpf'],
-                ['situacao','authorized','job_id','updated_at','lead_id']
+                ['situacao', 'authorized', 'job_id', 'updated_at', 'lead_id']
             );
         } catch (\Throwable $e) {
-            Log::warning("[FGTS-OFF] Upsert snapshots falhou no job {$this->jobId}: ".$e->getMessage());
+            Log::warning("[FGTS-OFF] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage());
         }
     }
 }

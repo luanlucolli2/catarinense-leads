@@ -64,17 +64,61 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
             $fileName = "{$finalPrefix}_{$job->id}_{$ts}.csv";
             $path     = "{$dirReports}/{$fileName}";
 
-            // promover o spool para CSV final
-            $src = $disk->path($spoolPath);
-            $tmp = $disk->path("{$dirReports}/.{$fileName}.tmp");
+            // ---- Normalização do CSV final (BOM/EOL) + cabeçalho normalizado
+            $embedBom   = (bool) config('facta_off.csv.embed_bom', true);
+            $finalEol   = strtoupper((string) config('facta_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
-            // copy em vez de rename, para não travar em FS distintos
-            if (!@copy($src, $tmp)) {
-                throw new \RuntimeException("Falha ao copiar spool para tmp.");
+            $srcReal = $disk->path($spoolPath);
+            $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+
+            $in  = @fopen($srcReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if ($in === false || $out === false) {
+                if (is_resource($in)) fclose($in);
+                if (is_resource($out)) fclose($out);
+                throw new \RuntimeException("Falha ao abrir streams para promover CSV final.");
             }
+
+            try {
+                // Trata BOM de origem
+                $peek = fread($in, 3);
+                if ($peek !== "\xEF\xBB\xBF") {
+                    // não havia BOM → volta ao início
+                    fseek($in, 0);
+                }
+
+                // Escreve BOM final (se configurado)
+                if ($embedBom) {
+                    fwrite($out, "\xEF\xBB\xBF");
+                }
+
+                // Escreve cabeçalho normalizado
+                fwrite($out, \App\Support\FgtsOffSchema::headerCsvLine(';') . $finalEol);
+
+                // Pula a 1ª linha do arquivo de origem (cabeçalho antigo)
+                fgets($in);
+
+                // Copia o restante normalizando EOL
+                while (!feof($in)) {
+                    $chunk = fread($in, 1024 * 256);
+                    if ($chunk === false) break;
+
+                    // normaliza CRLF->LF, depois LF->final
+                    $chunk = str_replace("\r\n", "\n", $chunk);
+                    if ($finalEol === "\r\n") {
+                        $chunk = str_replace("\n", "\r\n", $chunk);
+                    }
+                    fwrite($out, $chunk);
+                }
+            } finally {
+                fclose($in);
+                fflush($out);
+                fclose($out);
+            }
+
             // move tmp -> destino no disk
-            $disk->put($path, fopen($tmp, 'rb'));
-            @unlink($tmp);
+            $disk->put($path, fopen($tmpReal, 'rb'));
+            @unlink($tmpReal);
 
             if (!$disk->exists($path)) {
                 throw new \RuntimeException("Arquivo FINAL não encontrado após promover CSV: {$path}");

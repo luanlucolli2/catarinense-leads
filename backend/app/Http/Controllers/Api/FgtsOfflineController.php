@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessFgtsOfflineJob;
 use App\Models\FgtsOfflineJob;
 use App\Support\Cpf;
+use App\Support\FgtsOffSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -50,7 +51,6 @@ class FgtsOfflineController extends Controller
             'scheduled_for' => $job->scheduled_for,
             'scheduled_until' => $job->scheduled_until,
             'created_at' => $job->created_at,
-            // novo contrato de “prévia”
             'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
@@ -189,7 +189,7 @@ class FgtsOfflineController extends Controller
         ], Response::HTTP_OK);
     }
 
-    /** Streaming da “prévia” lendo o spool com LOCK_SH. */
+    /** Streaming da “prévia” com cabeçalho normalizado. */
     public function downloadPreview(Request $request, int $id)
     {
         $job = FgtsOfflineJob::query()
@@ -214,11 +214,27 @@ class FgtsOfflineController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
         $withBOM = (bool) env('FGTS_OFF_CSV_BOM', true);
+        $finalEol   = strtoupper((string) config('facta_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
-        return response()->streamDownload(function () use ($fh, $withBOM) {
+        return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
             try {
                 flock($fh, LOCK_SH);
+                // BOM opcional
                 if ($withBOM) echo "\xEF\xBB\xBF";
+
+                // consome a primeira linha do spool (cabeçalho antigo)
+                $peek = fread($fh, 3);
+                if ($peek !== "\xEF\xBB\xBF") {
+                    // não tinha BOM, volta ao início
+                    fseek($fh, 0);
+                }
+                // lê e descarta a 1ª linha do arquivo original
+                fgets($fh);
+
+                // escreve o novo cabeçalho normalizado
+                echo \App\Support\FgtsOffSchema::headerCsvLine(';') . $finalEol;
+
+                // despeja o restante
                 fpassthru($fh);
             } finally {
                 flock($fh, LOCK_UN);
@@ -253,7 +269,9 @@ class FgtsOfflineController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'X-Accel-Buffering' => 'no',
         ];
-        $withBOM = (bool) env('FGTS_OFF_CSV_BOM', false);
+
+        // CSV final já sai normalizado (BOM/EOL) pelo job de finalização
+        $withBOM = false;
 
         return response()->streamDownload(function () use ($fh, $withBOM) {
             try {
@@ -412,7 +430,8 @@ class FgtsOfflineController extends Controller
         try {
             if (flock($fp, LOCK_EX)) {
                 ftruncate($fp, 0);
-                fputcsv($fp, \App\Exports\FgtsOfflineExport::COLS, ';');
+                // Cabeçalho com títulos normalizados
+                fputcsv($fp, FgtsOffSchema::TITLES, ';');
                 fflush($fp);
                 flock($fp, LOCK_UN);
             }
@@ -431,7 +450,7 @@ class FgtsOfflineController extends Controller
             if (flock($fp2, LOCK_EX)) {
                 ftruncate($fp2, 0);
                 foreach ($allCpfs as $raw) {
-                    $norm = Cpf::normalize((string) $raw);
+                    $norm = \App\Support\Cpf::normalize((string) $raw);
                     if ($norm === null) continue;
                     $digits = preg_replace('/\D+/', '', $norm);
                     if ($digits === '' || strlen($digits) !== 11) continue;
