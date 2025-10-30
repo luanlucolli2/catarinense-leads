@@ -7,7 +7,6 @@ import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
 
 interface LeadsControlsProps {
-  /** Modo atual da listagem / filtros */
   mode: "FGTS" | "CLT";
 
   onImportClick: () => void;
@@ -42,7 +41,6 @@ interface LeadsControlsProps {
   dateToFilter: string;
   onDateToFilterChange: (value: string) => void;
 
-  /* 🎂 meses de aniversário */
   birthMonthFilter: string[];
   onBirthMonthFilterChange: (values: string[]) => void;
 
@@ -58,7 +56,6 @@ interface LeadsControlsProps {
   availableVendors: { id: number; name: string }[];
   hasActiveFilters: boolean;
 
-  /** ➕ FGTS OFF (tri-estado) */
   fgtsAuthorizedFilter: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado";
   onFgtsAuthorizedFilterChange: (v: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado") => void;
   fgtsConsultaFromFilter: string;
@@ -66,11 +63,9 @@ interface LeadsControlsProps {
   fgtsConsultaToFilter: string;
   onFgtsConsultaToFilterChange: (v: string) => void;
 
-  /** ➕ CLT (filtros específicos) */
   cltConsultado: "todos" | "sim" | "nao";
   onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
 
-  /** novo filtro unificado de situação (3 estados) */
   cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel";
   onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void;
 
@@ -132,17 +127,14 @@ interface LeadsControlsProps {
   cltTemAtivos: "todos" | "sim" | "nao";
   onCltTemAtivosChange: (v: "todos" | "sim" | "nao") => void;
 
-  /** Somente booleano de legados */
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 
-  /** ===== Colunas visíveis (por modo) ===== */
   visibleColumnsFGTS: string[];
   onVisibleColumnsFGTSChange: (cols: string[]) => void;
   visibleColumnsCLT: string[];
   onVisibleColumnsCLTChange: (cols: string[]) => void;
 
-  /** Defaults (para botão "Redefinir") */
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
 }
@@ -173,7 +165,6 @@ export const LeadsControls = ({
   onDateFromFilterChange,
   dateToFilter,
   onDateToFilterChange,
-  /* 🎂 */
   birthMonthFilter,
   onBirthMonthFilterChange,
   onApplyFilters,
@@ -187,15 +178,12 @@ export const LeadsControls = ({
   onVendorsFilterChange,
   availableVendors,
   hasActiveFilters,
-  // ➕ FGTS OFF (tri-estado)
   fgtsAuthorizedFilter,
   onFgtsAuthorizedFilterChange,
   fgtsConsultaFromFilter,
   onFgtsConsultaFromFilterChange,
   fgtsConsultaToFilter,
   onFgtsConsultaToFilterChange,
-
-  // ➕ CLT específicos
   cltConsultado,
   onCltConsultadoChange,
   cltSituacao,
@@ -248,8 +236,6 @@ export const LeadsControls = ({
   onCltTemAtivosChange,
   cltTemLegados,
   onCltTemLegadosChange,
-
-  /** Colunas visíveis */
   visibleColumnsFGTS,
   onVisibleColumnsFGTSChange,
   visibleColumnsCLT,
@@ -268,7 +254,6 @@ export const LeadsControls = ({
     else onVisibleColumnsCLTChange(cols);
   };
 
-  // === Detecta customização de colunas (diferente do padrão "todas") ===
   const hasCustomColumns = useMemo(() => {
     if (!currentDefaults?.length) return false;
     if (!currentVisible?.length) return false;
@@ -282,11 +267,11 @@ export const LeadsControls = ({
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm mb-6">
-      <div className="px-4 py-4">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-between">
-          {/* Search Field */}
-          <div className="relative flex-1 min-w-0 max-w-xs">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+      <div className="px-3 sm:px-4 py-3 sm:py-4">
+        {/* Linha 1: busca */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-between">
+          <div className="relative w-full sm:flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
               type="text"
               placeholder="Nome, CPF ou Telefone"
@@ -296,66 +281,68 @@ export const LeadsControls = ({
             />
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setIsColumnsModalOpen(true)}
-              variant="outline"
-              size="sm"
-              className={cn(
-                "flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative",
-                hasCustomColumns && "border-blue-500 bg-blue-50 text-blue-700"
-              )}
-              title="Selecionar colunas visíveis"
-            >
-              <ColumnsIcon className="w-4 h-4" />
-              Colunas
-              {hasCustomColumns && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
-              )}
-            </Button>
+          {/* Linha 2: ações – grid no mobile, linha no desktop */}
+          <div className="w-full sm:w-auto">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+              <Button
+                onClick={() => setIsColumnsModalOpen(true)}
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative w-full sm:w-auto",
+                  hasCustomColumns && "border-blue-500 bg-blue-50 text-blue-700"
+                )}
+                title="Selecionar colunas visíveis"
+              >
+                <ColumnsIcon className="w-4 h-4" />
+                <span className="hidden xs:inline sm:inline">Colunas</span>
+                {hasCustomColumns && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
+                )}
+              </Button>
 
-            <Button
-              onClick={() => setIsFiltersModalOpen(true)}
-              variant="outline"
-              size="sm"
-              className={cn(
-                "flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative",
-                hasActiveFilters && "border-blue-500 bg-blue-50 text-blue-700"
-              )}
-            >
-              <Filter className="w-4 h-4" />
-              Filtros
-              {hasActiveFilters && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
-              )}
-            </Button>
+              <Button
+                onClick={() => setIsFiltersModalOpen(true)}
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative w-full sm:w-auto",
+                  hasActiveFilters && "border-blue-500 bg-blue-50 text-blue-700"
+                )}
+              >
+                <Filter className="w-4 h-4" />
+                <span className="hidden xs:inline sm:inline">Filtros</span>
+                {hasActiveFilters && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
+                )}
+              </Button>
 
-            <Button
-              onClick={onExportClick}
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2 px-3 border-gray-300 hover:bg-gray-50"
-            >
-              <Download className="w-4 h-4" />
-              Exportar
-            </Button>
+              <Button
+                onClick={onExportClick}
+                variant="outline"
+                size="sm"
+                className="flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 w-full sm:w-auto"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden xs:inline sm:inline">Exportar</span>
+              </Button>
 
-            <Button
-              onClick={onImportClick}
-              size="sm"
-              className="flex items-center gap-2 px-3 bg-blue-600 hover:bg-blue-700"
-            >
-              <Upload className="w-4 h-4" />
-              Importar
-            </Button>
+              <Button
+                onClick={onImportClick}
+                size="sm"
+                className="flex items-center justify-center gap-2 px-3 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden xs:inline sm:inline">Importar</span>
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Active Filters Indicator */}
+        {/* Indicador de filtros ativos */}
         {hasActiveFilters && (
-          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+            <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-blue-600" />
               <span className="text-sm text-blue-800 font-medium">Filtros ativos aplicados</span>
             </div>
@@ -363,7 +350,7 @@ export const LeadsControls = ({
               onClick={onClearFilters}
               variant="outline"
               size="sm"
-              className="text-xs border-blue-300 text-blue-700 hover:bg-blue-100"
+              className="text-xs border-blue-300 text-blue-700 hover:bg-blue-100 self-start sm:self-auto"
             >
               Limpar
             </Button>
@@ -403,21 +390,18 @@ export const LeadsControls = ({
         vendorsFilter={vendorsFilter}
         onVendorsFilterChange={onVendorsFilterChange}
         availableVendors={availableVendors}
-        /* 🎂 */
         birthMonthFilter={birthMonthFilter}
         onBirthMonthFilterChange={onBirthMonthFilterChange}
         onApplyFilters={onApplyFilters}
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}
         availableOrigens={availableOrigens}
-        // ➕ FGTS OFF (só no FGTS)
         fgtsAuthorizedFilter={fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={onFgtsAuthorizedFilterChange}
         fgtsConsultaFromFilter={fgtsConsultaFromFilter}
         onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
         fgtsConsultaToFilter={fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
-        /* CLT específicos – com situação unificada */
         cltConsultado={cltConsultado}
         onCltConsultadoChange={onCltConsultadoChange}
         cltSituacao={cltSituacao}
