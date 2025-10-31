@@ -549,6 +549,7 @@ class LeadsExportPoller {
     if (this.timers.has(token)) return
     addActive(token)
     this.backoff.set(token, { attempts: 0, interval: 2000 })
+
     const tick = async () => {
       try {
         const st = await getLeadsExportStatus(token)
@@ -558,8 +559,15 @@ class LeadsExportPoller {
           this.stop(token)
           return
         }
-      } catch {
-        // mantém polling; evita parar por falha transitória
+      } catch (err: any) {
+        // Se o status endpoint 404, o export expirou/foi limpo no back. Remover do LS e avisar UI.
+        const http = err?.response?.status
+        if (http === 404) {
+          this.emit(token, { status: "deleted", message: "Token expirado ou não encontrado (404)." })
+          this.stop(token) // stop() também remove do localStorage
+          return
+        }
+        // Falha transitória: mantém polling
       }
 
       const cfg = this.backoff.get(token)!
@@ -569,6 +577,7 @@ class LeadsExportPoller {
       const id = window.setTimeout(tick, cfg.interval)
       this.timers.set(token, id)
     }
+
     const id = window.setTimeout(tick, 0)
     this.timers.set(token, id)
   }
@@ -578,7 +587,7 @@ class LeadsExportPoller {
     if (t) window.clearTimeout(t)
     this.timers.delete(token)
     this.backoff.delete(token)
-    removeActive(token)
+    removeActive(token) // <- garante remoção do localStorage
   }
 
   resumeAll() {

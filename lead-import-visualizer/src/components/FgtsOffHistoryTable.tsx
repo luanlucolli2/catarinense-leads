@@ -126,7 +126,6 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
     item.fail_count
   ).toLocaleString();
 
-  // Mostrar “preparando/contando…” até total_cpfs ser preenchido
   const isCounting =
     total === 0 &&
     (item.status === "pendente" || item.status === "em_progresso");
@@ -138,7 +137,7 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center justify-between text-xs sm:text-sm">
         <span className="text-muted-foreground">Progresso</span>
         <span className="font-medium text-card-foreground">
           {isCounting
@@ -177,23 +176,23 @@ function SegmentedProgressBar({ item }: { item: FgtsOffConsultJobListItem }) {
         )}
       </div>
 
-      <div className="flex justify-between text-xs">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs">
+        <div className="flex flex-wrap items-center gap-3">
           {s.ok > 0 && (
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
+              <span className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
               <span className="text-muted-foreground">Sucesso</span>
             </div>
           )}
           {s.not > 0 && (
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
-              <span className="text-muted-foreground">Não Autorizados</span>
+              <span className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
+              <span className="text-muted-foreground">Não autorizados</span>
             </div>
           )}
           {s.err > 0 && (
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
+              <span className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
               <span className="text-muted-foreground">Falhas</span>
             </div>
           )}
@@ -275,20 +274,20 @@ export const FgtsOffHistoryTable = ({
   const handleNext = () => onPageChange(Math.min(lastPage || 1, page + 1));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {loading ? (
         <Card>
-          <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+          <CardContent className="flex items-center justify-center py-10 sm:py-12 text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin mr-2" />
             Carregando...
           </CardContent>
         </Card>
       ) : items.length === 0 ? (
         <Card>
-          <CardContent className="flex items-center justify-center py-12">
+          <CardContent className="flex items-center justify-center py-10 sm:py-12">
             <div className="text-center">
-              <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">Nenhuma consulta encontrada</p>
+              <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground mx-auto mb-3 sm:mb-4" />
+              <p className="text-sm sm:text-base text-muted-foreground">Nenhuma consulta encontrada</p>
             </div>
           </CardContent>
         </Card>
@@ -310,34 +309,81 @@ export const FgtsOffHistoryTable = ({
               )}
             >
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-card-foreground truncate mb-1">
-                      {i.title}
-                    </h3>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>Criado em {formatDateTimeBR(i.created_at)}</span>
-                      {i.status === "agendado" && i.scheduled_for && (
-                        <span className="text-purple-600 dark:text-purple-400 font-medium">
-                          • Agendado para: {formatDateTimeBR(i.scheduled_for)}
-                          {i.scheduled_until ? ` – ${formatDateTimeBR(i.scheduled_until)}` : ""}
-                        </span>
-                      )}
+                {/* Cabeçalho responsivo: no mobile '...' fica ao lado do título/data.
+                    No desktop, layout original com badge + download + '...' à direita. */}
+                <div className="flex flex-col gap-2 sm:gap-3">
+                  {/* Linha superior */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-card-foreground truncate mb-1 text-base sm:text-lg">
+                        {i.title}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
+                        <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        {i.status === "agendado" && i.scheduled_for && (
+                          <span className="text-purple-600 dark:text-purple-400 font-medium">
+                            • Agendado para: {formatDateTimeBR(i.scheduled_for)}
+                            {i.scheduled_until ? ` – ${formatDateTimeBR(i.scheduled_until)}` : ""}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 ml-4">
-                    <Badge className={cn("flex items-center gap-1.5", statusInfo.className)}>
-                      {statusInfo.icon}
-                      {statusInfo.label}
-                    </Badge>
 
-                    <div className="flex items-center gap-1">
+                    {/* '...' somente no mobile aqui */}
+                    <div className="sm:hidden ml-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Mais ações</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          {(i.status === "pendente" ||
+                            i.status === "em_progresso" ||
+                            i.status === "agendado") && (
+                            <DropdownMenuItem
+                              onClick={() => openCancelDialog(i)}
+                              className="text-orange-600 dark:text-orange-400"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              Cancelar
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => openDeleteDialog(i)}
+                            className={
+                              i.status === "em_progresso" ||
+                              i.status === "pendente" ||
+                              i.status === "agendado"
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-destructive"
+                            }
+                            disabled={
+                              i.status === "em_progresso" ||
+                              i.status === "pendente" ||
+                              i.status === "agendado"
+                            }
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    {/* Ações originais no desktop */}
+                    <div className="hidden sm:flex items-center gap-2 sm:gap-3 ml-4">
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
+                        {statusInfo.icon}
+                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      </Badge>
+
                       {i.status !== "cancelado" && (
                         <Button
                           onClick={() =>
-                            onDownload(i.id, {
-                              preview: !finalReady && previewReady,
-                            })
+                            onDownload(i.id, { preview: !finalReady && previewReady })
                           }
                           disabled={downloadDisabled}
                           variant="outline"
@@ -345,14 +391,14 @@ export const FgtsOffHistoryTable = ({
                           className="h-8"
                           title={
                             finalReady
-                              ? "Baixar planilha final"
+                              ? "Baixar CSV final"
                               : previewReady
-                                ? "Gerar & baixar prévia"
+                                ? "Baixar prévia (espelho do spool CSV)"
                                 : "Baixar indisponível"
                           }
                         >
                           <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && <span className="ml-1">Prévia</span>}
+                          {!finalReady && previewReady && <span className="ml-1 hidden sm:inline">Prévia</span>}
                         </Button>
                       )}
 
@@ -360,27 +406,28 @@ export const FgtsOffHistoryTable = ({
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                             <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Mais ações</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent align="end" className="w-40">
                           {(i.status === "pendente" ||
                             i.status === "em_progresso" ||
                             i.status === "agendado") && (
-                              <DropdownMenuItem
-                                onClick={() => openCancelDialog(i)}
-                                className="text-orange-600 dark:text-orange-400"
-                              >
-                                <X className="w-4 h-4 mr-2" />
-                                Cancelar
-                              </DropdownMenuItem>
-                            )}
+                            <DropdownMenuItem
+                              onClick={() => openCancelDialog(i)}
+                              className="text-orange-600 dark:text-orange-400"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              Cancelar
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => openDeleteDialog(i)}
                             className={
                               i.status === "em_progresso" ||
-                                i.status === "pendente" ||
-                                i.status === "agendado"
+                              i.status === "pendente" ||
+                              i.status === "agendado"
                                 ? "text-muted-foreground cursor-not-allowed"
                                 : "text-destructive"
                             }
@@ -397,6 +444,35 @@ export const FgtsOffHistoryTable = ({
                       </DropdownMenu>
                     </div>
                   </div>
+
+                  {/* Linha abaixo no mobile: badge(s) + download */}
+                  <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
+                    <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
+                      {statusInfo.icon}
+                      <span className="whitespace-nowrap">{statusInfo.label}</span>
+                    </Badge>
+
+                    {i.status !== "cancelado" && (
+                      <Button
+                        onClick={() =>
+                          onDownload(i.id, { preview: !finalReady && previewReady })
+                        }
+                        disabled={downloadDisabled}
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        title={
+                          finalReady
+                            ? "Baixar CSV final"
+                            : previewReady
+                              ? "Baixar prévia (espelho do spool CSV)"
+                              : "Baixar indisponível"
+                        }
+                      >
+                        <Download className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
 
@@ -409,27 +485,27 @@ export const FgtsOffHistoryTable = ({
                     i.status === "expirado" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
-                      <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border">
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                            {i.success_count.toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">Sucesso</div>
+                    <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-2 border-t border-border">
+                      <div className="text-center">
+                        <div className="text-base sm:text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                          {i.success_count.toLocaleString()}
                         </div>
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
-                            {(i.not_authorized_count ?? 0).toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">Não Autorizados</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                            {i.fail_count.toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">Falhas</div>
-                        </div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">Sucesso</div>
                       </div>
-                    )}
+                      <div className="text-center">
+                        <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">
+                          {(i.not_authorized_count ?? 0).toLocaleString()}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">Não autorizados</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-base sm:text-lg font-semibold text-red-600 dark:text-red-400">
+                          {i.fail_count.toLocaleString()}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">Falhas</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -437,27 +513,17 @@ export const FgtsOffHistoryTable = ({
         })
       )}
 
-      {/* Paginação (somente anterior/próxima) */}
-      <div className="bg-white px-4 lg:px-6 py-3 border border-border rounded-md flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
+      {/* Paginação responsiva */}
+      <div className="bg-white dark:bg-neutral-900 px-3 sm:px-4 lg:px-6 py-3 border border-border rounded-md flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
           Página {page} de {lastPage || 1}
         </div>
-        <div className="flex items-center space-x-2">
-          <Button
-            onClick={() => onPageChange(Math.max(1, page - 1))}
-            disabled={page <= 1 || !!loading}
-            variant="outline"
-            size="sm"
-          >
+        <div className="flex items-center gap-2">
+          <Button onClick={handlePrev} disabled={page <= 1 || !!loading} variant="outline" size="sm" className="w-full sm:w-auto">
             <ChevronLeft className="w-4 h-4" />
             <span className="sr-only">Anterior</span>
           </Button>
-          <Button
-            onClick={() => onPageChange(Math.min(lastPage || 1, page + 1))}
-            disabled={page >= (lastPage || 1) || !!loading}
-            variant="outline"
-            size="sm"
-          >
+          <Button onClick={handleNext} disabled={page >= (lastPage || 1) || !!loading} variant="outline" size="sm" className="w-full sm:w-auto">
             <ChevronRight className="w-4 h-4" />
             <span className="sr-only">Próxima</span>
           </Button>
@@ -465,86 +531,70 @@ export const FgtsOffHistoryTable = ({
       </div>
 
       {/* Confirmar CANCELAMENTO */}
-      <AlertDialog
-        open={!!confirmJob}
-        onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}
-      >
-        <AlertDialogContent>
+      <AlertDialog open={!!confirmJob} onOpenChange={(isOpen) => !isOpen && setConfirmJob(null)}>
+        <AlertDialogContent className="sm:max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
               Cancelar consulta?
             </AlertDialogTitle>
           </AlertDialogHeader>
-          <div className="text-sm text-gray-700">
+          <div className="text-sm text-gray-700 dark:text-gray-200">
             <p>Essa ação interromperá o processamento:</p>
             {confirmJob && (
-              <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
+              <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
                 {confirmJob.title} (#{confirmJob.id})
               </p>
             )}
             <p>Deseja continuar?</p>
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelingId !== null}>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel disabled={cancelingId !== null} className="w-full sm:w-auto">
               Fechar
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
               disabled={cancelingId !== null}
               onClick={(e) => {
                 e.preventDefault();
                 void executeCancel();
               }}
             >
-              {cancelingId === confirmJob?.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                "Sim, cancelar"
-              )}
+              {cancelingId === confirmJob?.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, cancelar"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Confirmar EXCLUSÃO */}
-      <AlertDialog
-        open={!!confirmDeleteJob}
-        onOpenChange={(isOpen) => !isOpen && setConfirmDeleteJob(null)}
-      >
-        <AlertDialogContent>
+      <AlertDialog open={!!confirmDeleteJob} onOpenChange={(isOpen) => !isOpen && setConfirmDeleteJob(null)}>
+        <AlertDialogContent className="sm:max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
               Excluir definitivamente?
             </AlertDialogTitle>
           </AlertDialogHeader>
-          <div className="text-sm text-gray-700">
-            <p>
-              Arquivos vinculados (final, prévia e spool) serão removidos:
-            </p>
+          <div className="text-sm text-gray-700 dark:text-gray-200">
+            <p>Arquivos vinculados (final e spool) serão removidos:</p>
             {confirmDeleteJob && (
-              <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
+              <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
                 {confirmDeleteJob.title} (#{confirmDeleteJob.id})
               </p>
             )}
             <p>Essa operação não pode ser desfeita.</p>
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingId !== null}>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel disabled={deletingId !== null} className="w-full sm:w-auto">
               Fechar
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
               disabled={deletingId !== null}
               onClick={(e) => {
                 e.preventDefault();
                 void executeDelete();
               }}
             >
-              {deletingId === confirmDeleteJob?.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                "Sim, excluir"
-              )}
+              {deletingId === confirmDeleteJob?.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, excluir"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

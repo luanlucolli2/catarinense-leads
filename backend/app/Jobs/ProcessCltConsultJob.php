@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Exports\CltConsultExport;
 use App\Models\CltConsultJob;
+use App\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -54,21 +54,24 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $subchunkSize;
     private int $subchunkDelayMs;
 
+    /** Guarda a variante (online|offline) para a regra de snapshot */
+    private string $variant = 'online';
+
     public function __construct(int $jobId)
     {
         $this->jobId = $jobId;
 
         $this->onQueue((string) config('cltfacta.job.queue', 'clt'));
 
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
-        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
+        $this->timeout    = (int) config('cltfacta.job.timeout_seconds', 115200);
+        $this->disk       = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
-        $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
-        $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        $this->dirSpool   = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $this->finalPrefix= (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
 
         // pacing (configurável por env)
-        $this->chunkDelayMs = (int) config('cltfacta.job.chunk_delay_ms', 200);
-        $this->subchunkSize = max(1, (int) config('cltfacta.job.subchunk', 5));
+        $this->chunkDelayMs    = (int) config('cltfacta.job.chunk_delay_ms', 200);
+        $this->subchunkSize    = max(1, (int) config('cltfacta.job.subchunk', 5));
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
     }
 
@@ -81,12 +84,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        // variante para snapshots
+        $this->variant = ($job->variant === 'offline') ? 'offline' : 'online';
+
         $api = $job->variant === 'offline'
             ? app(\App\Services\CltOfflineApiService::class)
             : app(\App\Services\FactaApiService::class);
 
-        if ($this->isCancelled($job) || $this->isPaused($job)) {
-            $this->deletePreview($job);
+        if ($this->isCancelled($job)) {
+            $this->cleanupSpool($job);
             return;
         }
 
@@ -99,26 +105,25 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $job->update([
-            'status' => 'em_progresso',
-            'started_at' => $job->started_at ?? Carbon::now(),
+            'status'      => 'em_progresso',
+            'started_at'  => $job->started_at ?? Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
-            'preview_dirty' => false,
         ]);
 
         $this->spoolReal = $disk->path($job->spool_path);
-        $this->spoolFp = @fopen($this->spoolReal, 'a');
+        $this->spoolFp   = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
             dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
         $this->lastFlushedBytes = $this->fileSizeSafe($this->disk, $job->spool_path);
-        $this->nextFlushAt = microtime(true) + $this->flushEverySecs;
+        $this->nextFlushAt      = microtime(true) + $this->flushEverySecs;
 
         try {
             // 0) DEDUP externo
             $cpfsReal = $disk->path($job->spool_cpfs_path);
-            $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
+            $uniqRel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
             $uniqReal = $disk->path($uniqRel);
             $this->pendFiles[] = $uniqRel;
 
@@ -131,7 +136,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             // 1) Classificação inicial
             $pend1Rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a1.txt";
-            $pend1Real = $disk->path($pend1Rel);
+            $pend1Real= $disk->path($pend1Rel);
             $this->pendFiles[] = $pend1Rel;
 
             $pf = fopen($pend1Real, 'c+');
@@ -142,7 +147,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ftruncate($pf, 0);
 
             $invCount = 0;
-            $reader = fopen($uniqReal, 'r');
+            $reader   = fopen($uniqReal, 'r');
             if ($reader === false) {
                 fclose($pf);
                 $this->failFinalize($job);
@@ -189,11 +194,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             // 2) Teimosinha
-            $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
-            $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
-            $chunkSize = (int) config('cltfacta.job.chunk', 24);
-            $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 8));
-            $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
+            $maxAttempts    = (int) config('cltfacta.job.max_attempts', 5);
+            $retryDelay     = (int) config('cltfacta.job.retry_delay_seconds', 60);
+            $chunkSize      = (int) config('cltfacta.job.chunk', 24);
+            $minChunk       = max(1, (int) config('cltfacta.job.min_chunk', 8));
+            $retryAfterCap  = (int) config('cltfacta.job.retry_after_max', 120);
 
             $currPendRel = $pend1Rel;
 
@@ -300,7 +305,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     @gc_collect_cycles();
             }
 
-            // 3) Fechamento de pendências (CSV apenas)
+            // 3) Fechamento de pendências (CSV)
             if ($disk->exists($currPendRel) && ((int) $disk->size($currPendRel)) > 0) {
                 $r = fopen($disk->path($currPendRel), 'r');
                 if ($r !== false) {
@@ -361,7 +366,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $t0 = microtime(true);
         $chunkCount = count($chunkCpfs);
 
-        $micro = max(1, min($this->subchunkSize, $chunkCount));
+        $micro  = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
 
         $rows = [];
@@ -464,7 +469,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                         $best = $this->pickLatestVinculo($vinculos);
                         if ($best) {
-                            $margemFloat = $this->toFloatPtBr($best['valorMargemDisponivel'] ?? null);
+                            $margemFloat = $this->toFloatSmart($best['valorMargemDisponivel'] ?? null);
                             $valorMaxFloat = $margemFloat !== null ? round($margemFloat * 0.70, 2) : null;
 
                             $snapRows[] = [
@@ -478,8 +483,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                 'data_adm' => $this->parseDateFlexible($best['dataAdmissao'] ?? null),
                                 'meses_adm' => $this->computeTempoAdmissaoMeses($best['dataAdmissao'] ?? null, $best['dataDesligamento'] ?? null),
 
-                                'valor_renda' => $this->toFloatPtBr($best['valorTotalVencimentos'] ?? null),
-                                'valor_base' => $this->toFloatPtBr($best['valorBaseMargem'] ?? null),
+                                'valor_renda' => $this->toFloatSmart($best['valorTotalVencimentos'] ?? null),
+                                'valor_base' => $this->toFloatSmart($best['valorBaseMargem'] ?? null),
                                 'margem_disp' => $margemFloat,
                                 'valor_max' => $valorMaxFloat,
 
@@ -491,7 +496,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                     ? $this->simNaoToBool($best['emprestimosLegados'])
                                     : null,
 
-                                // timestamps vindos da origem (quando existirem)
+                                // carimbo da ORIGEM (UTC)
                                 'src_updated_at' => $best['updated_at'] ?? ($best['created_at'] ?? null),
 
                                 'not_found' => false,
@@ -550,12 +555,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        if ($successInChunk > 0)
-            $this->accSuccess += $successInChunk;
-        if ($notFoundInChunk > 0)
-            $this->accNotFound += $notFoundInChunk;
-        if ($failTermInChunk > 0)
-            $this->accFail += $failTermInChunk;
+        if ($successInChunk > 0)   $this->accSuccess += $successInChunk;
+        if ($notFoundInChunk > 0)  $this->accNotFound += $notFoundInChunk;
+        if ($failTermInChunk > 0)  $this->accFail += $failTermInChunk;
 
         $this->updateTotalsThrottled($job, $job->spool_path);
         $totalInAttempt += $chunkCount;
@@ -567,7 +569,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function baseRow(string $cpf): array
     {
-        $row = array_fill_keys(CltConsultExport::COLS, null);
+        $row = array_fill_keys(CltSchema::COLS, null);
         $row['cpf'] = $cpf;
         return $row;
     }
@@ -579,7 +581,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if (flock($this->spoolFp, LOCK_EX)) {
             foreach ($rows as $row) {
                 $ordered = [];
-                foreach (CltConsultExport::COLS as $key) {
+                foreach (CltSchema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
                 }
                 fputcsv($this->spoolFp, $ordered, ';');
@@ -596,22 +598,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $now = microtime(true);
 
-        $needBytesCheck = $force || $this->rowsSinceFlush >= $this->flushEveryRows || $now >= $this->nextFlushAt;
-
-        $prevBytes = $this->lastFlushedBytes;
-        $bytes = $prevBytes;
-        if ($needBytesCheck) {
-            try {
-                clearstatcache(true, $this->spoolReal);
-                $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
-            } catch (Throwable) {
-                $bytes = $prevBytes;
-            }
+        try {
+            clearstatcache(true, $this->spoolReal);
+            $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
+        } catch (Throwable) {
+            $bytes = $this->lastFlushedBytes;
         }
-
-        $bytesDelta = $bytes - $prevBytes;
-        $triggerRows = $this->rowsSinceFlush >= $this->flushEveryRows;
-        $triggerTime = $now >= $this->nextFlushAt;
+        $bytesDelta   = $bytes - $this->lastFlushedBytes;
+        $triggerRows  = $this->rowsSinceFlush >= $this->flushEveryRows;
+        $triggerTime  = $now >= $this->nextFlushAt;
         $triggerBytes = $bytesDelta >= $this->flushBytesStep;
 
         $shouldFlush = $force || $triggerRows || $triggerTime || $triggerBytes;
@@ -620,35 +615,38 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $updates = array_merge([
             'spool_bytes' => $bytes,
-            'preview_dirty' => true,
-            'updated_at' => Carbon::now(),
+            'updated_at'  => Carbon::now(),
         ], $extra);
 
         if ($this->accSuccess > 0)
-            $updates['success_count'] = DB::raw('success_count + ' . $this->accSuccess);
+            $updates['success_count'] = DB::raw('COALESCE(success_count,0) + ' . $this->accSuccess);
         if ($this->accNotFound > 0)
-            $updates['not_found_count'] = DB::raw('not_found_count + ' . $this->accNotFound);
+            $updates['not_found_count'] = DB::raw('COALESCE(not_found_count,0) + ' . $this->accNotFound);
         if ($this->accFail > 0)
-            $updates['fail_count'] = DB::raw('fail_count + ' . $this->accFail);
+            $updates['fail_count'] = DB::raw('COALESCE(fail_count,0) + ' . $this->accFail);
 
         try {
-            Log::info('[CLT][FLUSH]', ['job' => $this->jobId, 'force' => $force, 'rows_since' => $this->rowsSinceFlush, 'bytes_now' => $bytes]);
+            Log::info('[CLT][FLUSH]', [
+                'job'        => $this->jobId,
+                'force'      => $force,
+                'rows_since' => $this->rowsSinceFlush,
+                'bytes_now'  => $bytes,
+            ]);
         } catch (Throwable $e) {
         }
 
         DB::table('clt_consult_jobs')->where('id', $job->id)->update($updates);
 
-        $job->spool_bytes = $bytes;
-        $job->preview_dirty = true;
+        $job->spool_bytes     = $bytes;
         $this->rowsSinceFlush = 0;
-        $this->nextFlushAt = $now + $this->flushEverySecs;
+        $this->nextFlushAt    = $now + $this->flushEverySecs;
         $this->lastFlushedBytes = $bytes;
         $this->accSuccess = $this->accNotFound = $this->accFail = 0;
     }
 
     private function computeValorMaxPrest($valor): ?string
     {
-        $f = $this->toFloatPtBr($valor);
+        $f = $this->toFloatSmart($valor);
         if ($f === null)
             return null;
         $n = round($f * 0.70, 2);
@@ -680,18 +678,39 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function toFloatPtBr($val): ?float
+    private function toFloatSmart($val): ?float
     {
-        if ($val === null)
-            return null;
-        if (is_numeric($val))
-            return (float) $val;
-        $s = preg_replace('/[^\d,.-]/', '', (string) $val);
-        $s = str_replace(['.', ' '], ['', ''], $s);
-        $s = str_replace(',', '.', $s);
-        if (!is_numeric($s))
-            return null;
-        return (float) $s;
+        if ($val === null) return null;
+        if (is_float($val) || is_int($val)) return (float) $val;
+
+        $s = trim((string) $val);
+        if ($s === '') return null;
+
+        $s = preg_replace('/[^\d,.\-+]/', '', $s);
+        if ($s === '' || $s === '-' || $s === '+') return null;
+
+        $lastComma = strrpos($s, ',');
+        $lastDot   = strrpos($s, '.');
+
+        $decimalSep = null;
+        if ($lastComma === false && $lastDot === false) {
+            return is_numeric($s) ? (float) $s : null;
+        } elseif ($lastComma === false) {
+            $decimalSep = '.';
+        } elseif ($lastDot === false) {
+            $decimalSep = ',';
+        } else {
+            $decimalSep = ($lastComma > $lastDot) ? ',' : '.';
+        }
+
+        if ($decimalSep === ',') {
+            $s = str_replace('.', '', $s);
+            $s = str_replace(',', '.', $s);
+        } else {
+            $s = str_replace(',', '', $s);
+        }
+
+        return is_numeric($s) ? (float) $s : null;
     }
 
     private function pickLatestVinculo(array $vinculos): ?array
@@ -747,14 +766,19 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($t === '')
             return null;
         try {
-            $c = Carbon::parse($t, 'America/Sao_Paulo')->setTimezone('UTC');
-            return $c->format('Y-m-d H:i:s');
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+$/', $t)) {
+                $c = Carbon::createFromFormat('Y-m-d H:i:s.u', $t, 'UTC');
+            } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $t)) {
+                $c = Carbon::createFromFormat('Y-m-d H:i:s', $t, 'UTC');
+            } else {
+                $c = Carbon::parse($t, 'UTC');
+            }
+            return $c->setTimezone('UTC')->format('Y-m-d H:i:s');
         } catch (\Throwable) {
             return null;
         }
     }
 
-    /** Upsert com updated_at = data da ORIGEM e consulted_at = agora UTC. */
     private function persistSnapshots(array $snapRows): void
     {
         if (empty($snapRows))
@@ -774,26 +798,26 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $srcUpdated = $this->parseDateTimeFlexible($r['src_updated_at'] ?? null);
 
                 $payload[] = [
-                    'cpf' => $cpf,
-                    'nome' => $r['nome'] ?? null,
+                    'cpf'    => $cpf,
+                    'nome'   => $r['nome'] ?? null,
                     'elegivel' => array_key_exists('elegivel', $r) ? $this->simNaoToBool($r['elegivel']) : null,
                     'data_nascimento' => $r['data_nasc'] ?? null,
-                    'idade' => $r['idade'] ?? null,
-                    'sexo' => $r['sexo'] ?? null,
+                    'idade'  => $r['idade'] ?? null,
+                    'sexo'   => $r['sexo'] ?? null,
 
-                    'data_admissao' => $r['data_adm'] ?? null,
-                    'meses_admissao' => $r['meses_adm'] ?? null,
+                    'data_admissao'    => $r['data_adm'] ?? null,
+                    'meses_admissao'   => $r['meses_adm'] ?? null,
 
-                    'valor_renda' => $r['valor_renda'] ?? null,
-                    'valor_base_margem' => $r['valor_base'] ?? null,
-                    'margem_disponivel' => $r['margem_disp'] ?? null,
-                    'valor_max_prestacao' => $r['valor_max'] ?? null,
+                    'valor_renda'        => $r['valor_renda'] ?? null,
+                    'valor_base_margem'  => $r['valor_base'] ?? null,
+                    'margem_disponivel'  => $r['margem_disp'] ?? null,
+                    'valor_max_prestacao'=> $r['valor_max'] ?? null,
 
                     'categoria_trabalhador_codigo' => $r['cat_cod'] ?? null,
-                    'inicio_atividade_empregador' => $r['inicio_emp'] ?? null,
+                    'inicio_atividade_empregador'  => $r['inicio_emp'] ?? null,
 
                     'qtd_emprestimos_ativos_suspensos' => $r['qtd_ems'] ?? null,
-                    'emprestimos_legados' => $r['legados'] ?? null,
+                    'emprestimos_legados'             => $r['legados'] ?? null,
 
                     'not_found' => !empty($r['not_found']),
 
@@ -812,47 +836,76 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
             unset($row);
 
-            $existMap = DB::table('clt_snapshots')
+            $existing = DB::table('clt_snapshots')
                 ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->pluck('data_admissao', 'cpf');
+                ->select('cpf', 'updated_at', 'not_found')
+                ->get()
+                ->keyBy('cpf');
 
             $toUpsert = [];
-            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
+            $nowUtc   = Carbon::now('UTC')->format('Y-m-d H:i:s');
+            $isOnline = ($this->variant === 'online');
 
             foreach ($payload as $row) {
-                $cpf = $row['cpf'];
-                $old = $existMap[$cpf] ?? null;
-                $new = $row['data_admissao'] ?? null;
-                $isNotFound = !empty($row['not_found']);
+                $cpf          = $row['cpf'];
+                $srcUpdated   = $row['_src_updated_at'] ?? null;
+                $rowExists    = $existing->has($cpf);
+                $existingRow  = $rowExists ? $existing[$cpf] : null;
 
-                if (isset($existMap[$cpf]) && $isNotFound) {
-                    continue;
+                $existingUpdated = null;
+                if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
+                    $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
                 }
 
-                $shouldUpdate =
-                    (!isset($existMap[$cpf]))
-                    || ($old === null && $new !== null)
-                    || ($old === null && $new === null && !isset($existMap[$cpf]))
-                    || ($new !== null && $old !== null && strcmp($new, $old) > 0);
+                $existingNotFound   = (bool) ($existingRow->not_found ?? false);
+                $incomingNotFound   = (bool) ($row['not_found'] ?? false);
 
-                if (!$shouldUpdate) {
-                    // mesmo sem “melhor vínculo”, ainda queremos carimbar consulted_at se não existia snapshot
-                    if (!isset($existMap[$cpf])) {
-                        $row['job_id'] = $this->jobId;
-                        $row['updated_at'] = $row['_src_updated_at'] ?? $nowUtc;
-                        $row['consulted_at'] = $nowUtc;
-                        unset($row['_src_updated_at']);
-                        $toUpsert[] = $row;
-                    }
-                    continue;
-                }
-
-                $row['job_id'] = $this->jobId;
-                $row['updated_at'] = $row['_src_updated_at'] ?? $nowUtc; // origem
-                $row['consulted_at'] = $nowUtc;                          // nossa consulta
                 unset($row['_src_updated_at']);
 
-                $toUpsert[] = $row;
+                if ($isOnline) {
+                    $row['job_id']      = $this->jobId;
+                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at']= $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
+
+                if ($incomingNotFound) {
+                    if ($rowExists) {
+                        continue;
+                    }
+                    $row['job_id']      = $this->jobId;
+                    $row['updated_at']  = $nowUtc;
+                    $row['consulted_at']= $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
+
+                if (!$rowExists) {
+                    $row['job_id']      = $this->jobId;
+                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at']= $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
+
+                if ($existingNotFound) {
+                    $row['job_id']      = $this->jobId;
+                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at']= $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
+
+                if ($srcUpdated === null) {
+                    continue;
+                }
+                if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
+                    $row['job_id']      = $this->jobId;
+                    $row['updated_at']  = $srcUpdated;
+                    $row['consulted_at']= $nowUtc;
+                    $toUpsert[] = $row;
+                }
             }
 
             if (!empty($toUpsert)) {
@@ -878,13 +931,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         'emprestimos_legados',
                         'not_found',
                         'job_id',
-                        'updated_at',    // origem
-                        'consulted_at',  // nossa consulta
+                        'updated_at',
+                        'consulted_at',
                     ]
                 );
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage());
+            Log::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
         }
     }
 
@@ -932,36 +985,39 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finishIfStopped(CltConsultJob $job): bool
     {
-        if ($this->isCancelled($job)) {
-            $job->update(['finished_at' => Carbon::now()]);
-            $this->deletePreview($job);
+        $status = $this->currentStatus($job->id);
+        if ($status === null) {
+            $this->cleanupSpool($job);
+            Log::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
+            return true;
+        }
+
+        if ($status === 'cancelado') {
+            DB::table('clt_consult_jobs')->where('id', $job->id)->update(['finished_at' => Carbon::now()]);
             $this->cleanupSpool($job);
             Log::info("[CLT] Job {$this->jobId} cancelado.");
             return true;
         }
-        if ($this->isPaused($job)) {
-            Log::info("[CLT] Job {$this->jobId} pausado, saindo sem limpar.");
-            return true;
-        }
-        if ($job->status !== 'em_progresso') {
+
+        if ($status !== 'em_progresso') {
             DB::table('clt_consult_jobs')
                 ->where('id', $job->id)
-                ->whereNotIn('status', ['cancelado', 'pausado', 'concluido', 'falhou'])
+                ->whereNotIn('status', ['cancelado', 'concluido', 'falhou'])
                 ->update(['status' => 'em_progresso']);
-            $job->status = 'em_progresso';
         }
+
         return false;
+    }
+
+    private function currentStatus(int $id): ?string
+    {
+        return DB::table('clt_consult_jobs')->where('id', $id)->value('status');
     }
 
     private function isCancelled(CltConsultJob $job): bool
     {
-        $s = DB::table('clt_consult_jobs')->where('id', $job->id)->value('status');
-        return $s === 'cancelado';
-    }
-    private function isPaused(CltConsultJob $job): bool
-    {
-        $s = DB::table('clt_consult_jobs')->where('id', $job->id)->value('status');
-        return $s === 'pausado';
+        $s = $this->currentStatus($job->id);
+        return ($s === 'cancelado') || ($s === null);
     }
 
     private function cleanupSpool(CltConsultJob $job): void
@@ -978,35 +1034,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
             }
         } finally {
-            $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0]);
-        }
-    }
-
-    private function deletePreview(CltConsultJob $job): void
-    {
-        try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path))
-                    $disk->delete($job->preview_path);
+            if (DB::table('clt_consult_jobs')->where('id', $job->id)->exists()) {
+                try {
+                    $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0]);
+                } catch (Throwable) {
+                }
             }
-        } catch (Throwable $e) {
-            Log::warning("[CLT] Job {$this->jobId} falha ao apagar prévia: " . $e->getMessage());
-        } finally {
-            $job->updateQuietly([
-                'preview_disk' => null,
-                'preview_path' => null,
-                'preview_name' => null,
-                'preview_updated_at' => null,
-                'preview_dirty' => false,
-                'preview_status' => 'none',
-                'preview_requested_at' => null,
-                'preview_started_at' => null,
-                'preview_finished_at' => null,
-                'preview_size_bytes' => 0,
-                'preview_rows' => 0,
-                'preview_error' => null,
-            ]);
         }
     }
 
@@ -1022,124 +1055,139 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
-    {
-        $disk = Storage::disk($this->disk);
-        $uniqReal = $disk->path($uniqRel);
+ private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
+{
+    $disk = Storage::disk($this->disk);
+    $uniqReal = $disk->path($uniqRel);
 
-        $blockSize = 10000;
-        $chunks = [];
+    // garante pasta do spool
+    if (!$disk->exists($this->dirSpool)) {
+        $disk->makeDirectory($this->dirSpool);
+    }
 
-        $r = fopen($cpfsReal, 'r');
-        if ($r === false)
-            return 0;
+    $blockSize = 10000;
+    $chunks = [];
 
-        try {
-            $block = [];
-            while (($line = fgets($r)) !== false) {
-                $cpf = preg_replace('/\D+/', '', $line);
-                if ($cpf === '' || strlen($cpf) !== 11)
-                    continue;
-                $block[$cpf] = true;
-                if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
-                    $chunks[] = $this->writeSortedChunk($block);
-                    $block = [];
-                }
-            }
-            if (!empty($block)) {
-                $chunks[] = $this->writeSortedChunk($block);
+    $r = fopen($cpfsReal, 'r');
+    if ($r === false)
+        return 0;
+
+    try {
+        $block = [];
+        while (($line = fgets($r)) !== false) {
+            $cpf = preg_replace('/\D+/', '', $line);
+            if ($cpf === '' || strlen($cpf) !== 11)
+                continue;
+            $block[$cpf] = true;
+            if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
+                $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
                 $block = [];
             }
-        } finally {
-            fclose($r);
+        }
+        if (!empty($block)) {
+            $chunks[] = $this->writeSortedChunk($block);
+            $block = [];
+        }
+    } finally {
+        fclose($r);
+    }
+
+    if (empty($chunks)) {
+        $w = fopen($uniqReal, 'w'); // sempre REAL
+        if ($w !== false) fclose($w);
+        return 0;
+    }
+
+    if (count($chunks) === 1) {
+        // move REAL -> REAL
+        @rename($chunks[0], $uniqReal);
+
+        // conta linhas usando REAL
+        $cnt = 0;
+        $fh = fopen($uniqReal, 'r');
+        if ($fh !== false) {
+            while (!feof($fh)) {
+                if (fgets($fh) !== false) $cnt++;
+            }
+            fclose($fh);
+        }
+        return $cnt;
+    }
+
+    // merge k-way para REAL
+    $w = fopen($uniqReal, 'w');
+    if ($w === false) {
+        foreach ($chunks as $c) @unlink($c);
+        return 0;
+    }
+
+    $handles = [];
+    $heads = [];
+    foreach ($chunks as $i => $pReal) {
+        $h = fopen($pReal, 'r');
+        if ($h !== false) {
+            $handles[$i] = $h;
+            $heads[$i] = fgets($h);
+        }
+    }
+
+    $written = 0;
+    $last = null;
+    while (!empty($handles)) {
+        $minIdx = null;
+        $minVal = null;
+        foreach ($heads as $idx => $val) {
+            if ($val === false || $val === null) continue;
+            $val = trim($val);
+            if ($minVal === null || strcmp($val, $minVal) < 0) {
+                $minVal = $val;
+                $minIdx = $idx;
+            }
+        }
+        if ($minIdx === null) break;
+
+        if ($minVal !== '' && $minVal !== $last) {
+            fwrite($w, $minVal . "\n");
+            $written++;
+            $last = $minVal;
         }
 
-        if (empty($chunks)) {
-            $w = fopen($uniqReal, 'w');
-            if ($w !== false)
-                fclose($w);
-            return 0;
+        $heads[$minIdx] = fgets($handles[$minIdx]);
+        if ($heads[$minIdx] === false) {
+            fclose($handles[$minIdx]);
+            unset($handles[$minIdx], $heads[$minIdx]);
         }
-        if (count($chunks) === 1) {
-            @rename($chunks[0], $uniqReal);
-            $cnt = 0;
-            $fh = fopen($uniqReal, 'r');
-            if ($fh !== false) {
-                while (!feof($fh)) {
-                    if (fgets($fh) !== false)
-                        $cnt++;
-                }
-                fclose($fh);
-            }
-            return $cnt;
-        }
+    }
+    fclose($w);
 
-        $w = fopen($uniqReal, 'w');
-        if ($w === false) {
-            foreach ($chunks as $c)
-                @unlink($c);
-            return 0;
-        }
-        $handles = [];
-        $heads = [];
-        foreach ($chunks as $i => $p) {
-            $h = fopen($p, 'r');
-            if ($h !== false) {
-                $handles[$i] = $h;
-                $heads[$i] = fgets($h);
-            }
-        }
+    foreach ($chunks as $c) { @unlink($c); }
 
-        $written = 0;
-        $last = null;
-        while (!empty($handles)) {
-            $minIdx = null;
-            $minVal = null;
-            foreach ($heads as $idx => $val) {
-                if ($val === false || $val === null)
-                    continue;
-                $val = trim($val);
-                if ($minVal === null || strcmp($val, $minVal) < 0) {
-                    $minVal = $val;
-                    $minIdx = $idx;
-                }
-            }
-            if ($minIdx === null)
-                break;
-            if ($minVal !== '' && $minVal !== $last) {
-                fwrite($w, $minVal . "\n");
-                $written++;
-                $last = $minVal;
-            }
-            $heads[$minIdx] = fgets($handles[$minIdx]);
-            if ($heads[$minIdx] === false) {
-                fclose($handles[$minIdx]);
-                unset($handles[$minIdx], $heads[$minIdx]);
-            }
+    return $written;
+}
+
+private function writeSortedChunk(array $block): string
+{
+    $disk = Storage::disk($this->disk);
+
+    // garante pasta do spool antes de escrever chunk
+    if (!$disk->exists($this->dirSpool)) {
+        $disk->makeDirectory($this->dirSpool);
+    }
+
+    $rel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
+    $real = $disk->path($rel);
+    $this->pendFiles[] = $rel;
+
+    ksort($block, SORT_STRING);
+    $w = fopen($real, 'w');
+    if ($w !== false) {
+        foreach ($block as $cpf => $_) {
+            fwrite($w, $cpf . "\n");
         }
         fclose($w);
-        foreach ($chunks as $c) {
-            @unlink($c);
-        }
-        return $written;
     }
-
-    private function writeSortedChunk(array $block): string
-    {
-        $disk = Storage::disk($this->disk);
-        $rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
-        $real = $disk->path($rel);
-        $this->pendFiles[] = $rel;
-        ksort($block, SORT_STRING);
-        $w = fopen($real, 'w');
-        if ($w !== false) {
-            foreach ($block as $cpf => $_) {
-                fwrite($w, $cpf . "\n");
-            }
-            fclose($w);
-        }
-        return $real;
-    }
+    return $real; // sempre REAL
+}
 
     private function shouldSpill(int $currentCount): bool
     {
@@ -1161,10 +1209,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if (is_int($val) || is_float($val) || (is_string($val) && is_numeric($val))) {
             $n = (int) $val;
-            if ($n === 1)
-                return true;
-            if ($n === 0)
-                return false;
+            if ($n === 1) return true;
+            if ($n === 0) return false;
         }
 
         $s = trim((string) $val);
@@ -1178,12 +1224,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $uAscii = preg_replace('/\s+/', '', $uAscii);
 
         $truthy = ['SIM', 'S', 'TRUE', 'T', 'YES', 'Y', '1'];
-        $falsy = ['NAO', 'N', 'FALSE', 'F', 'NO', '0'];
+        $falsy  = ['NAO', 'N', 'FALSE', 'F', 'NO', '0'];
 
-        if (in_array($uAscii, $truthy, true))
-            return true;
-        if (in_array($uAscii, $falsy, true))
-            return false;
+        if (in_array($uAscii, $truthy, true)) return true;
+        if (in_array($uAscii, $falsy, true))  return false;
 
         return null;
     }
@@ -1197,12 +1241,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $last = strtolower($val[strlen($val) - 1]);
         $num = (int) $val;
         switch ($last) {
-            case 'g':
-                $num *= 1024;
-            case 'm':
-                $num *= 1024;
-            case 'k':
-                $num *= 1024;
+            case 'g': $num *= 1024;
+            case 'm': $num *= 1024;
+            case 'k': $num *= 1024;
         }
         return $num > 0 ? $num : PHP_INT_MAX;
     }

@@ -16,7 +16,6 @@ class FgtsOffSnapshot extends Model
     protected $fillable = [
         'cpf',
         'lead_id',
-        'situacao',
         'authorized',
         'job_id',
         'raw_meta',

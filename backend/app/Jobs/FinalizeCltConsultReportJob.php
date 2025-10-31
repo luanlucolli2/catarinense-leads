@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Exports\CltConsultExport;
 use App\Models\CltConsultJob;
+use App\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -13,7 +13,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
 
 class FinalizeCltConsultReportJob implements ShouldQueue
@@ -53,16 +52,65 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             if (!$disk->exists($dirReports)) $disk->makeDirectory($dirReports);
 
             $ts = Carbon::now()->format('Ymd_His');
-            $fileName = "{$finalPrefix}_{$job->id}_{$ts}.xlsx";
-            $tmpName  = "{$finalPrefix}_{$job->id}_{$ts}.tmp.xlsx";
+            $fileName = "{$finalPrefix}_{$job->id}_{$ts}.csv";
             $path     = "{$dirReports}/{$fileName}";
-            $tmpPath  = "{$dirReports}/{$tmpName}";
 
-            $export = CltConsultExport::fromCsv($disk->path($spoolPath));
-            Excel::store($export, $tmpPath, $diskName);
-            $disk->move($tmpPath, $path);
+            // Normalização (BOM/EOL) + cabeçalho normalizado
+            $embedBom = (bool) config('cltfacta.csv.embed_bom', true);
+            $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
-            if (!$disk->exists($path)) { throw new \RuntimeException("Arquivo FINAL não encontrado após move: {$path}"); }
+            $srcReal = $disk->path($spoolPath);
+            $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+
+            $in  = @fopen($srcReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if ($in === false || $out === false) {
+                if (is_resource($in)) fclose($in);
+                if (is_resource($out)) fclose($out);
+                throw new \RuntimeException("Falha ao abrir streams para promover CSV final.");
+            }
+
+            try {
+                // Trata possível BOM de origem
+                $peek = fread($in, 3);
+                if ($peek !== "\xEF\xBB\xBF") {
+                    fseek($in, 0);
+                }
+
+                // Escreve BOM final (se configurado)
+                if ($embedBom) {
+                    fwrite($out, "\xEF\xBB\xBF");
+                }
+
+                // Escreve cabeçalho normalizado
+                fwrite($out, CltSchema::headerCsvLine(';') . $finalEol);
+
+                // Pula a 1ª linha do arquivo de origem (cabeçalho antigo, embora já seja TITLES)
+                fgets($in);
+
+                // Copia o restante normalizando EOL
+                while (!feof($in)) {
+                    $chunk = fread($in, 1024 * 256);
+                    if ($chunk === false) break;
+
+                    // normaliza CRLF->LF, depois LF->final
+                    $chunk = str_replace("\r\n", "\n", $chunk);
+                    if ($finalEol === "\r\n") {
+                        $chunk = str_replace("\n", "\r\n", $chunk);
+                    }
+                    fwrite($out, $chunk);
+                }
+            } finally {
+                fclose($in);
+                fflush($out);
+                fclose($out);
+            }
+
+            // move tmp -> destino no disk
+            $disk->put($path, fopen($tmpReal, 'rb'));
+            @unlink($tmpReal);
+
+            if (!$disk->exists($path)) { throw new \RuntimeException("Arquivo FINAL não encontrado após promover CSV: {$path}"); }
 
             $job->update(['file_disk'=>$diskName, 'file_path'=>$path, 'file_name'=>$fileName]);
         } catch (Throwable $e) {
@@ -72,7 +120,6 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         }
 
         $this->cleanupSpool($job);
-        $this->deletePreview($job);
 
         $job->update(['status'=>$this->targetStatus, 'finished_at'=>Carbon::now()]);
         Log::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
@@ -81,7 +128,6 @@ class FinalizeCltConsultReportJob implements ShouldQueue
     private function finishWithoutFinal(CltConsultJob $job, string $status): void
     {
         $this->cleanupSpool($job);
-        $this->deletePreview($job);
         $job->update(['status'=>$status, 'finished_at'=>Carbon::now()]);
     }
 
@@ -95,26 +141,6 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             }
         } finally {
             $job->updateQuietly(['spool_path'=>null,'spool_cpfs_path'=>null,'spool_bytes'=>0]);
-        }
-    }
-
-    private function deletePreview(CltConsultJob $job): void
-    {
-        try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) $disk->delete($job->preview_path);
-            }
-        } catch (Throwable $e) {
-            Log::warning("[CLT] FINAL (job {$job->id}) falha ao apagar prévia: ".$e->getMessage());
-        } finally {
-            $job->updateQuietly([
-                'preview_disk'=>null,'preview_path'=>null,'preview_name'=>null,
-                'preview_updated_at'=>null,'preview_dirty'=>false,
-                'preview_status'=>'none','preview_requested_at'=>null,
-                'preview_started_at'=>null,'preview_finished_at'=>null,
-                'preview_size_bytes'=>0,'preview_rows'=>0,'preview_error'=>null,
-            ]);
         }
     }
 }

@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Exports\FgtsOfflineExport;
 use App\Models\FgtsOfflineJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,7 +12,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
 
 class FinalizeFgtsOffReportJob implements ShouldQueue
@@ -23,7 +21,6 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
     /** @var 'concluido'|'expirado'|'falhou' */
     public string $targetStatus;
 
-    /** Timeout para conversão CSV→XLSX. */
     public int $timeout = 7200;
 
     public function __construct(public int $jobId, string $targetStatus)
@@ -36,11 +33,9 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
 
     public function handle(): void
     {
-        /** @var FgtsOfflineJob|null $job */
         $job = FgtsOfflineJob::query()->whereKey($this->jobId)->first();
         if (!$job) return;
 
-        // Cancelado não gera final
         if ($job->status === 'cancelado') {
             $this->finishWithoutFinal($job, 'cancelado');
             return;
@@ -66,17 +61,67 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
             }
 
             $ts       = Carbon::now()->format('Ymd_His');
-            $fileName = "{$finalPrefix}_{$job->id}_{$ts}.xlsx";
-            $tmpName  = "{$finalPrefix}_{$job->id}_{$ts}.tmp.xlsx";
+            $fileName = "{$finalPrefix}_{$job->id}_{$ts}.csv";
             $path     = "{$dirReports}/{$fileName}";
-            $tmpPath  = "{$dirReports}/{$tmpName}";
 
-            $export = FgtsOfflineExport::fromCsv($disk->path($spoolPath));
-            Excel::store($export, $tmpPath, $diskName);
-            $disk->move($tmpPath, $path);
+            // ---- Normalização do CSV final (BOM/EOL) + cabeçalho normalizado
+            $embedBom   = (bool) config('facta_off.csv.embed_bom', true);
+            $finalEol   = strtoupper((string) config('facta_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+
+            $srcReal = $disk->path($spoolPath);
+            $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+
+            $in  = @fopen($srcReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if ($in === false || $out === false) {
+                if (is_resource($in)) fclose($in);
+                if (is_resource($out)) fclose($out);
+                throw new \RuntimeException("Falha ao abrir streams para promover CSV final.");
+            }
+
+            try {
+                // Trata BOM de origem
+                $peek = fread($in, 3);
+                if ($peek !== "\xEF\xBB\xBF") {
+                    // não havia BOM → volta ao início
+                    fseek($in, 0);
+                }
+
+                // Escreve BOM final (se configurado)
+                if ($embedBom) {
+                    fwrite($out, "\xEF\xBB\xBF");
+                }
+
+                // Escreve cabeçalho normalizado
+                fwrite($out, \App\Support\FgtsOffSchema::headerCsvLine(';') . $finalEol);
+
+                // Pula a 1ª linha do arquivo de origem (cabeçalho antigo)
+                fgets($in);
+
+                // Copia o restante normalizando EOL
+                while (!feof($in)) {
+                    $chunk = fread($in, 1024 * 256);
+                    if ($chunk === false) break;
+
+                    // normaliza CRLF->LF, depois LF->final
+                    $chunk = str_replace("\r\n", "\n", $chunk);
+                    if ($finalEol === "\r\n") {
+                        $chunk = str_replace("\n", "\r\n", $chunk);
+                    }
+                    fwrite($out, $chunk);
+                }
+            } finally {
+                fclose($in);
+                fflush($out);
+                fclose($out);
+            }
+
+            // move tmp -> destino no disk
+            $disk->put($path, fopen($tmpReal, 'rb'));
+            @unlink($tmpReal);
 
             if (!$disk->exists($path)) {
-                throw new \RuntimeException("Arquivo FINAL não encontrado após move: {$path}");
+                throw new \RuntimeException("Arquivo FINAL não encontrado após promover CSV: {$path}");
             }
 
             $job->update([
@@ -87,7 +132,6 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
         } catch (Throwable $e) {
             Log::error("[FGTS-OFF] FINAL (job {$job->id}) falhou: ".$e->getMessage());
 
-            // Sem final só marca status conforme semântica anterior
             if ($this->targetStatus === 'concluido') {
                 $this->finishWithoutFinal($job, 'falhou');
                 return;
@@ -97,9 +141,7 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
             return;
         }
 
-        // Limpa spool e prévia e fecha com status alvo
         $this->cleanupSpool($job);
-        $this->deletePreview($job);
 
         $job->update([
             'status'      => $this->targetStatus,
@@ -112,7 +154,6 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
     private function finishWithoutFinal(FgtsOfflineJob $job, string $status): void
     {
         $this->cleanupSpool($job);
-        $this->deletePreview($job);
 
         $job->update([
             'status'      => $status,
@@ -135,35 +176,6 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
                 'spool_path'      => null,
                 'spool_cpfs_path' => null,
                 'spool_bytes'     => 0,
-            ]);
-        }
-    }
-
-    private function deletePreview(FgtsOfflineJob $job): void
-    {
-        try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
-                }
-            }
-        } catch (Throwable $e) {
-            Log::warning("[FGTS-OFF] FINAL (job {$job->id}) falha ao apagar prévia: ".$e->getMessage());
-        } finally {
-            $job->updateQuietly([
-                'preview_disk'        => null,
-                'preview_path'        => null,
-                'preview_name'        => null,
-                'preview_updated_at'  => null,
-                'preview_dirty'       => false,
-                'preview_status'      => 'none',
-                'preview_requested_at'=> null,
-                'preview_started_at'  => null,
-                'preview_finished_at' => null,
-                'preview_size_bytes'  => 0,
-                'preview_rows'        => 0,
-                'preview_error'       => null,
             ]);
         }
     }

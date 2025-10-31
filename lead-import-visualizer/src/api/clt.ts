@@ -22,18 +22,23 @@ export interface CltConsultJobListItem {
   fail_count: number
   not_found_count: number
 
+  /** Final */
+  has_file?: boolean | null
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
 
-  // PRÉVIA (opcional)
+  /** PRÉVIA (opcional) */
   preview_disk?: string | null
   preview_path?: string | null
   preview_name?: string | null
   preview_updated_at?: string | null
 
-  // telemetria opcional
+  /** telemetria opcional */
   spool_bytes?: number | null
+
+  /** modo/variante */
+  variant?: 'online' | 'offline' | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -53,7 +58,7 @@ export interface CltConsultJobShow {
   not_found_count: number
   has_file: boolean
 
-  // PRÉVIA
+  /** PRÉVIA */
   has_preview?: boolean
   preview_status?: PreviewStatus
   preview_updated_at?: string | null
@@ -64,15 +69,26 @@ export interface CltConsultJobShow {
   preview_rows?: number | null
   preview_error?: string | null
 
-  // telemetria
+  /** telemetria */
   spool_bytes?: number | null
 
-  // datas
+  /** modo/variante (opcional no show) */
+  variant?: 'online' | 'offline' | null
+
+  /** datas */
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
   created_at: string
+}
+
+/** Payload de criação alinhado ao backend */
+export interface CreateCltConsultInput {
+  title: string
+  cpfs: string | string[]
+  /** 'online' | 'offline' */
+  variant?: 'online' | 'offline'
 }
 
 /** Resposta de paginação Laravel */
@@ -85,9 +101,7 @@ export interface Paginated<T> {
 }
 
 /** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
-export async function ensureCsrfCookie() {
-  await http.get('/sanctum/csrf-cookie')
-}
+
 
 const BASE = '/clt/consult-jobs'
 
@@ -100,7 +114,7 @@ export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsult
 }
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
-export async function createCltConsultJob(input: { title: string; cpfs: string | string[] }) {
+export async function createCltConsultJob(input: CreateCltConsultInput) {
   const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
     BASE,
     input
@@ -150,7 +164,6 @@ export async function downloadCltReport(id: number) {
 export async function downloadCltPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
-    // evita baixar versão antiga por cache do navegador/CDN
     params: { t: Date.now() },
   })
 
