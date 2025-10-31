@@ -217,7 +217,7 @@ export const CLTHistoryTable = ({
 
   const canDownloadFinal = (i: CltConsultJobListItem) =>
     (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") &&
-    Boolean(i.file_path ?? (i as any).has_file);
+    Boolean((i.has_file ?? null) || (i.file_path ?? null));
 
   const canDownloadPreview = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -287,35 +287,34 @@ export const CLTHistoryTable = ({
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
 
-          const variant = String((i as any).variant ?? "").trim().toLowerCase();
-          const type =
-            variant === "offline"
-              ? "OFF"
-              : variant === "online"
-                ? "ONLINE"
-                : ((i as any).mode ??
-                    (i as any).tipo ??
-                    (i as any).type ??
-                    ((i as any).is_offline ? "OFF" : "ONLINE"))
-                    .toString()
-                    .toUpperCase();
+          // Resolve a variante com tipagem, mantendo compatibilidade com payloads antigos
+          const variant: 'online' | 'offline' | undefined = ((): any => {
+            if (i.variant) return i.variant;
+            const anyI = i as any;
+            if (typeof anyI.is_offline === 'boolean') {
+              return anyI.is_offline ? 'offline' : 'online';
+            }
+            const legacy = String(anyI.mode ?? anyI.tipo ?? anyI.type ?? '').toLowerCase();
+            if (legacy === 'offline' || legacy === 'off') return 'offline';
+            if (legacy === 'online' || legacy === 'on') return 'online';
+            return undefined;
+          })();
 
-          const modeBadge = (() => {
-            if (type === "OFF") {
-              return {
+          const type = variant === 'offline' ? 'OFF' : variant === 'online' ? 'ONLINE' : 'ONLINE';
+
+          const modeBadge = type === "OFF"
+            ? {
                 icon: <Database className="w-3.5 h-3.5" />,
                 className:
                   "bg-gradient-to-r from-slate-100 to-stone-50 text-slate-700 border-slate-300 dark:from-slate-800/30 dark:to-stone-800/20 dark:text-slate-300 dark:border-slate-700 shadow-sm",
                 label: "Base Offline",
+              }
+            : {
+                icon: <Wifi className="w-3.5 h-3.5" />,
+                className:
+                  "bg-gradient-to-r from-emerald-100 to-teal-50 text-emerald-700 border-emerald-300 dark:from-emerald-900/30 dark:to-teal-800/20 dark:text-emerald-300 dark:border-emerald-700 shadow-sm",
+                label: "Online",
               };
-            }
-            return {
-              icon: <Wifi className="w-3.5 h-3.5" />,
-              className:
-                "bg-gradient-to-r from-emerald-100 to-teal-50 text-emerald-700 border-emerald-300 dark:from-emerald-900/30 dark:to-teal-800/20 dark:text-emerald-300 dark:border-emerald-700 shadow-sm",
-              label: "Online",
-            };
-          })();
 
           return (
             <Card

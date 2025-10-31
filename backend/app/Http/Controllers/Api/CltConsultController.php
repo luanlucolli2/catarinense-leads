@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Exports\CltConsultExport;
 use App\Http\Controllers\Controller;
-use App\Jobs\GenerateCltPreviewJob;
 use App\Jobs\ProcessCltConsultJob;
+use App\Jobs\FinalizeCltConsultReportJob;
 use App\Models\CltConsultJob;
 use App\Support\Cpf;
+use App\Support\CltSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -34,6 +34,10 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $reportsDisk = Storage::disk($reportsDiskName);
+        $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
@@ -48,12 +52,9 @@ class CltConsultController extends Controller
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
             'paused_at' => $job->paused_at,
-            'has_preview' => (bool) $job->has_preview,
-            'preview_updated_at' => $job->preview_updated_at,
-            'preview_status' => $job->preview_status,
-            'preview_rows' => $job->preview_rows,
-            'preview_size_bytes' => $job->preview_size_bytes,
-            'preview_error' => $job->preview_error,
+
+            // novo comportamento (igual FGTS)
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -84,8 +85,6 @@ class CltConsultController extends Controller
             'success_count' => 0,
             'not_found_count' => 0,
             'fail_count' => 0,
-            'preview_dirty' => false,
-            'preview_status' => 'none',
         ]);
 
         try {
@@ -120,99 +119,79 @@ class CltConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
-    /** Solicita geração da PRÉVIA assíncrona. */
+    /** Estado “prévia” leve. Não enfileira nada (espelha o spool). */
     public function requestPreview(Request $request, int $id)
     {
         $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $force = (bool) $request->boolean('force', false);
-
-        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
-        $disk = Storage::disk($diskName);
-
-        if (
-            empty($job->spool_path) || empty($job->spool_cpfs_path) ||
-            !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)
-        ) {
-            return response()->json(['message' => 'Prévia não disponível (spool ausente).'], Response::HTTP_CONFLICT);
-        }
-
-        $hasFileReady = false;
-        if ($job->preview_disk && $job->preview_path) {
-            $pDisk = Storage::disk($job->preview_disk);
-            $hasFileReady = $pDisk->exists($job->preview_path);
-        }
-        if ($hasFileReady && !$force && !$job->preview_dirty && $job->preview_status === 'ready') {
-            return response()->json([
-                'message' => 'Prévia já está pronta.',
-                'preview_status' => $job->preview_status,
-                'preview_rows' => $job->preview_rows,
-                'preview_size_bytes' => $job->preview_size_bytes,
-                'preview_updated_at' => $job->preview_updated_at,
-            ], 200);
-        }
-
-        if (in_array($job->preview_status, ['queued', 'running'], true)) {
-            return response()->json([
-                'message' => 'Prévia já está sendo gerada.',
-                'preview_status' => $job->preview_status,
-            ], Response::HTTP_ACCEPTED);
-        }
-
-        $job->update([
-            'preview_status' => 'queued',
-            'preview_requested_at' => Carbon::now(),
-            'preview_error' => null,
-        ]);
-
-        GenerateCltPreviewJob::dispatch($job->id);
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
 
         return response()->json([
-            'message' => 'Geração de prévia enfileirada.',
-            'preview_status' => 'queued',
-        ], Response::HTTP_ACCEPTED);
+            'queued' => false,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
+            'message' => 'Prévia espelha o spool no momento da leitura.',
+        ], Response::HTTP_OK);
     }
 
-    /** Download PRÉVIA (streaming) */
+    /** Streaming da PRÉVIA (CSV) com cabeçalho normalizado */
     public function downloadPreview(Request $request, int $id)
     {
         $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $diskName = $job->preview_disk ?: (string) config('cltfacta.storage.reports_disk', 'local');
-        $disk = Storage::disk($diskName);
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
 
-        if (!$job->preview_path || !$disk->exists($job->preview_path)) {
-            return response()->json([
-                'message' => 'Prévia ainda não está pronta.',
-                'preview_status' => $job->preview_status ?? 'none',
-            ], Response::HTTP_CONFLICT);
+        if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
+            return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
         }
 
-        $fileName = $job->preview_name ?: "{$this->finalPrefix()}_{$job->id}_preview.xlsx";
-
-        if (method_exists($disk, 'download')) {
-            return $disk->download($job->preview_path, $fileName);
-        }
-
-        $stream = $disk->readStream($job->preview_path);
-        if ($stream === false) {
+        $real = $disk->path($job->spool_path);
+        $fh = @fopen($real, 'rb');
+        if ($fh === false) {
             return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        return response()->streamDownload(function () use ($stream) {
-            fpassthru($stream);
-            if (is_resource($stream))
-                fclose($stream);
-        }, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        $filename = "{$this->finalPrefix()}_{$job->id}_preview.csv";
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ];
+
+        $withBOM = (bool) env('CLT_CSV_BOM', true);
+        $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+
+        return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
+            try {
+                flock($fh, LOCK_SH);
+
+                if ($withBOM) echo "\xEF\xBB\xBF";
+
+                // trata possível BOM no spool
+                $peek = fread($fh, 3);
+                if ($peek !== "\xEF\xBB\xBF") {
+                    fseek($fh, 0);
+                }
+
+                // descarta a 1ª linha do spool (cabeçalho original)
+                fgets($fh);
+
+                // escreve cabeçalho normalizado
+                echo \App\Support\CltSchema::headerCsvLine(';') . $finalEol;
+
+                // despeja o restante
+                fpassthru($fh);
+            } finally {
+                flock($fh, LOCK_UN);
+                if (is_resource($fh)) fclose($fh);
+            }
+        }, $filename, $headers);
     }
 
-    /** Download do FINAL (streaming) */
+    /** Download do FINAL (CSV) */
     public function download(int $id)
     {
         $job = CltConsultJob::query()
@@ -224,31 +203,36 @@ class CltConsultController extends Controller
         }
 
         $disk = Storage::disk($job->file_disk);
-        $filename = $job->file_name ?: "{$this->finalPrefix()}-{$job->id}.xlsx";
+        $filename = $job->file_name ?: "{$this->finalPrefix()}-{$job->id}.csv";
 
         if (!$disk->exists($job->file_path)) {
             return response()->json(['message' => 'Arquivo não encontrado.'], 404);
         }
 
-        if (method_exists($disk, 'download')) {
-            return $disk->download($job->file_path, $filename);
-        }
-
-        $stream = $disk->readStream($job->file_path);
-        if ($stream === false) {
+        $fh = $disk->readStream($job->file_path);
+        if ($fh === false) {
             return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
-        return response()->streamDownload(function () use ($stream) {
-            fpassthru($stream);
-            if (is_resource($stream))
-                fclose($stream);
-        }, $filename, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ];
+
+        // CSV final já sai normalizado pelo job de finalização
+        $withBOM = false;
+
+        return response()->streamDownload(function () use ($fh, $withBOM) {
+            try {
+                if ($withBOM) echo "\xEF\xBB\xBF";
+                fpassthru($fh);
+            } finally {
+                if (is_resource($fh)) fclose($fh);
+            }
+        }, $filename, $headers);
     }
 
-    /** ✅ Cancelar job (apaga a PRÉVIA imediatamente) */
+    /** Cancelar job (apaga spool) — sem prévia */
     public function cancel(Request $request, int $id)
     {
         $job = CltConsultJob::query()
@@ -273,27 +257,22 @@ class CltConsultController extends Controller
         ]);
 
         try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
+            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
+                $p = $job->{$field};
+                if ($p && $disk->exists($p)) {
+                    $disk->delete($p);
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar prévia no cancel (job {$job->id}): " . $e->getMessage());
-        } finally {
-            $job->update([
-                'preview_disk' => null,
-                'preview_path' => null,
-                'preview_name' => null,
-                'preview_updated_at' => null,
-                'preview_dirty' => false,
-                'preview_status' => 'none',
-                'preview_rows' => 0,
-                'preview_size_bytes' => 0,
-                'preview_error' => null,
-            ]);
+            Log::warning("[CLT] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
         }
+
+        $job->update([
+            'spool_path' => null,
+            'spool_cpfs_path' => null,
+            'spool_bytes' => 0,
+        ]);
 
         return response()->json([
             'id' => $job->id,
@@ -303,7 +282,7 @@ class CltConsultController extends Controller
         ]);
     }
 
-    /** ✅ Excluir job + arquivos (final, prévia e spool). Bloqueia se pendente/em_progresso. */
+    /** Excluir job + arquivos (final e spool). Bloqueia se pendente/em_progresso. */
     public function destroy(int $id)
     {
         $job = CltConsultJob::query()
@@ -326,17 +305,6 @@ class CltConsultController extends Controller
             }
         } catch (\Throwable $e) {
             Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
-        }
-
-        try {
-            if ($job->preview_disk && $job->preview_path) {
-                $disk = Storage::disk($job->preview_disk);
-                if ($disk->exists($job->preview_path)) {
-                    $disk->delete($job->preview_path);
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar arquivo de prévia (job {$job->id}): " . $e->getMessage());
         }
 
         try {
@@ -384,7 +352,7 @@ class CltConsultController extends Controller
         }
     }
 
-    /** Cria spool inicial + lista de CPFs, sem dedup em memória. */
+    /** Cria spool inicial + lista de CPFs (cabeçalho amigável) */
     private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
         $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
@@ -406,7 +374,8 @@ class CltConsultController extends Controller
         try {
             if (flock($fp, LOCK_EX)) {
                 ftruncate($fp, 0);
-                fputcsv($fp, CltConsultExport::COLS, ';');
+                // cabeçalho já normalizado (igual FGTS)
+                fputcsv($fp, CltSchema::TITLES, ';');
                 fflush($fp);
                 flock($fp, LOCK_UN);
             }

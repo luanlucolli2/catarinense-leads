@@ -22,18 +22,23 @@ export interface CltConsultJobListItem {
   fail_count: number
   not_found_count: number
 
+  /** Final */
+  has_file?: boolean | null
   file_disk?: string | null
   file_path?: string | null
   file_name?: string | null
 
-  // PRÉVIA (opcional)
+  /** PRÉVIA (opcional) */
   preview_disk?: string | null
   preview_path?: string | null
   preview_name?: string | null
   preview_updated_at?: string | null
 
-  // telemetria opcional
+  /** telemetria opcional */
   spool_bytes?: number | null
+
+  /** modo/variante */
+  variant?: 'online' | 'offline' | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -53,7 +58,7 @@ export interface CltConsultJobShow {
   not_found_count: number
   has_file: boolean
 
-  // PRÉVIA
+  /** PRÉVIA */
   has_preview?: boolean
   preview_status?: PreviewStatus
   preview_updated_at?: string | null
@@ -64,10 +69,13 @@ export interface CltConsultJobShow {
   preview_rows?: number | null
   preview_error?: string | null
 
-  // telemetria
+  /** telemetria */
   spool_bytes?: number | null
 
-  // datas
+  /** modo/variante (opcional no show) */
+  variant?: 'online' | 'offline' | null
+
+  /** datas */
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
