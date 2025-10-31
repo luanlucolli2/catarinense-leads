@@ -12,8 +12,7 @@ class CltConsultJob extends Model
         'user_id','title','status','variant',
         'total_cpfs','success_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
-        'started_at','finished_at','paused_at','canceled_at','cancel_reason',
-
+        'started_at','finished_at','canceled_at','cancel_reason',
         // spool
         'spool_path','spool_cpfs_path','spool_bytes',
     ];
@@ -21,10 +20,8 @@ class CltConsultJob extends Model
     protected $casts = [
         'started_at' => 'datetime',
         'finished_at'=> 'datetime',
-        'paused_at'  => 'datetime',
         'canceled_at'=> 'datetime',
-
-        'spool_bytes'          => 'integer',
+        'spool_bytes'=> 'integer',
     ];
 
     public function getHasFileAttribute(): bool

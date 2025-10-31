@@ -51,9 +51,8 @@ class CltConsultController extends Controller
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
-            'paused_at' => $job->paused_at,
 
-            // novo comportamento (igual FGTS)
+            // prévia segue igual
             'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
@@ -330,7 +329,6 @@ class CltConsultController extends Controller
         return (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
     }
 
-    /** Tokenizer lazy de CPFs — aceita string, array ou Traversable. */
     private function tokenizeCpfsLazy($cpfs): \Generator
     {
         if (is_string($cpfs)) {
@@ -352,7 +350,6 @@ class CltConsultController extends Controller
         }
     }
 
-    /** Cria spool inicial + lista de CPFs (cabeçalho amigável) */
     private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
         $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
@@ -374,7 +371,6 @@ class CltConsultController extends Controller
         try {
             if (flock($fp, LOCK_EX)) {
                 ftruncate($fp, 0);
-                // cabeçalho já normalizado (igual FGTS)
                 fputcsv($fp, CltSchema::TITLES, ';');
                 fflush($fp);
                 flock($fp, LOCK_UN);
