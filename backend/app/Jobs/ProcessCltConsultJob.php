@@ -38,12 +38,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private $spoolFp = null;
     private string $spoolReal = '';
 
-    private int $flushEveryRows = 10000;
+    // ====== FLUSH: mantemos apenas por tempo ======
     private int $flushEverySecs = 10;
-    private int $flushBytesStep = 1048576; // 1 MiB
-    private float $nextFlushAt = 0.0;
-    private int $rowsSinceFlush = 0;
-    private int $lastFlushedBytes = 0;
+    private float $lastFlushAt = 0.0;
 
     private int $accSuccess = 0;
     private int $accNotFound = 0;
@@ -117,8 +114,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->deletePendFiles();
             return;
         }
-        $this->lastFlushedBytes = $this->fileSizeSafe($this->disk, $job->spool_path);
-        $this->nextFlushAt      = microtime(true) + $this->flushEverySecs;
+
+        // inicia marcador de flush temporal
+        $this->lastFlushAt = microtime(true);
 
         try {
             // 0) DEDUP externo
@@ -590,7 +588,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             flock($this->spoolFp, LOCK_UN);
         }
 
-        $this->rowsSinceFlush += count($rows);
+        // apenas flush por tempo/force (nenhum contador de linhas)
         $this->updateTotalsThrottled($job, $job->spool_path);
     }
 
@@ -598,18 +596,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $now = microtime(true);
 
+        // lê bytes atuais apenas para telemetria (não como trigger)
         try {
             clearstatcache(true, $this->spoolReal);
             $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
         } catch (Throwable) {
-            $bytes = $this->lastFlushedBytes;
+            $bytes = 0;
         }
-        $bytesDelta   = $bytes - $this->lastFlushedBytes;
-        $triggerRows  = $this->rowsSinceFlush >= $this->flushEveryRows;
-        $triggerTime  = $now >= $this->nextFlushAt;
-        $triggerBytes = $bytesDelta >= $this->flushBytesStep;
 
-        $shouldFlush = $force || $triggerRows || $triggerTime || $triggerBytes;
+        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
+        $shouldFlush = $force || $triggerTime;
         if (!$shouldFlush)
             return;
 
@@ -629,7 +625,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             Log::info('[CLT][FLUSH]', [
                 'job'        => $this->jobId,
                 'force'      => $force,
-                'rows_since' => $this->rowsSinceFlush,
                 'bytes_now'  => $bytes,
             ]);
         } catch (Throwable $e) {
@@ -637,10 +632,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         DB::table('clt_consult_jobs')->where('id', $job->id)->update($updates);
 
-        $job->spool_bytes     = $bytes;
-        $this->rowsSinceFlush = 0;
-        $this->nextFlushAt    = $now + $this->flushEverySecs;
-        $this->lastFlushedBytes = $bytes;
+        $job->spool_bytes = $bytes;
+        $this->lastFlushAt = $now;
         $this->accSuccess = $this->accNotFound = $this->accFail = 0;
     }
 
@@ -1055,139 +1048,139 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
- private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
-{
-    $disk = Storage::disk($this->disk);
-    $uniqReal = $disk->path($uniqRel);
+    private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
+    {
+        $disk = Storage::disk($this->disk);
+        $uniqReal = $disk->path($uniqRel);
 
-    // garante pasta do spool
-    if (!$disk->exists($this->dirSpool)) {
-        $disk->makeDirectory($this->dirSpool);
-    }
+        // garante pasta do spool
+        if (!$disk->exists($this->dirSpool)) {
+            $disk->makeDirectory($this->dirSpool);
+        }
 
-    $blockSize = 10000;
-    $chunks = [];
+        $blockSize = 10000;
+        $chunks = [];
 
-    $r = fopen($cpfsReal, 'r');
-    if ($r === false)
-        return 0;
+        $r = fopen($cpfsReal, 'r');
+        if ($r === false)
+            return 0;
 
-    try {
-        $block = [];
-        while (($line = fgets($r)) !== false) {
-            $cpf = preg_replace('/\D+/', '', $line);
-            if ($cpf === '' || strlen($cpf) !== 11)
-                continue;
-            $block[$cpf] = true;
-            if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
-                $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
+        try {
+            $block = [];
+            while (($line = fgets($r)) !== false) {
+                $cpf = preg_replace('/\D+/', '', $line);
+                if ($cpf === '' || strlen($cpf) !== 11)
+                    continue;
+                $block[$cpf] = true;
+                if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
+                    $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
+                    $block = [];
+                }
+            }
+            if (!empty($block)) {
+                $chunks[] = $this->writeSortedChunk($block);
                 $block = [];
             }
+        } finally {
+            fclose($r);
         }
-        if (!empty($block)) {
-            $chunks[] = $this->writeSortedChunk($block);
-            $block = [];
+
+        if (empty($chunks)) {
+            $w = fopen($uniqReal, 'w'); // sempre REAL
+            if ($w !== false) fclose($w);
+            return 0;
         }
-    } finally {
-        fclose($r);
-    }
 
-    if (empty($chunks)) {
-        $w = fopen($uniqReal, 'w'); // sempre REAL
-        if ($w !== false) fclose($w);
-        return 0;
-    }
+        if (count($chunks) === 1) {
+            // move REAL -> REAL
+            @rename($chunks[0], $uniqReal);
 
-    if (count($chunks) === 1) {
-        // move REAL -> REAL
-        @rename($chunks[0], $uniqReal);
-
-        // conta linhas usando REAL
-        $cnt = 0;
-        $fh = fopen($uniqReal, 'r');
-        if ($fh !== false) {
-            while (!feof($fh)) {
-                if (fgets($fh) !== false) $cnt++;
+            // conta linhas usando REAL
+            $cnt = 0;
+            $fh = fopen($uniqReal, 'r');
+            if ($fh !== false) {
+                while (!feof($fh)) {
+                    if (fgets($fh) !== false) $cnt++;
+                }
+                fclose($fh);
             }
-            fclose($fh);
+            return $cnt;
         }
-        return $cnt;
-    }
 
-    // merge k-way para REAL
-    $w = fopen($uniqReal, 'w');
-    if ($w === false) {
-        foreach ($chunks as $c) @unlink($c);
-        return 0;
-    }
-
-    $handles = [];
-    $heads = [];
-    foreach ($chunks as $i => $pReal) {
-        $h = fopen($pReal, 'r');
-        if ($h !== false) {
-            $handles[$i] = $h;
-            $heads[$i] = fgets($h);
+        // merge k-way para REAL
+        $w = fopen($uniqReal, 'w');
+        if ($w === false) {
+            foreach ($chunks as $c) @unlink($c);
+            return 0;
         }
-    }
 
-    $written = 0;
-    $last = null;
-    while (!empty($handles)) {
-        $minIdx = null;
-        $minVal = null;
-        foreach ($heads as $idx => $val) {
-            if ($val === false || $val === null) continue;
-            $val = trim($val);
-            if ($minVal === null || strcmp($val, $minVal) < 0) {
-                $minVal = $val;
-                $minIdx = $idx;
+        $handles = [];
+        $heads = [];
+        foreach ($chunks as $i => $pReal) {
+            $h = fopen($pReal, 'r');
+            if ($h !== false) {
+                $handles[$i] = $h;
+                $heads[$i] = fgets($h);
             }
         }
-        if ($minIdx === null) break;
 
-        if ($minVal !== '' && $minVal !== $last) {
-            fwrite($w, $minVal . "\n");
-            $written++;
-            $last = $minVal;
-        }
+        $written = 0;
+        $last = null;
+        while (!empty($handles)) {
+            $minIdx = null;
+            $minVal = null;
+            foreach ($heads as $idx => $val) {
+                if ($val === false || $val === null) continue;
+                $val = trim($val);
+                if ($minVal === null || strcmp($val, $minVal) < 0) {
+                    $minVal = $val;
+                    $minIdx = $idx;
+                }
+            }
+            if ($minIdx === null) break;
 
-        $heads[$minIdx] = fgets($handles[$minIdx]);
-        if ($heads[$minIdx] === false) {
-            fclose($handles[$minIdx]);
-            unset($handles[$minIdx], $heads[$minIdx]);
-        }
-    }
-    fclose($w);
+            if ($minVal !== '' && $minVal !== $last) {
+                fwrite($w, $minVal . "\n");
+                $written++;
+                $last = $minVal;
+            }
 
-    foreach ($chunks as $c) { @unlink($c); }
-
-    return $written;
-}
-
-private function writeSortedChunk(array $block): string
-{
-    $disk = Storage::disk($this->disk);
-
-    // garante pasta do spool antes de escrever chunk
-    if (!$disk->exists($this->dirSpool)) {
-        $disk->makeDirectory($this->dirSpool);
-    }
-
-    $rel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
-    $real = $disk->path($rel);
-    $this->pendFiles[] = $rel;
-
-    ksort($block, SORT_STRING);
-    $w = fopen($real, 'w');
-    if ($w !== false) {
-        foreach ($block as $cpf => $_) {
-            fwrite($w, $cpf . "\n");
+            $heads[$minIdx] = fgets($handles[$minIdx]);
+            if ($heads[$minIdx] === false) {
+                fclose($handles[$minIdx]);
+                unset($handles[$minIdx], $heads[$minIdx]);
+            }
         }
         fclose($w);
+
+        foreach ($chunks as $c) { @unlink($c); }
+
+        return $written;
     }
-    return $real; // sempre REAL
-}
+
+    private function writeSortedChunk(array $block): string
+    {
+        $disk = Storage::disk($this->disk);
+
+        // garante pasta do spool antes de escrever chunk
+        if (!$disk->exists($this->dirSpool)) {
+            $disk->makeDirectory($this->dirSpool);
+        }
+
+        $rel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
+        $real = $disk->path($rel);
+        $this->pendFiles[] = $rel;
+
+        ksort($block, SORT_STRING);
+        $w = fopen($real, 'w');
+        if ($w !== false) {
+            foreach ($block as $cpf => $_) {
+                fwrite($w, $cpf . "\n");
+            }
+            fclose($w);
+        }
+        return $real; // sempre REAL
+    }
 
     private function shouldSpill(int $currentCount): bool
     {
