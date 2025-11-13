@@ -1,1 +1,11 @@
 backend/.env.staging
+*Zone.Identifier
+/backend/storage/*
+!/backend/storage/app
+!/backend/storage/framework
+!/backend/storage/logs
+
+/backend/storage/*.key
+/backend/public/storage
+lead-import-visualizer/public/catarinenseicon.png:Zone.Identifier
+lead-import-visualizer/src/catainenseLogo.png:Zone.Identifier
