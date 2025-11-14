@@ -889,7 +889,7 @@ export const LeadsTableCLT = ({
     },
 
     { id: "data_admissao", header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.data_admissao)}</td>) },
-    { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Tempo (meses)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
+    { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Meses de admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
     { id: "categoria_trabalhador_codigo", header: <Th align="center"><SortButton field="categoria_trabalhador_codigo" align="center">Categoria trab. (cód.)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.categoria_trabalhador_codigo)}</td>) },
     { id: "inicio_atividade_empregador", header: <Th align="center">Início atividade (empregador)</Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.inicio_atividade_empregador)}</td>) },
 

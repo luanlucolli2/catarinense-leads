@@ -123,7 +123,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $invalidCnt = 0;
             $batchRows = [];
             $batchSize = 500;
-            $snapRows = [];
+            $snapRows = []; // mantido vazio: não gravamos snapshot aqui
 
             $pf = fopen($pend1Real, 'c+');
             if ($pf === false) {
@@ -165,22 +165,18 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     }
 
                     if (!Cpf::isValid($cpf)) {
-                        // Linha para o CSV
+                        // CSV
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - CPF inválido (dígitos verificadores)';
                         $row['consultadoEm'] = $this->nowBrString();
                         $batchRows[] = $row;
 
-                        // Snapshot: apenas authorized=false (sem 'situacao')
-                        $snapRows[] = [
-                            'cpf' => $cpf,
-                            'authorized' => false,
-                        ];
-
+                        // NENHUM snapshot aqui (somente OK & not authorized grava false)
                         $invalidCnt++;
 
                         if (count($batchRows) >= $batchSize) {
                             $this->spoolAppendManyPersist($job, $batchRows);
+                            // $snapRows está vazio — persistSnapshots ignora
                             $this->persistSnapshots($snapRows);
                             $batchRows = [];
                             $snapRows = [];
@@ -192,7 +188,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                 if (!empty($batchRows)) {
                     $this->spoolAppendManyPersist($job, $batchRows);
-                    $this->persistSnapshots($snapRows);
+                    $this->persistSnapshots($snapRows); // vazio
                     $batchRows = [];
                     $snapRows = [];
                 }
@@ -404,7 +400,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $reader = fopen($currPendReal, 'r');
                 if ($reader !== false) {
                     $rows = [];
-                    $snapRows = [];
+                    $snapRows = []; // permanece vazio (não snapshot em esgotado)
                     $batchSize = 500;
 
                     while (($line = fgets($reader)) !== false) {
@@ -412,22 +408,17 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         if ($cpf === '' || strlen($cpf) !== 11)
                             continue;
 
-                        // CSV mantém o texto da situação
+                        // CSV mantém o texto
                         $row = $this->baseRow($cpf);
                         $row['situacao'] = 'Não autorizado - Sem resposta após ' . $maxAttempts . ' tentativas';
                         $row['consultadoEm'] = $this->nowBrString();
                         $rows[] = $row;
                         $leftoverCount++;
 
-                        // Snapshot: apenas authorized=false
-                        $snapRows[] = [
-                            'cpf' => $cpf,
-                            'authorized' => false,
-                        ];
-
+                        // NENHUM snapshot aqui
                         if (count($rows) >= $batchSize) {
                             $this->spoolAppendManyPersist($job, $rows);
-                            $this->persistSnapshots($snapRows);
+                            $this->persistSnapshots($snapRows); // vazio
                             $rows = [];
                             $snapRows = [];
                         }
@@ -435,7 +426,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
                     if (!empty($rows)) {
                         $this->spoolAppendManyPersist($job, $rows);
-                        $this->persistSnapshots($snapRows);
+                        $this->persistSnapshots($snapRows); // vazio
                         $rows = [];
                         $snapRows = [];
                     }
@@ -531,10 +522,10 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $rows[] = $row;
                 $successThisAttempt++;
 
-                // Snapshot: só booleano
+                // Snapshot: SOMENTE quando ok=true (aqui), espelhando o booleano da API
                 $snapRows[] = [
                     'cpf' => $cpf,
-                    'authorized' => ($res['authorized'] ?? null) === true,
+                    'authorized' => ($res['authorized'] ?? null) === true ? true : false,
                 ];
             } else {
                 $retriable = $res['retriable'] ?? true;
@@ -548,11 +539,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     $rows[] = $row;
                     $terminalFailsInChunk++;
 
-                    // Snapshot: só authorized=false
-                    $snapRows[] = [
-                        'cpf' => $cpf,
-                        'authorized' => false,
-                    ];
+                    // NÃO gravar snapshot aqui (não foi OK)
                 } else {
                     fwrite($nextPendHandle, $cpf . "\n");
                 }
@@ -917,6 +904,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
     /**
      * Persiste snapshots FGTS OFF apenas com 'cpf', 'authorized', 'job_id', 'updated_at', 'lead_id'.
+     * OBS: Agora só passamos linhas quando a API respondeu OK (ok=true).
      */
     private function persistSnapshots(array $snapRows): void
     {

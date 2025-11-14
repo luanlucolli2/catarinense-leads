@@ -38,12 +38,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private $spoolFp = null;
     private string $spoolReal = '';
 
-    private int $flushEveryRows = 10000;
+    // ====== FLUSH: mantemos apenas por tempo ======
     private int $flushEverySecs = 10;
-    private int $flushBytesStep = 1048576; // 1 MiB
-    private float $nextFlushAt = 0.0;
-    private int $rowsSinceFlush = 0;
-    private int $lastFlushedBytes = 0;
+    private float $lastFlushAt = 0.0;
 
     private int $accSuccess = 0;
     private int $accNotFound = 0;
@@ -61,17 +58,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $this->jobId = $jobId;
 
-        $this->onQueue((string) config('cltfacta.job.queue', 'clt'));
-
-        $this->timeout    = (int) config('cltfacta.job.timeout_seconds', 115200);
-        $this->disk       = (string) config('cltfacta.storage.reports_disk', 'local');
+        // Nota: a fila é definida no dispatch (controller) por variante.
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
+        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
-        $this->dirSpool   = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
-        $this->finalPrefix= (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
 
         // pacing (configurável por env)
-        $this->chunkDelayMs    = (int) config('cltfacta.job.chunk_delay_ms', 200);
-        $this->subchunkSize    = max(1, (int) config('cltfacta.job.subchunk', 5));
+        $this->chunkDelayMs = (int) config('cltfacta.job.chunk_delay_ms', 200);
+        $this->subchunkSize = max(1, (int) config('cltfacta.job.subchunk', 5));
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
     }
 
@@ -99,44 +95,43 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $disk = Storage::disk($this->disk);
         if (empty($job->spool_path) || empty($job->spool_cpfs_path) || !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)) {
             Log::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
 
         $job->update([
-            'status'      => 'em_progresso',
-            'started_at'  => $job->started_at ?? Carbon::now(),
+            'status' => 'em_progresso',
+            'started_at' => $job->started_at ?? Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
         ]);
 
         $this->spoolReal = $disk->path($job->spool_path);
-        $this->spoolFp   = @fopen($this->spoolReal, 'a');
+        $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
-        $this->lastFlushedBytes = $this->fileSizeSafe($this->disk, $job->spool_path);
-        $this->nextFlushAt      = microtime(true) + $this->flushEverySecs;
+
+        $this->lastFlushAt = microtime(true);
 
         try {
             // 0) DEDUP externo
             $cpfsReal = $disk->path($job->spool_cpfs_path);
-            $uniqRel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
-            $uniqReal = $disk->path($uniqRel);
+            $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
             $this->pendFiles[] = $uniqRel;
 
             $uniqueCount = $this->buildUniqueCpfsFile($cpfsReal, $uniqRel);
             if ($uniqueCount === 0) {
-                dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
                 return;
             }
             $this->updateTotalsThrottled($job, $job->spool_path, ['total_cpfs' => $uniqueCount], true);
 
             // 1) Classificação inicial
             $pend1Rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a1.txt";
-            $pend1Real= $disk->path($pend1Rel);
+            $pend1Real = $disk->path($pend1Rel);
             $this->pendFiles[] = $pend1Rel;
 
             $pf = fopen($pend1Real, 'c+');
@@ -147,7 +142,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ftruncate($pf, 0);
 
             $invCount = 0;
-            $reader   = fopen($uniqReal, 'r');
+            $reader = fopen($disk->path($uniqRel), 'r');
             if ($reader === false) {
                 fclose($pf);
                 $this->failFinalize($job);
@@ -194,11 +189,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             // 2) Teimosinha
-            $maxAttempts    = (int) config('cltfacta.job.max_attempts', 5);
-            $retryDelay     = (int) config('cltfacta.job.retry_delay_seconds', 60);
-            $chunkSize      = (int) config('cltfacta.job.chunk', 24);
-            $minChunk       = max(1, (int) config('cltfacta.job.min_chunk', 8));
-            $retryAfterCap  = (int) config('cltfacta.job.retry_after_max', 120);
+            $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
+            $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
+            $chunkSize = (int) config('cltfacta.job.chunk', 24);
+            $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 8));
+            $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
 
             $currPendRel = $pend1Rel;
 
@@ -342,7 +337,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'concluido'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'concluido'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
         } finally {
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);
@@ -366,7 +361,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $t0 = microtime(true);
         $chunkCount = count($chunkCpfs);
 
-        $micro  = max(1, min($this->subchunkSize, $chunkCount));
+        $micro = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
 
         $rows = [];
@@ -451,6 +446,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
                             $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
 
+                            // NOVO: meses de empresa a partir do início da atividade do empregador
+                            $row['mesesEmpresaEmpregador'] = $this->computeMesesEmpresaEmpregador($v['dataInicioAtividadeEmpregador'] ?? null);
+
                             $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
                             $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
                             $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
@@ -490,6 +488,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                                 'cat_cod' => $best['codigoCategoriaTrabalhador'] ?? null,
                                 'inicio_emp' => $this->parseDateFlexible($best['dataInicioAtividadeEmpregador'] ?? null),
+
+                                // NOVO snapshot: meses da empresa
+                                'meses_emp' => $this->computeMesesEmpresaEmpregador($best['dataInicioAtividadeEmpregador'] ?? null),
 
                                 'qtd_ems' => isset($best['qtdEmprestimosAtivosSuspensos']) ? (int) $best['qtdEmprestimosAtivosSuspensos'] : null,
                                 'legados' => array_key_exists('emprestimosLegados', $best)
@@ -555,9 +556,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        if ($successInChunk > 0)   $this->accSuccess += $successInChunk;
-        if ($notFoundInChunk > 0)  $this->accNotFound += $notFoundInChunk;
-        if ($failTermInChunk > 0)  $this->accFail += $failTermInChunk;
+        if ($successInChunk > 0)
+            $this->accSuccess += $successInChunk;
+        if ($notFoundInChunk > 0)
+            $this->accNotFound += $notFoundInChunk;
+        if ($failTermInChunk > 0)
+            $this->accFail += $failTermInChunk;
 
         $this->updateTotalsThrottled($job, $job->spool_path);
         $totalInAttempt += $chunkCount;
@@ -590,7 +594,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             flock($this->spoolFp, LOCK_UN);
         }
 
-        $this->rowsSinceFlush += count($rows);
+        // apenas flush por tempo/force (nenhum contador de linhas)
         $this->updateTotalsThrottled($job, $job->spool_path);
     }
 
@@ -598,24 +602,22 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $now = microtime(true);
 
+        // lê bytes atuais apenas para telemetria (não como trigger)
         try {
             clearstatcache(true, $this->spoolReal);
             $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
         } catch (Throwable) {
-            $bytes = $this->lastFlushedBytes;
+            $bytes = 0;
         }
-        $bytesDelta   = $bytes - $this->lastFlushedBytes;
-        $triggerRows  = $this->rowsSinceFlush >= $this->flushEveryRows;
-        $triggerTime  = $now >= $this->nextFlushAt;
-        $triggerBytes = $bytesDelta >= $this->flushBytesStep;
 
-        $shouldFlush = $force || $triggerRows || $triggerTime || $triggerBytes;
+        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
+        $shouldFlush = $force || $triggerTime;
         if (!$shouldFlush)
             return;
 
         $updates = array_merge([
             'spool_bytes' => $bytes,
-            'updated_at'  => Carbon::now(),
+            'updated_at' => Carbon::now(),
         ], $extra);
 
         if ($this->accSuccess > 0)
@@ -627,20 +629,17 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         try {
             Log::info('[CLT][FLUSH]', [
-                'job'        => $this->jobId,
-                'force'      => $force,
-                'rows_since' => $this->rowsSinceFlush,
-                'bytes_now'  => $bytes,
+                'job' => $this->jobId,
+                'force' => $force,
+                'bytes_now' => $bytes,
             ]);
         } catch (Throwable $e) {
         }
 
         DB::table('clt_consult_jobs')->where('id', $job->id)->update($updates);
 
-        $job->spool_bytes     = $bytes;
-        $this->rowsSinceFlush = 0;
-        $this->nextFlushAt    = $now + $this->flushEverySecs;
-        $this->lastFlushedBytes = $bytes;
+        $job->spool_bytes = $bytes;
+        $this->lastFlushAt = $now;
         $this->accSuccess = $this->accNotFound = $this->accFail = 0;
     }
 
@@ -666,6 +665,19 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
+    private function computeMesesEmpresaEmpregador(?string $inicioEmp): ?int
+    {
+        try {
+            $d = $this->parseCarbonDateFlexible($inicioEmp);
+            if (!$d)
+                return null;
+            $now = Carbon::now('America/Sao_Paulo');
+            return $d->diffInMonths($now);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     private function computeIdadeAnos(?string $nasc): ?int
     {
         try {
@@ -680,17 +692,21 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function toFloatSmart($val): ?float
     {
-        if ($val === null) return null;
-        if (is_float($val) || is_int($val)) return (float) $val;
+        if ($val === null)
+            return null;
+        if (is_float($val) || is_int($val))
+            return (float) $val;
 
         $s = trim((string) $val);
-        if ($s === '') return null;
+        if ($s === '')
+            return null;
 
         $s = preg_replace('/[^\d,.\-+]/', '', $s);
-        if ($s === '' || $s === '-' || $s === '+') return null;
+        if ($s === '' || $s === '-' || $s === '+')
+            return null;
 
         $lastComma = strrpos($s, ',');
-        $lastDot   = strrpos($s, '.');
+        $lastDot = strrpos($s, '.');
 
         $decimalSep = null;
         if ($lastComma === false && $lastDot === false) {
@@ -798,26 +814,29 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $srcUpdated = $this->parseDateTimeFlexible($r['src_updated_at'] ?? null);
 
                 $payload[] = [
-                    'cpf'    => $cpf,
-                    'nome'   => $r['nome'] ?? null,
+                    'cpf' => $cpf,
+                    'nome' => $r['nome'] ?? null,
                     'elegivel' => array_key_exists('elegivel', $r) ? $this->simNaoToBool($r['elegivel']) : null,
                     'data_nascimento' => $r['data_nasc'] ?? null,
-                    'idade'  => $r['idade'] ?? null,
-                    'sexo'   => $r['sexo'] ?? null,
+                    'idade' => $r['idade'] ?? null,
+                    'sexo' => $r['sexo'] ?? null,
 
-                    'data_admissao'    => $r['data_adm'] ?? null,
-                    'meses_admissao'   => $r['meses_adm'] ?? null,
+                    'data_admissao' => $r['data_adm'] ?? null,
+                    'meses_admissao' => $r['meses_adm'] ?? null,
 
-                    'valor_renda'        => $r['valor_renda'] ?? null,
-                    'valor_base_margem'  => $r['valor_base'] ?? null,
-                    'margem_disponivel'  => $r['margem_disp'] ?? null,
-                    'valor_max_prestacao'=> $r['valor_max'] ?? null,
+                    'valor_renda' => $r['valor_renda'] ?? null,
+                    'valor_base_margem' => $r['valor_base'] ?? null,
+                    'margem_disponivel' => $r['margem_disp'] ?? null,
+                    'valor_max_prestacao' => $r['valor_max'] ?? null,
 
                     'categoria_trabalhador_codigo' => $r['cat_cod'] ?? null,
-                    'inicio_atividade_empregador'  => $r['inicio_emp'] ?? null,
+                    'inicio_atividade_empregador' => $r['inicio_emp'] ?? null,
+
+                    // NOVO: persistir meses da empresa
+                    'meses_empresa_empregador' => $r['meses_emp'] ?? null,
 
                     'qtd_emprestimos_ativos_suspensos' => $r['qtd_ems'] ?? null,
-                    'emprestimos_legados'             => $r['legados'] ?? null,
+                    'emprestimos_legados' => $r['legados'] ?? null,
 
                     'not_found' => !empty($r['not_found']),
 
@@ -843,29 +862,28 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ->keyBy('cpf');
 
             $toUpsert = [];
-            $nowUtc   = Carbon::now('UTC')->format('Y-m-d H:i:s');
+            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
             $isOnline = ($this->variant === 'online');
 
             foreach ($payload as $row) {
-                $cpf          = $row['cpf'];
-                $srcUpdated   = $row['_src_updated_at'] ?? null;
-                $rowExists    = $existing->has($cpf);
-                $existingRow  = $rowExists ? $existing[$cpf] : null;
+                $cpf = $row['cpf'];
+                $srcUpdated = $row['_src_updated_at'] ?? null;
+                $rowExists = $existing->has($cpf);
+                $existingRow = $rowExists ? $existing[$cpf] : null;
 
                 $existingUpdated = null;
                 if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
                     $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
                 }
 
-                $existingNotFound   = (bool) ($existingRow->not_found ?? false);
-                $incomingNotFound   = (bool) ($row['not_found'] ?? false);
+                $incomingNotFound = (bool) ($row['not_found'] ?? false);
 
                 unset($row['_src_updated_at']);
 
                 if ($isOnline) {
-                    $row['job_id']      = $this->jobId;
-                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
-                    $row['consulted_at']= $nowUtc;
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
                     $toUpsert[] = $row;
                     continue;
                 }
@@ -874,25 +892,17 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     if ($rowExists) {
                         continue;
                     }
-                    $row['job_id']      = $this->jobId;
-                    $row['updated_at']  = $nowUtc;
-                    $row['consulted_at']= $nowUtc;
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
                     $toUpsert[] = $row;
                     continue;
                 }
 
                 if (!$rowExists) {
-                    $row['job_id']      = $this->jobId;
-                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
-                    $row['consulted_at']= $nowUtc;
-                    $toUpsert[] = $row;
-                    continue;
-                }
-
-                if ($existingNotFound) {
-                    $row['job_id']      = $this->jobId;
-                    $row['updated_at']  = $srcUpdated ?? $nowUtc;
-                    $row['consulted_at']= $nowUtc;
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
                     $toUpsert[] = $row;
                     continue;
                 }
@@ -901,9 +911,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
                 if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
-                    $row['job_id']      = $this->jobId;
-                    $row['updated_at']  = $srcUpdated;
-                    $row['consulted_at']= $nowUtc;
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated;
+                    $row['consulted_at'] = $nowUtc;
                     $toUpsert[] = $row;
                 }
             }
@@ -927,6 +937,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         'valor_max_prestacao',
                         'categoria_trabalhador_codigo',
                         'inicio_atividade_empregador',
+                        // NOVO
+                        'meses_empresa_empregador',
                         'qtd_emprestimos_ativos_suspensos',
                         'emprestimos_legados',
                         'not_found',
@@ -1055,139 +1067,150 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
- private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
-{
-    $disk = Storage::disk($this->disk);
-    $uniqReal = $disk->path($uniqRel);
+    /**
+     * Gera o arquivo único de CPFs.
+     * $uniqRel deve ser RELATIVO ao disk. Aceita absoluto e não duplica prefixo.
+     */
+    private function buildUniqueCpfsFile(string $cpfsReal, string $uniqRel): int
+    {
+        $disk = Storage::disk($this->disk);
+        $uniqReal = $this->isAbsolutePath($uniqRel) ? $uniqRel : $disk->path($uniqRel);
 
-    // garante pasta do spool
-    if (!$disk->exists($this->dirSpool)) {
-        $disk->makeDirectory($this->dirSpool);
-    }
+        // garante pasta do spool
+        if (!$disk->exists($this->dirSpool)) {
+            $disk->makeDirectory($this->dirSpool);
+        }
 
-    $blockSize = 10000;
-    $chunks = [];
+        $blockSize = 10000;
+        $chunks = [];
 
-    $r = fopen($cpfsReal, 'r');
-    if ($r === false)
-        return 0;
+        $r = fopen($cpfsReal, 'r');
+        if ($r === false)
+            return 0;
 
-    try {
-        $block = [];
-        while (($line = fgets($r)) !== false) {
-            $cpf = preg_replace('/\D+/', '', $line);
-            if ($cpf === '' || strlen($cpf) !== 11)
-                continue;
-            $block[$cpf] = true;
-            if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
-                $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
+        try {
+            $block = [];
+            while (($line = fgets($r)) !== false) {
+                $cpf = preg_replace('/\D+/', '', $line);
+                if ($cpf === '' || strlen($cpf) !== 11)
+                    continue;
+                $block[$cpf] = true;
+                if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
+                    $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
+                    $block = [];
+                }
+            }
+            if (!empty($block)) {
+                $chunks[] = $this->writeSortedChunk($block);
                 $block = [];
             }
+        } finally {
+            fclose($r);
         }
-        if (!empty($block)) {
-            $chunks[] = $this->writeSortedChunk($block);
-            $block = [];
+
+        if (empty($chunks)) {
+            $w = fopen($uniqReal, 'w'); // sempre REAL
+            if ($w !== false)
+                fclose($w);
+            return 0;
         }
-    } finally {
-        fclose($r);
-    }
 
-    if (empty($chunks)) {
-        $w = fopen($uniqReal, 'w'); // sempre REAL
-        if ($w !== false) fclose($w);
-        return 0;
-    }
+        if (count($chunks) === 1) {
+            // move REAL -> REAL
+            @rename($chunks[0], $uniqReal);
 
-    if (count($chunks) === 1) {
-        // move REAL -> REAL
-        @rename($chunks[0], $uniqReal);
-
-        // conta linhas usando REAL
-        $cnt = 0;
-        $fh = fopen($uniqReal, 'r');
-        if ($fh !== false) {
-            while (!feof($fh)) {
-                if (fgets($fh) !== false) $cnt++;
+            // conta linhas usando REAL
+            $cnt = 0;
+            $fh = fopen($uniqReal, 'r');
+            if ($fh !== false) {
+                while (!feof($fh)) {
+                    if (fgets($fh) !== false)
+                        $cnt++;
+                }
+                fclose($fh);
             }
-            fclose($fh);
+            return $cnt;
         }
-        return $cnt;
-    }
 
-    // merge k-way para REAL
-    $w = fopen($uniqReal, 'w');
-    if ($w === false) {
-        foreach ($chunks as $c) @unlink($c);
-        return 0;
-    }
-
-    $handles = [];
-    $heads = [];
-    foreach ($chunks as $i => $pReal) {
-        $h = fopen($pReal, 'r');
-        if ($h !== false) {
-            $handles[$i] = $h;
-            $heads[$i] = fgets($h);
+        // merge k-way para REAL
+        $w = fopen($uniqReal, 'w');
+        if ($w === false) {
+            foreach ($chunks as $c)
+                @unlink($c);
+            return 0;
         }
-    }
 
-    $written = 0;
-    $last = null;
-    while (!empty($handles)) {
-        $minIdx = null;
-        $minVal = null;
-        foreach ($heads as $idx => $val) {
-            if ($val === false || $val === null) continue;
-            $val = trim($val);
-            if ($minVal === null || strcmp($val, $minVal) < 0) {
-                $minVal = $val;
-                $minIdx = $idx;
+        $handles = [];
+        $heads = [];
+        foreach ($chunks as $i => $pReal) {
+            $h = fopen($pReal, 'r');
+            if ($h !== false) {
+                $handles[$i] = $h;
+                $heads[$i] = fgets($h);
             }
         }
-        if ($minIdx === null) break;
 
-        if ($minVal !== '' && $minVal !== $last) {
-            fwrite($w, $minVal . "\n");
-            $written++;
-            $last = $minVal;
-        }
+        $written = 0;
+        $last = null;
+        while (!empty($handles)) {
+            $minIdx = null;
+            $minVal = null;
+            foreach ($heads as $idx => $val) {
+                if ($val === false || $val === null)
+                    continue;
+                $val = trim($val);
+                if ($minVal === null || strcmp($val, $minVal) < 0) {
+                    $minVal = $val;
+                    $minIdx = $idx;
+                }
+            }
+            if ($minIdx === null)
+                break;
 
-        $heads[$minIdx] = fgets($handles[$minIdx]);
-        if ($heads[$minIdx] === false) {
-            fclose($handles[$minIdx]);
-            unset($handles[$minIdx], $heads[$minIdx]);
-        }
-    }
-    fclose($w);
+            if ($minVal !== '' && $minVal !== $last) {
+                fwrite($w, $minVal . "\n");
+                $written++;
+                $last = $minVal;
+            }
 
-    foreach ($chunks as $c) { @unlink($c); }
-
-    return $written;
-}
-
-private function writeSortedChunk(array $block): string
-{
-    $disk = Storage::disk($this->disk);
-
-    // garante pasta do spool antes de escrever chunk
-    if (!$disk->exists($this->dirSpool)) {
-        $disk->makeDirectory($this->dirSpool);
-    }
-
-    $rel  = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
-    $real = $disk->path($rel);
-    $this->pendFiles[] = $rel;
-
-    ksort($block, SORT_STRING);
-    $w = fopen($real, 'w');
-    if ($w !== false) {
-        foreach ($block as $cpf => $_) {
-            fwrite($w, $cpf . "\n");
+            $heads[$minIdx] = fgets($handles[$minIdx]);
+            if ($heads[$minIdx] === false) {
+                fclose($handles[$minIdx]);
+                unset($handles[$minIdx], $heads[$minIdx]);
+            }
         }
         fclose($w);
+
+        foreach ($chunks as $c) {
+            @unlink($c);
+        }
+
+        return $written;
     }
-    return $real; // sempre REAL
-}
+
+    private function writeSortedChunk(array $block): string
+    {
+        $disk = Storage::disk($this->disk);
+
+        // garante pasta do spool antes de escrever chunk
+        if (!$disk->exists($this->dirSpool)) {
+            $disk->makeDirectory($this->dirSpool);
+        }
+
+        $rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.chunk." . uniqid('', true) . ".txt";
+        $real = $disk->path($rel);
+        $this->pendFiles[] = $rel;
+
+        ksort($block, SORT_STRING);
+        $w = fopen($real, 'w');
+        if ($w !== false) {
+            foreach ($block as $cpf => $_) {
+                fwrite($w, $cpf . "\n");
+            }
+            fclose($w);
+        }
+        return $real; // sempre REAL
+    }
 
     private function shouldSpill(int $currentCount): bool
     {
@@ -1209,8 +1232,10 @@ private function writeSortedChunk(array $block): string
 
         if (is_int($val) || is_float($val) || (is_string($val) && is_numeric($val))) {
             $n = (int) $val;
-            if ($n === 1) return true;
-            if ($n === 0) return false;
+            if ($n === 1)
+                return true;
+            if ($n === 0)
+                return false;
         }
 
         $s = trim((string) $val);
@@ -1224,10 +1249,12 @@ private function writeSortedChunk(array $block): string
         $uAscii = preg_replace('/\s+/', '', $uAscii);
 
         $truthy = ['SIM', 'S', 'TRUE', 'T', 'YES', 'Y', '1'];
-        $falsy  = ['NAO', 'N', 'FALSE', 'F', 'NO', '0'];
+        $falsy = ['NAO', 'N', 'FALSE', 'F', 'NO', '0'];
 
-        if (in_array($uAscii, $truthy, true)) return true;
-        if (in_array($uAscii, $falsy, true))  return false;
+        if (in_array($uAscii, $truthy, true))
+            return true;
+        if (in_array($uAscii, $falsy, true))
+            return false;
 
         return null;
     }
@@ -1241,9 +1268,12 @@ private function writeSortedChunk(array $block): string
         $last = strtolower($val[strlen($val) - 1]);
         $num = (int) $val;
         switch ($last) {
-            case 'g': $num *= 1024;
-            case 'm': $num *= 1024;
-            case 'k': $num *= 1024;
+            case 'g':
+                $num *= 1024;
+            case 'm':
+                $num *= 1024;
+            case 'k':
+                $num *= 1024;
         }
         return $num > 0 ? $num : PHP_INT_MAX;
     }
@@ -1268,5 +1298,17 @@ private function writeSortedChunk(array $block): string
     {
         dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
         $this->deletePendFiles();
+    }
+
+    /** Detecta caminho absoluto em Linux/Windows */
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '')
+            return false;
+        $first = $path[0];
+        if ($first === '/' || $first === '\\')
+            return true; // Unix ou root Windows estilo "\"
+        // Drive letter "C:\" ou "C:/"
+        return (bool) preg_match('/^[A-Za-z]:[\\\\\\/]/', $path);
     }
 }

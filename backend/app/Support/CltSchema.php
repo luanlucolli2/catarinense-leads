@@ -32,6 +32,8 @@ final class CltSchema
         'cbo_descricao',
         'cnae_descricao',
         'dataInicioAtividadeEmpregador',
+        // NOVO: meses da empresa calculado a partir de dataInicioAtividadeEmpregador
+        'mesesEmpresaEmpregador',
         'possuiAlertas',
         'qtdEmprestimosAtivosSuspensos',
         'emprestimosLegados',
@@ -67,6 +69,8 @@ final class CltSchema
         'CBO (descrição)',
         'CNAE (descrição)',
         'Início da Atividade do Empregador',
+        // NOVO
+        'Meses da Empresa (Empregador)',
         'Possui Alertas',
         'Qtde Empréstimos Ativos/Suspensos',
         'Empréstimos Legados',

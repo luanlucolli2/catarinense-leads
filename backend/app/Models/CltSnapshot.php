@@ -29,6 +29,8 @@ class CltSnapshot extends Model
         'valor_max_prestacao',
         'categoria_trabalhador_codigo',
         'inicio_atividade_empregador',
+        // NOVO
+        'meses_empresa_empregador',
         'qtd_emprestimos_ativos_suspensos',
         'emprestimos_legados',
         'not_found',
@@ -38,20 +40,22 @@ class CltSnapshot extends Model
     ];
 
     protected $casts = [
-        'elegivel'                          => 'boolean',
-        'data_nascimento'                   => 'date',
-        'idade'                             => 'integer',
-        'data_admissao'                     => 'date',
-        'meses_admissao'                    => 'integer',
-        'valor_renda'                       => 'decimal:2',
-        'valor_base_margem'                 => 'decimal:2',
-        'margem_disponivel'                 => 'decimal:2',
-        'valor_max_prestacao'               => 'decimal:2',
-        'inicio_atividade_empregador'       => 'date',
-        'qtd_emprestimos_ativos_suspensos'  => 'integer',
-        'emprestimos_legados'               => 'boolean',
-        'not_found'                         => 'boolean',
-        'updated_at'                        => 'datetime',
-        'consulted_at'                      => 'datetime',
+        'elegivel' => 'boolean',
+        'data_nascimento' => 'date',
+        'idade' => 'integer',
+        'data_admissao' => 'date',
+        'meses_admissao' => 'integer',
+        'valor_renda' => 'decimal:2',
+        'valor_base_margem' => 'decimal:2',
+        'margem_disponivel' => 'decimal:2',
+        'valor_max_prestacao' => 'decimal:2',
+        'inicio_atividade_empregador' => 'date',
+        // NOVO
+        'meses_empresa_empregador' => 'integer',
+        'qtd_emprestimos_ativos_suspensos' => 'integer',
+        'emprestimos_legados' => 'boolean',
+        'not_found' => 'boolean',
+        'updated_at' => 'datetime',
+        'consulted_at' => 'datetime',
     ];
 }

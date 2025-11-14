@@ -11,13 +11,17 @@ use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
 
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/login-token', [AuthController::class, 'loginToken']);
-Route::middleware('web')->post('/login', [AuthController::class, 'login']);
+/**
+ * Endpoints públicos de autenticação.
+ * Aplica rate limit específico para reduzir brute-force.
+ */
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('throttle:login');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn(Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/logout-all', [AuthController::class, 'logoutAll']); // novo
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
@@ -32,9 +36,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/import/{importJob}/errors/export', [ImportController::class, 'exportErrors'])->whereNumber('importJob');
 
     /* Leads Export (assíncrono) */
-    Route::post('/leads/export', [LeadExportController::class, 'export']); // enfileira e retorna token
-    Route::get('/leads/export/{token}', [LeadExportController::class, 'status']); // status
-    Route::get('/leads/export/{token}/download', [LeadExportController::class, 'download']); // download
+    Route::post('/leads/export', [LeadExportController::class, 'export']);
+    Route::get('/leads/export/{token}', [LeadExportController::class, 'status']);
+    Route::get('/leads/export/{token}/download', [LeadExportController::class, 'download']);
 
     /* Rollback da última importação */
     Route::post('/import/{importJob}/rollback', [RollbackController::class, 'store'])->whereNumber('importJob');
