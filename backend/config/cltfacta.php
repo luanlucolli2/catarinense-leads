@@ -1,4 +1,3 @@
-// config/cltfacta.php
 <?php
 
 return [
@@ -34,20 +33,26 @@ return [
             'token_ttl_skew'  => (int) env('CLT_OFF_TOKEN_TTL_SKEW', 30),
         ],
         'http' => [
-            'timeout'         => (int) env('CLT_OFF_HTTP_TIMEOUT', 10),
-            'connect_timeout' => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
-            'retry'           => (int) env('CLT_OFF_HTTP_RETRY', 1),
-            'retry_delay_ms'  => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
+            'timeout'                 => (int) env('CLT_OFF_HTTP_TIMEOUT', 10),
+            'connect_timeout'         => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
+            'retry'                   => (int) env('CLT_OFF_HTTP_RETRY', 1),
+            'retry_delay_ms'          => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
+            // alinhado ao .env (antes não estava mapeado)
+            'second_try'              => (bool) env('CLT_OFF_HTTP_SECOND_TRY', false),
+            'second_timeout'          => (int) env('CLT_OFF_HTTP_TIMEOUT_SECOND', 8),
+            'second_connect_timeout'  => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT_SECOND', 4),
         ],
+        // se usado pelo service
+        'min_interval_ms' => (int) env('CLT_OFF_MIN_INTERVAL_MS', 0),
     ],
 
     // ===== JOB =====
     'job' => [
-        // novas filas distintas
+        // filas distintas
         'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-on'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
 
-        // legado (não usado quando enviamos para filas distintas, mas mantido como fallback)
+        // fallback legado
         'queue'               => env('CLT_JOB_QUEUE', 'clt'),
 
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
@@ -72,11 +77,13 @@ return [
         'dir_reports'  => env('CLT_REPORTS_DIR', 'clt-reports'),
         'dir_spool'    => env('CLT_SPOOL_DIR', 'clt-spool'),
         'final_prefix' => env('CLT_FINAL_PREFIX', 'clt-consulta'),
+        // opcional (para futuros recursos de prévia em disco dedicado)
+        'dir_previews' => env('CLT_PREVIEWS_DIR', 'clt-previews'),
     ],
 
     // ===== CSV (BOM/EOL) =====
     'csv' => [
         'embed_bom' => (bool) env('CLT_CSV_EMBED_BOM', true),
-        'final_eol' => env('CLT_CSV_FINAL_EOL', 'LF'), // 'LF' ou 'CRLF'
+        'final_eol' => env('CLT_CSV_FINAL_EOL', 'LF'),
     ],
 ];

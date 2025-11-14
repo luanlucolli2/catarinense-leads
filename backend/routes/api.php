@@ -13,7 +13,7 @@ use App\Http\Controllers\Api\FgtsOfflineController;
 
 /**
  * Endpoints públicos de autenticação.
- * Aplica rate limit específico para reduzir brute-force.
+ * Rate limit nomeado "login".
  */
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('throttle:login');
@@ -21,7 +21,7 @@ Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn(Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
-    Route::post('/logout-all', [AuthController::class, 'logoutAll']); // novo
+    Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
