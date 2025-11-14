@@ -31,7 +31,7 @@ services:
       - mysql
       - redis
 
-  # ===== SCHEDULER (executa tarefas agendadas do Laravel) =====
+  # ===== SCHEDULER =====
   scheduler:
     image: sail-8.4/app
     command: "php artisan schedule:work"
@@ -47,10 +47,10 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
 
-  # ===== WORKER DEDICADO: FILA CLT =====
-  queue-clt:
+  # ===== WORKER DEDICADO: CLT ONLINE =====
+  queue-clt-on:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_JOB_QUEUE:-clt} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    command: "php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_ON_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
     environment:
       <<: *app-environment
     volumes:
@@ -63,7 +63,23 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
 
-  # ===== WORKER DEDICADO: FILA FGTS OFF (consultas) =====
+  # ===== WORKER DEDICADO: CLT OFFLINE =====
+  queue-clt-off:
+    image: sail-8.4/app
+    command: "php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    environment:
+      <<: *app-environment
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - sail
+    restart: unless-stopped
+    stop_grace_period: 120s
+
+  # ===== WORKER DEDICADO: FGTS OFF (consultas) =====
   queue-fgts:
     image: sail-8.4/app
     command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
@@ -82,7 +98,7 @@ services:
   # ===== WORKER DEDICADO: RELATÓRIOS / PRÉVIAS =====
   queue-reports:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${PREVIEW_JOB_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=320"
+    command: "php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=320"
     environment:
       <<: *app-environment
     volumes:

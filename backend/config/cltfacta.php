@@ -17,7 +17,6 @@ return [
         'connect_timeout'         => (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10),
         'retry'                   => (int) env('CLT_HTTP_RETRY', 1),
         'retry_delay_ms'          => (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-        // segunda rodada (usado pelo ONLINE)
         'second_try'              => (bool) env('CLT_HTTP_SECOND_TRY', true),
         'second_timeout'          => (int) env('CLT_HTTP_TIMEOUT_SECOND', 10),
         'second_connect_timeout'  => (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', 5),
@@ -38,15 +37,18 @@ return [
             'connect_timeout' => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
             'retry'           => (int) env('CLT_OFF_HTTP_RETRY', 1),
             'retry_delay_ms'  => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
-            // OBS: intencionalmente sem os "second_*" — não usados no OFF
         ],
-        // Intervalo mínimo entre requests (mantido via ENV; opcional padronizar depois)
-        // 'min_interval_ms' => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3000),
     ],
 
     // ===== JOB =====
     'job' => [
+        // novas filas distintas
+        'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-on'),
+        'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
+
+        // legado (não usado quando enviamos para filas distintas, mas mantido como fallback)
         'queue'               => env('CLT_JOB_QUEUE', 'clt'),
+
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60),
@@ -74,8 +76,6 @@ return [
     // ===== CSV (BOM/EOL) =====
     'csv' => [
         'embed_bom' => (bool) env('CLT_CSV_EMBED_BOM', true),
-        // 'LF' ou 'CRLF'
-        'final_eol' => env('CLT_CSV_FINAL_EOL', 'LF'),
+        'final_eol' => env('CLT_CSV_FINAL_EOL', 'LF'), // 'LF' ou 'CRLF'
     ],
-
 ];

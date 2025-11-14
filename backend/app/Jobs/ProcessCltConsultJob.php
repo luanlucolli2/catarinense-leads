@@ -58,8 +58,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $this->jobId = $jobId;
 
-        $this->onQueue((string) config('cltfacta.job.queue', 'clt'));
-
+        // Nota: a fila é definida no dispatch (controller) por variante.
         $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
@@ -96,7 +95,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $disk = Storage::disk($this->disk);
         if (empty($job->spool_path) || empty($job->spool_cpfs_path) || !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)) {
             Log::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
@@ -110,25 +109,22 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
 
-        // inicia marcador de flush temporal
         $this->lastFlushAt = microtime(true);
 
         try {
             // 0) DEDUP externo
             $cpfsReal = $disk->path($job->spool_cpfs_path);
             $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.cpfs.uniq.txt";
-            // manter em pendFiles SEMPRE relativo
             $this->pendFiles[] = $uniqRel;
 
-            // FIX: passar REL, a função resolve para real internamente
             $uniqueCount = $this->buildUniqueCpfsFile($cpfsReal, $uniqRel);
             if ($uniqueCount === 0) {
-                dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
                 return;
             }
             $this->updateTotalsThrottled($job, $job->spool_path, ['total_cpfs' => $uniqueCount], true);
@@ -146,7 +142,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ftruncate($pf, 0);
 
             $invCount = 0;
-            $reader = fopen($disk->path($uniqRel), 'r'); // usar o real do uniq
+            $reader = fopen($disk->path($uniqRel), 'r');
             if ($reader === false) {
                 fclose($pf);
                 $this->failFinalize($job);
@@ -341,7 +337,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'concluido'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'concluido'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
         } finally {
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);

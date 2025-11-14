@@ -51,8 +51,6 @@ class CltConsultController extends Controller
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
-
-            // prévia segue igual
             'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
@@ -110,7 +108,12 @@ class CltConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ]);
 
-        ProcessCltConsultJob::dispatch($job->id);
+        // ===== DISPATCH POR FILA SEPARADA =====
+        $queue = $variant === 'offline'
+            ? (string) config('cltfacta.job.queue_offline', 'clt-off')
+            : (string) config('cltfacta.job.queue_online', 'clt-on');
+
+        ProcessCltConsultJob::dispatch($job->id)->onQueue($queue);
 
         return response()->json([
             'id' => $job->id,
@@ -118,7 +121,7 @@ class CltConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
-    /** Estado “prévia” leve. Não enfileira nada (espelha o spool). */
+    /** Estado “prévia” leve */
     public function requestPreview(Request $request, int $id)
     {
         $job = CltConsultJob::query()
@@ -160,7 +163,7 @@ class CltConsultController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
 
-        $withBOM = (bool) env('CLT_CSV_BOM', true);
+        $withBOM = (bool) config('cltfacta.csv.embed_bom', true);
         $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
         return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
@@ -218,8 +221,7 @@ class CltConsultController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
 
-        // CSV final já sai normalizado pelo job de finalização
-        $withBOM = false;
+        $withBOM = false; // final já vem normalizado pelo job de finalização
 
         return response()->streamDownload(function () use ($fh, $withBOM) {
             try {
@@ -231,7 +233,6 @@ class CltConsultController extends Controller
         }, $filename, $headers);
     }
 
-    /** Cancelar job (apaga spool) — sem prévia */
     public function cancel(Request $request, int $id)
     {
         $job = CltConsultJob::query()
@@ -281,7 +282,6 @@ class CltConsultController extends Controller
         ]);
     }
 
-    /** Excluir job + arquivos (final e spool). Bloqueia se pendente/em_progresso. */
     public function destroy(int $id)
     {
         $job = CltConsultJob::query()
