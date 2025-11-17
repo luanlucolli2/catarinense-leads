@@ -73,7 +73,7 @@ services:
   queue:
     image: leads-backend
     container_name: leads-queue
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=115200 --memory=896 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=259200 --memory=896 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -92,7 +92,7 @@ services:
   queue-clt-on:
     image: leads-backend
     container_name: leads-queue-clt-on
-    command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=640 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=640 --tries=1 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -111,7 +111,7 @@ services:
   queue-clt-off:
     image: leads-backend
     container_name: leads-queue-clt-off
-    command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-115200} --memory=512 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=512 --tries=1 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:

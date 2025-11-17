@@ -55,7 +55,7 @@ return [
         // fallback legado
         'queue'               => env('CLT_JOB_QUEUE', 'clt'),
 
-        'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
+        'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 259200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60),
         'chunk'               => (int) env('CLT_HTTP_CHUNK', 20),

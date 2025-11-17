@@ -20,7 +20,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 115260;
+    public int $uniqueFor = 259800;
+    public int $tries = 1;
+
     public function uniqueId(): string
     {
         return (string) $this->jobId;
@@ -54,12 +56,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /** Guarda a variante (online|offline) para a regra de snapshot */
     private string $variant = 'online';
 
+    /** Hard-timeout guard e preservação de arquivos em timeout */
+    private int $timeoutGuardSecs = 30;
+    private bool $preserveFilesOnTimeout = false;
+
     public function __construct(int $jobId)
     {
         $this->jobId = $jobId;
 
         // Nota: a fila é definida no dispatch (controller) por variante.
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 259200);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
@@ -105,6 +111,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'started_at' => $job->started_at ?? Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
         ]);
+
+        // hard-timeout antes de iniciar processamento pesado
+        if ($this->hasHardTimedOut($job)) {
+            $this->preserveFilesOnTimeout = true;
+            $this->failFinalize($job, true);
+            return;
+        }
 
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
@@ -343,7 +356,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 @fflush($this->spoolFp);
                 @fclose($this->spoolFp);
             }
-            $this->deletePendFiles();
+            if (!$this->preserveFilesOnTimeout) {
+                $this->deletePendFiles();
+            }
         }
     }
 
@@ -997,6 +1012,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finishIfStopped(CltConsultJob $job): bool
     {
+        // hard-timeout durante loops
+        if ($this->hasHardTimedOut($job)) {
+            Log::warning("[CLT] Job {$this->jobId} abortado por hard-timeout.");
+            $this->preserveFilesOnTimeout = true;
+            $this->failFinalize($job, true);
+            return true;
+        }
+
         $status = $this->currentStatus($job->id);
         if ($status === null) {
             $this->cleanupSpool($job);
@@ -1294,9 +1317,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function failFinalize(CltConsultJob $job): void
+    private function failFinalize(CltConsultJob $job, bool $preserveFiles = false): void
     {
-        dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+        dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))
+            ->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+
+        if ($preserveFiles) {
+            $this->preserveFilesOnTimeout = true;
+            return;
+        }
         $this->deletePendFiles();
     }
 
@@ -1310,5 +1339,32 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true; // Unix ou root Windows estilo "\"
         // Drive letter "C:\" ou "C:/"
         return (bool) preg_match('/^[A-Za-z]:[\\\\\\/]/', $path);
+    }
+
+    private function hasHardTimedOut(CltConsultJob $job): bool
+    {
+        $limit = max(60, (int) $this->timeout - $this->timeoutGuardSecs);
+        $start = $job->started_at ? Carbon::parse($job->started_at) : Carbon::now();
+        return $start->lt(Carbon::now()->subSeconds($limit));
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        try {
+            $job = CltConsultJob::query()->whereKey($this->jobId)->first();
+            if (!$job) {
+                return;
+            }
+
+            if ($e instanceof \Illuminate\Queue\TimeoutExceededException) {
+                // timeout do worker: preservar arquivos
+                $this->preserveFilesOnTimeout = true;
+                $this->failFinalize($job, true);
+            } else {
+                $this->failFinalize($job, false);
+            }
+        } catch (\Throwable $ex) {
+            Log::error("[CLT] failed() exception: " . $ex->getMessage(), ['exception' => $ex]);
+        }
     }
 }
