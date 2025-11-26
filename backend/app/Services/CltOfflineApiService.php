@@ -33,6 +33,10 @@ class CltOfflineApiService
     /** Intervalo mínimo entre requests (ms) exigido pela doc */
     private int $minIntervalMs;
 
+    /** Pacing global (entre chamadas) */
+    private float $lastCallAt = 0.0; // em memória, por processo
+    private string $rateKey = 'clt_off_last_call_at'; // opcional: cross-process via cache
+
     public function __construct()
     {
         $api = (array) config('cltfacta.clt_off.api', []);
@@ -88,9 +92,9 @@ class CltOfflineApiService
                     max(0, $this->httpRetry),
                     max(0, $this->httpRetryDelayMs),
                     fn($e, $request) =>
-                    $e instanceof ConnectionException
-                    || optional($request->response())->status() === 429
-                    || optional($request->response())->serverError()
+                        $e instanceof ConnectionException
+                        || optional($request->response())->status() === 429
+                        || optional($request->response())->serverError()
                 )
                 ->get($this->baseUrl . '/gera-token');
 
@@ -125,7 +129,7 @@ class CltOfflineApiService
     }
 
     /**
-     * Consulta sequencial com intervalo de 3s por request.
+     * Consulta sequencial com intervalo mínimo por request.
      * Endpoint: {BASE}/clt/base-offline/debug?cpf=...
      * Retorna [cpf => resultado canônico].
      */
@@ -167,15 +171,10 @@ class CltOfflineApiService
         $url = $this->baseUrl . '/clt/base-offline/debug';
 
         $out = [];
-        $lastAt = 0.0;
 
-        foreach ($cpfs as $i => $cpf) {
-            // respeita intervalo mínimo entre chamadas
-            $now = microtime(true);
-            $sleepUs = (int) max(0, ($lastAt + ($this->minIntervalMs / 1000.0) - $now) * 1_000_000);
-            if ($sleepUs > 0) {
-                usleep($sleepUs);
-            }
+        foreach ($cpfs as $cpf) {
+            // respeita intervalo mínimo global (entre requisições consecutivas)
+            $this->respectMinInterval();
 
             try {
                 $resp = Http::withHeaders($headers)
@@ -185,9 +184,9 @@ class CltOfflineApiService
                         max(0, $this->httpRetry),
                         max(0, $this->httpRetryDelayMs),
                         fn($e, $request) =>
-                        $e instanceof ConnectionException
-                        || optional($request->response())->status() === 429
-                        || optional($request->response())->serverError()
+                            $e instanceof ConnectionException
+                            || optional($request->response())->status() === 429
+                            || optional($request->response())->serverError()
                     )
                     ->get($url, ['cpf' => $cpf]);
 
@@ -207,16 +206,39 @@ class CltOfflineApiService
                     'retry_after' => $this->minIntervalMs / 1000,
                 ];
             } finally {
-                $lastAt = microtime(true);
+                $this->markRequestDone();
             }
         }
 
         return $out;
     }
 
-    /** ------- Helpers ------- */
+    /** ------- Helpers de pacing ------- */
+    private function respectMinInterval(): void
+    {
+        $minSecs = max(0, $this->minIntervalMs) / 1000.0;
 
-    // substitua parseOffResponse() por esta versão
+        // obtém último instante global (cache) e local (processo)
+        $lastGlobal = (float) (Cache::get($this->rateKey) ?? 0.0);
+        $effectiveLast = max($lastGlobal, $this->lastCallAt);
+
+        $now = microtime(true);
+        $sleepUs = (int) max(0, ($effectiveLast + $minSecs - $now) * 1_000_000);
+        if ($sleepUs > 0) {
+            usleep($sleepUs);
+        }
+    }
+
+    private function markRequestDone(): void
+    {
+        $t = microtime(true);
+        $this->lastCallAt = $t;
+        // TTL curto só para amortecer processos paralelos; com 1 worker já resolve.
+        Cache::put($this->rateKey, $t, 300);
+    }
+
+    /** ------- Helpers de parsing e logging ------- */
+
     private function parseOffResponse(HttpResponse $resp): array
     {
         $status = $resp->status();
@@ -231,10 +253,8 @@ class CltOfflineApiService
             } catch (\Throwable) {
             }
 
-            // retriável: 401/403/408/429/5xx ou HTML
             $retriable = in_array($status, [401, 403, 408, 429], true) || $status >= 500 || $looksHtml;
 
-            // 404 = não encontrado definitivo
             if ($status === 404) {
                 return [
                     'ok' => false,
@@ -275,7 +295,6 @@ class CltOfflineApiService
         if (!empty($json['erro'])) {
             $mensagem = (string) ($json['mensagem'] ?? 'Falha na consulta');
 
-            // NÃO RETRIÁVEL: "Nenhum dados encontrado!"
             if ($this->isNotFoundMessage($mensagem)) {
                 return [
                     'ok' => false,
@@ -288,7 +307,6 @@ class CltOfflineApiService
                 ];
             }
 
-            // NÃO RETRIÁVEL: validação de CPF / formato
             if ($this->isValidationMessage($mensagem)) {
                 return [
                     'ok' => false,
@@ -301,7 +319,6 @@ class CltOfflineApiService
                 ];
             }
 
-            // RETRIÁVEL: indisponibilidade com backoff de 3s
             if ($this->isRetryLaterMessage($mensagem)) {
                 $retryAfter = $retryAfter ?? 3;
                 return [
@@ -315,7 +332,6 @@ class CltOfflineApiService
                 ];
             }
 
-            // padrão: tratar erro desconhecido como retriável
             return [
                 'ok' => false,
                 'mensagem' => $mensagem,
@@ -351,7 +367,6 @@ class CltOfflineApiService
         ];
     }
 
-
     private function logForbidden(HttpResponse $resp, ?string $cpf = null): void
     {
         try {
@@ -382,13 +397,10 @@ class CltOfflineApiService
     private function getRetryAfterSeconds(HttpResponse $resp): ?int
     {
         $h = $resp->header('Retry-After');
-        if ($h === null)
-            return null;
+        if ($h === null) return null;
         $h = trim((string) $h);
-        if ($h === '')
-            return null;
-        if (ctype_digit($h))
-            return max(0, (int) $h);
+        if ($h === '') return null;
+        if (ctype_digit($h)) return max(0, (int) $h);
         $ts = strtotime($h);
         if ($ts !== false) {
             $delta = $ts - time();
@@ -432,14 +444,10 @@ class CltOfflineApiService
     private function looksLikeHtml(string $s): bool
     {
         $snip = mb_substr($s, 0, 2048, 'UTF-8');
-        if (preg_match('/<!DOCTYPE\s+HTML/i', $snip))
-            return true;
-        if (preg_match('/<html[\s>]/i', $snip))
-            return true;
-        if (preg_match('/<head>|<title>|<body>/i', $snip))
-            return true;
-        if (preg_match('/<\/html>/i', $snip))
-            return true;
+        if (preg_match('/<!DOCTYPE\s+HTML/i', $snip)) return true;
+        if (preg_match('/<html[\s>]/i', $snip)) return true;
+        if (preg_match('/<head>|<title>|<body>/i', $snip)) return true;
+        if (preg_match('/<\/html>/i', $snip)) return true;
         return false;
     }
 
@@ -463,29 +471,11 @@ class CltOfflineApiService
     {
         $s = mb_strtolower($s, 'UTF-8');
         $map = [
-            'á' => 'a',
-            'à' => 'a',
-            'â' => 'a',
-            'ã' => 'a',
-            'ä' => 'a',
-            'é' => 'e',
-            'è' => 'e',
-            'ê' => 'e',
-            'ë' => 'e',
-            'í' => 'i',
-            'ì' => 'i',
-            'î' => 'i',
-            'ï' => 'i',
-            'ó' => 'o',
-            'ò' => 'o',
-            'ô' => 'o',
-            'õ' => 'o',
-            'ö' => 'o',
-            'ú' => 'u',
-            'ù' => 'u',
-            'û' => 'u',
-            'ü' => 'u',
-            'ç' => 'c',
+            'á'=>'a','à'=>'a','â'=>'a','ã'=>'a','ä'=>'a',
+            'é'=>'e','è'=>'e','ê'=>'e','ë'=>'e',
+            'í'=>'i','ì'=>'i','î'=>'i','ï'=>'i',
+            'ó'=>'o','ò'=>'o','ô'=>'o','õ'=>'o','ö'=>'o',
+            'ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ç'=>'c',
         ];
         $s = strtr($s, $map);
         $s = preg_replace('/\s+/', ' ', $s) ?? $s;
@@ -494,12 +484,10 @@ class CltOfflineApiService
 
     private function truncate(string $s, int $max = 500): string
     {
-        if (mb_strlen($s, 'UTF-8') <= $max)
-            return $s;
+        if (mb_strlen($s, 'UTF-8') <= $max) return $s;
         return mb_substr($s, 0, $max, 'UTF-8') . '…';
     }
 
-    // adicione estes helpers à classe
     private function isRetryLaterMessage(string $msg): bool
     {
         $n = $this->normalize($msg);
@@ -531,5 +519,4 @@ class CltOfflineApiService
             || str_contains($n, 'usuário ou senha inválida')
             || str_contains($n, 'authorization incorreto');
     }
-
 }
