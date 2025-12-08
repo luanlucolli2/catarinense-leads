@@ -10,18 +10,31 @@ use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
+use App\Http\Controllers\Api\InovachatTriageController;
+use App\Http\Middleware\VerifyInovachatWebhook;
 
 /**
  * Endpoints públicos de autenticação.
- * Aplica rate limit específico para reduzir brute-force.
+ * Rate limit nomeado "login".
  */
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('throttle:login');
 
+/**
+ * Endpoint público para o Flowbuilder do Inovachat.
+ * Autenticado via shared secret no header X-Inovachat-Secret.
+ * NÃO passa por auth:sanctum.
+ */
+Route::post('/inovachat/triage', InovachatTriageController::class)
+    ->middleware(VerifyInovachatWebhook::class);
+
+/**
+ * Endpoints autenticados via Sanctum (SPA / API interna).
+ */
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/user', fn(Request $request) => $request->user());
+    Route::get('/user', fn (Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
-    Route::post('/logout-all', [AuthController::class, 'logoutAll']); // novo
+    Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);

@@ -14,6 +14,10 @@ return [
     |
     */
 
+    'inovachat' => [
+        'webhook_secret' => env('INOVACHAT_WEBHOOK_SECRET'),
+    ],
+
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
     ],
