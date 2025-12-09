@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateC6AuthorizationLinkJob;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -13,14 +14,18 @@ class InovachatTriageController extends Controller
 {
     /**
      * Endpoint chamado pelo Flowbuilder do Inovachat.
-     * Primeira versão: apenas valida/normaliza CPF, faz log e confirma recebimento.
      *
-     * Futuro: aqui você pode despachar um Job para orquestrar consultas nos bancos (Facta, C6, etc.).
+     * Versão atual:
+     *  - valida/normaliza CPF;
+     *  - gera tracking_id e faz log estruturado;
+     *  - dispara Job assíncrono para gerar link de autorização no C6
+     *    e enviar ao cliente via Inovachat;
+     *  - responde rapidamente ao Flowbuilder.
      */
     public function __invoke(Request $request): Response
     {
         // 1) Validação básica do payload
-        // Aumentamos max:32 para max:100 para evitar erro de validação do Laravel em strings "sujas"
+        // max:100 para evitar erro de validação do Laravel em strings "sujas"
         $data = $request->validate([
             'cpf'              => ['required', 'string', 'max:100'],
             'connection_token' => ['nullable', 'string', 'max:255'],
@@ -30,13 +35,16 @@ class InovachatTriageController extends Controller
             'name'             => ['nullable', 'string', 'max:255'],
             'firstName'        => ['nullable', 'string', 'max:255'],
             'source'           => ['nullable', 'string', 'max:64'],
+
+            // opcionais: podem ser enviados pelo Flowbuilder para controlar envio de mensagem
+            'openTicket'       => ['nullable', 'string', 'max:16'],
+            'queueId'          => ['nullable', 'string', 'max:32'],
         ]);
 
         // 2) Normaliza CPF usando helper centralizado
-        // - mantém apenas dígitos, completa com zeros, etc.
         $normalizedCpf = Cpf::normalize($data['cpf'] ?? null);
 
-        // 3) Se não normalizar ou for inválido pelos dígitos verificadores, retorna 422
+        // 3) Se não normalizar ou for inválido, retorna 422
         if ($normalizedCpf === null || ! Cpf::isValid($normalizedCpf)) {
             return response()->json([
                 'error'   => 'cpf_invalid',
@@ -58,14 +66,27 @@ class InovachatTriageController extends Controller
             'name'             => $data['name'] ?? null,
             'firstName'        => $data['firstName'] ?? null,
             'source'           => $data['source'] ?? 'inovachat-flow',
+            'openTicket'       => $data['openTicket'] ?? '0',
+            'queueId'          => $data['queueId'] ?? '0',
             'ip'               => $request->ip(),
             'user_agent'       => $request->userAgent(),
         ]);
 
-        // 6) Ponto futuro de extensão: disparar Job assíncrono
-        // dispatch(new ProcessInovachatTriageJob(...));
+        // 6) Dispara Job assíncrono para gerar link no C6 e enviar ao cliente
+        $openTicket = (string) ($data['openTicket'] ?? '0');
+        $queueId    = (string) ($data['queueId'] ?? '0');
 
-        // 7) Resposta simples para o Flowbuilder consumir (sem 'ok')
+        GenerateC6AuthorizationLinkJob::dispatch(
+            trackingId: $trackingId,
+            cpf: $normalizedCpf,
+            firstName: $data['firstName'] ?? null,
+            fullName: $data['name'] ?? null,
+            phone: $data['phone'] ?? null,
+            openTicket: $openTicket,
+            queueId: $queueId
+        );
+
+        // 7) Resposta simples para o Flowbuilder consumir
         return response()->json([
             'tracking_id' => $trackingId,
             'cpf'         => $normalizedCpf,
