@@ -42,6 +42,10 @@ return [
         'timeout' => (int) env('C6_JOB_TIMEOUT', 60),
     ],
 
+    'token' => [
+        'ttl_seconds' => (int) env('C6_TOKEN_TTL_SECONDS', 1199),
+        'skew'        => (int) env('C6_TOKEN_TTL_SKEW', 60),
+    ],
     /*
     |--------------------------------------------------------------------------
     | Headers específicos
@@ -52,6 +56,12 @@ return [
         'authorization_generate_accept' => env(
             'C6_AUTHORIZATION_GENERATE_ACCEPT',
             'application/vnd.c6bank_authorization_generate_liveness_v1+json'
+        ),
+
+        // Accept da API de consulta de status da autorização (doc C6)
+        'authorization_status_accept' => env(
+            'C6_AUTHORIZATION_STATUS_ACCEPT',
+            'application/vnd.c6bank_authorization_status_v1+json'
         ),
     ],
 ];

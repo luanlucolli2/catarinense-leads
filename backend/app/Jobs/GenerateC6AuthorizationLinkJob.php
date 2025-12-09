@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\BankAuthorization;
 use App\Services\C6\C6AuthorizationService;
 use App\Services\Inovachat\TextMessageService;
 use Illuminate\Bus\Queueable;
@@ -10,6 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Carbon;
 
 class GenerateC6AuthorizationLinkJob implements ShouldQueue
 {
@@ -52,7 +54,7 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
     }
 
     /**
-     * Gera o link no C6 e envia ao cliente via Inovachat.
+     * Gera o link no C6, registra autorização e envia ao cliente via Inovachat.
      */
     public function handle(
         C6AuthorizationService $c6,
@@ -65,6 +67,18 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         try {
             $link = $c6->generateLink($this->cpf, $name, $ddd, $localNumber);
 
+            // 1) Cria registro genérico de autorização para o banco C6
+            $authorization = BankAuthorization::create([
+                'tracking_id' => $this->trackingId,
+                'bank'        => 'c6',
+                'step'        => 'authorization',
+                'cpf'         => $this->cpf,
+                'phone'       => $this->phone,
+                'link'        => $link,
+                'status'      => BankAuthorization::STATUS_PENDING,
+            ]);
+
+            // 2) Envia mensagem com o link via Inovachat
             $body = sprintf(
                 "%s, para seguir com a análise do seu crédito, acesse o link de autorização do C6 Bank:\n%s",
                 $name,
@@ -74,6 +88,7 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
             $sent = false;
 
             if ($this->phone) {
+                // Usa o mesmo padrão da documentação de envio de mensagens de texto via Inovachat :contentReference[oaicite:0]{index=0}
                 $sent = $texts->sendText(
                     $this->phone,
                     $body,
@@ -82,12 +97,19 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
                 );
             }
 
+            // 3) Agenda primeiro polling do status da autorização
+            $firstDelaySeconds = (int) env('C6_AUTH_STATUS_FIRST_POLL_DELAY', 60);
+
+            CheckC6AuthorizationStatusJob::dispatch($authorization->id)
+                ->delay(Carbon::now()->addSeconds($firstDelaySeconds));
+
             Log::info('GenerateC6AuthorizationLinkJob finished', [
                 'tracking_id' => $this->trackingId,
                 'cpf'         => $this->cpf,
                 'link'        => $link,
                 'phone'       => $this->phone,
                 'sent'        => $sent,
+                'authorization_id' => $authorization->id,
             ]);
         } catch (\Throwable $e) {
             Log::error('GenerateC6AuthorizationLinkJob failed', [
@@ -96,7 +118,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
                 'exception'   => $e->getMessage(),
             ]);
 
-            // Deixa a exceção subir para respeitar $tries / $backoff do Laravel
             throw $e;
         }
     }
