@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\BankAuthorization;
 use App\Services\C6\C6AuthorizationService;
 use App\Services\Inovachat\TextMessageService;
+use App\Services\Inovachat\TicketService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -32,7 +33,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
 
     public function handle(
         C6AuthorizationService $c6,
-        TextMessageService $texts
+        TextMessageService $texts,
+        TicketService $tickets
     ): void {
         /** @var BankAuthorization|null $auth */
         $auth = BankAuthorization::with('triage')->find($this->authorizationId);
@@ -89,24 +91,48 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $auth->triage->update(['status' => BankAuthorization::STATUS_AUTHORIZED]);
             }
 
-            // Encaminhar para fila humana via Inovachat:
-            // Se quiser abrir novo ticket numa fila específica, configure estes envs.
-            $handoffOpenTicket = env('INOVACHAT_HANDOFF_OPEN_TICKET', '1'); // "1" abre novo ticket
-            $handoffQueueId    = env('INOVACHAT_HANDOFF_QUEUE_ID', '98');   // ID da fila humana
-
+            // 1) Envia mensagem no MESMO ticket (sem abrir novo).
             if ($auth->phone) {
                 $body = "Autorização de consulta no C6 Bank concluída.\n"
                     . "Agora vou te encaminhar para um atendente humano para seguir com a análise do crédito.";
 
+                // openTicket = "0" => não abre ticket novo
+                // queueId = "0"   => ignorado quando openTicket = "0"
                 $texts->sendText(
                     $auth->phone,
                     $body,
-                    $handoffOpenTicket,
-                    $handoffQueueId
+                    '0',
+                    '0'
                 );
             }
 
-            Log::info('C6 authorization authorized and handed off', [
+            // 2) Atualiza o ticket para a fila dos vendedores (Estratégia A).
+            $handoffQueueId = config('inovachat.handoff.queue_id');
+            $handoffStatus  = config('inovachat.handoff.status', 'pending');
+
+            if ($auth->triage && $auth->triage->ticket_id && $handoffQueueId) {
+                $ticketId = (string) $auth->triage->ticket_id;
+
+                $tickets->updateTicket(
+                    $ticketId,
+                    $handoffStatus,
+                    (string) $handoffQueueId,
+                    userId: null,
+                    typebotSessionId: null,
+                    customA: null,
+                    customB: null
+                );
+            } else {
+                Log::warning('C6 authorization authorized but cannot handoff ticket', [
+                    'authorization_id' => $auth->id,
+                    'cpf'              => $auth->cpf,
+                    'has_triage'       => (bool) $auth->triage,
+                    'triage_ticket_id' => $auth->triage->ticket_id ?? null,
+                    'handoff_queue_id' => $handoffQueueId,
+                ]);
+            }
+
+            Log::info('C6 authorization authorized and handed off on same ticket', [
                 'authorization_id' => $auth->id,
                 'cpf'              => $auth->cpf,
             ]);
@@ -128,6 +154,10 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 'cpf'              => $auth->cpf,
             ]);
 
+            // Aqui você PODE futuramente:
+            // - enviar mensagem ao cliente
+            // - mover para fila "C6 – Não Autorizados" ou encerrar o ticket via updateAPI.
+            // Por enquanto, mantém comportamento mínimo atual.
             return;
         }
 

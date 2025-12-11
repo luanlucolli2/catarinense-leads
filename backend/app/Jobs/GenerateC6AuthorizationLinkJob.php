@@ -87,15 +87,16 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
 
             $sent = false;
 
+            // dentro do handle, no GenerateC6AuthorizationLinkJob:
             if ($this->phone) {
-                // Usa o mesmo padrão da documentação de envio de mensagens de texto via Inovachat :contentReference[oaicite:0]{index=0}
                 $sent = $texts->sendText(
                     $this->phone,
                     $body,
-                    $this->openTicket,
-                    $this->queueId
+                    '0', // não abre ticket
+                    '0'  // fila ignorada quando openTicket = "0"
                 );
             }
+
 
             // 3) Agenda primeiro polling do status da autorização
             $firstDelaySeconds = (int) env('C6_AUTH_STATUS_FIRST_POLL_DELAY', 60);
