@@ -18,7 +18,7 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $data = $request->validate([
-            'email'    => ['required','email'],
+            'email'    => ['required', 'email'],
             'password' => ['required'],
         ]);
 
@@ -43,9 +43,9 @@ class AuthController extends Controller
     public function loginToken(Request $request)
     {
         $data = $request->validate([
-            'email'       => ['required','email'],
+            'email'       => ['required', 'email'],
             'password'    => ['required'],
-            'device_name' => ['sometimes','string','max:100'],
+            'device_name' => ['sometimes', 'string', 'max:100'],
         ]);
 
         // Não cria sessão
@@ -61,10 +61,26 @@ class AuthController extends Controller
         $name = Str::limit($name, 100);
 
         $abilities = ['api'];
-        $minutes   = config('sanctum.expiration'); // pode ser null
-        $expiresAt = $minutes ? Carbon::now()->addMinutes($minutes) : null;
 
-        $token = $user->createToken($name, $abilities, $expiresAt)->plainTextToken;
+        // ---- CORREÇÃO: tratar expiration como int|null, nunca string ----
+        $expirationConfig = config('sanctum.expiration'); // pode ser string, int ou null
+
+        if ($expirationConfig === null || $expirationConfig === '' || ! is_numeric($expirationConfig)) {
+            // Sem expiração configurada → tokens sem expiração (ou trate como achar melhor)
+            $expiresAt = null;
+        } else {
+            $minutes = (int) $expirationConfig;
+
+            // Se por algum motivo vier 0 ou negativo, também trata como sem expiração
+            $expiresAt = $minutes > 0
+                ? Carbon::now()->addMinutes($minutes)
+                : null;
+        }
+        // ---------------------------------------------------------------
+
+        $token = $user
+            ->createToken($name, $abilities, $expiresAt)
+            ->plainTextToken;
 
         return response()->json([
             'token'      => $token,
