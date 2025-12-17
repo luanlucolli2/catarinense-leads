@@ -5,42 +5,38 @@ namespace App\Services\Inovachat;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class TicketService
+class TagService
 {
-    public function updateTicket(
-        string $ticketId,
-        string $status,
-        ?string $queueId = null,
-        ?string $userId = null,
-        ?string $typebotSessionId = null,
-        ?string $customA = null,
-        ?string $customB = null
-    ): bool {
+    /**
+     * Adiciona tags a um ticket (API /api/tags/add).
+     *
+     * @param  string  $ticketId
+     * @param  int[]   $tagIds
+     */
+    public function addTagsToTicket(string $ticketId, array $tagIds): bool
+    {
         $baseUrl = rtrim((string) config('inovachat.api.base_url'), '/');
         $token   = (string) config('inovachat.api.connection_token');
 
         if ($baseUrl === '' || $token === '') {
-            Log::error('Inovachat TicketService not configured', [
+            Log::error('Inovachat TagService not configured', [
                 'base_url' => $baseUrl,
                 'has_token' => $token !== '',
             ]);
             return false;
         }
 
-        $url = $baseUrl . '/api/tickets/updateAPI';
+        $tagIds = array_values(array_filter(array_map('intval', $tagIds), fn ($id) => $id > 0));
+        if ($ticketId === '' || empty($tagIds)) {
+            return false;
+        }
 
-        // Importante: queueId deve ir null quando for "fechar e tirar da fila"
+        $url = $baseUrl . '/api/tags/add';
+
         $payload = [
-            'ticketId' => $ticketId,
-            'status'   => $status,
-            'userId'   => $userId,
-            'queueId'  => $queueId, // null permitido
+            'ticketId' => (int) $ticketId, // doc usa number
+            'tags' => array_map(fn (int $id) => ['id' => $id], $tagIds),
         ];
-
-        // Campos extras opcionais (mantidos, caso você use)
-        if ($typebotSessionId !== null) $payload['typebot_sessionId'] = $typebotSessionId;
-        if ($customA !== null) $payload['customA'] = $customA;
-        if ($customB !== null) $payload['customB'] = $customB;
 
         $timeout      = (int) config('inovachat.http.timeout', 10);
         $connect      = (int) config('inovachat.http.connect_timeout', 5);
@@ -60,10 +56,9 @@ class TicketService
                 $response = $request->post($url, $payload);
 
                 if ($response->successful()) {
-                    Log::info('Inovachat ticket updated', [
+                    Log::info('Inovachat tags added to ticket', [
                         'ticketId' => $ticketId,
-                        'status' => $status,
-                        'queueId' => $queueId,
+                        'tagIds'   => $tagIds,
                     ]);
                     return true;
                 }
@@ -73,21 +68,19 @@ class TicketService
                 }
             }
 
-            Log::warning('Inovachat ticket update failed', [
-                'ticketId' => $ticketId,
-                'status' => $status,
-                'queueId' => $queueId,
+            Log::warning('Inovachat add tags failed', [
+                'ticketId'    => $ticketId,
+                'tagIds'      => $tagIds,
                 'http_status' => $response?->status(),
-                'body' => $response?->body(),
+                'body'        => $response?->body(),
             ]);
 
             return false;
         } catch (\Throwable $e) {
-            Log::error('Inovachat ticket update exception', [
-                'ticketId' => $ticketId,
-                'status' => $status,
-                'queueId' => $queueId,
-                'exception' => $e->getMessage(),
+            Log::error('Inovachat add tags exception', [
+                'ticketId'   => $ticketId,
+                'tagIds'     => $tagIds,
+                'exception'  => $e->getMessage(),
             ]);
             return false;
         }

@@ -10,8 +10,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class GenerateC6AuthorizationLinkJob implements ShouldQueue
 {
@@ -53,9 +53,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         $this->timeout = $timeoutSeconds;
     }
 
-    /**
-     * Gera o link no C6, registra autorização e envia ao cliente via Inovachat.
-     */
     public function handle(
         C6AuthorizationService $c6,
         TextMessageService $texts
@@ -67,7 +64,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         try {
             $link = $c6->generateLink($this->cpf, $name, $ddd, $localNumber);
 
-            // 1) Cria registro genérico de autorização para o banco C6
             $authorization = BankAuthorization::create([
                 'tracking_id' => $this->trackingId,
                 'bank'        => 'c6',
@@ -78,16 +74,18 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
                 'status'      => BankAuthorization::STATUS_PENDING,
             ]);
 
-            // 2) Envia mensagem com o link via Inovachat
-            $body = sprintf(
-                "%s, para seguir com a análise do seu crédito, acesse o link de autorização do C6 Bank:\n%s",
-                $name,
-                $link
-            );
+            $maxWaitMinutes = (int) config('c6bank.authorization.max_wait_minutes', 20);
+            $maxWaitMinutes = max(1, $maxWaitMinutes);
+
+            $body =
+                "👋 Oi, {$name}!\n\n"
+                . "Para eu continuar sua análise de crédito, preciso de uma autorização rápida no C6 Bank ✅\n\n"
+                . "🔗 Toque no link e confirme:\n{$link}\n\n"
+                . "⏱️ Vou acompanhar por até {$maxWaitMinutes} min e te aviso assim que liberar.\n"
+                . "Se já autorizou e me mandar mensagem aqui, eu confiro na hora. 🙌";
 
             $sent = false;
 
-            // dentro do handle, no GenerateC6AuthorizationLinkJob:
             if ($this->phone) {
                 $sent = $texts->sendText(
                     $this->phone,
@@ -97,20 +95,20 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
                 );
             }
 
-
-            // 3) Agenda primeiro polling do status da autorização
-            $firstDelaySeconds = (int) env('C6_AUTH_STATUS_FIRST_POLL_DELAY', 60);
+            $firstDelaySeconds = (int) config('c6bank.authorization.first_poll_delay_seconds', 60);
+            $firstDelaySeconds = max(5, $firstDelaySeconds);
 
             CheckC6AuthorizationStatusJob::dispatch($authorization->id)
                 ->delay(Carbon::now()->addSeconds($firstDelaySeconds));
 
             Log::info('GenerateC6AuthorizationLinkJob finished', [
-                'tracking_id' => $this->trackingId,
-                'cpf'         => $this->cpf,
-                'link'        => $link,
-                'phone'       => $this->phone,
-                'sent'        => $sent,
-                'authorization_id' => $authorization->id,
+                'tracking_id'       => $this->trackingId,
+                'cpf'               => $this->cpf,
+                'link'              => $link,
+                'phone'             => $this->phone,
+                'sent'              => $sent,
+                'authorization_id'  => $authorization->id,
+                'first_poll_delay'  => $firstDelaySeconds,
             ]);
         } catch (\Throwable $e) {
             Log::error('GenerateC6AuthorizationLinkJob failed', [
@@ -123,14 +121,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         }
     }
 
-    /**
-     * Divide o telefone em [DDD, número] para o payload opcional do C6.
-     *
-     * Aceita formatos:
-     * - 55DDNNNNNNNNN
-     * - 0DDNNNNNNNNN
-     * - DDNNNNNNNNN
-     */
     private function splitPhone(?string $raw): array
     {
         if (! $raw) {
@@ -139,13 +129,11 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
 
         $digits = preg_replace('/\D+/', '', $raw) ?: '';
 
-        // remove código do Brasil (55), se presente
         if (str_starts_with($digits, '55')) {
             $digits = substr($digits, 2);
         }
 
         if (strlen($digits) < 10) {
-            // não conseguimos confiar na separação
             return [null, null];
         }
 

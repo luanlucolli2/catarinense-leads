@@ -3,6 +3,9 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\Api\InovachatC6WaitQueueWebhookController;
+use App\Http\Middleware\VerifyInovachatQueueWebhook;
+
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\ImportController;
@@ -27,6 +30,13 @@ Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('
  */
 Route::post('/inovachat/triage', InovachatTriageController::class)
     ->middleware(VerifyInovachatWebhook::class);
+
+/**
+ * Webhook de fila (Inovachat) — usado na fila "CLT LINK C6 - Aguardando autorização" (sec 99).
+ * Autenticado via token_origin do payload.
+ */
+Route::post('/inovachat/queue-webhook/c6-wait', InovachatC6WaitQueueWebhookController::class)
+    ->middleware(VerifyInovachatQueueWebhook::class);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).

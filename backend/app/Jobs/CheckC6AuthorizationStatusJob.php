@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\BankAuthorization;
 use App\Services\C6\C6AuthorizationService;
+use App\Services\Inovachat\TagService;
 use App\Services\Inovachat\TextMessageService;
 use App\Services\Inovachat\TicketService;
 use Illuminate\Bus\Queueable;
@@ -12,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -34,7 +36,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
     public function handle(
         C6AuthorizationService $c6,
         TextMessageService $texts,
-        TicketService $tickets
+        TicketService $tickets,
+        TagService $tags
     ): void {
         /** @var BankAuthorization|null $auth */
         $auth = BankAuthorization::with('triage')->find($this->authorizationId);
@@ -43,37 +46,60 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             Log::warning('CheckC6AuthorizationStatusJob: authorization not found', [
                 'authorization_id' => $this->authorizationId,
             ]);
-
             return;
         }
 
-        // Se já saiu de pending, não tem nada a fazer.
         if ($auth->status !== BankAuthorization::STATUS_PENDING) {
             return;
         }
 
         $now = Carbon::now();
 
-        // Timeout de espera total (ex.: 8 horas)
-        $maxMinutes = (int) env('C6_AUTH_STATUS_MAX_WAIT_MINUTES', 480);
+        $maxWaitMinutes      = (int) config('c6bank.authorization.max_wait_minutes', 20);
+        $pollIntervalSeconds = (int) config('c6bank.authorization.poll_interval_seconds', 60);
+        $reminderEveryMin    = (int) config('c6bank.authorization.reminder_every_minutes', 5);
 
-        if ($auth->created_at && $auth->created_at->diffInMinutes($now) >= $maxMinutes) {
-            $auth->status    = BankAuthorization::STATUS_TIMED_OUT;
-            $auth->failed_at = $now;
-            $auth->save();
+        $maxWaitMinutes      = max(1, $maxWaitMinutes);
+        $pollIntervalSeconds = max(10, $pollIntervalSeconds);
+        $reminderEveryMin    = max(1, $reminderEveryMin);
 
-            if ($auth->triage) {
-                $auth->triage->update(['status' => BankAuthorization::STATUS_TIMED_OUT]);
+        $createdAt       = $auth->created_at ?: $now;
+        $elapsedSeconds  = $createdAt->diffInSeconds($now);
+        $ticketId        = (string) ($auth->triage?->ticket_id ?: '');
+        $handoffQueueId  = (string) config('inovachat.handoff.queue_id');
+        $handoffStatus   = (string) config('inovachat.handoff.status', 'pending');
+        $tagIdNotAuth    = (int) config('inovachat.tags.c6_not_authorized_id', 0);
+
+        // =========================================================
+        // TIMEOUT: passou do limite -> handoff + tag
+        // =========================================================
+        if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
+            $this->markTimedOut($auth, $now);
+
+            if ($auth->phone) {
+                $body =
+                    "⚠️ Ainda não consegui confirmar a autorização do C6 Bank.\n\n"
+                    . "Vou te encaminhar agora para um atendente humano para te ajudar a concluir e seguir com a análise. 👤";
+                $texts->sendText($auth->phone, $body, '0', '0');
             }
 
-            Log::info('C6 authorization timed out', [
-                'authorization_id' => $auth->id,
-                'cpf'              => $auth->cpf,
-            ]);
+            $this->handoffAndTag(
+                auth: $auth,
+                tickets: $tickets,
+                tags: $tags,
+                ticketId: $ticketId,
+                handoffQueueId: $handoffQueueId,
+                handoffStatus: $handoffStatus,
+                tagId: $tagIdNotAuth,
+                reason: 'timed_out'
+            );
 
             return;
         }
 
+        // =========================================================
+        // POLLING: consulta status no C6
+        // =========================================================
         $result = $c6->checkAuthorizationStatus($auth->cpf);
 
         $auth->last_status_payload = $result['raw'] ?? null;
@@ -81,8 +107,10 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
 
         $remoteStatus = strtoupper($result['status'] ?? 'PENDING');
 
-        // Ajuste esse mapping conforme os valores reais do C6.
-        if (in_array($remoteStatus, ['AUTHORIZED', 'AUTORIZADO'], true)) {
+        // =========================================================
+        // AUTHORIZED: confirma + handoff
+        // =========================================================
+        if (in_array($remoteStatus, ['AUTHORIZED', 'AUTORIZADO', 'AUTORIZADO_COM_SUCESSO'], true)) {
             $auth->status        = BankAuthorization::STATUS_AUTHORIZED;
             $auth->authorized_at = $now;
             $auth->save();
@@ -91,55 +119,37 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $auth->triage->update(['status' => BankAuthorization::STATUS_AUTHORIZED]);
             }
 
-            // 1) Envia mensagem no MESMO ticket (sem abrir novo).
             if ($auth->phone) {
-                $body = "Autorização de consulta no C6 Bank concluída.\n"
-                    . "Agora vou te encaminhar para um atendente humano para seguir com a análise do crédito.";
-
-                // openTicket = "0" => não abre ticket novo
-                // queueId = "0"   => ignorado quando openTicket = "0"
-                $texts->sendText(
-                    $auth->phone,
-                    $body,
-                    '0',
-                    '0'
-                );
+                $body =
+                    "🎉 Pronto! Autorização confirmada no C6 Bank ✅\n\n"
+                    . "Agora vou te encaminhar para um atendente para seguir com a análise. 👤";
+                $texts->sendText($auth->phone, $body, '0', '0');
             }
 
-            // 2) Atualiza o ticket para a fila dos vendedores (Estratégia A).
-            $handoffQueueId = config('inovachat.handoff.queue_id');
-            $handoffStatus  = config('inovachat.handoff.status', 'pending');
-
-            if ($auth->triage && $auth->triage->ticket_id && $handoffQueueId) {
-                $ticketId = (string) $auth->triage->ticket_id;
-
+            if ($ticketId !== '' && $handoffQueueId !== '') {
                 $tickets->updateTicket(
-                    $ticketId,
-                    $handoffStatus,
-                    (string) $handoffQueueId,
+                    ticketId: $ticketId,
+                    status: $handoffStatus,
+                    queueId: $handoffQueueId,
                     userId: null,
                     typebotSessionId: null,
                     customA: null,
                     customB: null
                 );
-            } else {
-                Log::warning('C6 authorization authorized but cannot handoff ticket', [
-                    'authorization_id' => $auth->id,
-                    'cpf'              => $auth->cpf,
-                    'has_triage'       => (bool) $auth->triage,
-                    'triage_ticket_id' => $auth->triage->ticket_id ?? null,
-                    'handoff_queue_id' => $handoffQueueId,
-                ]);
             }
 
-            Log::info('C6 authorization authorized and handed off on same ticket', [
+            Log::info('C6 authorization authorized and handed off', [
                 'authorization_id' => $auth->id,
                 'cpf'              => $auth->cpf,
+                'ticket_id'         => $ticketId,
             ]);
 
             return;
         }
 
+        // =========================================================
+        // DENIED: encerra + handoff + tag (recomendado p/ não sumir)
+        // =========================================================
         if (in_array($remoteStatus, ['DENIED', 'NAO_AUTORIZADO', 'NOT_AUTHORIZED'], true)) {
             $auth->status    = BankAuthorization::STATUS_DENIED;
             $auth->failed_at = $now;
@@ -149,32 +159,67 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $auth->triage->update(['status' => BankAuthorization::STATUS_DENIED]);
             }
 
-            Log::info('C6 authorization denied', [
-                'authorization_id' => $auth->id,
-                'cpf'              => $auth->cpf,
-            ]);
+            if ($auth->phone) {
+                $body =
+                    "❌ Não consegui confirmar a autorização do C6 Bank.\n\n"
+                    . "Vou te encaminhar para um atendente humano para verificar as próximas opções. 👤";
+                $texts->sendText($auth->phone, $body, '0', '0');
+            }
 
-            // Aqui você PODE futuramente:
-            // - enviar mensagem ao cliente
-            // - mover para fila "C6 – Não Autorizados" ou encerrar o ticket via updateAPI.
-            // Por enquanto, mantém comportamento mínimo atual.
+            $this->handoffAndTag(
+                auth: $auth,
+                tickets: $tickets,
+                tags: $tags,
+                ticketId: $ticketId,
+                handoffQueueId: $handoffQueueId,
+                handoffStatus: $handoffStatus,
+                tagId: $tagIdNotAuth,
+                reason: 'denied'
+            );
+
             return;
         }
 
-        // Qualquer outro status é tratado como "ainda em análise / pendente"
+        // =========================================================
+        // PENDING: lembrete a cada X min + reagendar polling
+        // =========================================================
         $auth->status = BankAuthorization::STATUS_PENDING;
         $auth->save();
 
-        // Reagenda novo polling
-        $delaySeconds = (int) env('C6_AUTH_STATUS_POLL_INTERVAL', 60);
+        // Lembrete pró-ativo a cada X minutos (com variação e sem duplicar)
+        if ($auth->phone && is_string($auth->link) && $auth->link !== '') {
+            $slotSeconds = $reminderEveryMin * 60;
+            $slot = (int) floor($elapsedSeconds / $slotSeconds);
 
-        self::dispatch($auth->id)
-            ->delay($now->addSeconds($delaySeconds));
+            // slot 0 = início (não manda lembrete imediato)
+            if ($slot >= 1) {
+                $key = "c6auth:reminder:{$auth->id}:{$slot}";
+                if (Cache::add($key, 1, $slotSeconds)) {
+                    $name = $auth->triage?->first_name ?: ($auth->triage?->name ?: 'Tudo certo');
 
-        Log::info('C6 authorization still pending, rescheduling polling', [
+                    $texts->sendText(
+                        $auth->phone,
+                        $this->buildReminderMessage($name, $auth->link, $slot),
+                        '0',
+                        '0'
+                    );
+
+                    Log::info('C6 pending: proactive reminder sent', [
+                        'authorization_id' => $auth->id,
+                        'cpf'              => $auth->cpf,
+                        'slot'             => $slot,
+                    ]);
+                }
+            }
+        }
+
+        self::dispatch($auth->id)->delay($now->addSeconds($pollIntervalSeconds));
+
+        Log::info('C6 authorization pending, rescheduling polling', [
             'authorization_id' => $auth->id,
             'cpf'              => $auth->cpf,
             'remote_status'    => $remoteStatus,
+            'poll_interval_s'  => $pollIntervalSeconds,
         ]);
     }
 
@@ -201,5 +246,90 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             'cpf'              => $auth->cpf,
             'exception'        => $e->getMessage(),
         ]);
+    }
+
+    private function markTimedOut(BankAuthorization $auth, Carbon $now): void
+    {
+        $auth->status    = BankAuthorization::STATUS_TIMED_OUT;
+        $auth->failed_at = $now;
+        $auth->save();
+
+        if ($auth->triage) {
+            $auth->triage->update(['status' => BankAuthorization::STATUS_TIMED_OUT]);
+        }
+    }
+
+    private function handoffAndTag(
+        BankAuthorization $auth,
+        TicketService $tickets,
+        TagService $tags,
+        string $ticketId,
+        string $handoffQueueId,
+        string $handoffStatus,
+        int $tagId,
+        string $reason
+    ): void {
+        if ($ticketId === '' || $handoffQueueId === '') {
+            Log::warning('C6 handoff skipped (missing ticketId or handoffQueueId)', [
+                'authorization_id' => $auth->id,
+                'ticket_id'        => $ticketId,
+                'handoff_queue_id' => $handoffQueueId,
+                'reason'           => $reason,
+            ]);
+            return;
+        }
+
+        $ok = $tickets->updateTicket(
+            ticketId: $ticketId,
+            status: $handoffStatus,
+            queueId: $handoffQueueId,
+            userId: null,
+            typebotSessionId: null,
+            customA: null,
+            customB: null
+        );
+
+        Log::info('C6 handoff executed', [
+            'authorization_id' => $auth->id,
+            'ticket_id'        => $ticketId,
+            'handoff_queue_id' => $handoffQueueId,
+            'ok'               => $ok,
+            'reason'           => $reason,
+        ]);
+
+        if ($tagId > 0) {
+            $tagOk = $tags->addTagsToTicket($ticketId, [$tagId]);
+
+            Log::info('C6 tag applied', [
+                'authorization_id' => $auth->id,
+                'ticket_id'        => $ticketId,
+                'tag_id'           => $tagId,
+                'ok'               => $tagOk,
+                'reason'           => $reason,
+            ]);
+        } else {
+            Log::warning('C6 tag not applied (tag id not configured)', [
+                'authorization_id' => $auth->id,
+                'ticket_id'        => $ticketId,
+                'reason'           => $reason,
+            ]);
+        }
+    }
+
+    private function buildReminderMessage(string $name, string $link, int $slot): string
+    {
+        $variant = $slot % 3;
+
+        return match ($variant) {
+            0 => "🔔 {$name}, lembrete rápido:\n\n"
+                . "✅ Para continuar sua análise, autorize no C6 Bank aqui:\n{$link}\n\n"
+                . "Se você já autorizou, pode ignorar — eu confirmo em instantes. 🙌",
+            1 => "⏳ {$name}, ainda falta a autorização do C6 Bank:\n\n"
+                . "🔗 {$link}\n\n"
+                . "Assim que concluir, pode me mandar um “ok” aqui que eu confiro na hora. ✅",
+            default => "🧾 {$name}, precisamos da autorização do C6 para seguir:\n\n"
+                . "🔗 {$link}\n\n"
+                . "É bem rapidinho 🙂 Se já fez, só aguarde 1 min que eu confirmo. ✅",
+        };
     }
 }

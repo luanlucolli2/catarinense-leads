@@ -8,7 +8,6 @@ return [
     |--------------------------------------------------------------------------
     */
 
-    // Base oficial da doc do C6
     'base_url' => rtrim(
         env('C6_BASE_URL', 'https://marketplace-proposal-service-api-p.c6bank.info'),
         '/'
@@ -35,30 +34,45 @@ return [
     |--------------------------------------------------------------------------
     | JOB – geração de link de autorização (trabalhador)
     |--------------------------------------------------------------------------
-    | Fila dedicada para serializar chamadas ao C6.
     */
     'job' => [
         'queue'   => env('C6_JOB_QUEUE', 'c6-auth'),
         'timeout' => (int) env('C6_JOB_TIMEOUT', 60),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Token
+    |--------------------------------------------------------------------------
+    */
     'token' => [
         'ttl_seconds' => (int) env('C6_TOKEN_TTL_SECONDS', 1199),
         'skew'        => (int) env('C6_TOKEN_TTL_SKEW', 60),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Authorization flow (polling/reminders)
+    |--------------------------------------------------------------------------
+    */
+    'authorization' => [
+        'first_poll_delay_seconds' => (int) env('C6_AUTH_STATUS_FIRST_POLL_DELAY', 60),
+        'poll_interval_seconds'    => (int) env('C6_AUTH_STATUS_POLL_INTERVAL', 60),
+        'max_wait_minutes'         => (int) env('C6_AUTH_STATUS_MAX_WAIT_MINUTES', 20),
+        'reminder_every_minutes'   => (int) env('C6_AUTH_STATUS_REMINDER_EVERY_MINUTES', 5),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Headers específicos
     |--------------------------------------------------------------------------
     */
     'headers' => [
-        // Accept da API de geração de link (doc C6)
         'authorization_generate_accept' => env(
             'C6_AUTHORIZATION_GENERATE_ACCEPT',
             'application/vnd.c6bank_authorization_generate_liveness_v1+json'
         ),
 
-        // Accept da API de consulta de status da autorização (doc C6)
         'authorization_status_accept' => env(
             'C6_AUTHORIZATION_STATUS_ACCEPT',
             'application/vnd.c6bank_authorization_status_v1+json'
