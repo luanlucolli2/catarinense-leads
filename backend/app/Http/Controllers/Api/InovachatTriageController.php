@@ -18,7 +18,10 @@ class InovachatTriageController extends Controller
     {
         $data = $request->validate([
             'cpf'              => ['required', 'string', 'max:100'],
-            'connection_token' => ['nullable', 'string', 'max:255'],
+
+            // Em multi-conexões isso precisa ser obrigatório
+            'connection_token' => ['required', 'string', 'max:255'],
+
             'phone'            => ['nullable', 'string', 'max:32'],
             'ticket_id'        => ['nullable', 'string', 'max:64'],
             'protocol'         => ['nullable', 'string', 'max:64'],
@@ -47,7 +50,7 @@ class InovachatTriageController extends Controller
         InovachatTriage::create([
             'tracking_id'      => $trackingId,
             'cpf'              => $normalizedCpf,
-            'connection_token' => $data['connection_token'] ?? null,
+            'connection_token' => $data['connection_token'],
             'phone'            => $phone,
             'ticket_id'        => $data['ticket_id'] ?? null,
             'protocol'         => $data['protocol'] ?? null,
@@ -74,7 +77,8 @@ class InovachatTriageController extends Controller
             fullName: $data['name'] ?? null,
             phone: $phone,
             openTicket: $openTicket,
-            queueId: $queueId
+            queueId: $queueId,
+            connectionToken: $data['connection_token'],
         );
 
         return response()->json([

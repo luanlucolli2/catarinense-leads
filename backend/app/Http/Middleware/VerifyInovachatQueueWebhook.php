@@ -11,10 +11,17 @@ class VerifyInovachatQueueWebhook
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $configured = (string) config('inovachat.queue_webhook.token_origin');
+        $explicit = config('inovachat.queue_webhook.token_origins');
+        $explicit = is_array($explicit) ? $explicit : [];
 
-        if ($configured === '') {
-            Log::critical('Inovachat queue webhook token_origin not configured');
+        $fallback = config('inovachat.connections.tokens');
+        $fallback = is_array($fallback) ? $fallback : [];
+
+        $allowed = array_values(array_filter(array_map('trim', array_merge($explicit, $fallback))));
+        $allowed = array_values(array_unique($allowed));
+
+        if (empty($allowed)) {
+            Log::critical('Inovachat queue webhook token origins not configured');
             return response()->json([
                 'error' => 'server_configuration_error',
                 'message' => 'Internal server error.',
@@ -24,18 +31,18 @@ class VerifyInovachatQueueWebhook
         $payload = $request->all();
 
         // Suporta múltiplos formatos de payload:
-        // - token_origin no topo (seu caso atual)
-        // - body.token_origin (alguns exemplos de doc)
-        // - ticketData.whatsapp.token (também aparece no payload que você enviou)
+        // - token_origin no topo
+        // - body.token_origin (doc)
+        // - ticketData.whatsapp.token (alguns payloads)
         $tokenOrigin = (string) (
             data_get($payload, 'token_origin')
             ?: data_get($payload, 'body.token_origin')
             ?: data_get($payload, 'ticketData.whatsapp.token')
         );
 
-        if ($tokenOrigin === '' || ! hash_equals($configured, $tokenOrigin)) {
+        if ($tokenOrigin === '' || ! $this->isAllowed($tokenOrigin, $allowed)) {
             Log::warning('Invalid inovachat queue webhook token_origin', [
-                'expected' => substr($configured, 0, 6) . '***',
+                'expected_count' => count($allowed),
                 'received' => $tokenOrigin !== '' ? (substr($tokenOrigin, 0, 6) . '***') : '(empty)',
                 'ip' => $request->ip(),
             ]);
@@ -46,6 +53,19 @@ class VerifyInovachatQueueWebhook
             ], 401);
         }
 
+        // Disponibiliza o token da conexão para o controller
+        $request->attributes->set('inovachat_connection_token', $tokenOrigin);
+
         return $next($request);
+    }
+
+    private function isAllowed(string $provided, array $allowed): bool
+    {
+        foreach ($allowed as $expected) {
+            if (is_string($expected) && $expected !== '' && hash_equals($expected, $provided)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

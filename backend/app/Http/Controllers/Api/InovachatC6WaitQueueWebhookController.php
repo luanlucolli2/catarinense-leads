@@ -59,6 +59,9 @@ class InovachatC6WaitQueueWebhookController extends Controller
             ?: ''
         );
 
+        // token da conexão (injetado pelo middleware)
+        $connectionToken = (string) $request->attributes->get('inovachat_connection_token', '');
+
         if ($fromMe) {
             return response()->noContent();
         }
@@ -78,11 +81,16 @@ class InovachatC6WaitQueueWebhookController extends Controller
             return response()->noContent();
         }
 
-        // Busca autorização pendente mais recente
+        // Busca autorização pendente mais recente (FILTRANDO pela conexão)
         $auth = BankAuthorization::query()
             ->where('bank', 'c6')
             ->where('status', BankAuthorization::STATUS_PENDING)
             ->where('phone', $phone)
+            ->whereHas('triage', function ($q) use ($connectionToken) {
+                if ($connectionToken !== '') {
+                    $q->where('connection_token', $connectionToken);
+                }
+            })
             ->orderByDesc('id')
             ->first();
 
@@ -93,6 +101,11 @@ class InovachatC6WaitQueueWebhookController extends Controller
                     ->where('bank', 'c6')
                     ->where('status', BankAuthorization::STATUS_PENDING)
                     ->where('phone', 'like', '%' . $local)
+                    ->whereHas('triage', function ($q) use ($connectionToken) {
+                        if ($connectionToken !== '') {
+                            $q->where('connection_token', $connectionToken);
+                        }
+                    })
                     ->orderByDesc('id')
                     ->first();
             }
@@ -120,11 +133,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
         $handoffStatus  = (string) config('inovachat.handoff.status', 'pending');
         $tagIdNotAuth   = (int) config('inovachat.tags.c6_not_authorized_id', 0);
 
-        // =========================================================
-        // Regra: sempre "poll" antes de responder (evita mandar link de novo)
-        // =========================================================
         if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
-            // TIMEOUT imediato no webhook (caso o job ainda não rodou)
             $auth->status    = BankAuthorization::STATUS_TIMED_OUT;
             $auth->failed_at = $now;
             $auth->save();
@@ -134,12 +143,13 @@ class InovachatC6WaitQueueWebhookController extends Controller
             }
 
             $texts->sendText(
-                $phone,
-                "⚠️ Entendi!\n\n"
-                . "Ainda não consegui confirmar a autorização do C6 Bank.\n"
-                . "Vou te encaminhar agora para um atendente humano para te ajudar. 👤",
-                '0',
-                '0'
+                number: $phone,
+                body: "⚠️ Entendi!\n\n"
+                    . "Ainda não consegui confirmar a autorização do C6 Bank.\n"
+                    . "Vou te encaminhar agora para um atendente humano para te ajudar. 👤",
+                openTicket: '0',
+                queueId: '0',
+                connectionToken: $connectionToken
             );
 
             if ($ticketId !== '' && $handoffQueueId !== '') {
@@ -150,11 +160,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
                     userId: null,
                     typebotSessionId: null,
                     customA: null,
-                    customB: null
+                    customB: null,
+                    connectionToken: $connectionToken
                 );
 
                 if ($tagIdNotAuth > 0) {
-                    $tags->addTagsToTicket($ticketId, [$tagIdNotAuth]);
+                    $tags->addTagsToTicket($ticketId, [$tagIdNotAuth], $connectionToken);
                 }
             }
 
@@ -184,11 +195,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
             }
 
             $texts->sendText(
-                $phone,
-                "🎉 Perfeito! Autorização confirmada no C6 Bank ✅\n\n"
-                . "Estou te encaminhando para um atendente agora. 👤",
-                '0',
-                '0'
+                number: $phone,
+                body: "🎉 Perfeito! Autorização confirmada no C6 Bank ✅\n\n"
+                    . "Estou te encaminhando para um atendente agora. 👤",
+                openTicket: '0',
+                queueId: '0',
+                connectionToken: $connectionToken
             );
 
             if ($ticketId !== '' && $handoffQueueId !== '') {
@@ -199,7 +211,8 @@ class InovachatC6WaitQueueWebhookController extends Controller
                     userId: null,
                     typebotSessionId: null,
                     customA: null,
-                    customB: null
+                    customB: null,
+                    connectionToken: $connectionToken
                 );
             }
 
@@ -221,11 +234,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
             }
 
             $texts->sendText(
-                $phone,
-                "❌ Não consegui confirmar a autorização do C6 Bank.\n\n"
-                . "Vou te encaminhar para um atendente humano para verificar as próximas opções. 👤",
-                '0',
-                '0'
+                number: $phone,
+                body: "❌ Não consegui confirmar a autorização do C6 Bank.\n\n"
+                    . "Vou te encaminhar para um atendente humano para verificar as próximas opções. 👤",
+                openTicket: '0',
+                queueId: '0',
+                connectionToken: $connectionToken
             );
 
             if ($ticketId !== '' && $handoffQueueId !== '') {
@@ -236,11 +250,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
                     userId: null,
                     typebotSessionId: null,
                     customA: null,
-                    customB: null
+                    customB: null,
+                    connectionToken: $connectionToken
                 );
 
                 if ($tagIdNotAuth > 0) {
-                    $tags->addTagsToTicket($ticketId, [$tagIdNotAuth]);
+                    $tags->addTagsToTicket($ticketId, [$tagIdNotAuth], $connectionToken);
                 }
             }
 
@@ -252,15 +267,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
             return response()->noContent();
         }
 
-        // =========================================================
-        // PENDING: aplica cooldown só para lembrete (não para status)
-        // =========================================================
+        // PENDING: cooldown apenas para lembrete
         $cooldown = (int) config('inovachat.queue_webhook.reminder_cooldown_seconds', 120);
         $cooldown = max(15, $cooldown);
 
         $cooldownKey = 'inovachat:c6wait:reminder:' . ($ticketId !== '' ? $ticketId : $phone);
         if (! Cache::add($cooldownKey, 1, $cooldown)) {
-            // Já fez polling; só não responde para evitar spam.
             return response()->noContent();
         }
 
@@ -271,7 +283,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
             . "✅ Para eu continuar sua análise, só falta autorizar no C6 Bank por aqui:\n{$auth->link}\n\n"
             . "Se você já autorizou, pode ficar tranquilo — eu confirmo em até 1 min. ⏱️🙌";
 
-        $sent = $texts->sendText($phone, $text, '0', '0');
+        $sent = $texts->sendText($phone, $text, '0', '0', $connectionToken);
 
         Log::info('Queue webhook: pending reminder sent', [
             'phone' => $phone,

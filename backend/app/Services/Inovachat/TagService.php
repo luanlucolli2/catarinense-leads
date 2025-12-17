@@ -8,15 +8,15 @@ use Illuminate\Support\Facades\Log;
 class TagService
 {
     /**
-     * Adiciona tags a um ticket (API /api/tags/add).
-     *
-     * @param  string  $ticketId
-     * @param  int[]   $tagIds
+     * @param  string     $ticketId
+     * @param  int[]      $tagIds
+     * @param  string|null $connectionToken Token da conexão (Bearer). Se null/empty, usa fallback do config.
      */
-    public function addTagsToTicket(string $ticketId, array $tagIds): bool
+    public function addTagsToTicket(string $ticketId, array $tagIds, ?string $connectionToken = null): bool
     {
         $baseUrl = rtrim((string) config('inovachat.api.base_url'), '/');
-        $token   = (string) config('inovachat.api.connection_token');
+
+        $token = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
 
         if ($baseUrl === '' || $token === '') {
             Log::error('Inovachat TagService not configured', [
@@ -34,7 +34,7 @@ class TagService
         $url = $baseUrl . '/api/tags/add';
 
         $payload = [
-            'ticketId' => (int) $ticketId, // doc usa number
+            'ticketId' => (int) $ticketId,
             'tags' => array_map(fn (int $id) => ['id' => $id], $tagIds),
         ];
 

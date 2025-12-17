@@ -70,9 +70,10 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         $handoffStatus   = (string) config('inovachat.handoff.status', 'pending');
         $tagIdNotAuth    = (int) config('inovachat.tags.c6_not_authorized_id', 0);
 
-        // =========================================================
-        // TIMEOUT: passou do limite -> handoff + tag
-        // =========================================================
+        // token da conexão do lead (mesmo valor do token_origin)
+        $connectionToken = (string) ($auth->triage?->connection_token ?: '');
+
+        // TIMEOUT
         if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
             $this->markTimedOut($auth, $now);
 
@@ -80,7 +81,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $body =
                     "⚠️ Ainda não consegui confirmar a autorização do C6 Bank.\n\n"
                     . "Vou te encaminhar agora para um atendente humano para te ajudar a concluir e seguir com a análise. 👤";
-                $texts->sendText($auth->phone, $body, '0', '0');
+                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
             $this->handoffAndTag(
@@ -91,15 +92,14 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 handoffQueueId: $handoffQueueId,
                 handoffStatus: $handoffStatus,
                 tagId: $tagIdNotAuth,
-                reason: 'timed_out'
+                reason: 'timed_out',
+                connectionToken: $connectionToken
             );
 
             return;
         }
 
-        // =========================================================
-        // POLLING: consulta status no C6
-        // =========================================================
+        // POLLING
         $result = $c6->checkAuthorizationStatus($auth->cpf);
 
         $auth->last_status_payload = $result['raw'] ?? null;
@@ -107,9 +107,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
 
         $remoteStatus = strtoupper($result['status'] ?? 'PENDING');
 
-        // =========================================================
-        // AUTHORIZED: confirma + handoff
-        // =========================================================
+        // AUTHORIZED
         if (in_array($remoteStatus, ['AUTHORIZED', 'AUTORIZADO', 'AUTORIZADO_COM_SUCESSO'], true)) {
             $auth->status        = BankAuthorization::STATUS_AUTHORIZED;
             $auth->authorized_at = $now;
@@ -123,7 +121,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $body =
                     "🎉 Pronto! Autorização confirmada no C6 Bank ✅\n\n"
                     . "Agora vou te encaminhar para um atendente para seguir com a análise. 👤";
-                $texts->sendText($auth->phone, $body, '0', '0');
+                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
             if ($ticketId !== '' && $handoffQueueId !== '') {
@@ -134,7 +132,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                     userId: null,
                     typebotSessionId: null,
                     customA: null,
-                    customB: null
+                    customB: null,
+                    connectionToken: $connectionToken
                 );
             }
 
@@ -147,9 +146,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             return;
         }
 
-        // =========================================================
-        // DENIED: encerra + handoff + tag (recomendado p/ não sumir)
-        // =========================================================
+        // DENIED
         if (in_array($remoteStatus, ['DENIED', 'NAO_AUTORIZADO', 'NOT_AUTHORIZED'], true)) {
             $auth->status    = BankAuthorization::STATUS_DENIED;
             $auth->failed_at = $now;
@@ -163,7 +160,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $body =
                     "❌ Não consegui confirmar a autorização do C6 Bank.\n\n"
                     . "Vou te encaminhar para um atendente humano para verificar as próximas opções. 👤";
-                $texts->sendText($auth->phone, $body, '0', '0');
+                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
             $this->handoffAndTag(
@@ -174,24 +171,21 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 handoffQueueId: $handoffQueueId,
                 handoffStatus: $handoffStatus,
                 tagId: $tagIdNotAuth,
-                reason: 'denied'
+                reason: 'denied',
+                connectionToken: $connectionToken
             );
 
             return;
         }
 
-        // =========================================================
-        // PENDING: lembrete a cada X min + reagendar polling
-        // =========================================================
+        // PENDING
         $auth->status = BankAuthorization::STATUS_PENDING;
         $auth->save();
 
-        // Lembrete pró-ativo a cada X minutos (com variação e sem duplicar)
         if ($auth->phone && is_string($auth->link) && $auth->link !== '') {
             $slotSeconds = $reminderEveryMin * 60;
             $slot = (int) floor($elapsedSeconds / $slotSeconds);
 
-            // slot 0 = início (não manda lembrete imediato)
             if ($slot >= 1) {
                 $key = "c6auth:reminder:{$auth->id}:{$slot}";
                 if (Cache::add($key, 1, $slotSeconds)) {
@@ -201,7 +195,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                         $auth->phone,
                         $this->buildReminderMessage($name, $auth->link, $slot),
                         '0',
-                        '0'
+                        '0',
+                        $connectionToken
                     );
 
                     Log::info('C6 pending: proactive reminder sent', [
@@ -267,7 +262,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         string $handoffQueueId,
         string $handoffStatus,
         int $tagId,
-        string $reason
+        string $reason,
+        string $connectionToken
     ): void {
         if ($ticketId === '' || $handoffQueueId === '') {
             Log::warning('C6 handoff skipped (missing ticketId or handoffQueueId)', [
@@ -286,7 +282,8 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             userId: null,
             typebotSessionId: null,
             customA: null,
-            customB: null
+            customB: null,
+            connectionToken: $connectionToken
         );
 
         Log::info('C6 handoff executed', [
@@ -298,7 +295,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         ]);
 
         if ($tagId > 0) {
-            $tagOk = $tags->addTagsToTicket($ticketId, [$tagId]);
+            $tagOk = $tags->addTagsToTicket($ticketId, [$tagId], $connectionToken);
 
             Log::info('C6 tag applied', [
                 'authorization_id' => $auth->id,

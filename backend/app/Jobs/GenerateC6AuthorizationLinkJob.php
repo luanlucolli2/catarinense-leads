@@ -29,6 +29,9 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
     private string $openTicket;
     private string $queueId;
 
+    // token da conexão (mesmo valor do token_origin)
+    private string $connectionToken;
+
     public function __construct(
         string $trackingId,
         string $cpf,
@@ -36,7 +39,8 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         ?string $fullName,
         ?string $phone,
         string $openTicket = '0',
-        string $queueId = '0'
+        string $queueId = '0',
+        string $connectionToken = ''
     ) {
         $this->trackingId = $trackingId;
         $this->cpf        = $cpf;
@@ -45,6 +49,7 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         $this->phone      = $phone;
         $this->openTicket = $openTicket;
         $this->queueId    = $queueId;
+        $this->connectionToken = $connectionToken;
 
         $queue          = config('c6bank.job.queue', 'c6-auth');
         $timeoutSeconds = (int) config('c6bank.job.timeout', 60);
@@ -88,10 +93,11 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
 
             if ($this->phone) {
                 $sent = $texts->sendText(
-                    $this->phone,
-                    $body,
-                    '0', // não abre ticket
-                    '0'  // fila ignorada quando openTicket = "0"
+                    number: $this->phone,
+                    body: $body,
+                    openTicket: '0',
+                    queueId: '0',
+                    connectionToken: $this->connectionToken
                 );
             }
 
@@ -104,7 +110,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
             Log::info('GenerateC6AuthorizationLinkJob finished', [
                 'tracking_id'       => $this->trackingId,
                 'cpf'               => $this->cpf,
-                'link'              => $link,
                 'phone'             => $this->phone,
                 'sent'              => $sent,
                 'authorization_id'  => $authorization->id,

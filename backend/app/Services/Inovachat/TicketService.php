@@ -14,10 +14,12 @@ class TicketService
         ?string $userId = null,
         ?string $typebotSessionId = null,
         ?string $customA = null,
-        ?string $customB = null
+        ?string $customB = null,
+        ?string $connectionToken = null
     ): bool {
         $baseUrl = rtrim((string) config('inovachat.api.base_url'), '/');
-        $token   = (string) config('inovachat.api.connection_token');
+
+        $token = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
 
         if ($baseUrl === '' || $token === '') {
             Log::error('Inovachat TicketService not configured', [
@@ -29,15 +31,13 @@ class TicketService
 
         $url = $baseUrl . '/api/tickets/updateAPI';
 
-        // Importante: queueId deve ir null quando for "fechar e tirar da fila"
         $payload = [
             'ticketId' => $ticketId,
             'status'   => $status,
             'userId'   => $userId,
-            'queueId'  => $queueId, // null permitido
+            'queueId'  => $queueId,
         ];
 
-        // Campos extras opcionais (mantidos, caso você use)
         if ($typebotSessionId !== null) $payload['typebot_sessionId'] = $typebotSessionId;
         if ($customA !== null) $payload['customA'] = $customA;
         if ($customB !== null) $payload['customB'] = $customB;

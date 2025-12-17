@@ -6,11 +6,36 @@ return [
 
     'api' => [
         'base_url'         => rtrim(env('INOVACHAT_API_BASE', 'https://api20.inovachat.com.br'), '/'),
+
+        /**
+         * Backward-compatible: se você tiver apenas 1 conexão, pode continuar usando.
+         * Em multi-conexões, os Services vão receber o token correto por request
+         * (token_origin / connection_token do lead) e este vira apenas fallback.
+         */
         'connection_token' => env('INOVACHAT_CONNECTION_TOKEN'),
     ],
 
+    /**
+     * Multi-conexões:
+     * - token_origin (webhook de fila) e connection_token (flow -> sua API) são o mesmo valor.
+     * - aqui você mantém um allowlist dos tokens válidos.
+     */
+    'connections' => [
+        'tokens' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('INOVACHAT_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKEN', '')))
+        ))),
+    ],
+
     'queue_webhook' => [
-        'token_origin' => env('INOVACHAT_QUEUE_WEBHOOK_TOKEN_ORIGIN', 'API.CLTCHATBOTTESTE.06112025'),
+        /**
+         * token_origin pode variar por conexão.
+         * Se não definir INOVACHAT_QUEUE_WEBHOOK_TOKEN_ORIGINS, cai no allowlist de connections.tokens.
+         */
+        'token_origins' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('INOVACHAT_QUEUE_WEBHOOK_TOKEN_ORIGINS', ''))
+        ))),
 
         // fila onde o ticket fica aguardando autorização (fila do webhook)
         'c6_wait_queue_id' => env('INOVACHAT_C6_WAIT_QUEUE_ID', '99'),
