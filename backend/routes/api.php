@@ -3,6 +3,9 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\Api\InovachatC6WaitQueueWebhookController;
+use App\Http\Middleware\VerifyInovachatQueueWebhook;
+
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\ImportController;
@@ -10,6 +13,8 @@ use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
+use App\Http\Controllers\Api\InovachatTriageController;
+use App\Http\Middleware\VerifyInovachatWebhook;
 
 /**
  * Endpoints públicos de autenticação.
@@ -18,8 +23,26 @@ use App\Http\Controllers\Api\FgtsOfflineController;
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/login-token', [AuthController::class, 'loginToken'])->middleware('throttle:login');
 
+/**
+ * Endpoint público para o Flowbuilder do Inovachat.
+ * Autenticado via shared secret no header X-Inovachat-Secret.
+ * NÃO passa por auth:sanctum.
+ */
+Route::post('/inovachat/triage', InovachatTriageController::class)
+    ->middleware(VerifyInovachatWebhook::class);
+
+/**
+ * Webhook de fila (Inovachat) — usado na fila "CLT LINK C6 - Aguardando autorização" (sec 99).
+ * Autenticado via token_origin do payload.
+ */
+Route::post('/inovachat/queue-webhook/c6-wait', InovachatC6WaitQueueWebhookController::class)
+    ->middleware(VerifyInovachatQueueWebhook::class);
+
+/**
+ * Endpoints autenticados via Sanctum (SPA / API interna).
+ */
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/user', fn(Request $request) => $request->user());
+    Route::get('/user', fn (Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 
