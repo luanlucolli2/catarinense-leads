@@ -5,7 +5,23 @@ return [
     'webhook_secret' => env('INOVACHAT_WEBHOOK_SECRET'),
 
     'api' => [
-        'base_url'         => rtrim(env('INOVACHAT_API_BASE', 'https://api20.inovachat.com.br'), '/'),
+        'base_url' => rtrim(env('INOVACHAT_API_BASE', 'https://api20.inovachat.com.br'), '/'),
+
+        /**
+         * Base URL específica para API Oficial de mensagens.
+         * Se não setar, cai na base_url padrão.
+         */
+        'official_base_url' => rtrim(
+            env('INOVACHAT_API_BASE_OFFICIAL', env('INOVACHAT_API_BASE', 'https://api20.inovachat.com.br')),
+            '/'
+        ),
+
+        /**
+         * Modo da API de mensagens:
+         * - basic    => /api/messages/send (body/openTicket/queueId)
+         * - official => /api/messages/sendOfficialData (text)
+         */
+        'message_mode' => env('INOVACHAT_MESSAGE_API_MODE', 'basic'),
 
         /**
          * Backward-compatible: se você tiver apenas 1 conexão, pode continuar usando.

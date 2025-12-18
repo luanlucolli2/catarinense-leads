@@ -10,8 +10,8 @@ class TextMessageService
     /**
      * @param string      $number
      * @param string      $body
-     * @param string      $openTicket
-     * @param string      $queueId
+     * @param string      $openTicket   (somente API Básica)
+     * @param string      $queueId      (somente API Básica)
      * @param string|null $connectionToken Token da conexão que enviará a mensagem (Bearer). Se null/empty, usa fallback do config.
      */
     public function sendText(
@@ -21,14 +21,20 @@ class TextMessageService
         string $queueId = '0',
         ?string $connectionToken = null
     ): bool {
+        $mode = strtolower((string) config('inovachat.api.message_mode', 'basic'));
+
         $apiBase = rtrim((string) config('inovachat.api.base_url'), '/');
+        $apiBaseOfficial = rtrim((string) config('inovachat.api.official_base_url', $apiBase), '/');
 
         $token = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
 
-        if ($apiBase === '' || $token === '') {
+        // base necessária muda conforme o modo
+        $baseToUse = $mode === 'official' ? $apiBaseOfficial : $apiBase;
+
+        if ($baseToUse === '' || $token === '') {
             Log::warning('Inovachat text message skipped: missing base_url or connection_token', [
-                'number' => $number,
-                'has_base' => $apiBase !== '',
+                'mode' => $mode,
+                'has_base' => $baseToUse !== '',
                 'has_token' => $token !== '',
             ]);
             return false;
@@ -39,37 +45,53 @@ class TextMessageService
         if (! $cleanNumber) {
             Log::warning('Inovachat text message skipped: invalid phone format', [
                 'raw' => $number,
+                'mode' => $mode,
             ]);
             return false;
         }
-
-        $payload = [
-            'number'     => $cleanNumber,
-            'openTicket' => (string) $openTicket,
-            'queueId'    => (string) $queueId,
-            'body'       => $body,
-        ];
 
         $timeout      = (int) config('inovachat.http.timeout', 10);
         $connect      = (int) config('inovachat.http.connect_timeout', 5);
         $retries      = (int) config('inovachat.http.retry', 1);
         $retryDelayMs = (int) config('inovachat.http.retry_delay_ms', 200);
 
+        // Endpoint/payload conforme documentação:
+        // - Oficial: /api/messages/sendOfficialData  { number, text } :contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5}
+        // - Básica:  /api/messages/send             { number, openTicket, queueId, body } :contentReference[oaicite:6]{index=6}
+        if ($mode === 'official') {
+            $url = $baseToUse . '/api/messages/sendOfficialData';
+            $payload = [
+                'number' => $cleanNumber,
+                'text'   => $body,
+            ];
+        } else {
+            $url = $baseToUse . '/api/messages/send';
+            $payload = [
+                'number'     => $cleanNumber,
+                'openTicket' => (string) $openTicket,
+                'queueId'    => (string) $queueId,
+                'body'       => $body,
+            ];
+        }
+
         try {
             $request = Http::withToken($token)
                 ->acceptJson()
+                ->asJson()
                 ->timeout($timeout)
                 ->connectTimeout($connect);
 
             $response = null;
 
             for ($attempt = 0; $attempt <= $retries; $attempt++) {
-                $response = $request->post($apiBase . '/api/messages/send', $payload);
+                $response = $request->post($url, $payload);
 
                 if ($response->successful()) {
                     Log::info('Inovachat text message sent', [
-                        'number' => $payload['number'],
+                        'mode' => $mode,
+                        'number' => $cleanNumber,
                         'status' => $response->status(),
+                        'endpoint' => $url,
                     ]);
                     return true;
                 }
@@ -80,13 +102,17 @@ class TextMessageService
             }
 
             Log::warning('Inovachat text message failed after retries', [
-                'number' => $payload['number'],
+                'mode' => $mode,
+                'number' => $cleanNumber,
+                'endpoint' => $url,
                 'status' => $response?->status(),
-                'body'   => $response?->body(),
+                'body' => $response?->body(),
             ]);
         } catch (\Throwable $e) {
             Log::error('Inovachat text message exception', [
-                'number'    => $cleanNumber,
+                'mode' => $mode,
+                'number' => $cleanNumber,
+                'endpoint' => $url ?? null,
                 'exception' => $e->getMessage(),
             ]);
         }

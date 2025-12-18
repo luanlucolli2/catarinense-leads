@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\BankAuthorization;
 use App\Services\C6\C6AuthorizationService;
-use App\Services\Inovachat\TagService;
+use App\Services\Inovachat\InternalMessageService;
 use App\Services\Inovachat\TextMessageService;
 use App\Services\Inovachat\TicketService;
 use Illuminate\Bus\Queueable;
@@ -37,7 +37,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         C6AuthorizationService $c6,
         TextMessageService $texts,
         TicketService $tickets,
-        TagService $tags
+        InternalMessageService $internalMessages
     ): void {
         /** @var BankAuthorization|null $auth */
         $auth = BankAuthorization::with('triage')->find($this->authorizationId);
@@ -63,17 +63,17 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         $pollIntervalSeconds = max(10, $pollIntervalSeconds);
         $reminderEveryMin    = max(1, $reminderEveryMin);
 
-        $createdAt       = $auth->created_at ?: $now;
-        $elapsedSeconds  = $createdAt->diffInSeconds($now);
-        $ticketId        = (string) ($auth->triage?->ticket_id ?: '');
-        $handoffQueueId  = (string) config('inovachat.handoff.queue_id');
-        $handoffStatus   = (string) config('inovachat.handoff.status', 'pending');
-        $tagIdNotAuth    = (int) config('inovachat.tags.c6_not_authorized_id', 0);
+        $createdAt      = $auth->created_at ?: $now;
+        $elapsedSeconds = $createdAt->diffInSeconds($now);
+
+        $ticketId       = (string) ($auth->triage?->ticket_id ?: '');
+        $handoffQueueId = (string) config('inovachat.handoff.queue_id');
+        $handoffStatus  = (string) config('inovachat.handoff.status', 'pending');
 
         // token da conexão do lead (mesmo valor do token_origin)
         $connectionToken = (string) ($auth->triage?->connection_token ?: '');
 
-        // TIMEOUT
+        // TIMEOUT (fim do polling sem autorizar)
         if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
             $this->markTimedOut($auth, $now);
 
@@ -84,15 +84,16 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
-            $this->handoffAndTag(
+            // ✅ mudança: sem tag; envia mensagem interna ao time
+            $this->handoffAndInternalMessage(
                 auth: $auth,
                 tickets: $tickets,
-                tags: $tags,
+                internalMessages: $internalMessages,
                 ticketId: $ticketId,
                 handoffQueueId: $handoffQueueId,
                 handoffStatus: $handoffStatus,
-                tagId: $tagIdNotAuth,
                 reason: 'timed_out',
+                elapsedSeconds: $elapsedSeconds,
                 connectionToken: $connectionToken
             );
 
@@ -140,13 +141,13 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             Log::info('C6 authorization authorized and handed off', [
                 'authorization_id' => $auth->id,
                 'cpf'              => $auth->cpf,
-                'ticket_id'         => $ticketId,
+                'ticket_id'        => $ticketId,
             ]);
 
             return;
         }
 
-        // DENIED
+        // DENIED (fim do polling sem autorizar)
         if (in_array($remoteStatus, ['DENIED', 'NAO_AUTORIZADO', 'NOT_AUTHORIZED'], true)) {
             $auth->status    = BankAuthorization::STATUS_DENIED;
             $auth->failed_at = $now;
@@ -163,15 +164,16 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
                 $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
-            $this->handoffAndTag(
+            // ✅ mudança: sem tag; envia mensagem interna ao time
+            $this->handoffAndInternalMessage(
                 auth: $auth,
                 tickets: $tickets,
-                tags: $tags,
+                internalMessages: $internalMessages,
                 ticketId: $ticketId,
                 handoffQueueId: $handoffQueueId,
                 handoffStatus: $handoffStatus,
-                tagId: $tagIdNotAuth,
                 reason: 'denied',
+                elapsedSeconds: $elapsedSeconds,
                 connectionToken: $connectionToken
             );
 
@@ -254,15 +256,18 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         }
     }
 
-    private function handoffAndTag(
+    /**
+     * Handoff + mensagem interna (whisper) para o time quando não autoriza.
+     */
+    private function handoffAndInternalMessage(
         BankAuthorization $auth,
         TicketService $tickets,
-        TagService $tags,
+        InternalMessageService $internalMessages,
         string $ticketId,
         string $handoffQueueId,
         string $handoffStatus,
-        int $tagId,
         string $reason,
+        int $elapsedSeconds,
         string $connectionToken
     ): void {
         if ($ticketId === '' || $handoffQueueId === '') {
@@ -286,31 +291,47 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             connectionToken: $connectionToken
         );
 
-        Log::info('C6 handoff executed', [
+        $msg = $this->buildNotAuthorizedInternalMessage($auth, $reason, $elapsedSeconds);
+
+        $internalOk = $internalMessages->sendInternal(
+            ticketId: $ticketId,
+            body: $msg,
+            connectionToken: $connectionToken
+        );
+
+        Log::info('C6 handoff executed + internal message (no tag)', [
             'authorization_id' => $auth->id,
             'ticket_id'        => $ticketId,
             'handoff_queue_id' => $handoffQueueId,
             'ok'               => $ok,
+            'internal_ok'      => $internalOk,
             'reason'           => $reason,
         ]);
+    }
 
-        if ($tagId > 0) {
-            $tagOk = $tags->addTagsToTicket($ticketId, [$tagId], $connectionToken);
+    private function buildNotAuthorizedInternalMessage(BankAuthorization $auth, string $reason, int $elapsedSeconds): string
+    {
+        $mins = (int) max(1, ceil($elapsedSeconds / 60));
 
-            Log::info('C6 tag applied', [
-                'authorization_id' => $auth->id,
-                'ticket_id'        => $ticketId,
-                'tag_id'           => $tagId,
-                'ok'               => $tagOk,
-                'reason'           => $reason,
-            ]);
-        } else {
-            Log::warning('C6 tag not applied (tag id not configured)', [
-                'authorization_id' => $auth->id,
-                'ticket_id'        => $ticketId,
-                'reason'           => $reason,
-            ]);
+        $name = $auth->triage?->first_name
+            ?: ($auth->triage?->name ?: 'Cliente');
+
+        $link = (is_string($auth->link) && $auth->link !== '') ? $auth->link : null;
+
+        $lines = [
+            "C6 | NÃO AUTORIZADO ({$reason})",
+            "Authorization ID: {$auth->id}",
+            "Nome: {$name}",
+            "CPF: {$auth->cpf}",
+            "Telefone: " . ($auth->phone ?: '-'),
+            "Tempo aguardando: {$mins} min",
+        ];
+
+        if ($link) {
+            $lines[] = "Link: {$link}";
         }
+
+        return implode("\n", $lines);
     }
 
     private function buildReminderMessage(string $name, string $link, int $slot): string

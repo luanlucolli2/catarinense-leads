@@ -83,7 +83,7 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
             $maxWaitMinutes = max(1, $maxWaitMinutes);
 
             $body =
-                "👋 Oi, {$name}!\n\n"
+                "Oi, {$name}!\n\n"
                 . "Para eu continuar sua análise de crédito, preciso de uma autorização rápida no C6 Bank ✅\n\n"
                 . "🔗 Toque no link e confirme:\n{$link}\n\n"
                 . "⏱️ Vou acompanhar por até {$maxWaitMinutes} min e te aviso assim que liberar.\n"
