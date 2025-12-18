@@ -119,9 +119,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             }
 
             if ($auth->phone) {
-                $body =
-                    "🎉 Pronto! Autorização confirmada no C6 Bank ✅\n\n"
-                    . "Agora vou te encaminhar para um atendente para seguir com a análise. 👤";
+                $body = "Pronto! O banco já autorizou a consulta. Vou te encaminhar agora para o atendente que vai finalizar os valores com você.";
                 $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
@@ -158,9 +156,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             }
 
             if ($auth->phone) {
-                $body =
-                    "❌ Não consegui confirmar a autorização do C6 Bank.\n\n"
-                    . "Vou te encaminhar para um atendente humano para verificar as próximas opções. 👤";
+                $body = "Ainda não recebi a confirmação do banco. Para não te fazer esperar, vou te passar agora para um de nossos atendentes que vai te ajudar a finalizar. Só um instante.";
                 $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
             }
 
@@ -339,15 +335,17 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
         $variant = $slot % 3;
 
         return match ($variant) {
-            0 => "🔔 {$name}, lembrete rápido:\n\n"
-                . "✅ Para continuar sua análise, autorize no C6 Bank aqui:\n{$link}\n\n"
-                . "Se você já autorizou, pode ignorar — eu confirmo em instantes. 🙌",
-            1 => "⏳ {$name}, ainda falta a autorização do C6 Bank:\n\n"
+            0 => "Oi, {$name}. Passando para ver se você conseguiu abrir o link do banco. Pode ficar tranquilo que esse acesso é só para eu ver quanto libera para você, não mexe em nada na sua conta.\n\n"
+                . "Se não conseguir agora, não tem problema. Você já está na nossa fila e logo um atendente vai te chamar aqui para te ajudar. 👤\n\n"
+                . "Link: {$link}",
+
+            1 => "{$name}, ainda não apareceu sua autorização aqui no sistema. Se você já fez, o banco pode demorar uns minutinhos para me avisar, tá?\n\n"
+                . "Caso tenha tido qualquer dificuldade com o link, é só aguardar que um colega nosso vai falar com você em breve para resolver tudo por aqui. 👤\n\n"
+                . "Link: {$link}",
+
+            default => "Ainda estou por aqui para te ajudar a liberar seus valores, {$name}. Precisamos só dessa autorização rápida no link abaixo para eu ver o saldo:\n\n"
                 . "🔗 {$link}\n\n"
-                . "Assim que concluir, pode me mandar um “ok” aqui que eu confiro na hora. ✅",
-            default => "🧾 {$name}, precisamos da autorização do C6 para seguir:\n\n"
-                . "🔗 {$link}\n\n"
-                . "É bem rapidinho 🙂 Se já fez, só aguarde 1 min que eu confirmo. ✅",
+                . "Se preferir falar direto com uma pessoa, é só esperar um pouquinho. Você já está na nossa fila e será atendido em breve. 👤",
         };
     }
 }
