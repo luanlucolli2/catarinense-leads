@@ -75,9 +75,9 @@ class InovachatC6WaitQueueWebhookController extends Controller
         $phone = Phone::normalize($sender);
         if (! $phone) {
             Log::warning('Queue webhook: invalid sender phone', [
-                'sender' => $sender,
-                'acao' => $acao,
-                'queueId' => $queueId,
+                'sender'   => $sender,
+                'acao'     => $acao,
+                'queueId'  => $queueId,
                 'ticketId' => $ticketId,
             ]);
             return response()->noContent();
@@ -127,11 +127,11 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
         if (! $auth || ! is_string($auth->link) || $auth->link === '') {
             Log::info('Queue webhook: no pending C6 authorization found', [
-                'phone' => $phone,
+                'phone'    => $phone,
                 'ticketId' => $ticketId,
-                'queueId' => $queueId,
-                'acao' => $acao,
-                'message' => $messageText,
+                'queueId'  => $queueId,
+                'acao'     => $acao,
+                'message'  => $messageText,
             ]);
             return response()->noContent();
         }
@@ -166,7 +166,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
             $texts->sendText(
                 number: $phone,
-                body: "Como o tempo de espera do banco expirou, eu já te encaminhei para a nossa fila de atendimento humano. 👤\n\nUm de nossos especialistas vai te chamar aqui em instantes para verificar o que houve e continuar sua simulação manualmente. É só aguardar um pouquinho.",
+                body: "⏱️ Não consegui confirmar a autorização.\nVou te passar para um atendente agora. 👤",
                 openTicket: '0',
                 queueId: '0',
                 connectionToken: $connectionToken
@@ -220,8 +220,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
             $texts->sendText(
                 number: $phone,
-                body: "🎉 Perfeito! Autorização confirmada no C6 Bank ✅\n\n"
-                    . "Estou te encaminhando para um atendente agora. 👤",
+                body: "✅ Autorização confirmada.\nVou te passar para um atendente agora. 👤",
                 openTicket: '0',
                 queueId: '0',
                 connectionToken: $connectionToken
@@ -259,7 +258,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
             $texts->sendText(
                 number: $phone,
-                body: "Ainda não recebi a confirmação do banco C6 por aqui. Mas não se preocupe: você já está na nossa fila de espera.\n\nUm atendente humano vai falar com você em instantes para conferir seus dados e te ajudar com as próximas opções. 👤",
+                body: "Ainda não consegui confirmar a autorização.\nVou te passar para um atendente agora. 👤",
                 openTicket: '0',
                 queueId: '0',
                 connectionToken: $connectionToken
@@ -307,11 +306,10 @@ class InovachatC6WaitQueueWebhookController extends Controller
         $name = $auth->triage?->first_name ?: ($auth->triage?->name ?: 'Tudo certo');
 
         $text =
-            "{$name}, ainda não recebi a confirmação do banco por aqui.\n\n"
-            . "⚠️ **Se você acabou de autorizar**, aguarde uns 2 ou 3 minutinhos. O banco demora um pouco para avisar o nosso sistema, mas eu já estou conferindo.\n\n"
-            . "Se ainda não autorizou, é só tocar no link abaixo:\n"
-            . "🔗 {$auth->link}\n\n"
-            . "Caso não consiga ou prefira falar com a gente, fique tranquilo. Você já está na nossa fila e um atendente humano vai te chamar logo em seguida para ajudar. 👤";
+            "{$name}, ainda falta a autorização no C6.\n\n"
+            . "🔗 Autorize aqui:\n{$auth->link}\n\n"
+            . "*Se já autorizou, aguarde 1–2 min que eu confirmo.* ⏱️";
+
         $sent = $texts->sendText(
             number: $phone,
             body: $text,
@@ -321,12 +319,12 @@ class InovachatC6WaitQueueWebhookController extends Controller
         );
 
         Log::info('Queue webhook: pending reminder sent', [
-            'phone' => $phone,
+            'phone'    => $phone,
             'ticketId' => $ticketId,
-            'queueId' => $queueId,
-            'acao' => $acao,
-            'message' => $messageText,
-            'sent' => $sent,
+            'queueId'  => $queueId,
+            'acao'     => $acao,
+            'message'  => $messageText,
+            'sent'     => $sent,
         ]);
 
         return response()->noContent();

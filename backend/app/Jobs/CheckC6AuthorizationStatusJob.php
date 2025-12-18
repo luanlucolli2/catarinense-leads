@@ -78,13 +78,15 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             $this->markTimedOut($auth, $now);
 
             if ($auth->phone) {
-                $body =
-                    "⚠️ Ainda não consegui confirmar a autorização do C6 Bank.\n\n"
-                    . "Vou te encaminhar agora para um atendente humano para te ajudar a concluir e seguir com a análise. 👤";
-                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
+                $texts->sendText(
+                    number: $auth->phone,
+                    body: "Não consegui confirmar a autorização do C6. Vou te passar para um atendente. 👤",
+                    openTicket: '0',
+                    queueId: '0',
+                    connectionToken: $connectionToken
+                );
             }
 
-            // ✅ mudança: sem tag; envia mensagem interna ao time
             $this->handoffAndInternalMessage(
                 auth: $auth,
                 tickets: $tickets,
@@ -119,8 +121,13 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             }
 
             if ($auth->phone) {
-                $body = "Pronto! O banco já autorizou a consulta. Vou te encaminhar agora para o atendente que vai finalizar os valores com você.";
-                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
+                $texts->sendText(
+                    number: $auth->phone,
+                    body: "Autorização confirmada ✅ Vou te encaminhar para o atendente agora. 👤",
+                    openTicket: '0',
+                    queueId: '0',
+                    connectionToken: $connectionToken
+                );
             }
 
             if ($ticketId !== '' && $handoffQueueId !== '') {
@@ -156,11 +163,15 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             }
 
             if ($auth->phone) {
-                $body = "Ainda não recebi a confirmação do banco. Para não te fazer esperar, vou te passar agora para um de nossos atendentes que vai te ajudar a finalizar. Só um instante.";
-                $texts->sendText($auth->phone, $body, '0', '0', $connectionToken);
+                $texts->sendText(
+                    number: $auth->phone,
+                    body: "Não consegui confirmar a autorização do C6. Vou te passar para um atendente. 👤",
+                    openTicket: '0',
+                    queueId: '0',
+                    connectionToken: $connectionToken
+                );
             }
 
-            // ✅ mudança: sem tag; envia mensagem interna ao time
             $this->handoffAndInternalMessage(
                 auth: $auth,
                 tickets: $tickets,
@@ -191,7 +202,7 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
 
                     $texts->sendText(
                         $auth->phone,
-                        $this->buildReminderMessage($name, $auth->link, $slot),
+                        $this->buildReminderMessage($name, $auth->link),
                         '0',
                         '0',
                         $connectionToken
@@ -287,11 +298,9 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             connectionToken: $connectionToken
         );
 
-        $msg = $this->buildNotAuthorizedInternalMessage($auth, $reason, $elapsedSeconds);
-
         $internalOk = $internalMessages->sendInternal(
             ticketId: $ticketId,
-            body: $msg,
+            body: $this->buildNotAuthorizedInternalMessage($auth, $reason, $elapsedSeconds),
             connectionToken: $connectionToken
         );
 
@@ -309,43 +318,19 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
     {
         $mins = (int) max(1, ceil($elapsedSeconds / 60));
 
-        $name = $auth->triage?->first_name
-            ?: ($auth->triage?->name ?: 'Cliente');
-
-        $link = (is_string($auth->link) && $auth->link !== '') ? $auth->link : null;
-
-        $lines = [
-            "C6 | NÃO AUTORIZADO ({$reason})",
-            "Authorization ID: {$auth->id}",
-            "Nome: {$name}",
+        return implode("\n", array_filter([
+            "C6 | sem autorização ({$reason})",
+            "Auth: {$auth->id} | {$mins} min",
             "CPF: {$auth->cpf}",
-            "Telefone: " . ($auth->phone ?: '-'),
-            "Tempo aguardando: {$mins} min",
-        ];
-
-        if ($link) {
-            $lines[] = "Link: {$link}";
-        }
-
-        return implode("\n", $lines);
+            "Fone: " . ($auth->phone ?: '-'),
+            (is_string($auth->link) && $auth->link !== '') ? "Link: {$auth->link}" : null,
+        ]));
     }
 
-    private function buildReminderMessage(string $name, string $link, int $slot): string
+    private function buildReminderMessage(string $name, string $link): string
     {
-        $variant = $slot % 3;
-
-        return match ($variant) {
-            0 => "Oi, {$name}. Passando para ver se você conseguiu abrir o link do banco. Pode ficar tranquilo que esse acesso é só para eu ver quanto libera para você, não mexe em nada na sua conta.\n\n"
-                . "Se não conseguir agora, não tem problema. Você já está na nossa fila e logo um atendente vai te chamar aqui para te ajudar. 👤\n\n"
-                . "Link: {$link}",
-
-            1 => "{$name}, ainda não apareceu sua autorização aqui no sistema. Se você já fez, o banco pode demorar uns minutinhos para me avisar, tá?\n\n"
-                . "Caso tenha tido qualquer dificuldade com o link, é só aguardar que um colega nosso vai falar com você em breve para resolver tudo por aqui. 👤\n\n"
-                . "Link: {$link}",
-
-            default => "Ainda estou por aqui para te ajudar a liberar seus valores, {$name}. Precisamos só dessa autorização rápida no link abaixo para eu ver o saldo:\n\n"
-                . "🔗 {$link}\n\n"
-                . "Se preferir falar direto com uma pessoa, é só esperar um pouquinho. Você já está na nossa fila e será atendido em breve. 👤",
-        };
+        return "{$name}, falta só autorizar no C6:\n{$link}\n\n"
+            . "Se pedir foto, é confirmação do banco.\n"
+            . "Assim que fizer, eu confiro aqui. ✅";
     }
 }
