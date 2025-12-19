@@ -102,8 +102,29 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
             return;
         }
 
-        // POLLING
-        $result = $c6->checkAuthorizationStatus($auth->cpf);
+        // POLLING (não pode derrubar o job em caso de timeout/erro de rede)
+        try {
+            $result = $c6->checkAuthorizationStatus($auth->cpf);
+        } catch (Throwable $e) {
+            // mantém como PENDING e só reagenda
+            $auth->last_checked_at = $now;
+            $auth->last_status_payload = [
+                'error' => true,
+                'message' => $e->getMessage(),
+                'at' => $now->toIso8601String(),
+            ];
+            $auth->save();
+
+            Log::warning('C6 authorization status check failed; rescheduling polling', [
+                'authorization_id' => $auth->id,
+                'cpf'              => $auth->cpf,
+                'poll_interval_s'  => $pollIntervalSeconds,
+                'exception'        => $e->getMessage(),
+            ]);
+
+            self::dispatch($auth->id)->delay($now->addSeconds($pollIntervalSeconds));
+            return;
+        }
 
         $auth->last_status_payload = $result['raw'] ?? null;
         $auth->last_checked_at     = $now;
