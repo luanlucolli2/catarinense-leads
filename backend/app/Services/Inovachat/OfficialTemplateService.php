@@ -15,7 +15,12 @@ class OfficialTemplateService
      * Envia template oficial SEM variáveis via API Oficial do Inovachat:
      * POST {inovachat.api.official_base_url}/api/messages/sendOfficial
      *
-     * A conexão (token) é escolhida aleatoriamente do allowlist INOVACHAT_CONNECTION_TOKENS.
+     * Retorna dados úteis para log/debug:
+     * - token (sem censura)
+     * - status
+     * - ok_200 (status === 200)
+     * - ok (2xx)
+     * - json/body
      */
     public function sendOfficialTemplateWithoutVariables(
         string $number,
@@ -28,7 +33,6 @@ class OfficialTemplateService
         $apiBase = rtrim((string) config('inovachat.api.base_url', ''), '/');
         $apiBaseOfficial = rtrim((string) config('inovachat.api.official_base_url', $apiBase), '/');
 
-        // Preferir a base oficial. Se estiver vazia, cair na base padrão.
         $baseToUse = $apiBaseOfficial !== '' ? $apiBaseOfficial : $apiBase;
 
         if ($baseToUse === '' || ! preg_match('#^https?://#i', $baseToUse)) {
@@ -53,13 +57,6 @@ class OfficialTemplateService
             'language' => $language,
         ];
 
-        Log::info('Inovachat official template send start', [
-            'tracking_id' => $trackingId,
-            'url'         => $url,
-            'token_hint'  => $this->maskToken($token),
-            'payload'     => $payload,
-        ]);
-
         try {
             $response = Http::withToken($token)
                 ->acceptJson()
@@ -69,23 +66,45 @@ class OfficialTemplateService
                 ->retry($retries, $retryDelayMs, throw: false)
                 ->post($url, $payload);
 
-            $response->throw();
+            $status = $response->status();
+            $ok = $response->successful();
+            $ok200 = ($status === 200);
 
-            return (array) $response->json();
+            // Se não for sucesso, log simples + body e joga exception
+            if (! $ok) {
+                Log::warning('INOVA_SEND_OFFICIAL_FAIL', [
+                    'tracking' => $trackingId,
+                    'status'   => $status,
+                    'token'    => $token, // ✅ SEM CENSURA
+                    'body'     => $response->body(),
+                ]);
+
+                $response->throw(); // dispara RequestException
+            }
+
+            $json = $response->json();
+
+            return [
+                'token'  => $token,   // ✅ SEM CENSURA
+                'status' => $status,
+                'ok_200' => $ok200,
+                'ok'     => $ok,
+                'json'   => $json,
+            ];
         } catch (ConnectionException $e) {
-            Log::warning('Inovachat official template connection error', [
-                'tracking_id' => $trackingId,
-                'url'         => $url,
-                'error'       => $e->getMessage(),
+            Log::warning('INOVA_SEND_OFFICIAL_CONN_ERROR', [
+                'tracking' => $trackingId,
+                'token'    => $token, // ✅ SEM CENSURA
+                'error'    => $e->getMessage(),
             ]);
             throw $e;
         } catch (RequestException $e) {
-            Log::error('Inovachat official template request failed', [
-                'tracking_id' => $trackingId,
-                'url'         => $url,
-                'status'      => optional($e->response)->status(),
-                'body'        => optional($e->response)->body(),
-                'error'       => $e->getMessage(),
+            Log::warning('INOVA_SEND_OFFICIAL_HTTP_ERROR', [
+                'tracking' => $trackingId,
+                'token'    => $token, // ✅ SEM CENSURA
+                'status'   => optional($e->response)->status(),
+                'body'     => optional($e->response)->body(),
+                'error'    => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -101,15 +120,5 @@ class OfficialTemplateService
         }
 
         return (string) Arr::random($tokens);
-    }
-
-    private function maskToken(string $token): string
-    {
-        $len = strlen($token);
-        if ($len <= 8) {
-            return str_repeat('*', $len);
-        }
-
-        return substr($token, 0, 4) . str_repeat('*', max(0, $len - 8)) . substr($token, -4);
     }
 }
