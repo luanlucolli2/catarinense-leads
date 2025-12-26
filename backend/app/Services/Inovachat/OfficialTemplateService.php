@@ -3,7 +3,6 @@
 namespace App\Services\Inovachat;
 
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -15,12 +14,13 @@ class OfficialTemplateService
      * Envia template oficial SEM variáveis via API Oficial do Inovachat:
      * POST {inovachat.api.official_base_url}/api/messages/sendOfficial
      *
-     * Retorna dados úteis para log/debug:
+     * Regra: sucesso APENAS com HTTP 200.
+     * Qualquer outra resposta => exception (para o Job retry até 3x e falhar).
+     *
+     * Retorna dados úteis para log:
      * - token (sem censura)
      * - status
-     * - ok_200 (status === 200)
-     * - ok (2xx)
-     * - json/body
+     * - ok_200
      */
     public function sendOfficialTemplateWithoutVariables(
         string $number,
@@ -43,8 +43,6 @@ class OfficialTemplateService
 
         $timeout = (int) config('inovachat.http.timeout', 10);
         $connectTimeout = (int) config('inovachat.http.connect_timeout', 5);
-        $retries = (int) config('inovachat.http.retry', 1);
-        $retryDelayMs = (int) config('inovachat.http.retry_delay_ms', 200);
 
         $cleanNumber = preg_replace('/\D+/', '', $number) ?: null;
         if (! $cleanNumber) {
@@ -57,55 +55,56 @@ class OfficialTemplateService
             'language' => $language,
         ];
 
+        Log::info('INOVA_SEND_OFFICIAL_START', [
+            'tracking' => $trackingId,
+            'token'    => $token, // sem censura (como você pediu)
+            'url'      => $url,
+            'number'   => $cleanNumber,
+            'template' => $templateName,
+            'lang'     => $language,
+        ]);
+
         try {
+            // ✅ Uma tentativa = uma requisição HTTP (sem retry interno)
             $response = Http::withToken($token)
                 ->acceptJson()
                 ->asJson()
                 ->connectTimeout($connectTimeout)
                 ->timeout($timeout)
-                ->retry($retries, $retryDelayMs, throw: false)
                 ->post($url, $payload);
 
             $status = $response->status();
-            $ok = $response->successful();
-            $ok200 = ($status === 200);
 
-            // Se não for sucesso, log simples + body e joga exception
-            if (! $ok) {
-                Log::warning('INOVA_SEND_OFFICIAL_FAIL', [
+            if ($status !== 200) {
+                Log::warning('INOVA_SEND_OFFICIAL_NOT_200', [
                     'tracking' => $trackingId,
+                    'token'    => $token, // sem censura
                     'status'   => $status,
-                    'token'    => $token, // ✅ SEM CENSURA
-                    'body'     => $response->body(),
+                    'body'     => $this->truncate($response->body(), 800),
                 ]);
 
-                $response->throw(); // dispara RequestException
+                throw new RuntimeException("Inovachat sendOfficial returned status {$status} (expected 200).");
             }
 
-            $json = $response->json();
+            Log::info('INOVA_SEND_OFFICIAL_OK', [
+                'tracking' => $trackingId,
+                'token'    => $token, // sem censura
+                'status'   => $status,
+            ]);
 
             return [
-                'token'  => $token,   // ✅ SEM CENSURA
+                'token'  => $token,
                 'status' => $status,
-                'ok_200' => $ok200,
-                'ok'     => $ok,
-                'json'   => $json,
+                'ok_200' => true,
             ];
         } catch (ConnectionException $e) {
+            // Timeout/DNS/conexão: deixa o Job cuidar do retry (até 3x)
             Log::warning('INOVA_SEND_OFFICIAL_CONN_ERROR', [
                 'tracking' => $trackingId,
-                'token'    => $token, // ✅ SEM CENSURA
+                'token'    => $token, // sem censura
                 'error'    => $e->getMessage(),
             ]);
-            throw $e;
-        } catch (RequestException $e) {
-            Log::warning('INOVA_SEND_OFFICIAL_HTTP_ERROR', [
-                'tracking' => $trackingId,
-                'token'    => $token, // ✅ SEM CENSURA
-                'status'   => optional($e->response)->status(),
-                'body'     => optional($e->response)->body(),
-                'error'    => $e->getMessage(),
-            ]);
+
             throw $e;
         }
     }
@@ -120,5 +119,14 @@ class OfficialTemplateService
         }
 
         return (string) Arr::random($tokens);
+    }
+
+    private function truncate(?string $s, int $max): string
+    {
+        $s = (string) ($s ?? '');
+        if (strlen($s) <= $max) {
+            return $s;
+        }
+        return substr($s, 0, $max) . '...';
     }
 }

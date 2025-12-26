@@ -15,6 +15,10 @@ class SendUraOfficialTemplateJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /**
+     * ✅ ÚNICA fonte de verdade para tentativas/backoff (sem redundância no worker).
+     * Total máximo: 3 tentativas.
+     */
     public int $tries;
     public int $backoff;
 
@@ -24,8 +28,8 @@ class SendUraOfficialTemplateJob implements ShouldQueue
         public readonly string $language,
         public readonly string $trackingId,
     ) {
-        $this->tries = (int) config('ura.job_tries', 3);
-        $this->backoff = (int) config('ura.job_backoff_seconds', 10);
+        $this->tries = (int) config('ura.job_tries', 3);               // default 3
+        $this->backoff = (int) config('ura.job_backoff_seconds', 10); // default 10s
     }
 
     public function handle(OfficialTemplateService $service): void
@@ -38,21 +42,32 @@ class SendUraOfficialTemplateJob implements ShouldQueue
             'lang'     => $this->language,
         ]);
 
-        $result = $service->sendOfficialTemplateWithoutVariables(
-            number: $this->number,
-            templateName: $this->templateName,
-            language: $this->language,
-            trackingId: $this->trackingId,
-        );
+        try {
+            $result = $service->sendOfficialTemplateWithoutVariables(
+                number: $this->number,
+                templateName: $this->templateName,
+                language: $this->language,
+                trackingId: $this->trackingId,
+            );
 
-        Log::info('URA_SEND_OFFICIAL_DONE', [
-            'tracking' => $this->trackingId,
-            'attempt'  => $this->attempts(),
-            'status'   => $result['status'] ?? null,
-            'ok_200'   => $result['ok_200'] ?? null,
-            'ok'       => $result['ok'] ?? null,
-            'token'    => $result['token'] ?? null, // ✅ SEM CENSURA (como você pediu)
-        ]);
+            Log::info('URA_SEND_OFFICIAL_DONE', [
+                'tracking' => $this->trackingId,
+                'attempt'  => $this->attempts(),
+                'status'   => $result['status'] ?? null,
+                'ok_200'   => $result['ok_200'] ?? null,
+                'token'    => $result['token'] ?? null, // sem censura (como você pediu)
+            ]);
+        } catch (Throwable $e) {
+            // Log simples por tentativa (útil pra bater o olho).
+            // O retry/falha final fica por conta do Worker/Laravel (sem lógica duplicada aqui).
+            Log::warning('URA_SEND_OFFICIAL_ATTEMPT_FAIL', [
+                'tracking' => $this->trackingId,
+                'attempt'  => $this->attempts(),
+                'error'    => $e->getMessage(),
+            ]);
+
+            throw $e; // rethrow => Laravel reagenda até $tries
+        }
     }
 
     public function failed(Throwable $e): void

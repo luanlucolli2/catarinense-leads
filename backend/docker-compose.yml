@@ -130,7 +130,7 @@ services:
   # ===== WORKER DEDICADO: URA (envio de templates oficiais) =====
   queue-ura:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${URA_JOB_QUEUE:-ura} --sleep=1 --verbose --timeout=${URA_JOB_TIMEOUT:-60} --tries=${URA_JOB_TRIES:-3} --backoff=${URA_JOB_BACKOFF_SECONDS:-10} --memory=256"
+    command: "php artisan queue:work --queue=${URA_JOB_QUEUE:-ura} --sleep=1 --verbose --timeout=${URA_JOB_TIMEOUT:-60} --memory=256"
     environment:
       <<: *app-environment
     volumes:
