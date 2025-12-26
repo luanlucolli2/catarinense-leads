@@ -16,6 +16,10 @@ use App\Http\Controllers\Api\FgtsOfflineController;
 use App\Http\Controllers\Api\InovachatTriageController;
 use App\Http\Middleware\VerifyInovachatWebhook;
 
+// ✅ NOVO: URA
+use App\Http\Controllers\Api\UraSendOfficialTemplateController;
+use App\Http\Middleware\VerifyUraWebhook;
+
 /**
  * Endpoints públicos de autenticação.
  * Rate limit nomeado "login".
@@ -37,6 +41,14 @@ Route::post('/inovachat/triage', InovachatTriageController::class)
  */
 Route::post('/inovachat/queue-webhook/c6-wait', InovachatC6WaitQueueWebhookController::class)
     ->middleware(VerifyInovachatQueueWebhook::class);
+
+/**
+ * ✅ URA → sua API (envia template oficial sem variável via Inovachat)
+ * Autenticado via shared secret (X-Ura-Secret / Authorization Bearer).
+ * Não usa token de conexão no request: a conexão é randomizada no backend.
+ */
+Route::post('/ura/messages/send-official-template', UraSendOfficialTemplateController::class)
+    ->middleware([VerifyUraWebhook::class, 'throttle:60,1']);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).
