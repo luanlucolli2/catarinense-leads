@@ -23,6 +23,19 @@ return [
     */
     'job_queue' => env('URA_JOB_QUEUE', 'ura'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Worker timeout (segundos)
+    |--------------------------------------------------------------------------
+    | Usado no compose/worker e como referência do módulo.
+    */
+    'job_timeout' => (int) env('URA_JOB_TIMEOUT', 60),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Retry/Backoff (Job)
+    |--------------------------------------------------------------------------
+    */
     'job_tries' => (int) env('URA_JOB_TRIES', 3),
     'job_backoff_seconds' => (int) env('URA_JOB_BACKOFF_SECONDS', 10),
 ];

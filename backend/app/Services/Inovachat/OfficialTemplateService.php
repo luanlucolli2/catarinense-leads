@@ -3,7 +3,6 @@
 namespace App\Services\Inovachat;
 
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -11,14 +10,24 @@ use RuntimeException;
 class OfficialTemplateService
 {
     /**
+     * Cache por processo (worker). Evita recomputar tokens e reduz CPU.
+     */
+    private static ?array $uraTokensCache = null;
+
+    /**
+     * Índice round-robin por processo.
+     */
+    private static int $rrPos = 0;
+
+    /**
      * Envia template oficial SEM variáveis via API Oficial do Inovachat:
      * POST {inovachat.api.official_base_url}/api/messages/sendOfficial
      *
-     * Regra: sucesso APENAS com HTTP 200.
-     * Qualquer outra resposta => exception (para o Job retry até 3x e falhar).
+     * Observação: você afirmou que a API do Inova sempre retorna 200.
+     * Logo, o "erro" relevante aqui costuma ser: timeout/DNS/conexão.
      *
-     * Retorna dados úteis para log:
-     * - token (sem censura)
+     * Retorna apenas o necessário para log do Job (mínimo custo):
+     * - token
      * - status
      * - ok_200
      */
@@ -28,7 +37,7 @@ class OfficialTemplateService
         string $language = 'pt_BR',
         ?string $trackingId = null,
     ): array {
-        $token = $this->pickRandomConnectionToken();
+        $token = $this->pickUraConnectionToken();
 
         $apiBase = rtrim((string) config('inovachat.api.base_url', ''), '/');
         $apiBaseOfficial = rtrim((string) config('inovachat.api.official_base_url', $apiBase), '/');
@@ -55,17 +64,7 @@ class OfficialTemplateService
             'language' => $language,
         ];
 
-        Log::info('INOVA_SEND_OFFICIAL_START', [
-            'tracking' => $trackingId,
-            'token'    => $token, // sem censura (como você pediu)
-            'url'      => $url,
-            'number'   => $cleanNumber,
-            'template' => $templateName,
-            'lang'     => $language,
-        ]);
-
         try {
-            // ✅ Uma tentativa = uma requisição HTTP (sem retry interno)
             $response = Http::withToken($token)
                 ->acceptJson()
                 ->asJson()
@@ -73,24 +72,18 @@ class OfficialTemplateService
                 ->timeout($timeout)
                 ->post($url, $payload);
 
+            // Como você disse que o Inova sempre responde 200,
+            // isso aqui é mais um "guard rail" (não custa praticamente nada).
             $status = $response->status();
-
             if ($status !== 200) {
-                Log::warning('INOVA_SEND_OFFICIAL_NOT_200', [
+                Log::warning('URA_INOVA_SEND_NON_200', [
                     'tracking' => $trackingId,
-                    'token'    => $token, // sem censura
+                    'token'    => $token, // sem censura (você pediu)
                     'status'   => $status,
-                    'body'     => $this->truncate($response->body(), 800),
                 ]);
 
                 throw new RuntimeException("Inovachat sendOfficial returned status {$status} (expected 200).");
             }
-
-            Log::info('INOVA_SEND_OFFICIAL_OK', [
-                'tracking' => $trackingId,
-                'token'    => $token, // sem censura
-                'status'   => $status,
-            ]);
 
             return [
                 'token'  => $token,
@@ -98,8 +91,8 @@ class OfficialTemplateService
                 'ok_200' => true,
             ];
         } catch (ConnectionException $e) {
-            // Timeout/DNS/conexão: deixa o Job cuidar do retry (até 3x)
-            Log::warning('INOVA_SEND_OFFICIAL_CONN_ERROR', [
+            // Log mínimo e direto (evita logs duplicados no Job)
+            Log::warning('URA_INOVA_CONN_FAIL', [
                 'tracking' => $trackingId,
                 'token'    => $token, // sem censura
                 'error'    => $e->getMessage(),
@@ -109,24 +102,58 @@ class OfficialTemplateService
         }
     }
 
-    private function pickRandomConnectionToken(): string
+    /**
+     * Seleção de token para URA:
+     * - tokens vêm de INOVACHAT_URA_CONNECTION_TOKENS (opcional)
+     * - fallback para INOVACHAT_CONNECTION_TOKENS
+     *
+     * Algoritmo:
+     * - cache + shuffle 1x por processo
+     * - round-robin em memória (baixo custo / ótimo para 1 worker)
+     */
+    private function pickUraConnectionToken(): string
     {
-        $tokens = (array) config('inovachat.connections.tokens', []);
-        $tokens = array_values(array_filter(array_map('trim', $tokens)));
+        $tokens = $this->getUraTokens();
 
-        if (empty($tokens)) {
-            throw new RuntimeException('No INOVACHAT_CONNECTION_TOKENS configured (inovachat.connections.tokens is empty).');
+        $count = count($tokens);
+        if ($count === 0) {
+            throw new RuntimeException('No INOVACHAT_URA_CONNECTION_TOKENS / INOVACHAT_CONNECTION_TOKENS configured.');
         }
 
-        return (string) Arr::random($tokens);
+        if ($count === 1) {
+            return (string) $tokens[0];
+        }
+
+        $pos = self::$rrPos;
+        self::$rrPos = ($pos + 1) % $count;
+
+        return (string) $tokens[$pos];
     }
 
-    private function truncate(?string $s, int $max): string
+    private function getUraTokens(): array
     {
-        $s = (string) ($s ?? '');
-        if (strlen($s) <= $max) {
-            return $s;
+        if (self::$uraTokensCache !== null) {
+            return self::$uraTokensCache;
         }
-        return substr($s, 0, $max) . '...';
+
+        $tokens = (array) config('inovachat.connections.ura_tokens', []);
+        if (empty($tokens)) {
+            $tokens = (array) config('inovachat.connections.tokens', []);
+        }
+
+        // garante strings não vazias (config já faz trim, mas isso blinda)
+        $tokens = array_values(array_filter($tokens, static function ($t) {
+            return is_string($t) && $t !== '';
+        }));
+
+        // embaralha 1x por processo para não iniciar sempre no mesmo token
+        if (count($tokens) > 1) {
+            shuffle($tokens);
+        }
+
+        self::$uraTokensCache = $tokens;
+        self::$rrPos = 0;
+
+        return self::$uraTokensCache;
     }
 }

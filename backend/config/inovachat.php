@@ -35,11 +35,20 @@ return [
      * Multi-conexões:
      * - token_origin (webhook de fila) e connection_token (flow -> sua API) são o mesmo valor.
      * - aqui você mantém um allowlist dos tokens válidos.
+     *
+     * URA:
+     * - opcionalmente, você pode limitar quais conexões a URA pode usar via INOVACHAT_URA_CONNECTION_TOKENS.
+     * - se não definir, cai no allowlist padrão.
      */
     'connections' => [
         'tokens' => array_values(array_filter(array_map(
             'trim',
             explode(',', (string) env('INOVACHAT_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKEN', '')))
+        ))),
+
+        'ura_tokens' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('INOVACHAT_URA_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKEN', ''))))
         ))),
     ],
 
@@ -78,7 +87,6 @@ return [
     |--------------------------------------------------------------------------
     */
     'tags' => [
-        // ID da tag "C6 não autorizado" no Inovachat
         'c6_not_authorized_id' => (int) env('INOVACHAT_TAG_C6_NAO_AUTORIZADO_ID', 0),
     ],
 ];
