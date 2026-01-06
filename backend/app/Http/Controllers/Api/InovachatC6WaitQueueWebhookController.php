@@ -67,7 +67,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
             $messageText = $this->extractMessageText($request);
 
-            // Dedupe inbound
+            // Dedupe inbound (eventos duplicados do Inovachat)
             $dedupeTtl = (int) config('inovachat.queue_webhook.dedupe_ttl_seconds', 20);
             $dedupeTtl = max(5, $dedupeTtl);
 
@@ -158,10 +158,11 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 }
             };
 
+            // TIMEOUT (fim do fluxo)
             if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
-                $auth->status    = BankAuthorization::STATUS_TIMED_OUT;
-                $auth->failed_at = $now;
-                $auth->last_checked_at = $now;
+                $auth->status            = BankAuthorization::STATUS_TIMED_OUT;
+                $auth->failed_at         = $now;
+                $auth->last_checked_at   = $now;
                 $auth->last_status_payload = [
                     'status' => 'TIMED_OUT',
                     'at'     => $now->toIso8601String(),
@@ -193,39 +194,44 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 return response()->noContent();
             }
 
-            // Lock curto (evita dupla checagem com o job de polling)
+            /**
+             * ✅ NOVA REGRA:
+             * - lock falhou => NÃO checa C6 agora (evita custo), mas NÃO fica mudo.
+             * - seguimos para o fluxo de lembrete (cooldown) em PENDING.
+             */
+            $remoteStatus = 'PENDING';
+
             $lockSeconds = (int) config('c6bank.authorization.status_lock_seconds', 30);
             $lockSeconds = max(5, $lockSeconds);
 
             $lockKey = 'c6auth:statuslock:' . $auth->id;
-            if (! Cache::add($lockKey, 1, $lockSeconds)) {
-                return response()->noContent();
+            $canCheckStatus = Cache::add($lockKey, 1, $lockSeconds);
+
+            if ($canCheckStatus) {
+                try {
+                    $result = $c6->checkAuthorizationStatus($auth->cpf);
+                    $remoteStatus = strtoupper((string) ($result['status'] ?? 'PENDING'));
+
+                    $storeRaw = (bool) config('c6bank.authorization.store_raw_payload', false);
+
+                    $auth->last_status_payload = $storeRaw
+                        ? ($result['raw'] ?? null)
+                        : ['status' => $remoteStatus, 'at' => $now->toIso8601String()];
+
+                    $auth->last_checked_at = $now;
+                } catch (Throwable $e) {
+                    // Falhou checar C6: trata como PENDING e segue (sem derrubar webhook)
+                    $auth->last_status_payload = [
+                        'error'   => true,
+                        'message' => $e->getMessage(),
+                        'at'      => $now->toIso8601String(),
+                    ];
+                    $auth->last_checked_at = $now;
+                    $remoteStatus = 'PENDING';
+                }
             }
 
-            // Check status (C6 pode dar timeout): não derruba webhook
-            try {
-                $result = $c6->checkAuthorizationStatus($auth->cpf);
-            } catch (Throwable $e) {
-                $auth->last_status_payload = [
-                    'error'   => true,
-                    'message' => $e->getMessage(),
-                    'at'      => $now->toIso8601String(),
-                ];
-                $auth->last_checked_at = $now;
-                $auth->save();
-
-                return response()->noContent();
-            }
-
-            $remoteStatus = strtoupper((string) ($result['status'] ?? 'PENDING'));
-            $storeRaw = (bool) config('c6bank.authorization.store_raw_payload', false);
-
-            $auth->last_status_payload = $storeRaw
-                ? ($result['raw'] ?? null)
-                : ['status' => $remoteStatus, 'at' => $now->toIso8601String()];
-
-            $auth->last_checked_at = $now;
-
+            // AUTHORIZED
             if (in_array($remoteStatus, ['AUTHORIZED', 'AUTORIZADO', 'AUTORIZADO_COM_SUCESSO'], true)) {
                 $auth->status        = BankAuthorization::STATUS_AUTHORIZED;
                 $auth->authorized_at = $now;
@@ -248,6 +254,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 return response()->noContent();
             }
 
+            // DENIED
             if (in_array($remoteStatus, ['DENIED', 'NAO_AUTORIZADO', 'NOT_AUTHORIZED'], true)) {
                 $auth->status    = BankAuthorization::STATUS_DENIED;
                 $auth->failed_at = $now;
@@ -279,12 +286,17 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 return response()->noContent();
             }
 
-            // PENDING: cooldown para lembrete
+            // PENDING: (com ou sem checagem) aplica cooldown de lembrete
+            // ⚠️ BUGFIX: era 1515 no seu trecho colado. O correto é 15.
             $cooldown = (int) config('inovachat.queue_webhook.reminder_cooldown_seconds', 120);
             $cooldown = max(15, $cooldown);
 
             $cooldownKey = 'inovachat:c6wait:reminder:' . ($ticketId !== '' ? $ticketId : $phone);
             if (! Cache::add($cooldownKey, 1, $cooldown)) {
+                // Se não pode responder agora, ainda assim persiste last_checked_at/payload se houve tentativa
+                if ($canCheckStatus) {
+                    $auth->save();
+                }
                 return response()->noContent();
             }
 
@@ -301,6 +313,11 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 queueId: '0',
                 connectionToken: $connectionToken
             );
+
+            // Salva somente se houve tentativa de checagem (reduz IO)
+            if ($canCheckStatus) {
+                $auth->save();
+            }
 
             return response()->noContent();
         } catch (Throwable $e) {
