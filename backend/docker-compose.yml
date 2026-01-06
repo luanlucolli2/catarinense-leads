@@ -50,7 +50,7 @@ services:
   # ===== WORKER DEDICADO: CLT ONLINE =====
   queue-clt-on:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_ON_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    command: "php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_ON_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
@@ -66,7 +66,7 @@ services:
   # ===== WORKER DEDICADO: CLT OFFLINE =====
   queue-clt-off:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    command: "php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
@@ -82,7 +82,7 @@ services:
   # ===== WORKER DEDICADO: FGTS OFF (consultas) =====
   queue-fgts:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=512"
+    command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
@@ -98,7 +98,7 @@ services:
   # ===== WORKER DEDICADO: RELATÓRIOS / PRÉVIAS =====
   queue-reports:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=320"
+    command: "php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
@@ -111,26 +111,14 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
 
-  # ===== WORKER DEDICADO: C6 AUTH LINK =====
-  queue-c6:
+  # ==========================================================
+  # ✅ WORKER UNIFICADO: URA + C6 (prioridade para URA)
+  # - 1 processo, 1 job por vez
+  # - URA sempre ganha (fila "ura" vem primeiro)
+  # ==========================================================
+  queue-ura-c6:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${C6_JOB_QUEUE:-c6-auth} --sleep=1 --verbose --timeout=${C6_JOB_TIMEOUT:-60} --tries=3 --backoff=10 --memory=256"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
-
-  # ===== WORKER DEDICADO: URA (envio de templates oficiais) =====
-  queue-ura:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=${URA_JOB_QUEUE:-ura} --sleep=1 --verbose --timeout=${URA_JOB_TIMEOUT:-60} --memory=256"
+    command: "php artisan queue:work --queue=${URA_JOB_QUEUE:-ura},${C6_JOB_QUEUE:-c6-auth} --sleep=1 --verbose --timeout=120 --tries=3 --backoff=10 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
@@ -146,7 +134,7 @@ services:
   # ===== WORKER GENÉRICO (opcional) =====
   queue-default:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=512"
+    command: "php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=1024"
     environment:
       <<: *app-environment
     volumes:
