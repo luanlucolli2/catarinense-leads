@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -28,24 +29,31 @@ class VerifyInovachatQueueWebhook
             ], 500);
         }
 
-        $payload = $request->all();
-
-        // Suporta múltiplos formatos de payload:
-        // - token_origin no topo
-        // - body.token_origin (doc)
-        // - ticketData.whatsapp.token (alguns payloads)
+        // Evita materializar $request->all()
         $tokenOrigin = (string) (
-            data_get($payload, 'token_origin')
-            ?: data_get($payload, 'body.token_origin')
-            ?: data_get($payload, 'ticketData.whatsapp.token')
+            $request->input('token_origin')
+            ?: $request->input('body.token_origin')
+            ?: $request->input('ticketData.whatsapp.token')
+            ?: ''
         );
 
         if ($tokenOrigin === '' || ! $this->isAllowed($tokenOrigin, $allowed)) {
-            Log::warning('Invalid inovachat queue webhook token_origin', [
-                'expected_count' => count($allowed),
-                'received' => $tokenOrigin !== '' ? (substr($tokenOrigin, 0, 6) . '***') : '(empty)',
-                'ip' => $request->ip(),
-            ]);
+            // Anti-spam de log (ataque/bot)
+            $cooldown = (int) config('inovachat.queue_webhook.unauthorized_log_cooldown_seconds', 60);
+            $cooldown = max(10, $cooldown);
+
+            $logFailures = (bool) config('inovachat.logging.log_failures', true);
+
+            if ($logFailures) {
+                $key = 'inovachat:queuewebhook:unauthlog:' . sha1(($request->ip() ?: '-') . '|' . ($tokenOrigin !== '' ? substr($tokenOrigin, 0, 12) : 'empty'));
+                if (Cache::add($key, 1, $cooldown)) {
+                    Log::warning('Invalid inovachat queue webhook token_origin', [
+                        'expected_count' => count($allowed),
+                        'received'       => $tokenOrigin !== '' ? (substr($tokenOrigin, 0, 6) . '***') : '(empty)',
+                        'ip'             => $request->ip(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'error' => 'unauthorized',

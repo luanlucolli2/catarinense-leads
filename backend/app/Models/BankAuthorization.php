@@ -9,14 +9,15 @@ class BankAuthorization extends Model
 {
     use HasFactory;
 
-    public const STATUS_PENDING   = 'pending';
+    public const STATUS_PENDING    = 'pending';
     public const STATUS_AUTHORIZED = 'authorized';
-    public const STATUS_DENIED    = 'denied';
-    public const STATUS_ERROR     = 'error';
-    public const STATUS_TIMED_OUT = 'timed_out';
+    public const STATUS_DENIED     = 'denied';
+    public const STATUS_ERROR      = 'error';
+    public const STATUS_TIMED_OUT  = 'timed_out';
 
     protected $fillable = [
         'tracking_id',
+        'connection_token', // ✅ desnormalizado para lookup rápido
         'bank',
         'step',
         'cpf',

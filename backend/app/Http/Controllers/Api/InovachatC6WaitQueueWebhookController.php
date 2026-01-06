@@ -26,48 +26,27 @@ class InovachatC6WaitQueueWebhookController extends Controller
         InternalMessageService $internal
     ): Response {
         try {
-            $payload = $request->all();
+            $acao     = (string) $request->input('acao', '');
+            $queueId  = $this->extractQueueId($request);
+            $ticketId = $this->extractTicketId($request);
+            $sender   = $this->extractSender($request);
 
-            $acao     = (string) data_get($payload, 'acao', '');
-            $queueId  = $this->extractQueueId($payload);
-            $ticketId = $this->extractTicketId($payload);
-            $sender   = $this->extractSender($payload);
-
-            // token da conexão (injetado pelo middleware)
             $connectionToken = (string) $request->attributes->get('inovachat_connection_token', '');
-
-            // Multi-conexões: sem token, não processa (evita cross-tenant por telefone)
             if ($connectionToken === '') {
-                Log::warning('Queue webhook: missing connection token attribute (middleware)', [
-                    'acao'     => $acao,
-                    'queueId'  => $queueId,
-                    'ticketId' => $ticketId,
-                ]);
                 return response()->noContent();
             }
 
-            // Só processa a fila esperada
             $waitQueueId = (string) config('inovachat.queue_webhook.c6_wait_queue_id');
             if ($waitQueueId === '' || $queueId !== $waitQueueId) {
                 return response()->noContent();
             }
 
-            // Ignora eventos de update (não são mensagem de chat)
             if ($acao === 'queue_webhook_update') {
                 return response()->noContent();
             }
 
-            // Extrai "fromMe" de forma robusta
-            $fromMe = $this->extractFromMe($payload);
+            $fromMe = $this->extractFromMe($request);
 
-            /**
-             * Regras de origem:
-             * - se conseguimos afirmar fromMe=true => é nosso (ignora)
-             * - se acao=queue_webhook => tratar como cliente (inbound)
-             * - se acao=queue_webhook_from_internal:
-             *     - se fromMe conhecido => respeita
-             *     - se fromMe ausente => por segurança, ignora (evita duplicar processamento)
-             */
             if ($fromMe === true) {
                 return response()->noContent();
             }
@@ -83,38 +62,32 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
             $phone = Phone::normalize($sender);
             if (! $phone) {
-                Log::warning('Queue webhook: invalid sender phone', [
-                    'sender'   => $sender,
-                    'acao'     => $acao,
-                    'queueId'  => $queueId,
-                    'ticketId' => $ticketId,
-                ]);
                 return response()->noContent();
             }
 
-            $messageText = $this->extractMessageText($payload);
+            $messageText = $this->extractMessageText($request);
 
-            // Idempotência curta: evita processar duplicado (ex.: queue_webhook + from_internal)
-            $msgFingerprint = $this->fingerprintInboundMessage($payload, $ticketId, $phone, $messageText);
+            // Dedupe inbound
             $dedupeTtl = (int) config('inovachat.queue_webhook.dedupe_ttl_seconds', 20);
             $dedupeTtl = max(5, $dedupeTtl);
 
+            $msgFingerprint = $this->fingerprintInboundMessage($request, $ticketId, $phone, $messageText);
             $dedupeKey = 'inovachat:c6wait:inbound:' . $msgFingerprint;
+
             if (! Cache::add($dedupeKey, 1, $dedupeTtl)) {
                 return response()->noContent();
             }
 
-            // Busca autorização pendente mais recente (FILTRANDO pela conexão)
+            // ✅ Lookup rápido (sem JOIN) usando connection_token desnormalizado
             $auth = BankAuthorization::query()
                 ->where('bank', 'c6')
                 ->where('status', BankAuthorization::STATUS_PENDING)
                 ->where('phone', $phone)
-                ->whereHas('triage', function ($q) use ($connectionToken) {
-                    $q->where('connection_token', $connectionToken);
-                })
+                ->where('connection_token', $connectionToken)
                 ->orderByDesc('id')
                 ->first();
 
+            // fallback: telefone local (sem +55 etc)
             if (! $auth) {
                 $local = Phone::stripCountry($phone);
                 if ($local) {
@@ -122,22 +95,27 @@ class InovachatC6WaitQueueWebhookController extends Controller
                         ->where('bank', 'c6')
                         ->where('status', BankAuthorization::STATUS_PENDING)
                         ->where('phone', 'like', '%' . $local)
-                        ->whereHas('triage', function ($q) use ($connectionToken) {
-                            $q->where('connection_token', $connectionToken);
-                        })
+                        ->where('connection_token', $connectionToken)
                         ->orderByDesc('id')
                         ->first();
                 }
             }
 
+            // fallback para registros antigos (connection_token null) via JOIN
+            if (! $auth) {
+                $auth = BankAuthorization::query()
+                    ->where('bank', 'c6')
+                    ->where('status', BankAuthorization::STATUS_PENDING)
+                    ->where('phone', $phone)
+                    ->whereNull('connection_token')
+                    ->whereHas('triage', function ($q) use ($connectionToken) {
+                        $q->where('connection_token', $connectionToken);
+                    })
+                    ->orderByDesc('id')
+                    ->first();
+            }
+
             if (! $auth || ! is_string($auth->link) || $auth->link === '') {
-                Log::info('Queue webhook: no pending C6 authorization found', [
-                    'phone'    => $phone,
-                    'ticketId' => $ticketId,
-                    'queueId'  => $queueId,
-                    'acao'     => $acao,
-                    'message'  => $messageText,
-                ]);
                 return response()->noContent();
             }
 
@@ -152,7 +130,6 @@ class InovachatC6WaitQueueWebhookController extends Controller
             $handoffQueueId = (string) config('inovachat.handoff.queue_id');
             $handoffStatus  = (string) config('inovachat.handoff.status', 'pending');
 
-            // helper local: envia whisper sem quebrar o fluxo
             $sendInternal = function (string $body) use ($internal, $ticketId, $connectionToken): bool {
                 if ($ticketId === '' || $connectionToken === '') {
                     return false;
@@ -176,12 +153,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
                         customB: null,
                         connectionToken: $connectionToken
                     );
-                } catch (Throwable $e) {
-                    Log::error('Queue webhook: updateTicket exception', [
-                        'ticketId'  => $ticketId,
-                        'queueId'   => $handoffQueueId,
-                        'exception' => $e->getMessage(),
-                    ]);
+                } catch (Throwable) {
                     return false;
                 }
             };
@@ -189,6 +161,11 @@ class InovachatC6WaitQueueWebhookController extends Controller
             if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
                 $auth->status    = BankAuthorization::STATUS_TIMED_OUT;
                 $auth->failed_at = $now;
+                $auth->last_checked_at = $now;
+                $auth->last_status_payload = [
+                    'status' => 'TIMED_OUT',
+                    'at'     => $now->toIso8601String(),
+                ];
                 $auth->save();
 
                 if ($auth->triage) {
@@ -207,45 +184,47 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
                 $sendInternal(
                     "C6 | NÃO AUTORIZOU (TIMEOUT)\n"
-                        . "AuthorizationID: {$auth->id}\n"
-                        . "CPF: {$auth->cpf}\n"
-                        . "Telefone: {$phone}\n"
-                        . "Handoff: " . ($ok ? 'OK' : 'FALHOU')
+                    . "AuthorizationID: {$auth->id}\n"
+                    . "CPF: {$auth->cpf}\n"
+                    . "Telefone: {$phone}\n"
+                    . "Handoff: " . ($ok ? 'OK' : 'FALHOU')
                 );
-
-                Log::info('Queue webhook: timed out handled', [
-                    'authorization_id' => $auth->id,
-                    'ticketId' => $ticketId,
-                ]);
 
                 return response()->noContent();
             }
 
-            // Polling (C6 pode dar timeout): NÃO derruba webhook
+            // Lock curto (evita dupla checagem com o job de polling)
+            $lockSeconds = (int) config('c6bank.authorization.status_lock_seconds', 30);
+            $lockSeconds = max(5, $lockSeconds);
+
+            $lockKey = 'c6auth:statuslock:' . $auth->id;
+            if (! Cache::add($lockKey, 1, $lockSeconds)) {
+                return response()->noContent();
+            }
+
+            // Check status (C6 pode dar timeout): não derruba webhook
             try {
                 $result = $c6->checkAuthorizationStatus($auth->cpf);
             } catch (Throwable $e) {
                 $auth->last_status_payload = [
-                    'error' => true,
+                    'error'   => true,
                     'message' => $e->getMessage(),
-                    'at' => $now->toIso8601String(),
+                    'at'      => $now->toIso8601String(),
                 ];
                 $auth->last_checked_at = $now;
                 $auth->save();
 
-                Log::warning('Queue webhook: C6 status check failed; treating as PENDING', [
-                    'authorization_id' => $auth->id,
-                    'cpf'              => $auth->cpf,
-                    'exception'        => $e->getMessage(),
-                ]);
-
-                $result = ['status' => 'PENDING', 'raw' => $auth->last_status_payload];
+                return response()->noContent();
             }
 
-            $auth->last_status_payload = $result['raw'] ?? null;
-            $auth->last_checked_at     = $now;
-
             $remoteStatus = strtoupper((string) ($result['status'] ?? 'PENDING'));
+            $storeRaw = (bool) config('c6bank.authorization.store_raw_payload', false);
+
+            $auth->last_status_payload = $storeRaw
+                ? ($result['raw'] ?? null)
+                : ['status' => $remoteStatus, 'at' => $now->toIso8601String()];
+
+            $auth->last_checked_at = $now;
 
             if (in_array($remoteStatus, ['AUTHORIZED', 'AUTORIZADO', 'AUTORIZADO_COM_SUCESSO'], true)) {
                 $auth->status        = BankAuthorization::STATUS_AUTHORIZED;
@@ -265,11 +244,6 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 );
 
                 $safeUpdateTicket();
-
-                Log::info('Queue webhook: authorized handled', [
-                    'authorization_id' => $auth->id,
-                    'ticketId' => $ticketId,
-                ]);
 
                 return response()->noContent();
             }
@@ -295,22 +269,17 @@ class InovachatC6WaitQueueWebhookController extends Controller
 
                 $sendInternal(
                     "C6 | NÃO AUTORIZOU (DENIED)\n"
-                        . "AuthorizationID: {$auth->id}\n"
-                        . "CPF: {$auth->cpf}\n"
-                        . "Telefone: {$phone}\n"
-                        . "StatusRemoto: {$remoteStatus}\n"
-                        . "Handoff: " . ($ok ? 'OK' : 'FALHOU')
+                    . "AuthorizationID: {$auth->id}\n"
+                    . "CPF: {$auth->cpf}\n"
+                    . "Telefone: {$phone}\n"
+                    . "StatusRemoto: {$remoteStatus}\n"
+                    . "Handoff: " . ($ok ? 'OK' : 'FALHOU')
                 );
-
-                Log::info('Queue webhook: denied handled', [
-                    'authorization_id' => $auth->id,
-                    'ticketId' => $ticketId,
-                ]);
 
                 return response()->noContent();
             }
 
-            // PENDING: cooldown apenas para lembrete
+            // PENDING: cooldown para lembrete
             $cooldown = (int) config('inovachat.queue_webhook.reminder_cooldown_seconds', 120);
             $cooldown = max(15, $cooldown);
 
@@ -325,7 +294,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 . "Caso ainda não tenha feito, utilize o link abaixo:\n"
                 . "🔗 {$auth->link}";
 
-            $sent = $texts->sendText(
+            $texts->sendText(
                 number: $phone,
                 body: $text,
                 openTicket: '0',
@@ -333,65 +302,58 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 connectionToken: $connectionToken
             );
 
-            Log::info('Queue webhook: pending reminder sent', [
-                'phone'    => $phone,
-                'ticketId' => $ticketId,
-                'queueId'  => $queueId,
-                'acao'     => $acao,
-                'message'  => $messageText,
-                'sent'     => $sent,
-            ]);
-
             return response()->noContent();
         } catch (Throwable $e) {
-            // Nunca derruba o webhook da fila por erro inesperado
-            Log::error('Queue webhook: fatal exception (swallowed)', [
-                'exception' => $e->getMessage(),
-            ]);
+            $logFailures = (bool) config('inovachat.logging.log_failures', true);
+            if ($logFailures) {
+                Log::error('Queue webhook: fatal exception (swallowed)', [
+                    'exception' => $e->getMessage(),
+                ]);
+            }
 
             return response()->noContent();
         }
     }
 
-    private function extractQueueId(array $payload): string
+    private function extractQueueId(Request $request): string
     {
-        $val = data_get($payload, 'filaescolhidaid')
-            ?: data_get($payload, 'queueId')
-            ?: data_get($payload, 'ticketData.queueId')
-            ?: data_get($payload, 'mensagem.queueId')
+        $val = $request->input('filaescolhidaid')
+            ?: $request->input('queueId')
+            ?: $request->input('ticketData.queueId')
+            ?: $request->input('mensagem.queueId')
             ?: '';
 
         return is_scalar($val) ? (string) $val : '';
     }
 
-    private function extractTicketId(array $payload): string
+    private function extractTicketId(Request $request): string
     {
-        $val = data_get($payload, 'chamadoId')
-            ?: data_get($payload, 'ticketData.id')
-            ?: data_get($payload, 'mensagem.ticketId')
-            ?: data_get($payload, 'mensagem.ticket.id')
+        $val = $request->input('chamadoId')
+            ?: $request->input('ticketData.id')
+            ?: $request->input('mensagem.ticketId')
+            ?: $request->input('mensagem.ticket.id')
             ?: '';
 
         return is_scalar($val) ? (string) $val : '';
     }
 
-    private function extractSender(array $payload): string
+    private function extractSender(Request $request): string
     {
-        $val = data_get($payload, 'sender')
-            ?: data_get($payload, 'ticketData.contact.number')
-            ?: data_get($payload, 'mensagem.contact.number')
-            ?: data_get($payload, 'mensagem.ticket.contact.number')
+        $val = $request->input('sender')
+            ?: $request->input('ticketData.contact.number')
+            ?: $request->input('mensagem.contact.number')
+            ?: $request->input('mensagem.ticket.contact.number')
             ?: '';
 
         return is_scalar($val) ? (string) $val : '';
     }
 
-    private function extractFromMe(array $payload): ?bool
+    private function extractFromMe(Request $request): ?bool
     {
         $candidates = [
-            data_get($payload, 'fromMe', null),
-            data_get($payload, 'mensagem.fromMe', null),
-            data_get($payload, 'mensagem.body.fromMe', null),
+            $request->input('fromMe'),
+            $request->input('mensagem.fromMe'),
+            $request->input('mensagem.body.fromMe'),
         ];
 
         foreach ($candidates as $v) {
@@ -407,9 +369,9 @@ class InovachatC6WaitQueueWebhookController extends Controller
         return null;
     }
 
-    private function extractMessageText(array $payload): string
+    private function extractMessageText(Request $request): string
     {
-        $m = data_get($payload, 'mensagem');
+        $m = $request->input('mensagem');
 
         if (is_string($m)) {
             return trim($m);
@@ -420,7 +382,7 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 $parts = [];
                 foreach ($m as $item) {
                     if (is_array($item)) {
-                        $t = data_get($item, 'text');
+                        $t = $item['text'] ?? null;
                         if (is_string($t) && trim($t) !== '') {
                             $parts[] = trim($t);
                         }
@@ -429,38 +391,38 @@ class InovachatC6WaitQueueWebhookController extends Controller
                 return trim(implode("\n", $parts));
             }
 
-            $body = data_get($m, 'body');
+            $body = $m['body'] ?? null;
             if (is_string($body)) {
                 return trim($body);
             }
         }
 
-        $fallback = data_get($payload, 'msg.message.conversation')
-            ?: data_get($payload, 'body.mensagem')
-            ?: data_get($payload, 'ticketData.lastMessage')
+        $fallback = $request->input('msg.message.conversation')
+            ?: $request->input('body.mensagem')
+            ?: $request->input('ticketData.lastMessage')
             ?: '';
 
         return is_string($fallback) ? trim($fallback) : '';
     }
 
-    private function fingerprintInboundMessage(array $payload, string $ticketId, string $phone, string $messageText): string
+    private function fingerprintInboundMessage(Request $request, string $ticketId, string $phone, string $messageText): string
     {
-        $acao = (string) data_get($payload, 'acao', '');
+        $acao = (string) $request->input('acao', '');
 
         $messageId =
-            data_get($payload, 'mensagem.wid')
-            ?: data_get($payload, 'mensagem.id')
-            ?: data_get($payload, 'mensagem.providerMessageId')
-            ?: data_get($payload, 'mensagem.messageTimestamp')
-            ?: data_get($payload, 'ticketData.updatedAt')
-            ?: null;
+            $request->input('mensagem.wid')
+            ?: $request->input('mensagem.id')
+            ?: $request->input('mensagem.providerMessageId')
+            ?: $request->input('mensagem.messageTimestamp')
+            ?: $request->input('ticketData.updatedAt')
+            ?: '';
 
         $basis = [
-            'acao' => $acao,
-            'ticketId' => $ticketId,
-            'phone' => $phone,
+            'acao'      => $acao,
+            'ticketId'  => $ticketId,
+            'phone'     => $phone,
             'messageId' => is_scalar($messageId) ? (string) $messageId : '',
-            'text' => $messageText,
+            'text'      => $messageText,
         ];
 
         return sha1(json_encode($basis, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));

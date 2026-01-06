@@ -21,16 +21,12 @@ class InovachatTriageController extends Controller
 
         $data = $request->validate([
             'cpf'              => ['required', 'string', 'max:100'],
-
-            // Multi-conexões: obrigatório e idealmente validado contra allowlist
             'connection_token' => array_values(array_filter([
                 'required',
                 'string',
                 'max:255',
                 !empty($allowedTokens) ? Rule::in($allowedTokens) : null,
             ])),
-
-            // A partir daqui: você pediu para tornar tudo obrigatório
             'phone'            => ['required', 'string', 'max:32'],
             'ticket_id'        => ['required', 'string', 'max:64'],
             'protocol'         => ['required', 'string', 'max:64'],
@@ -48,7 +44,7 @@ class InovachatTriageController extends Controller
         }
 
         $phone = Phone::normalize($data['phone']);
-        if (!$phone) {
+        if (! $phone) {
             return response()->json([
                 'error'   => 'phone_invalid',
                 'message' => 'Telefone inválido. Revise o número informado.',
@@ -70,17 +66,19 @@ class InovachatTriageController extends Controller
             'status'           => 'started',
         ]);
 
-        Log::info('Inovachat triage webhook received', [
-            'tracking_id'      => $trackingId,
-            'cpf'              => $normalizedCpf,
-            'phone'            => $phone,
-            'ticket_id'        => $data['ticket_id'],
-            'protocol'         => $data['protocol'],
-            'connection_token' => $data['connection_token'],
-            'ip'               => $request->ip(),
-        ]);
+        // Log detalhado só se habilitar
+        if ((bool) config('inovachat.logging.verbose', false)) {
+            Log::info('Inovachat triage webhook received', [
+                'tracking_id'      => $trackingId,
+                'cpf'              => $normalizedCpf,
+                'phone'            => $phone,
+                'ticket_id'        => $data['ticket_id'],
+                'protocol'         => $data['protocol'],
+                'connection_token' => $data['connection_token'],
+                'ip'               => $request->ip(),
+            ]);
+        }
 
-        // openTicket/queueId não vêm da triagem. Mantemos "0" para chamadas de mensagem (quando aplicável).
         GenerateC6AuthorizationLinkJob::dispatch(
             trackingId: $trackingId,
             cpf: $normalizedCpf,

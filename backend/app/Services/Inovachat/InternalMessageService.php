@@ -11,31 +11,16 @@ class InternalMessageService
     /**
      * Envia uma mensagem interna (whisper) para um ticket no Inovachat.
      *
-     * Doc (Inovachat): POST /api/messages/internal
+     * POST /api/messages/internal
      * Payload: { ticketId, body }
      * Auth: Bearer (token da conexão)
      */
     public function sendInternal(string $ticketId, string $body, string $connectionToken): bool
     {
-        $baseUrl = rtrim((string) config('inovachat.backend_url', config('services.inovachat.backend_url', '')), '/');
+        // Unifica a base com os demais services (evita config inexistente backend_url)
+        $baseUrl = rtrim((string) config('inovachat.api.base_url'), '/');
 
-        if ($baseUrl === '') {
-            Log::warning('InternalMessageService: missing backend_url config');
-            return false;
-        }
-
-        if ($connectionToken === '') {
-            Log::warning('InternalMessageService: missing connection token', [
-                'ticket_id' => $ticketId,
-            ]);
-            return false;
-        }
-
-        if ($ticketId === '' || $body === '') {
-            Log::warning('InternalMessageService: missing ticketId/body', [
-                'ticket_id' => $ticketId,
-                'has_body'  => $body !== '',
-            ]);
+        if ($baseUrl === '' || $connectionToken === '' || $ticketId === '' || $body === '') {
             return false;
         }
 
@@ -46,31 +31,49 @@ class InternalMessageService
             'body'     => (string) $body,
         ];
 
-        try {
-            $timeout = (int) config('inovachat.http.timeout', 15);
+        $timeout      = (int) config('inovachat.http.timeout', 10);
+        $connect      = (int) config('inovachat.http.connect_timeout', 5);
+        $retries      = (int) config('inovachat.http.retry', 1);
+        $retryDelayMs = (int) config('inovachat.http.retry_delay_ms', 200);
 
-            $response = Http::timeout($timeout)
-                ->withToken($connectionToken)
+        $logFailures = (bool) config('inovachat.logging.log_failures', true);
+
+        try {
+            $request = Http::withToken($connectionToken)
                 ->acceptJson()
                 ->asJson()
-                ->post($endpoint, $payload);
+                ->timeout($timeout)
+                ->connectTimeout($connect);
 
-            if ($response->successful()) {
-                return true;
+            $response = null;
+
+            for ($attempt = 0; $attempt <= $retries; $attempt++) {
+                $response = $request->post($endpoint, $payload);
+
+                if ($response->successful()) {
+                    return true;
+                }
+
+                if ($attempt < $retries) {
+                    usleep($retryDelayMs * 1000);
+                }
             }
 
-            Log::warning('InternalMessageService: request failed', [
-                'ticket_id' => $ticketId,
-                'status'    => $response->status(),
-                'body'      => $response->body(),
-            ]);
+            if ($logFailures) {
+                Log::warning('InternalMessageService: request failed', [
+                    'ticket_id' => $ticketId,
+                    'status'    => $response?->status(),
+                ]);
+            }
 
             return false;
         } catch (Throwable $e) {
-            Log::error('InternalMessageService: exception while sending internal message', [
-                'ticket_id'  => $ticketId,
-                'exception'  => $e->getMessage(),
-            ]);
+            if ($logFailures) {
+                Log::error('InternalMessageService: exception while sending internal message', [
+                    'ticket_id' => $ticketId,
+                    'exception' => $e->getMessage(),
+                ]);
+            }
 
             return false;
         }

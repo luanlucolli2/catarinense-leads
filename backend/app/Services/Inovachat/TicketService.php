@@ -18,14 +18,9 @@ class TicketService
         ?string $connectionToken = null
     ): bool {
         $baseUrl = rtrim((string) config('inovachat.api.base_url'), '/');
+        $token   = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
 
-        $token = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
-
-        if ($baseUrl === '' || $token === '') {
-            Log::error('Inovachat TicketService not configured', [
-                'base_url' => $baseUrl,
-                'has_token' => $token !== '',
-            ]);
+        if ($baseUrl === '' || $token === '' || $ticketId === '' || $status === '') {
             return false;
         }
 
@@ -47,6 +42,8 @@ class TicketService
         $retries      = (int) config('inovachat.http.retry', 1);
         $retryDelayMs = (int) config('inovachat.http.retry_delay_ms', 200);
 
+        $logFailures = (bool) config('inovachat.logging.log_failures', true);
+
         try {
             $request = Http::withToken($token)
                 ->acceptJson()
@@ -60,11 +57,6 @@ class TicketService
                 $response = $request->post($url, $payload);
 
                 if ($response->successful()) {
-                    Log::info('Inovachat ticket updated', [
-                        'ticketId' => $ticketId,
-                        'status' => $status,
-                        'queueId' => $queueId,
-                    ]);
                     return true;
                 }
 
@@ -73,22 +65,24 @@ class TicketService
                 }
             }
 
-            Log::warning('Inovachat ticket update failed', [
-                'ticketId' => $ticketId,
-                'status' => $status,
-                'queueId' => $queueId,
-                'http_status' => $response?->status(),
-                'body' => $response?->body(),
-            ]);
+            if ($logFailures) {
+                Log::warning('Inovachat ticket update failed', [
+                    'ticketId' => $ticketId,
+                    'status'   => $status,
+                    'http'     => $response?->status(),
+                ]);
+            }
 
             return false;
         } catch (\Throwable $e) {
-            Log::error('Inovachat ticket update exception', [
-                'ticketId' => $ticketId,
-                'status' => $status,
-                'queueId' => $queueId,
-                'exception' => $e->getMessage(),
-            ]);
+            if ($logFailures) {
+                Log::error('Inovachat ticket update exception', [
+                    'ticketId'  => $ticketId,
+                    'status'    => $status,
+                    'exception' => $e->getMessage(),
+                ]);
+            }
+
             return false;
         }
     }
