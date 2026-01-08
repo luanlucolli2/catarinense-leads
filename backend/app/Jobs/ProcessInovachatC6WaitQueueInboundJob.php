@@ -35,7 +35,6 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
         $this->tries   = 3;
         $this->backoff = 10;
 
-        // Mantém coerência: este job deve cair no mesmo worker/queue do C6 (se você estiver unificando)
         $this->onQueue((string) config('c6bank.job.queue', 'c6-auth'));
     }
 
@@ -54,17 +53,42 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
             return;
         }
 
-        // Só faz sentido enquanto estiver pendente
         if ($auth->status !== BankAuthorization::STATUS_PENDING) {
             return;
         }
 
-        // Segurança extra
         if (! is_string($auth->link) || $auth->link === '') {
             return;
         }
 
         $now = Carbon::now();
+
+        /**
+         * ✅ EXCEÇÃO (pedido):
+         * Se o ticket saiu da fila de espera por ação humana, encerra o tracking e não faz mais nada.
+         */
+        $waitQueueId = (string) config('inovachat.queue_webhook.c6_wait_queue_id');
+        if ($this->ticketId !== '' && $this->connectionToken !== '' && $waitQueueId !== '') {
+            $ticket = $tickets->getTicket($this->ticketId, $this->connectionToken);
+            $currentQueueId = is_array($ticket) ? (string) ($ticket['queueId'] ?? '') : '';
+
+            if ($ticket !== null && $currentQueueId !== $waitQueueId) {
+                $auth->status = 'aborted';
+                $auth->last_checked_at = $now;
+                $auth->last_status_payload = [
+                    'status' => 'ABORTED_QUEUE_CHANGED',
+                    'queueId' => $currentQueueId,
+                    'at' => $now->toIso8601String(),
+                ];
+                $auth->save();
+
+                if ($auth->triage) {
+                    $auth->triage->update(['status' => 'aborted']);
+                }
+
+                return;
+            }
+        }
 
         $maxWaitMinutes = (int) config('c6bank.authorization.max_wait_minutes', 20);
         $maxWaitMinutes = max(1, $maxWaitMinutes);
@@ -103,7 +127,7 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
             }
         };
 
-        // TIMEOUT (fim do fluxo)
+        // TIMEOUT
         if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
             $auth->status              = BankAuthorization::STATUS_TIMED_OUT;
             $auth->failed_at           = $now;
@@ -141,10 +165,6 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
             return;
         }
 
-        /**
-         * Regra:
-         * - Se não pegar lock, não consulta C6 agora (evita custo), mas pode mandar lembrete (cooldown).
-         */
         $remoteStatus = 'PENDING';
 
         $lockSeconds = (int) config('c6bank.authorization.status_lock_seconds', 30);
@@ -166,7 +186,6 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
 
                 $auth->last_checked_at = $now;
             } catch (Throwable $e) {
-                // Falhou checar C6: trata como PENDING e segue
                 $auth->last_status_payload = [
                     'error'   => true,
                     'message' => $e->getMessage(),
@@ -241,7 +260,6 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
 
         $cooldownKey = 'inovachat:c6wait:reminder:' . ($ticketId !== '' ? $ticketId : $phone);
         if (! Cache::add($cooldownKey, 1, $cooldown)) {
-            // Se houve tentativa de checagem, persiste o payload/checked_at
             if ($canCheckStatus) {
                 $auth->save();
             }
@@ -264,7 +282,6 @@ class ProcessInovachatC6WaitQueueInboundJob implements ShouldQueue
             );
         }
 
-        // Salva somente se houve tentativa de checagem (reduz IO)
         if ($canCheckStatus) {
             $auth->save();
         }

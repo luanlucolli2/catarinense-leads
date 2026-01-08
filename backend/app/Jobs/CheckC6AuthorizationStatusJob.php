@@ -78,6 +78,33 @@ class CheckC6AuthorizationStatusJob implements ShouldQueue
 
         $logFailures = (bool) config('inovachat.logging.log_failures', true);
 
+        /**
+         * ✅ EXCEÇÃO (pedido):
+         * Se o ticket saiu da fila de espera por ação humana, encerra o tracking e não faz mais nada.
+         */
+        $waitQueueId = (string) config('inovachat.queue_webhook.c6_wait_queue_id');
+        if ($ticketId !== '' && $connectionToken !== '' && $waitQueueId !== '') {
+            $ticket = $tickets->getTicket($ticketId, $connectionToken);
+            $currentQueueId = is_array($ticket) ? (string) ($ticket['queueId'] ?? '') : '';
+
+            if ($ticket !== null && $currentQueueId !== $waitQueueId) {
+                $auth->status = 'aborted';
+                $auth->last_checked_at = $now;
+                $auth->last_status_payload = [
+                    'status' => 'ABORTED_QUEUE_CHANGED',
+                    'queueId' => $currentQueueId,
+                    'at' => $now->toIso8601String(),
+                ];
+                $auth->save();
+
+                if ($auth->triage) {
+                    $auth->triage->update(['status' => 'aborted']);
+                }
+
+                return;
+            }
+        }
+
         // TIMEOUT
         if ($elapsedSeconds >= ($maxWaitMinutes * 60)) {
             $this->markTimedOut($auth, $now);
