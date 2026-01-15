@@ -58,7 +58,7 @@ class CltOfflineApiService
         $this->httpSecondTimeout = (int) ($http['second_timeout'] ?? 8);
         $this->httpSecondConnectTimeout = (int) ($http['second_connect_timeout'] ?? 4);
 
-        $this->minIntervalMs = (int) env('CLT_OFF_MIN_INTERVAL_MS', 3000);
+        $this->minIntervalMs = (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200);
     }
 
     /** GET {BASE}/gera-token */
@@ -130,7 +130,7 @@ class CltOfflineApiService
 
     /**
      * Consulta sequencial com intervalo mínimo por request.
-     * Endpoint: {BASE}/clt/base-offline/debug?cpf=...
+     * Endpoint: {BASE}/clt/base-offline?cpf=...
      * Retorna [cpf => resultado canônico].
      */
     public function autorizaConsultaLote(array $cpfs): array
@@ -168,7 +168,9 @@ class CltOfflineApiService
             'Authorization' => 'Bearer ' . $token,
             'Accept' => 'application/json',
         ];
-        $url = $this->baseUrl . '/clt/base-offline/debug';
+        
+        // CORREÇÃO: Removemos o /debug pois o manual v2.0 especifica /clt/base-offline
+        $url = $this->baseUrl . '/clt/base-offline';
 
         $out = [];
 
@@ -206,6 +208,7 @@ class CltOfflineApiService
                     'retry_after' => $this->minIntervalMs / 1000,
                 ];
             } finally {
+                // Atualiza o timer APÓS a requisição para garantir o intervalo entre o FIM de uma e o INÍCIO da próxima
                 $this->markRequestDone();
             }
         }
@@ -320,7 +323,8 @@ class CltOfflineApiService
             }
 
             if ($this->isRetryLaterMessage($mensagem)) {
-                $retryAfter = $retryAfter ?? 3;
+                // Manual diz 3 segundos, então forçamos um retryAfter seguro
+                $retryAfter = $retryAfter ?? 4; 
                 return [
                     'ok' => false,
                     'mensagem' => $mensagem,

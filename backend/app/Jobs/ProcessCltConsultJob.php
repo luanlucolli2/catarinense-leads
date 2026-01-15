@@ -71,7 +71,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
     }
 
-  public function handle(): void
+    public function handle(): void
     {
         /** @var CltConsultJob|null $job */
         $job = CltConsultJob::query()->whereKey($this->jobId)->first();
@@ -151,7 +151,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             try {
                 $batch = [];
                 $snapSz = 500;
-                
+
                 // Formato BR leve calculado uma vez
                 $nowBr = date('d/m/Y H:i:s');
 
@@ -167,7 +167,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
-                        $row['consulted_at'] = $nowBr; 
+                        $row['consulted_at'] = $nowBr;
                         $batch[] = $row;
                         $invCount++;
                         if (count($batch) >= $snapSz) {
@@ -313,7 +313,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $rows = [];
                     $batch = 500;
                     $left = 0;
-                    
+
                     // Formato BR leve
                     $nowBr = date('d/m/Y H:i:s');
 
@@ -385,9 +385,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $semRespInChunk = 0;
         $http429InChunk = 0;
 
-        // Data da consulta FORMATO BR (d/m/Y H:i:s)
-        // Usamos date() nativo para ser extremamente leve em RAM/CPU
-        $nowStr = date('d/m/Y H:i:s');
+        // CORREÇÃO: Força o timezone BR (America/Sao_Paulo) explicitamente.
+        // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
+        // Isso é extremamente leve para o servidor (custo zero de CPU no loop).
+        $nowStr = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
 
         foreach ($slices as $idx => $slice) {
             if ($this->finishIfStopped($job))
