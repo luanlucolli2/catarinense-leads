@@ -126,11 +126,11 @@ services:
     memswap_limit: "1024m"
     cpu_shares: 768
 
-  # ===== FGTS OFF (alta) — reduzido =====
+  # ===== FGTS OFF (alta) =====
   queue-fgts:
     image: leads-backend
     container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=400 --tries=3 --backoff=60
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -141,15 +141,15 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 448m
-    memswap_limit: "1024m"
-    cpu_shares: 1536
+    mem_limit: 472m
+    memswap_limit: "1536m"
+    cpu_shares: 2048
 
-  # ===== RELATÓRIOS/PRÉVIAS (alta) — reduzido =====
+  # ===== RELATÓRIOS/PRÉVIAS (alta) =====
   queue-reports:
     image: leads-backend
     container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=320 --tries=3 --backoff=30
+    command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
     env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
@@ -160,28 +160,9 @@ services:
     networks: [sail]
     restart: unless-stopped
     stop_grace_period: 120s
-    mem_limit: 352m
-    memswap_limit: "768m"
-    cpu_shares: 1024
-
-  # ===== C6 AUTH / INOVACHAT (novo) =====
-  queue-c6:
-    image: leads-backend
-    container_name: leads-queue-c6
-    command: php -d memory_limit=192M artisan queue:work --queue=${C6_JOB_QUEUE:-c6-auth} --sleep=1 --verbose --timeout=${C6_JOB_TIMEOUT:-60} --tries=3 --backoff=10 --memory=192
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 256m
-    memswap_limit: "512m"
-    cpu_shares: 256
+    mem_limit: 384m
+    memswap_limit: "1024m"
+    cpu_shares: 1536
 
   frontend:
     build:
