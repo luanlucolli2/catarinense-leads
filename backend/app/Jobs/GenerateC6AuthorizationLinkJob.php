@@ -3,8 +3,11 @@
 namespace App\Jobs;
 
 use App\Models\BankAuthorization;
+use App\Models\InovachatTriage;
 use App\Services\C6\C6AuthorizationService;
+use App\Services\Inovachat\InternalMessageService;
 use App\Services\Inovachat\TextMessageService;
+use App\Services\Inovachat\TicketService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -12,6 +15,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class GenerateC6AuthorizationLinkJob implements ShouldQueue
 {
@@ -29,7 +33,6 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
     private string $openTicket;
     private string $queueId;
 
-    // token da conexão (mesmo valor do token_origin)
     private string $connectionToken;
 
     public function __construct(
@@ -42,13 +45,13 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         string $queueId = '0',
         string $connectionToken = ''
     ) {
-        $this->trackingId = $trackingId;
-        $this->cpf        = $cpf;
-        $this->firstName  = $firstName;
-        $this->fullName   = $fullName;
-        $this->phone      = $phone;
-        $this->openTicket = $openTicket;
-        $this->queueId    = $queueId;
+        $this->trackingId      = $trackingId;
+        $this->cpf             = $cpf;
+        $this->firstName       = $firstName;
+        $this->fullName        = $fullName;
+        $this->phone           = $phone;
+        $this->openTicket      = $openTicket;
+        $this->queueId         = $queueId;
         $this->connectionToken = $connectionToken;
 
         $queue          = config('c6bank.job.queue', 'c6-auth');
@@ -58,71 +61,110 @@ class GenerateC6AuthorizationLinkJob implements ShouldQueue
         $this->timeout = $timeoutSeconds;
     }
 
-    public function handle(
-        C6AuthorizationService $c6,
-        TextMessageService $texts
-    ): void {
+    public function handle(C6AuthorizationService $c6, TextMessageService $texts): void
+    {
         $name = $this->firstName ?: ($this->fullName ?: 'Cliente');
-
         [$ddd, $localNumber] = $this->splitPhone($this->phone);
 
-        try {
-            $link = $c6->generateLink($this->cpf, $name, $ddd, $localNumber);
+        $link = $c6->generateLink($this->cpf, $name, $ddd, $localNumber);
 
-            $authorization = BankAuthorization::create([
-                'tracking_id' => $this->trackingId,
-                'bank'        => 'c6',
-                'step'        => 'authorization',
-                'cpf'         => $this->cpf,
-                'phone'       => $this->phone,
-                'link'        => $link,
-                'status'      => BankAuthorization::STATUS_PENDING,
-            ]);
+        $authorization = BankAuthorization::create([
+            'tracking_id'       => $this->trackingId,
+            'connection_token'  => $this->connectionToken ?: null, // ✅ lookup rápido no webhook
+            'bank'              => 'c6',
+            'step'              => 'authorization',
+            'cpf'               => $this->cpf,
+            'phone'             => $this->phone,
+            'link'              => $link,
+            'status'            => BankAuthorization::STATUS_PENDING,
+        ]);
 
-            $maxWaitMinutes = (int) config('c6bank.authorization.max_wait_minutes', 20);
-            $maxWaitMinutes = max(1, $maxWaitMinutes);
+        $body =
+            "{$name}, preciso só da sua autorização no C6 pra eu simular seus valores ✅\n\n"
+            . "🔗 Autorize aqui:\n{$link}\n\n"
+            . "É seguro: não dá acesso à sua conta e não retira dinheiro.\n"
+            . "Se pedir foto do rosto, é só confirmação do C6.\n\n"
+            . "Quando concluir, me avise aqui que eu confiro na hora. ⏱️";
 
-            $body =
-                "👋 Oi, {$name}!\n\n"
-                . "Para eu continuar sua análise de crédito, preciso de uma autorização rápida no C6 Bank ✅\n\n"
-                . "🔗 Toque no link e confirme:\n{$link}\n\n"
-                . "⏱️ Vou acompanhar por até {$maxWaitMinutes} min e te aviso assim que liberar.\n"
-                . "Se já autorizou e me mandar mensagem aqui, eu confiro na hora. 🙌";
+        if ($this->phone) {
+            $texts->sendText(
+                number: $this->phone,
+                body: $body,
+                openTicket: '0',
+                queueId: '0',
+                connectionToken: $this->connectionToken
+            );
+        }
 
-            $sent = false;
+        $firstDelaySeconds = (int) config('c6bank.authorization.first_poll_delay_seconds', 60);
+        $firstDelaySeconds = max(5, $firstDelaySeconds);
 
-            if ($this->phone) {
-                $sent = $texts->sendText(
-                    number: $this->phone,
-                    body: $body,
-                    openTicket: '0',
-                    queueId: '0',
-                    connectionToken: $this->connectionToken
+        CheckC6AuthorizationStatusJob::dispatch($authorization->id)
+            ->delay(Carbon::now()->addSeconds($firstDelaySeconds));
+    }
+
+    public function failed(Throwable $e): void
+    {
+        $triage = InovachatTriage::where('tracking_id', $this->trackingId)->first();
+
+        $ticketId        = (string) ($triage?->ticket_id ?: '');
+        $connectionToken = (string) ($triage?->connection_token ?: $this->connectionToken);
+
+        $handoffQueueId = (string) config('inovachat.handoff.queue_id');
+        $handoffStatus  = (string) config('inovachat.handoff.status', 'pending');
+
+        $logFailures = (bool) config('inovachat.logging.log_failures', true);
+
+        $handoffOk = false;
+        if ($ticketId !== '' && $handoffQueueId !== '' && $connectionToken !== '') {
+            try {
+                $tickets = app(TicketService::class);
+                $handoffOk = (bool) $tickets->updateTicket(
+                    ticketId: $ticketId,
+                    status: $handoffStatus,
+                    queueId: $handoffQueueId,
+                    userId: null,
+                    typebotSessionId: null,
+                    customA: null,
+                    customB: null,
+                    connectionToken: $connectionToken
                 );
+            } catch (Throwable) {
+                // sem log aqui (reduz ruído); o erro final abaixo basta
             }
+        }
 
-            $firstDelaySeconds = (int) config('c6bank.authorization.first_poll_delay_seconds', 60);
-            $firstDelaySeconds = max(5, $firstDelaySeconds);
+        $internalOk = false;
+        if ($ticketId !== '' && $connectionToken !== '') {
+            try {
+                $internal = app(InternalMessageService::class);
 
-            CheckC6AuthorizationStatusJob::dispatch($authorization->id)
-                ->delay(Carbon::now()->addSeconds($firstDelaySeconds));
+                $msg =
+                    "C6 | FALHA AO GERAR LINK DE AUTORIZAÇÃO\n"
+                    . "Tracking: {$this->trackingId}\n"
+                    . "CPF: {$this->cpf}\n"
+                    . "Telefone: " . ($this->phone ?: '-') . "\n"
+                    . "Erro: {$e->getMessage()}\n"
+                    . "Handoff: " . ($handoffOk ? 'OK' : 'FALHOU/SKIPPED');
 
-            Log::info('GenerateC6AuthorizationLinkJob finished', [
-                'tracking_id'       => $this->trackingId,
-                'cpf'               => $this->cpf,
-                'phone'             => $this->phone,
-                'sent'              => $sent,
-                'authorization_id'  => $authorization->id,
-                'first_poll_delay'  => $firstDelaySeconds,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('GenerateC6AuthorizationLinkJob failed', [
+                $internalOk = $internal->sendInternal(
+                    ticketId: $ticketId,
+                    body: $msg,
+                    connectionToken: $connectionToken
+                );
+            } catch (Throwable) {
+                // idem
+            }
+        }
+
+        if ($logFailures) {
+            Log::error('GenerateC6AuthorizationLinkJob failed permanently', [
                 'tracking_id' => $this->trackingId,
-                'cpf'         => $this->cpf,
+                'ticket_id'   => $ticketId,
+                'handoff_ok'  => $handoffOk,
+                'internal_ok' => $internalOk,
                 'exception'   => $e->getMessage(),
             ]);
-
-            throw $e;
         }
     }
 

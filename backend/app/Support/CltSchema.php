@@ -40,6 +40,9 @@ final class CltSchema
         'pessoaExpostaPoliticamente_descricao',
         'status_code',
         'mensagem',
+        // NOVAS COLUNAS DE DATA
+        'updated_at',
+        'consulted_at',
     ];
 
     /**
@@ -77,6 +80,9 @@ final class CltSchema
         'Pessoa Exposta Politicamente',
         'Status Code',
         'Mensagem',
+        // NOVOS TÍTULOS
+        'Data de Atualização (Origem)',
+        'Data da Consulta',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string
