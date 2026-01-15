@@ -71,7 +71,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
     }
 
-    public function handle(): void
+  public function handle(): void
     {
         /** @var CltConsultJob|null $job */
         $job = CltConsultJob::query()->whereKey($this->jobId)->first();
@@ -151,6 +151,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             try {
                 $batch = [];
                 $snapSz = 500;
+                
+                // Formato BR leve calculado uma vez
+                $nowBr = date('d/m/Y H:i:s');
+
                 while (($line = fgets($reader)) !== false) {
                     if ($this->finishIfStopped($job))
                         return;
@@ -163,11 +167,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
+                        $row['consulted_at'] = $nowBr; 
                         $batch[] = $row;
                         $invCount++;
                         if (count($batch) >= $snapSz) {
                             $this->spoolAppendManyPersist($job, $batch);
                             $batch = [];
+                            $nowBr = date('d/m/Y H:i:s'); // Atualiza relógio a cada lote
                         }
                     } else {
                         fwrite($pf, $cpf . "\n");
@@ -307,6 +313,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $rows = [];
                     $batch = 500;
                     $left = 0;
+                    
+                    // Formato BR leve
+                    $nowBr = date('d/m/Y H:i:s');
+
                     while (($line = fgets($r)) !== false) {
                         $cpf = preg_replace('/\D+/', '', (string) $line);
                         if ($cpf === '' || strlen($cpf) !== 11)
@@ -314,11 +324,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'Não foi possível consultar após múltiplas tentativas';
+                        $row['consulted_at'] = $nowBr;
                         $rows[] = $row;
                         $left++;
                         if (count($rows) >= $batch) {
                             $this->spoolAppendManyPersist($job, $rows);
                             $rows = [];
+                            $nowBr = date('d/m/Y H:i:s');
                         }
                     }
                     if (!empty($rows)) {
@@ -372,6 +384,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $retriableInChunk = 0;
         $semRespInChunk = 0;
         $http429InChunk = 0;
+
+        // Data da consulta FORMATO BR (d/m/Y H:i:s)
+        // Usamos date() nativo para ser extremamente leve em RAM/CPU
+        $nowStr = date('d/m/Y H:i:s');
 
         foreach ($slices as $idx => $slice) {
             if ($this->finishIfStopped($job))
@@ -462,6 +478,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $row['status_code'] = $v['status_code'] ?? null;
                             $row['mensagem'] = $res['mensagem'] ?? 'OK';
 
+                            // CONVERSÃO DE DATA LEVE
+                            $rawUpdated = $v['updated_at'] ?? ($v['created_at'] ?? null);
+                            $row['updated_at'] = $this->toBrDateTime($rawUpdated);
+                            $row['consulted_at'] = $nowStr;
+
                             $rows[] = $row;
                         }
 
@@ -507,6 +528,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
+                        $row['consulted_at'] = $nowStr; // Data da consulta
                         $rows[] = $row;
                     }
 
@@ -519,6 +541,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = $msg;
+                        $row['consulted_at'] = $nowStr; // Data da consulta (Not Found)
                         $rows[] = $row;
 
                         $snapRows[] = [
@@ -532,6 +555,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = $msg;
+                        $row['consulted_at'] = $nowStr; // Data da consulta (Erro terminal)
                         $rows[] = $row;
                         $failTermInChunk++;
                     } else {
@@ -569,6 +593,22 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $elapsed = microtime(true) - $t0;
         $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
         Log::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
+    }
+
+    /**
+     * Helper ultra leve para formatar data (d/m/Y H:i:s) sem instanciar Carbon.
+     */
+    private function toBrDateTime(?string $val): ?string
+    {
+        if (!$val) return null;
+        try {
+            // strtotime lida bem com formatos ISO/SQL, inclusive com milissegundos
+            $ts = strtotime($val);
+            if ($ts === false) return null;
+            return date('d/m/Y H:i:s', $ts);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function baseRow(string $cpf): array
