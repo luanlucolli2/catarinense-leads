@@ -10,8 +10,8 @@ class TextMessageService
     /**
      * @param string      $number
      * @param string      $body
-     * @param string      $openTicket   (somente API Básica)
-     * @param string      $queueId      (somente API Básica)
+     * @param string      $openTicket   (somente modo basic)
+     * @param string      $queueId      (somente modo basic)
      * @param string|null $connectionToken Token da conexão (Bearer). Se null/empty, usa fallback do config.
      */
     public function sendText(
@@ -21,21 +21,23 @@ class TextMessageService
         string $queueId = '0',
         ?string $connectionToken = null
     ): bool {
-        $mode = strtolower((string) config('inovachat.api.message_mode', 'basic'));
-
         $apiBase         = rtrim((string) config('inovachat.api.base_url'), '/');
         $apiBaseOfficial = rtrim((string) config('inovachat.api.official_base_url', $apiBase), '/');
 
         $token = (string) ($connectionToken ?: (string) config('inovachat.api.connection_token'));
-
-        $baseToUse = $mode === 'official' ? $apiBaseOfficial : $apiBase;
-
-        if ($baseToUse === '' || $token === '' || $number === '' || $body === '') {
+        if ($token === '' || $number === '' || $body === '') {
             return false;
         }
 
-        $cleanNumber = preg_replace('/\D+/', '', $number) ?: null;
-        if (! $cleanNumber) {
+        $cleanNumber = preg_replace('/\D+/', '', $number) ?: '';
+        if ($cleanNumber === '') {
+            return false;
+        }
+
+        $mode = $this->resolveModeForToken($token); // ✅ decide por token
+
+        $baseToUse = ($mode === 'official') ? $apiBaseOfficial : $apiBase;
+        if ($baseToUse === '') {
             return false;
         }
 
@@ -75,7 +77,6 @@ class TextMessageService
                 $response = $request->post($url, $payload);
 
                 if ($response->successful()) {
-                    // Sem log em sucesso (caminho quente)
                     return true;
                 }
 
@@ -102,5 +103,26 @@ class TextMessageService
 
             return false;
         }
+    }
+
+    /**
+     * Decide 'basic'|'official' por token (fonte única: connections.map).
+     * Fallback: inovachat.api.message_mode
+     */
+    private function resolveModeForToken(string $token): string
+    {
+        $map = config('inovachat.connections.map');
+        $map = is_array($map) ? $map : [];
+
+        $mode = $map[$token] ?? null;
+        if (is_string($mode)) {
+            $mode = strtolower(trim($mode));
+            if (in_array($mode, ['basic', 'official'], true)) {
+                return $mode;
+            }
+        }
+
+        $fallback = strtolower((string) config('inovachat.api.message_mode', 'basic'));
+        return in_array($fallback, ['basic', 'official'], true) ? $fallback : 'basic';
     }
 }

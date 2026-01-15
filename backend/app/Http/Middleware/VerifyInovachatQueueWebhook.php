@@ -12,14 +12,10 @@ class VerifyInovachatQueueWebhook
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $explicit = config('inovachat.queue_webhook.token_origins');
-        $explicit = is_array($explicit) ? $explicit : [];
+        $allowed = config('inovachat.queue_webhook.token_origins');
+        $allowed = is_array($allowed) ? $allowed : [];
 
-        $fallback = config('inovachat.connections.tokens');
-        $fallback = is_array($fallback) ? $fallback : [];
-
-        $allowed = array_values(array_filter(array_map('trim', array_merge($explicit, $fallback))));
-        $allowed = array_values(array_unique($allowed));
+        $allowed = array_values(array_unique(array_filter(array_map('trim', $allowed))));
 
         if (empty($allowed)) {
             Log::critical('Inovachat queue webhook token origins not configured');
@@ -29,7 +25,6 @@ class VerifyInovachatQueueWebhook
             ], 500);
         }
 
-        // Evita materializar $request->all()
         $tokenOrigin = (string) (
             $request->input('token_origin')
             ?: $request->input('body.token_origin')
@@ -38,7 +33,6 @@ class VerifyInovachatQueueWebhook
         );
 
         if ($tokenOrigin === '' || ! $this->isAllowed($tokenOrigin, $allowed)) {
-            // Anti-spam de log (ataque/bot)
             $cooldown = (int) config('inovachat.queue_webhook.unauthorized_log_cooldown_seconds', 60);
             $cooldown = max(10, $cooldown);
 
@@ -61,7 +55,6 @@ class VerifyInovachatQueueWebhook
             ], 401);
         }
 
-        // Disponibiliza o token da conexão para o controller
         $request->attributes->set('inovachat_connection_token', $tokenOrigin);
 
         return $next($request);
