@@ -1,14 +1,16 @@
 <?php
 
-/**
- * Fonte única:
- * - INOVACHAT_CONNECTIONS_MAP="TOKEN1:basic,TOKEN2:official,..."
- *
- * Fallback (legado):
- * - INOVACHAT_CONNECTION_TOKENS / INOVACHAT_QUEUE_WEBHOOK_TOKEN_ORIGINS / INOVACHAT_CONNECTION_TOKEN
- */
-function inovachat_parse_connections_map(): array
-{
+/*
+|--------------------------------------------------------------------------
+| Inovachat Config
+|--------------------------------------------------------------------------
+|
+| Lógica de parsing isolada em closure para evitar erro de redeclaração
+| durante php artisan config:cache
+|
+*/
+
+$connectionsMap = call_user_func(function () {
     $raw = trim((string) env('INOVACHAT_CONNECTIONS_MAP', ''));
 
     $map = [];
@@ -57,9 +59,8 @@ function inovachat_parse_connections_map(): array
     }
 
     return $map;
-}
+});
 
-$connectionsMap = inovachat_parse_connections_map();
 $connectionTokens = array_keys($connectionsMap);
 
 // URA tokens (mantido separado se você usa isso em outras partes)
