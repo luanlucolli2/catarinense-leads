@@ -1,4 +1,4 @@
-# version: "3.9"  <-- Remova essa linha, ela está obsoleta e gera o Warning que apareceu no seu log
+# version: "3.9" removido para evitar warning
 
 x-app-env: &app-env
   APP_ENV: production
@@ -10,6 +10,8 @@ services:
     image: mysql:8.0
     container_name: leads-mysql
     restart: unless-stopped
+    # DESLIGA O PERFORMANCE_SCHEMA (Economia de ~40MB a 100MB de RAM)
+    command: --performance-schema=0
     volumes:
       - sail-mysql:/var/lib/mysql
     environment:
@@ -70,7 +72,7 @@ services:
       - ./docker/php-cli.scheduler.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     mem_limit: 192m
 
   # ===== QUEUE DEFAULT =====
@@ -85,7 +87,7 @@ services:
       - ./docker/php-cli.default.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     stop_grace_period: 120s
     mem_limit: 1024m
 
@@ -101,7 +103,7 @@ services:
       - ./docker/php-cli.clt-on.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     stop_grace_period: 120s
     mem_limit: 704m
 
@@ -117,7 +119,7 @@ services:
       - ./docker/php-cli.clt-off.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     stop_grace_period: 120s
     mem_limit: 560m
 
@@ -133,7 +135,7 @@ services:
       - ./docker/php-cli.fgts.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     stop_grace_period: 120s
     mem_limit: 472m
 
@@ -149,7 +151,7 @@ services:
       - ./docker/php-cli.reports.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
-    networks: [sail]  # <--- FALTAVA ISSO
+    networks: [sail]
     stop_grace_period: 120s
     mem_limit: 384m
 
