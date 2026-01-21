@@ -24,7 +24,6 @@ services:
       start_period: 10s
     networks: [sail]
     mem_limit: 512m
-    # cpu_shares removido ou mantido conforme preferência, mas mem_limit é o crucial aqui
 
   # ===== REDIS =====
   redis:
@@ -45,16 +44,16 @@ services:
   # ===== APP (LARAVEL API) =====
   laravel:
     build:
-      context: ./backend
+      context: .  # Estamos dentro de backend/, então o contexto é aqui mesmo
       dockerfile: Dockerfile
     image: leads-backend
     container_name: leads-backend
     restart: unless-stopped
-    env_file: ./backend/.env.staging
+    env_file: .env.staging # Arquivo está na mesma pasta deste compose
     environment: { <<: *app-env }
     volumes:
-      # O código NÃO é mais montado aqui. Apenas configurações e dados persistentes.
-      - ./backend/docker/php-fpm.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      # Caminhos relativos à pasta backend/
+      - ./docker/php-fpm.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     networks: [sail]
@@ -66,10 +65,10 @@ services:
     container_name: leads-scheduler
     restart: unless-stopped
     command: php artisan schedule:work
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.scheduler.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.scheduler.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     mem_limit: 192m
@@ -80,10 +79,10 @@ services:
     container_name: leads-queue
     restart: unless-stopped
     command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=259200 --memory=896 --tries=3 --backoff=60
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.default.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.default.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     stop_grace_period: 120s
@@ -95,10 +94,10 @@ services:
     container_name: leads-queue-clt-on
     restart: unless-stopped
     command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=640 --tries=1 --backoff=60
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.clt-on.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.clt-on.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     stop_grace_period: 120s
@@ -110,10 +109,10 @@ services:
     container_name: leads-queue-clt-off
     restart: unless-stopped
     command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=512 --tries=1 --backoff=60
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.clt-off.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.clt-off.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     stop_grace_period: 120s
@@ -125,10 +124,10 @@ services:
     container_name: leads-queue-fgts
     restart: unless-stopped
     command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.fgts.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.fgts.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     stop_grace_period: 120s
@@ -140,10 +139,10 @@ services:
     container_name: leads-queue-reports
     restart: unless-stopped
     command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
-    env_file: ./backend/.env.staging
+    env_file: .env.staging
     environment: { <<: *app-env }
     volumes:
-      - ./backend/docker/php-cli.reports.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php-cli.reports.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     stop_grace_period: 120s
@@ -152,7 +151,7 @@ services:
   # ===== FRONTEND (NGINX + REACT) =====
   frontend:
     build:
-      context: ./lead-import-visualizer
+      context: ../lead-import-visualizer  # Sobe um nível para achar o front
       dockerfile: Dockerfile
     image: leads-frontend
     container_name: leads-frontend

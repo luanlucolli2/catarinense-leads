@@ -4,7 +4,10 @@
 set -Eeuo pipefail
 
 # --- Config ---
-COMPOSE_FILE="docker-compose.staging.yml"
+# CORREÇÃO: Aponta para o arquivo dentro da pasta backend
+COMPOSE_FILE="backend/docker-compose.staging.yml"
+
+# Nomes dos serviços/containers
 LARAVEL_SERVICE="laravel"
 MYSQL_CONTAINER="leads-mysql"
 REDIS_CONTAINER="leads-redis"
@@ -16,24 +19,22 @@ CONTAINER_PRUNE_UNTIL="${CONTAINER_PRUNE_UNTIL:-24h}"
 
 echo "🚀 Iniciando deploy OTIMIZADO para STAGING..."
 
-# 0) git pull (Atualiza o código fonte no HOST para o Docker poder copiar)
+# 0) git pull
 echo ">>> 1/10: git pull origin ${GIT_BRANCH}"
 git reset --hard
 git pull origin "${GIT_BRANCH}"
 
-# 1) Build da imagem do Backend (Aqui acontece o composer install)
+# 1) Build (Recria as imagens)
 echo ">>> 2/10: Build das imagens (--no-cache)..."
-# Usamos no-cache para garantir que o COPY . . pegue o código novo
 docker compose -f "${COMPOSE_FILE}" build --no-cache
 
-# 2) Colocar Laravel em modo de manutenção (breve)
-# Só tentamos se o container já estiver rodando
+# 2) Manutenção (Se o container já existir)
 if [ "$(docker ps -q -f name=leads-backend)" ]; then
     echo ">>> 3/10: Habilitando manutenção..."
     docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan down || true
 fi
 
-# 3) Sobe stack (Recria containers com a imagem nova contendo o código novo)
+# 3) Subir Containers
 echo ">>> 4/10: Subindo containers (--force-recreate)..."
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans
 
@@ -45,7 +46,7 @@ for i in {1..24}; do
   echo "⏳ MySQL... (status: ${status})"; sleep 5
 done
 
-# 5) Aguarda REDIS
+# 5) Aguarda Redis
 echo ">>> 6/10: Aguardando Redis saudável..."
 for i in {1..24}; do
   status="$(docker inspect --format='{{.State.Health.Status}}' "${REDIS_CONTAINER}" 2>/dev/null || echo "unknown")"
@@ -53,25 +54,25 @@ for i in {1..24}; do
   echo "⏳ Redis... (status: ${status})"; sleep 5
 done
 
-# 6) Rodar migrações (Banco de dados)
+# 6) Migrations
 echo ">>> 7/10: Rodando migrações..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan migrate --force
 
-# 7) Garantir permissões na pasta de Storage (Volume persistente)
+# 7) Permissões de Pasta (Storage)
 echo ">>> 8/10: Ajustando permissões do storage..."
 docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chown -R www-data:www-data /var/www/html/storage
 docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chmod -R 775 /var/www/html/storage
 
-# 8) Otimizando Laravel (Agora rodando DENTRO do container novo)
-echo ">>> 9/10: Otimizando caches (config/route/view)..."
+# 8) Otimização Laravel
+echo ">>> 9/10: Otimizando caches..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan optimize:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan config:cache
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:cache
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan view:cache
-# Restart nas filas para garantir que peguem caches novos (embora o recreate já ajude)
+# Reiniciar filas para pegar novo código
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart
 
-# 9) Tira manutenção
+# 9) Volta da manutenção
 echo ">>> 10/10: Desabilitando manutenção..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan up
 
