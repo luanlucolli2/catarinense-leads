@@ -2,10 +2,10 @@ version: "3.9"
 
 x-app-env: &app-env
   APP_ENV: production
-  WWWUSER: "1000"
   APP_DEBUG: "false"
 
 services:
+  # ===== DATABASE =====
   mysql:
     image: mysql:8.0
     container_name: leads-mysql
@@ -24,162 +24,13 @@ services:
       start_period: 10s
     networks: [sail]
     mem_limit: 512m
-    cpu_shares: 1024
+    # cpu_shares removido ou mantido conforme preferência, mas mem_limit é o crucial aqui
 
-  laravel:
-    build:
-      context: ./vendor/laravel/sail/runtimes/8.4
-      dockerfile: Dockerfile
-      args:
-        WWWUSER: ${WWWUSER:-1000}
-        WWWGROUP: ${WWWGROUP:-1000}
-    image: leads-backend
-    container_name: leads-backend
-    env_file: .env.staging
-    environment:
-      APP_ENV: production
-      WWWUSER: "1000"
-      APP_DEBUG: "false"
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - ./docker/php-fpm.ini:/etc/php/8.4/fpm/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    mem_limit: 512m
-    cpu_shares: 1024
-
-  # ===== SCHEDULER =====
-  scheduler:
-    image: leads-backend
-    container_name: leads-scheduler
-    command: php artisan schedule:work
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.scheduler.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 60s
-    mem_limit: 192m
-    cpu_shares: 256
-
-  # ===== QUEUE DEFAULT =====
-  queue:
-    image: leads-backend
-    container_name: leads-queue
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=259200 --memory=896 --tries=3 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.default.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 1024m
-    memswap_limit: "1536m"
-    cpu_shares: 1536
-
-  # ===== CLT ONLINE (prioridade maior) =====
-  queue-clt-on:
-    image: leads-backend
-    container_name: leads-queue-clt-on
-    command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=640 --tries=1 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.clt-on.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 704m
-    memswap_limit: "1152m"
-    cpu_shares: 1024
-
-  # ===== CLT OFFLINE (prioridade menor) =====
-  queue-clt-off:
-    image: leads-backend
-    container_name: leads-queue-clt-off
-    command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=512 --tries=1 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.clt-off.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 560m
-    memswap_limit: "1024m"
-    cpu_shares: 768
-
-  # ===== FGTS OFF (alta) =====
-  queue-fgts:
-    image: leads-backend
-    container_name: leads-queue-fgts
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.fgts.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 472m
-    memswap_limit: "1536m"
-    cpu_shares: 2048
-
-  # ===== RELATÓRIOS/PRÉVIAS (alta) =====
-  queue-reports:
-    image: leads-backend
-    container_name: leads-queue-reports
-    command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - .:/var/www/html
-      - ./docker/php-cli.reports.ini:/etc/php/8.4/cli/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    restart: unless-stopped
-    stop_grace_period: 120s
-    mem_limit: 384m
-    memswap_limit: "1024m"
-    cpu_shares: 1536
-
-  frontend:
-    build:
-      context: ../lead-import-visualizer
-      dockerfile: Dockerfile
-    image: leads-frontend
-    container_name: leads-frontend
-    ports: ["8080:80"]
-    networks: [sail]
-    depends_on: [laravel]
-    mem_limit: 24m
-    cpu_shares: 128
-
+  # ===== REDIS =====
   redis:
     image: redis:7-alpine
     container_name: leads-redis
-    command: ["redis-server","--appendonly","no","--maxmemory","128mb","--maxmemory-policy","volatile-lru"]
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
     volumes:
       - redis-data:/data
     networks: [sail]
@@ -190,10 +41,129 @@ services:
       timeout: 3s
       retries: 20
     mem_limit: 160m
-    cpu_shares: 256
+
+  # ===== APP (LARAVEL API) =====
+  laravel:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: leads-backend
+    container_name: leads-backend
+    restart: unless-stopped
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      # O código NÃO é mais montado aqui. Apenas configurações e dados persistentes.
+      - ./backend/docker/php-fpm.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    networks: [sail]
+    mem_limit: 512m
+
+  # ===== SCHEDULER =====
+  scheduler:
+    image: leads-backend
+    container_name: leads-scheduler
+    restart: unless-stopped
+    command: php artisan schedule:work
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.scheduler.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    mem_limit: 192m
+
+  # ===== QUEUE DEFAULT =====
+  queue:
+    image: leads-backend
+    container_name: leads-queue
+    restart: unless-stopped
+    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=259200 --memory=896 --tries=3 --backoff=60
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.default.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    stop_grace_period: 120s
+    mem_limit: 1024m
+
+  # ===== CLT ONLINE =====
+  queue-clt-on:
+    image: leads-backend
+    container_name: leads-queue-clt-on
+    restart: unless-stopped
+    command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=640 --tries=1 --backoff=60
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.clt-on.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    stop_grace_period: 120s
+    mem_limit: 704m
+
+  # ===== CLT OFFLINE =====
+  queue-clt-off:
+    image: leads-backend
+    container_name: leads-queue-clt-off
+    restart: unless-stopped
+    command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=512 --tries=1 --backoff=60
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.clt-off.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    stop_grace_period: 120s
+    mem_limit: 560m
+
+  # ===== FGTS OFF =====
+  queue-fgts:
+    image: leads-backend
+    container_name: leads-queue-fgts
+    restart: unless-stopped
+    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.fgts.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    stop_grace_period: 120s
+    mem_limit: 472m
+
+  # ===== RELATÓRIOS/PRÉVIAS =====
+  queue-reports:
+    image: leads-backend
+    container_name: leads-queue-reports
+    restart: unless-stopped
+    command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
+    env_file: ./backend/.env.staging
+    environment: { <<: *app-env }
+    volumes:
+      - ./backend/docker/php-cli.reports.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - storage-data:/var/www/html/storage
+    depends_on: [mysql, redis]
+    stop_grace_period: 120s
+    mem_limit: 384m
+
+  # ===== FRONTEND (NGINX + REACT) =====
+  frontend:
+    build:
+      context: ./lead-import-visualizer
+      dockerfile: Dockerfile
+    image: leads-frontend
+    container_name: leads-frontend
+    ports: ["8080:80"]
+    networks: [sail]
+    depends_on: [laravel]
+    mem_limit: 64m
 
 networks:
-  sail: { driver: bridge }
+  sail:
+    driver: bridge
 
 volumes:
   sail-mysql:

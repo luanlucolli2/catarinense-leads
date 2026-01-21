@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy.sh – STAGING
+# deploy.sh – STAGING (PROD READY)
 
 set -Eeuo pipefail
 
@@ -13,97 +13,70 @@ GIT_BRANCH="staging"
 # Limpezas "seguras"
 BUILDER_PRUNE_UNTIL="${BUILDER_PRUNE_UNTIL:-24h}"
 CONTAINER_PRUNE_UNTIL="${CONTAINER_PRUNE_UNTIL:-24h}"
-DOCKER_PRUNE_UNUSED="${DOCKER_PRUNE_UNUSED:-0}"
 
-# Workers (para restart em bloco)
-WORKERS=("queue" "queue-clt" "queue-fgts" "queue-reports")
+echo "🚀 Iniciando deploy OTIMIZADO para STAGING..."
 
-echo "🚀 Iniciando deploy para STAGING..."
-
-# 0) Disco (antes)
-echo ">>> 0/12: Estado de disco (ANTES)..."
-docker system df -v || true
-
-# 1) git pull
-echo ">>> 1/12: git pull origin ${GIT_BRANCH}"
+# 0) git pull (Atualiza o código fonte no HOST para o Docker poder copiar)
+echo ">>> 1/10: git pull origin ${GIT_BRANCH}"
+git reset --hard
 git pull origin "${GIT_BRANCH}"
 
-# 2) entra no backend
-cd backend || { echo "❌ Falha ao entrar em 'backend'."; exit 1; }
-
-# 3) manutenção
-echo ">>> 2/12: Habilitando manutenção..."
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan down || echo "ℹ️  Já em manutenção."
-
-# 4) build (no-cache)
-echo ">>> 3/12: Build das imagens (--no-cache)..."
-export CACHE_BUSTER="$(date +%s)"
-echo "CACHE_BUSTER=${CACHE_BUSTER}"
+# 1) Build da imagem do Backend (Aqui acontece o composer install)
+echo ">>> 2/10: Build das imagens (--no-cache)..."
+# Usamos no-cache para garantir que o COPY . . pegue o código novo
 docker compose -f "${COMPOSE_FILE}" build --no-cache
 
-# 5) LIMPAR CACHES *ANTES* de subir workers (evita 'cache'->database)
-echo ">>> 4/12: Limpando caches do Laravel (optimize:clear)..."
-docker compose -f "${COMPOSE_FILE}" run --rm "${LARAVEL_SERVICE}" php artisan optimize:clear || true
+# 2) Colocar Laravel em modo de manutenção (breve)
+# Só tentamos se o container já estiver rodando
+if [ "$(docker ps -q -f name=leads-backend)" ]; then
+    echo ">>> 3/10: Habilitando manutenção..."
+    docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan down || true
+fi
 
-# 6) sobe stack
-echo ">>> 5/12: Subindo containers (--force-recreate --remove-orphans)..."
+# 3) Sobe stack (Recria containers com a imagem nova contendo o código novo)
+echo ">>> 4/10: Subindo containers (--force-recreate)..."
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --remove-orphans
 
-# 7) aguarda MySQL saudável
-echo ">>> 6/12: Aguardando MySQL saudável..."
+# 4) Aguarda MySQL
+echo ">>> 5/10: Aguardando MySQL saudável..."
 for i in {1..24}; do
   status="$(docker inspect --format='{{.State.Health.Status}}' "${MYSQL_CONTAINER}" 2>/dev/null || echo "unknown")"
   [ "${status}" = "healthy" ] && echo "✅ MySQL OK!" && break
   echo "⏳ MySQL... (status: ${status})"; sleep 5
 done
-if [ "$(docker inspect --format='{{.State.Health.Status}}' "${MYSQL_CONTAINER}" 2>/dev/null || echo "unknown")" != "healthy" ]; then
-  echo "❌ MySQL não ficou saudável a tempo."; exit 1
-fi
 
-# 8) aguarda REDIS saudável
-echo ">>> 7/12: Aguardando Redis saudável..."
+# 5) Aguarda REDIS
+echo ">>> 6/10: Aguardando Redis saudável..."
 for i in {1..24}; do
   status="$(docker inspect --format='{{.State.Health.Status}}' "${REDIS_CONTAINER}" 2>/dev/null || echo "unknown")"
   [ "${status}" = "healthy" ] && echo "✅ Redis OK!" && break
   echo "⏳ Redis... (status: ${status})"; sleep 5
 done
-if [ "$(docker inspect --format='{{.State.Health.Status}}' "${REDIS_CONTAINER}" 2>/dev/null || echo "unknown")" != "healthy" ]; then
-  echo "❌ Redis não ficou saudável a tempo."; exit 1
-fi
 
-# 9) migrações
-echo ">>> 8/12: Rodando migrações..."
+# 6) Rodar migrações (Banco de dados)
+echo ">>> 7/10: Rodando migrações..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan migrate --force
 
-# 10) recompila caches de config/route/event (agora com .env atual e Redis)
-echo ">>> 9/12: Otimizando Laravel (config/route/event cache)..."
+# 7) Garantir permissões na pasta de Storage (Volume persistente)
+echo ">>> 8/10: Ajustando permissões do storage..."
+docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chown -R www-data:www-data /var/www/html/storage
+docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chmod -R 775 /var/www/html/storage
+
+# 8) Otimizando Laravel (Agora rodando DENTRO do container novo)
+echo ">>> 9/10: Otimizando caches (config/route/view)..."
+docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan optimize:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan config:cache
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:cache
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan event:cache
+docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan view:cache
+# Restart nas filas para garantir que peguem caches novos (embora o recreate já ajude)
+docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart
 
-# 11) reinicia os workers p/ pegarem o config novo
-echo ">>> 10/12: Reiniciando workers..."
-for SVC in "${WORKERS[@]}"; do
-  docker compose -f "${COMPOSE_FILE}" restart "$SVC" || true
-done
-# redundância amigável ao Laravel
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart || true
-
-# 12) tira manutenção
-echo ">>> 11/12: Desabilitando manutenção..."
+# 9) Tira manutenção
+echo ">>> 10/10: Desabilitando manutenção..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan up
 
-# 13) limpeza segura Docker
-echo ">>> 12/12: Limpando artefatos Docker (SEGURO)..."
-echo " - docker image prune (dangling only)..."; docker image prune -f || true
-echo " - docker builder prune (até ${BUILDER_PRUNE_UNTIL})..."; docker builder prune -af --filter "until=${BUILDER_PRUNE_UNTIL}" || true
-echo " - docker container prune (parados há > ${CONTAINER_PRUNE_UNTIL})..."; docker container prune -f --filter "until=${CONTAINER_PRUNE_UNTIL}" || true
-echo " - docker network prune..."; docker network prune -f || true
-if [ "${DOCKER_PRUNE_UNUSED}" = "1" ]; then
-  echo " - docker image prune (unused; conservador) ..."; docker image prune -f || true
-fi
-
-echo ">>> Estado de disco (DEPOIS)..."
-docker system df -v || true
+# 10) Limpeza
+echo ">>> Limpando imagens antigas..."
+docker image prune -f
 
 echo "✅ Deploy finalizado!"
