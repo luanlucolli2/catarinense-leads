@@ -131,10 +131,14 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
 
-  # ===== WORKER GENÉRICO (opcional) =====
-  queue-default:
+  # ==========================================================
+  # ✅ WORKER DE IMPORTAÇÕES & DEFAULT
+  # - Processa "imports" com prioridade alta.
+  # - Processa "default" (ex: URA em dev, e-mails) se não houver importação.
+  # ==========================================================
+  queue-imports:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=1024"
+    command: "php artisan queue:work --queue=imports,default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=1024"
     environment:
       <<: *app-environment
     volumes:

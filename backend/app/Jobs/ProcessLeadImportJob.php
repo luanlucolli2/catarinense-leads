@@ -30,6 +30,8 @@ class ProcessLeadImportJob implements ShouldQueue
     public function __construct(ImportJob $importJob)
     {
         $this->importJob = $importJob;
+        // ✅ Força o job a ir para a fila 'imports'
+        $this->onQueue('imports');
     }
 
     public function handle(): void
