@@ -1,4 +1,5 @@
-# docker-compose.yml
+# docker-compose.yml (DEV SIMULANDO PROD)
+version: '3'
 
 x-app-environment: &app-environment
   WWWUSER: '${WWWUSER}'
@@ -7,8 +8,19 @@ x-app-environment: &app-environment
   XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
   XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
   IGNITION_LOCAL_SITES_PATH: '${PWD}'
+  # Variáveis Default (Fallback)
+  CLT_ON_JOB_QUEUE: 'clt-on'
+  CLT_OFF_JOB_QUEUE: 'clt-off'
+  FGTS_OFF_JOB_QUEUE: 'fgts'
+  CLT_PREVIEW_QUEUE: 'reports'
+  URA_JOB_QUEUE: 'ura'
+  C6_JOB_QUEUE: 'c6-auth'
+  CLT_ON_JOB_TIMEOUT: '18000'
+  CLT_OFF_JOB_TIMEOUT: '18000'
+  FGTS_OFF_JOB_TIMEOUT: '18000'
 
 services:
+  # ===== SERVIÇO APP (HTTP / API) =====
   laravel.test:
     build:
       context: ./vendor/laravel/sail/runtimes/8.4
@@ -30,126 +42,36 @@ services:
     depends_on:
       - mysql
       - redis
-
-  # ===== SCHEDULER =====
-  scheduler:
-    image: sail-8.4/app
-    command: "php artisan schedule:work"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 60s
-
-  # ===== WORKER DEDICADO: CLT ONLINE =====
-  queue-clt-on:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_ON_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
-
-  # ===== WORKER DEDICADO: CLT OFFLINE =====
-  queue-clt-off:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
-
-  # ===== WORKER DEDICADO: FGTS OFF (consultas) =====
-  queue-fgts:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-18000} --tries=1 --backoff=60 --memory=1024"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
-
-  # ===== WORKER DEDICADO: RELATÓRIOS / PRÉVIAS =====
-  queue-reports:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --tries=1 --backoff=30 --memory=1024"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
+    # Limitando para simular prod (mas deixando um pouco menos que prod para sobrar pra workers)
+    mem_limit: 384m 
 
   # ==========================================================
-  # ✅ WORKER UNIFICADO: URA + C6 (prioridade para URA)
-  # - 1 processo, 1 job por vez
-  # - URA sempre ganha (fila "ura" vem primeiro)
+  # ✅ WORKER UNIFICADO (SUPERVISOR)
   # ==========================================================
-  queue-ura-c6:
+  leads-workers:
     image: sail-8.4/app
-    command: "php artisan queue:work --queue=${URA_JOB_QUEUE:-ura},${C6_JOB_QUEUE:-c6-auth} --sleep=1 --verbose --timeout=120 --tries=3 --backoff=10 --memory=1024"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apt-get update && apt-get install -y supervisor
+        supervisord -c /etc/supervisor/conf.d/supervisord.conf
     environment:
       <<: *app-environment
     volumes:
-      - .:/var/www/html
+      - '.:/var/www/html'
+      - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
+      - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
     depends_on:
       - mysql
       - redis
     networks:
       - sail
     restart: unless-stopped
-    stop_grace_period: 120s
-
-  # ==========================================================
-  # ✅ WORKER DE IMPORTAÇÕES & DEFAULT
-  # - Processa "imports" com prioridade alta.
-  # - Processa "default" (ex: URA em dev, e-mails) se não houver importação.
-  # ==========================================================
-  queue-imports:
-    image: sail-8.4/app
-    command: "php artisan queue:work --queue=imports,default --sleep=1 --verbose --timeout=18000 --tries=3 --backoff=60 --memory=1024"
-    environment:
-      <<: *app-environment
-    volumes:
-      - .:/var/www/html
-    depends_on:
-      - mysql
-      - redis
-    networks:
-      - sail
-    restart: unless-stopped
-    stop_grace_period: 120s
+    # ⚠️ AQUI ESTÁ O GARGALO PROPOSITAL
+    # Prod soma > 3GB em limites teóricos. VPS tem 2GB.
+    # Travando container em ~900MB. Se todos workers subirem memória ao mesmo tempo,
+    # o OOM Killer do Linux vai matar esse container. É o teste de stress real.
+    mem_limit: 900m
 
   # ===== SERVIÇO FRONTEND =====
   frontend:
@@ -167,12 +89,15 @@ services:
       - sail
     depends_on:
       - laravel.test
+    mem_limit: 64m
 
   # ===== SERVIÇO MYSQL =====
   mysql:
     image: 'mysql/mysql-server:8.0'
     ports:
       - '${FORWARD_DB_PORT:-3306}:3306'
+    # Adicionado flag para desligar performance schema igual Prod
+    command: --performance-schema=0
     environment:
       MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
       MYSQL_ROOT_HOST: '%'
@@ -189,11 +114,13 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
       retries: 3
       timeout: 5s
+    mem_limit: 512m
 
   # ===== SERVIÇO REDIS =====
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "no"]
+    # Igual Prod: maxmemory policy
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
     ports:
       - "6379:6379"
     volumes:
@@ -205,6 +132,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    mem_limit: 160m
 
 networks:
   sail:
