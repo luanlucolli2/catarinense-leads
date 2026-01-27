@@ -61,8 +61,16 @@ class AuthController extends Controller
         $name = Str::limit($name, 100);
 
         $abilities = ['api'];
-        $minutes   = config('sanctum.expiration'); // pode ser null
-        $expiresAt = $minutes ? Carbon::now()->addMinutes($minutes) : null;
+       $minutes = config('sanctum.expiration'); // null ou algo vindo do env
+
+if ($minutes === null) {
+    $expiresAt = null;
+} elseif (is_numeric($minutes)) {
+    $expiresAt = Carbon::now()->addMinutes((int) $minutes);
+} else {
+    // opcional: logar/config inválida e escolher um fallback seguro
+    $expiresAt = null;
+}
 
         $token = $user->createToken($name, $abilities, $expiresAt)->plainTextToken;
 

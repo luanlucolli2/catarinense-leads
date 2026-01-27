@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\CltConsultController;
+use App\Http\Controllers\Api\V8ConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
 use App\Http\Controllers\Api\InovachatTriageController;
 use App\Http\Middleware\VerifyInovachatWebhook;
@@ -87,6 +88,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
+
+    /* V8 */
+    Route::get('/v8/consult-jobs', [V8ConsultController::class, 'index']);
+    Route::post('/v8/consult-jobs', [V8ConsultController::class, 'store']);
+    Route::get('/v8/consult-jobs/{id}', [V8ConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/v8/consult-jobs/{id}/download', [V8ConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/v8/consult-jobs/{id}/preview/generate', [V8ConsultController::class, 'requestPreview'])->whereNumber('id');
+    Route::get('/v8/consult-jobs/{id}/preview', [V8ConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/v8/consult-jobs/{id}/cancel', [V8ConsultController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/v8/consult-jobs/{id}', [V8ConsultController::class, 'destroy'])->whereNumber('id');
 
     /* FGTS Offline */
     Route::get('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'index']);

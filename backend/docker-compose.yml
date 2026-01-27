@@ -1,5 +1,3 @@
-# docker-compose.yml (DEV SIMULANDO PROD)
-version: '3'
 
 x-app-environment: &app-environment
   WWWUSER: '${WWWUSER}'
@@ -13,11 +11,13 @@ x-app-environment: &app-environment
   CLT_OFF_JOB_QUEUE: 'clt-off'
   FGTS_OFF_JOB_QUEUE: 'fgts'
   CLT_PREVIEW_QUEUE: 'reports'
+  V8_JOB_QUEUE: 'v8'
   URA_JOB_QUEUE: 'ura'
   C6_JOB_QUEUE: 'c6-auth'
   CLT_ON_JOB_TIMEOUT: '18000'
   CLT_OFF_JOB_TIMEOUT: '18000'
   FGTS_OFF_JOB_TIMEOUT: '18000'
+  V8_JOB_TIMEOUT: '18000'
 
 services:
   # ===== SERVIÇO APP (HTTP / API) =====
@@ -53,6 +53,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        rm -f /etc/apt/sources.list.d/yarn.list
         apt-get update && apt-get install -y supervisor
         supervisord -c /etc/supervisor/conf.d/supervisord.conf
     environment:
@@ -89,7 +90,9 @@ services:
       - sail
     depends_on:
       - laravel.test
-    mem_limit: 64m
+    environment:
+      NODE_OPTIONS: '--max_old_space_size=256'
+    mem_limit: 256m
 
   # ===== SERVIÇO MYSQL =====
   mysql:
