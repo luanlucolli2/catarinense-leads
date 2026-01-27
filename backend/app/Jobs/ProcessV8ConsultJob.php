@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\IbgeName;
 use App\Models\V8ConsultJob;
 use App\Services\V8ApiService;
+use App\Support\Cpf;
 use App\Support\V8Schema;
 use App\Jobs\FinalizeV8ConsultReportJob;
 use Illuminate\Bus\Queueable;
@@ -40,6 +41,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private float $lastFlushAt = 0.0;
 
     private int $accSuccess = 0;
+    private int $accNaoElegivel = 0;
     private int $accFail = 0;
 
     private int $statusMaxAttempts;
@@ -174,9 +176,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $gender = $this->genderFromName($nome);
         if (!$gender) {
             $row['status'] = 'ERROR';
-            $row['error'] = 'Genero nao encontrado no IBGE.';
-            $this->logCpfFailure('gender', $cpf, null, $row['error'], ['nome' => $nome]);
-            $this->accFail++;
+            $this->markErro($row, 'Genero nao encontrado no IBGE.');
+            $this->logCpfFailure('gender', $cpf, null, $row['erro'], ['nome' => $nome]);
+            $row['status'] = 'FALHOU';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -202,9 +204,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         if (!$consultResp['ok']) {
             $row['status'] = 'ERROR';
-            $row['error'] = $this->formatApiError($consultResp);
-            $this->logCpfFailure('consult', $cpf, null, $row['error'], $this->logContextFromApi($consultResp));
-            $this->accFail++;
+            $this->markNaoElegivel($row, $this->formatApiError($consultResp));
+            $this->logCpfFailure('consult', $cpf, null, $row['nao_elegivel'], $this->logContextFromApi($consultResp));
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -212,9 +214,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $consultId = $consultResp['data']['id'] ?? null;
         if (!is_string($consultId) || $consultId === '') {
             $row['status'] = 'ERROR';
-            $row['error'] = 'ID de consulta ausente.';
-            $this->logCpfFailure('consult', $cpf, null, $row['error']);
-            $this->accFail++;
+            $this->markNaoElegivel($row, 'ID de consulta ausente.');
+            $this->logCpfFailure('consult', $cpf, null, $row['nao_elegivel']);
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -223,9 +225,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $authResp = $api->authorizeConsult($consultId);
         if (!$authResp['ok']) {
             $row['status'] = 'ERROR';
-            $row['error'] = $this->formatApiError($authResp);
-            $this->logCpfFailure('authorize', $cpf, $consultId, $row['error'], $this->logContextFromApi($authResp));
-            $this->accFail++;
+            $this->markNaoElegivel($row, $this->formatApiError($authResp));
+            $this->logCpfFailure('authorize', $cpf, $consultId, $row['nao_elegivel'], $this->logContextFromApi($authResp));
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -233,9 +235,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $statusResp = $this->pollStatus($api, $cpf, $consultId);
         if (!$statusResp['ok']) {
             $row['status'] = 'ERROR';
-            $row['error'] = $statusResp['error'] ?? 'Falha ao obter status.';
-            $this->logCpfFailure('status', $cpf, $consultId, $row['error']);
-            $this->accFail++;
+            $this->markNaoElegivel($row, $statusResp['error'] ?? 'Falha ao obter status.');
+            $this->logCpfFailure('status', $cpf, $consultId, $row['nao_elegivel']);
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -245,9 +247,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $status = $statusResp['status'] ?? null;
         if ($status !== 'SUCCESS') {
-            $row['error'] = $statusResp['error'] ?? ($status ? "Status {$status}" : 'Status inválido.');
-            $this->logCpfFailure('status', $cpf, $consultId, $row['error'], ['status' => $status]);
-            $this->accFail++;
+            $this->markNaoElegivel($row, $statusResp['error'] ?? ($status ? "Status {$status}" : 'Status inválido.'));
+            $this->logCpfFailure('status', $cpf, $consultId, $row['nao_elegivel'], ['status' => $status]);
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
@@ -261,14 +263,15 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         if (!$simResp['ok']) {
-            $row['error'] = $this->formatApiError($simResp);
-            $this->logCpfFailure('simulation', $cpf, $consultId, $row['error'], $this->logContextFromApi($simResp));
-            $this->accFail++;
+            $this->markNaoElegivel($row, $this->formatApiError($simResp));
+            $this->logCpfFailure('simulation', $cpf, $consultId, $row['nao_elegivel'], $this->logContextFromApi($simResp));
+            $row['status'] = 'NAO_ELEGIVEL';
             $this->spoolAppendManyPersist($job, [$row]);
             return;
         }
 
         $this->applySimulation($row, $simResp['data'] ?? []);
+        $row['status'] = 'SUCESSO';
         $this->accSuccess++;
         $this->spoolAppendManyPersist($job, [$row]);
     }
@@ -322,7 +325,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             $status = $match['status'] ?? null;
-            if ($status === 'WAITING_CONSULT' || $status === 'CONSENT_APPROVED') {
+            if ($status === 'WAITING_CONSULT' || $status === 'CONSENT_APPROVED' || $status === 'WAITING_CREDIT_ANALYSIS') {
                 sleep($this->statusRetryDelay);
                 continue;
             }
@@ -373,9 +376,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $row['first_installment_date'] = $data['first_installment_date'] ?? null;
         $row['is_insured'] = $data['is_insured'] ?? null;
         $row['insurance_amount'] = $data['insurance_amount'] ?? null;
-        $row['provider'] = $data['provider'] ?? null;
-        $row['simulation_config_id'] = $data['simulation_config_id'] ?? null;
-        $row['simulation_config_slug'] = $data['simulation_config_slug'] ?? null;
     }
 
     private function formatApiError(array $resp): string
@@ -394,7 +394,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private function splitEntryLine(string $line): array
     {
         $parts = explode(';', $line);
-        $cpf = trim($parts[0] ?? '');
+        $cpf = Cpf::normalize($parts[0] ?? null);
         $nome = trim($parts[1] ?? '');
         $nasc = trim($parts[2] ?? '');
         return [$cpf, $nome, $nasc];
@@ -413,9 +413,21 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $row = $this->baseRow($cpf ?? '', $nome, $nasc);
         $row['status'] = 'ERROR';
-        $row['error'] = $error;
-        $this->accFail++;
+        $this->markErro($row, $error);
+        $row['status'] = 'FALHOU';
         $this->spoolAppendManyPersist($job, [$row]);
+    }
+
+    private function markNaoElegivel(array &$row, string $message): void
+    {
+        $row['nao_elegivel'] = $message;
+        $this->accNaoElegivel++;
+    }
+
+    private function markErro(array &$row, string $message): void
+    {
+        $row['erro'] = $message;
+        $this->accFail++;
     }
 
     private function logCpfFailure(string $step, ?string $cpf, ?string $consultId, string $message, array $extra = []): void
@@ -632,9 +644,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $cpfRaw = $parts[0] ?? '';
-        $cpf = preg_replace('/\D+/', '', (string) $cpfRaw);
-        if ($cpf === '' || strlen($cpf) !== 11) {
-            return ['error' => 'CPF inválido.', 'cpf' => $cpf];
+        $cpf = Cpf::normalize($cpfRaw);
+        if (!$cpf) {
+            return ['error' => 'CPF inválido.', 'cpf' => null];
+        }
+        if (!Cpf::isValid($cpf)) {
+            return ['error' => 'CPF inválido (dígitos verificadores).', 'cpf' => $cpf];
         }
 
         $dateIdx = null;
@@ -772,6 +787,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         if ($this->accSuccess > 0) {
             $updates['success_count'] = DB::raw('COALESCE(success_count,0) + ' . $this->accSuccess);
         }
+        if ($this->accNaoElegivel > 0) {
+            $updates['nao_elegivel_count'] = DB::raw('COALESCE(nao_elegivel_count,0) + ' . $this->accNaoElegivel);
+        }
         if ($this->accFail > 0) {
             $updates['fail_count'] = DB::raw('COALESCE(fail_count,0) + ' . $this->accFail);
         }
@@ -781,6 +799,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $job->spool_bytes = $bytes;
         $this->lastFlushAt = $now;
         $this->accSuccess = 0;
+        $this->accNaoElegivel = 0;
         $this->accFail = 0;
     }
 

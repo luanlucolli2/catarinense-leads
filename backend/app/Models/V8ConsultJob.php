@@ -14,6 +14,7 @@ class V8ConsultJob extends Model
         'status',
         'total_cpfs',
         'success_count',
+        'nao_elegivel_count',
         'fail_count',
         'file_disk',
         'file_path',

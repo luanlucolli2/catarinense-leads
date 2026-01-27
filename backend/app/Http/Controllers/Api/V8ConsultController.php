@@ -41,6 +41,7 @@ class V8ConsultController extends Controller
             'status' => $job->status,
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
+            'nao_elegivel_count' => $job->nao_elegivel_count,
             'fail_count' => $job->fail_count,
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
@@ -76,6 +77,7 @@ class V8ConsultController extends Controller
             'status' => 'pendente',
             'total_cpfs' => 0,
             'success_count' => 0,
+            'nao_elegivel_count' => 0,
             'fail_count' => 0,
         ]);
 

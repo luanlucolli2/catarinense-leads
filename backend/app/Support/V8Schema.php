@@ -24,10 +24,8 @@ final class V8Schema
         'first_installment_date',
         'is_insured',
         'insurance_amount',
-        'provider',
-        'simulation_config_id',
-        'simulation_config_slug',
-        'error',
+        'nao_elegivel',
+        'erro',
     ];
 
     public const TITLES = [
@@ -50,9 +48,7 @@ final class V8Schema
         '1ª Parcela',
         'Possui Seguro',
         'Valor do Seguro',
-        'Provider',
-        'Config ID',
-        'Config Slug',
+        'Não Elegível (API)',
         'Erro',
     ];
 
