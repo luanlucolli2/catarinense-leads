@@ -24,8 +24,7 @@ final class V8Schema
         'first_installment_date',
         'is_insured',
         'insurance_amount',
-        'nao_elegivel',
-        'erro',
+        'mensagem',
     ];
 
     public const TITLES = [
@@ -48,8 +47,7 @@ final class V8Schema
         '1ª Parcela',
         'Possui Seguro',
         'Valor do Seguro',
-        'Não Elegível (API)',
-        'Erro',
+        'Mensagem',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string

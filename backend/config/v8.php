@@ -34,6 +34,7 @@ return [
         'connect_timeout' => (int) env('V8_HTTP_CONNECT_TIMEOUT', 10),
         'retry'           => (int) env('V8_HTTP_RETRY', 1),
         'retry_delay_ms'  => (int) env('V8_HTTP_RETRY_DELAY_MS', 200),
+        'min_interval_ms' => (int) env('V8_HTTP_MIN_INTERVAL_MS', 2000),
     ],
 
     'job' => [

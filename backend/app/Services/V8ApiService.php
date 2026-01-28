@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -28,6 +27,7 @@ class V8ApiService
     private int $httpConnectTimeout;
     private int $httpRetry;
     private int $httpRetryDelayMs;
+    private int $httpMinIntervalMs;
 
     public function __construct()
     {
@@ -49,6 +49,7 @@ class V8ApiService
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
+        $this->httpMinIntervalMs = (int) ($http['min_interval_ms'] ?? 2000);
     }
 
     public function getToken(): ?string
@@ -71,27 +72,23 @@ class V8ApiService
                 throw new \RuntimeException('V8 OAuth: credenciais ausentes (username/password/audience/client_id).');
             }
 
-            $resp = Http::asForm()
-                ->acceptJson()
-                ->timeout(max(1, $this->httpTimeout))
-                ->connectTimeout(max(1, $this->httpConnectTimeout))
-                ->retry(
-                    max(0, $this->httpRetry),
-                    max(0, $this->httpRetryDelayMs),
-                    fn ($e) =>
-                        $e instanceof ConnectionException
-                        || ($e instanceof RequestException
-                            && $e->response
-                            && ($e->response->status() === 429 || $e->response->serverError()))
-                )
-                ->post($this->oauthBaseUrl . '/oauth/token', [
-                    'grant_type' => 'password',
-                    'username' => $this->username,
-                    'password' => $this->password,
-                    'audience' => $this->audience,
-                    'scope' => $this->scope,
-                    'client_id' => $this->clientId,
-                ]);
+            $resp = $this->sendWithRetry(function () {
+                return Http::asForm()
+                    ->acceptJson()
+                    ->timeout(max(1, $this->httpTimeout))
+                    ->connectTimeout(max(1, $this->httpConnectTimeout))
+                    ->post($this->oauthBaseUrl . '/oauth/token', [
+                        'grant_type' => 'password',
+                        'username' => $this->username,
+                        'password' => $this->password,
+                        'audience' => $this->audience,
+                        'scope' => $this->scope,
+                        'client_id' => $this->clientId,
+                    ]);
+            }, [
+                'method' => 'POST',
+                'path' => '/oauth/token',
+            ]);
 
             if (!$resp->ok()) {
                 $msg = $this->responseMessage($resp);
@@ -159,25 +156,21 @@ class V8ApiService
             }
 
             $url = $this->bffBaseUrl . $path;
-            $client = Http::withToken($token)
-                ->acceptJson()
-                ->timeout(max(1, $this->httpTimeout))
-                ->connectTimeout(max(1, $this->httpConnectTimeout))
-                ->retry(
-                    max(0, $this->httpRetry),
-                    max(0, $this->httpRetryDelayMs),
-                    fn ($e) =>
-                        $e instanceof ConnectionException
-                        || ($e instanceof RequestException
-                            && $e->response
-                            && ($e->response->status() === 429 || $e->response->serverError()))
-                );
+            $resp = $this->sendWithRetry(function () use ($method, $url, $data, $token) {
+                $client = Http::withToken($token)
+                    ->acceptJson()
+                    ->timeout(max(1, $this->httpTimeout))
+                    ->connectTimeout(max(1, $this->httpConnectTimeout));
 
-            if ($method === 'get') {
-                $resp = $client->get($url, $data);
-            } else {
-                $resp = $client->asJson()->post($url, $data);
-            }
+                if ($method === 'get') {
+                    return $client->get($url, $data);
+                }
+
+                return $client->asJson()->post($url, $data);
+            }, [
+                'method' => strtoupper($method),
+                'path' => $path,
+            ]);
 
             if ($resp->ok()) {
                 $json = $resp->json();
@@ -201,6 +194,95 @@ class V8ApiService
     private function isRetriable(int $status): bool
     {
         return $status === 429 || $status >= 500;
+    }
+
+    private function sendWithRetry(callable $caller, array $context = []): HttpResponse
+    {
+        $attempts = max(1, $this->httpRetry + 1);
+        $lastResponse = null;
+
+        for ($attempt = 0; $attempt < $attempts; $attempt++) {
+            $this->throttleRequests();
+
+            try {
+                $resp = $caller();
+            } catch (ConnectionException $e) {
+                if ($attempt < $attempts - 1) {
+                    continue;
+                }
+                throw $e;
+            }
+
+            if ($resp->status() === 429) {
+                $this->logRateLimit($context, $attempt + 1);
+                try {
+                    $this->markLastRequestNow();
+                    $resp = $caller();
+                } catch (ConnectionException $e) {
+                    if ($attempt < $attempts - 1) {
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+
+            $lastResponse = $resp;
+            $status = $resp->status();
+            if ($status === 429) {
+                $this->logRateLimit($context, $attempt + 1);
+            }
+            if (($status === 429 || $status >= 500) && $attempt < $attempts - 1) {
+                continue;
+            }
+
+            return $resp;
+        }
+
+        if ($lastResponse) {
+            return $lastResponse;
+        }
+
+        throw new \RuntimeException('V8: requisição falhou.');
+    }
+
+    private function throttleRequests(): void
+    {
+        $minInterval = $this->httpMinIntervalMs;
+        if ($minInterval <= 0) {
+            return;
+        }
+
+        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock->block(5);
+
+        try {
+            $now = (int) floor(microtime(true) * 1000);
+            $last = (int) Cache::get('v8_http_last_at_ms', 0);
+            $elapsed = $now - $last;
+            if ($elapsed < $minInterval) {
+                usleep((int) max(0, $minInterval - $elapsed) * 1000);
+                $now = (int) floor(microtime(true) * 1000);
+            }
+
+            Cache::put('v8_http_last_at_ms', $now, 3600);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private function markLastRequestNow(): void
+    {
+        Cache::put('v8_http_last_at_ms', (int) floor(microtime(true) * 1000), 3600);
+    }
+
+    private function logRateLimit(array $context, int $attempt): void
+    {
+        try {
+            Log::warning('[V8] HTTP 429 recebido', array_merge([
+                'attempt' => $attempt,
+            ], $context));
+        } catch (\Throwable) {
+        }
     }
 
     private function extractError(HttpResponse $resp): array
