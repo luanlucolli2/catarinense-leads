@@ -30,6 +30,7 @@ class V8ApiService
     private int $httpMinIntervalMs;
     private int $httpRateLimitSleepSeconds;
     private ?int $jobId = null;
+    private ?int $rateLimitOverrideMs = null;
 
     public function __construct()
     {
@@ -58,6 +59,11 @@ class V8ApiService
     public function setJobId(?int $jobId): void
     {
         $this->jobId = $jobId;
+    }
+
+    public function setRateLimitMs(?int $intervalMs): void
+    {
+        $this->rateLimitOverrideMs = $intervalMs !== null ? max(0, (int) $intervalMs) : null;
     }
 
     public function getToken(): ?string
@@ -257,7 +263,7 @@ class V8ApiService
 
     private function throttleRequests(): void
     {
-        $minInterval = $this->httpMinIntervalMs;
+        $minInterval = $this->rateLimitOverrideMs ?? $this->httpMinIntervalMs;
         if ($minInterval <= 0) {
             return;
         }
