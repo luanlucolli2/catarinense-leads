@@ -46,6 +46,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private int $statusMaxAttempts;
     private int $statusRetryDelay;
+    private int $statusRoundDelay;
     private int $statusLookbackHours;
     private int $statusMaxAttemptsExisting = 5;
 
@@ -61,6 +62,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->statusMaxAttempts = (int) config('v8.job.status_max_attempts', 10);
         $this->statusRetryDelay = (int) config('v8.job.status_retry_delay_seconds', 30);
+        $this->statusRoundDelay = (int) config('v8.job.status_round_delay_seconds', 4);
         $this->statusLookbackHours = (int) config('v8.job.status_lookback_hours', 48);
     }
 
@@ -71,6 +73,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     public function handle(V8ApiService $api): void
     {
+        $api->setJobId($this->jobId);
         /** @var V8ConsultJob|null $job */
         $job = V8ConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job) {
@@ -182,7 +185,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 try {
-                    $pending = [];
+                    $pendingRegular = [];
+                    $pendingExisting = [];
                     while (($line = fgets($reader2)) !== false) {
                         if ($this->finishIfStopped($job)) {
                             return;
@@ -215,12 +219,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             }
 
                             if ($this->isWaitingStatus($statusResp['status'] ?? null)) {
-                                $pending[] = [
+                                $pendingRegular[] = [
                                     'mode' => 'regular',
                                     'cpf' => $cpf,
                                     'nome' => $nome,
                                     'nasc' => $nasc,
                                     'consult_id' => $consultId,
+                                    'attempts' => !empty($statusResp['retriable']) ? 0 : 1,
                                 ];
                                 continue;
                             }
@@ -230,29 +235,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         }
 
                         if ($mode === 'existing') {
-                            $statusResp = $this->checkStatusOnceByCpfFirst($api, $cpf);
-                            if (!$statusResp['ok']) {
-                                $row = $this->baseRow($cpf, $nome, $nasc);
-                                $row['status'] = 'FALHOU';
-                                $this->markErro($row, $statusResp['error'] ?? 'cliente bugado na api');
-                                $this->logCpfFailure('status', $cpf, null, $row['mensagem']);
-                                $this->spoolAppendManyPersist($job, [$row]);
-                                continue;
-                            }
-
-                            $foundConsultId = $statusResp['consult_id'] ?? null;
-                            if ($this->isWaitingStatus($statusResp['status'] ?? null)) {
-                                $pending[] = [
-                                    'mode' => 'existing',
-                                    'cpf' => $cpf,
-                                    'nome' => $nome,
-                                    'nasc' => $nasc,
-                                    'consult_id' => $foundConsultId,
-                                ];
-                                continue;
-                            }
-
-                            $this->finalizeFromStatus($api, $job, $cpf, $nome, $nasc, $foundConsultId, $statusResp, true);
+                            $pendingExisting[] = [
+                                'mode' => 'existing',
+                                'cpf' => $cpf,
+                                'nome' => $nome,
+                                'nasc' => $nasc,
+                                'consult_id' => null,
+                                'attempts' => 0,
+                            ];
                             continue;
                         }
 
@@ -262,16 +252,137 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         ]);
                     }
 
-                    if (!empty($pending)) {
-                        foreach ($pending as $entry) {
-                            if ($this->finishIfStopped($job)) {
-                                return;
+                    if (!empty($pendingRegular)) {
+                        $queue = $pendingRegular;
+
+                        while (!empty($queue)) {
+                            $nextQueue = [];
+                            foreach ($queue as $entry) {
+                                if ($this->finishIfStopped($job)) {
+                                    return;
+                                }
+
+                                $mode = (string) ($entry['mode'] ?? 'regular');
+                                $attempts = (int) ($entry['attempts'] ?? 1);
+                                $maxAttempts = $mode === 'existing' ? $this->statusMaxAttemptsExisting : $this->statusMaxAttempts;
+
+                                if ($attempts >= $maxAttempts) {
+                                    $this->finalizePendingTimeout($job, $entry, $mode);
+                                    continue;
+                                }
+
+                                if ($mode === 'existing') {
+                                    $statusResp = $this->checkStatusOnceByCpfFirst($api, (string) $entry['cpf']);
+                                } else {
+                                    $statusResp = $this->checkStatusOnceByConsultId($api, (string) $entry['cpf'], (string) ($entry['consult_id'] ?? ''));
+                                }
+
+                                if (!$statusResp['ok']) {
+                                    $this->finalizePendingError($job, $entry, $mode, $statusResp['error'] ?? 'Falha ao obter status.');
+                                    continue;
+                                }
+
+                                $status = $statusResp['status'] ?? null;
+                                if ($this->isWaitingStatus($status)) {
+                                    if (empty($statusResp['retriable'])) {
+                                        $attempts++;
+                                    }
+                                    if ($attempts >= $maxAttempts) {
+                                        $this->finalizePendingTimeout($job, $entry, $mode);
+                                        continue;
+                                    }
+                                    $entry['attempts'] = $attempts;
+                                    if ($mode === 'existing' && !empty($statusResp['consult_id'])) {
+                                        $entry['consult_id'] = $statusResp['consult_id'];
+                                    }
+                                    $nextQueue[] = $entry;
+                                    continue;
+                                }
+
+                                $consultId = $mode === 'existing'
+                                    ? ($statusResp['consult_id'] ?? ($entry['consult_id'] ?? null))
+                                    : ($entry['consult_id'] ?? null);
+
+                                $this->finalizeFromStatus(
+                                    $api,
+                                    $job,
+                                    (string) $entry['cpf'],
+                                    (string) $entry['nome'],
+                                    (string) $entry['nasc'],
+                                    $consultId,
+                                    $statusResp,
+                                    $mode === 'existing'
+                                );
                             }
-                            if (($entry['mode'] ?? '') === 'existing') {
-                                $this->processExistingConsent($api, $job, (string) $entry['cpf'], (string) $entry['nome'], (string) $entry['nasc']);
-                                continue;
+
+                            if (!empty($nextQueue) && $this->statusRoundDelay > 0) {
+                                sleep($this->statusRoundDelay);
                             }
-                            $this->processConsent($api, $job, (string) $entry['cpf'], (string) $entry['nome'], (string) $entry['nasc'], (string) ($entry['consult_id'] ?? ''));
+
+                            $queue = $nextQueue;
+                        }
+                    }
+
+                    if (!empty($pendingExisting)) {
+                        $queue = $pendingExisting;
+
+                        while (!empty($queue)) {
+                            $nextQueue = [];
+                            foreach ($queue as $entry) {
+                                if ($this->finishIfStopped($job)) {
+                                    return;
+                                }
+
+                                $attempts = (int) ($entry['attempts'] ?? 0);
+                                $maxAttempts = $this->statusMaxAttemptsExisting;
+
+                                if ($attempts >= $maxAttempts) {
+                                    $this->finalizePendingTimeout($job, $entry, 'existing');
+                                    continue;
+                                }
+
+                                $statusResp = $this->checkStatusOnceByCpfFirst($api, (string) $entry['cpf']);
+
+                                if (!$statusResp['ok']) {
+                                    $this->finalizePendingError($job, $entry, 'existing', $statusResp['error'] ?? 'Falha ao obter status.');
+                                    continue;
+                                }
+
+                                $status = $statusResp['status'] ?? null;
+                                if ($this->isWaitingStatus($status)) {
+                                    if (empty($statusResp['retriable'])) {
+                                        $attempts++;
+                                    }
+                                    if ($attempts >= $maxAttempts) {
+                                        $this->finalizePendingTimeout($job, $entry, 'existing');
+                                        continue;
+                                    }
+                                    $entry['attempts'] = $attempts;
+                                    if (!empty($statusResp['consult_id'])) {
+                                        $entry['consult_id'] = $statusResp['consult_id'];
+                                    }
+                                    $nextQueue[] = $entry;
+                                    continue;
+                                }
+
+                                $consultId = $statusResp['consult_id'] ?? ($entry['consult_id'] ?? null);
+                                $this->finalizeFromStatus(
+                                    $api,
+                                    $job,
+                                    (string) $entry['cpf'],
+                                    (string) $entry['nome'],
+                                    (string) $entry['nasc'],
+                                    $consultId,
+                                    $statusResp,
+                                    true
+                                );
+                            }
+
+                            if (!empty($nextQueue) && $this->statusRoundDelay > 0) {
+                                sleep($this->statusRoundDelay);
+                            }
+
+                            $queue = $nextQueue;
                         }
                     }
                 } finally {
@@ -594,6 +705,52 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolAppendManyPersist($job, [$row]);
     }
 
+    private function finalizePendingTimeout(V8ConsultJob $job, array $entry, string $mode): void
+    {
+        $cpf = (string) ($entry['cpf'] ?? '');
+        $nome = (string) ($entry['nome'] ?? '');
+        $nasc = (string) ($entry['nasc'] ?? '');
+        $consultId = $entry['consult_id'] ?? null;
+
+        $row = $this->baseRow($cpf, $nome, $nasc);
+        $row['consult_id'] = $consultId;
+
+        if ($mode === 'existing') {
+            $row['status'] = 'FALHOU';
+            $this->markErro($row, 'cliente bugado na api');
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+        } else {
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->markNaoElegivel($row, 'Timeout ao aguardar status de consentimento.');
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+        }
+
+        $this->spoolAppendManyPersist($job, [$row]);
+    }
+
+    private function finalizePendingError(V8ConsultJob $job, array $entry, string $mode, string $message): void
+    {
+        $cpf = (string) ($entry['cpf'] ?? '');
+        $nome = (string) ($entry['nome'] ?? '');
+        $nasc = (string) ($entry['nasc'] ?? '');
+        $consultId = $entry['consult_id'] ?? null;
+
+        $row = $this->baseRow($cpf, $nome, $nasc);
+        $row['consult_id'] = $consultId;
+
+        if ($mode === 'existing') {
+            $row['status'] = 'FALHOU';
+            $this->markErro($row, $message);
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+        } else {
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->markNaoElegivel($row, $message);
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+        }
+
+        $this->spoolAppendManyPersist($job, [$row]);
+    }
+
     private function processExistingConsent(
         V8ApiService $api,
         V8ConsultJob $job,
@@ -780,6 +937,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return [
                 'ok' => true,
                 'status' => 'WAITING_CONSULT',
+                'retriable' => true,
             ];
         }
 
@@ -869,6 +1027,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return [
                 'ok' => true,
                 'status' => 'WAITING_CONSULT',
+                'retriable' => true,
             ];
         }
 
@@ -1115,16 +1274,15 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function simulationErrorMessage(array $resp): string
     {
-        if (($resp['type'] ?? null) === 'simulation_installment_value_above_margin') {
-            return 'margem insuficiente.';
-        }
+        $type = $resp['type'] ?? null;
 
-        if (($resp['type'] ?? null) === 'simulation_not_eligible') {
-            return 'margem indisponivel.';
+        if ($type === 'simulation_installment_value_above_margin' || $type === 'simulation_not_eligible') {
+            return 'Margem insuficiente.';
         }
 
         return $this->formatApiError($resp);
     }
+
 
     private function splitEntryLine(string $line): array
     {

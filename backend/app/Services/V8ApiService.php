@@ -28,6 +28,8 @@ class V8ApiService
     private int $httpRetry;
     private int $httpRetryDelayMs;
     private int $httpMinIntervalMs;
+    private int $httpRateLimitSleepSeconds;
+    private ?int $jobId = null;
 
     public function __construct()
     {
@@ -50,6 +52,12 @@ class V8ApiService
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
         $this->httpMinIntervalMs = (int) ($http['min_interval_ms'] ?? 2000);
+        $this->httpRateLimitSleepSeconds = (int) ($http['rate_limit_sleep_seconds'] ?? 15);
+    }
+
+    public function setJobId(?int $jobId): void
+    {
+        $this->jobId = $jobId;
     }
 
     public function getToken(): ?string
@@ -186,7 +194,9 @@ class V8ApiService
         } catch (ConnectionException $e) {
             return $this->errorResult('V8: falha de conexão.', null, true, null);
         } catch (\Throwable $e) {
-            Log::warning('[V8] Erro inesperado na requisição: ' . $e->getMessage());
+            Log::warning('[V8] Erro inesperado na requisição: ' . $e->getMessage(), [
+                'job_id' => $this->jobId,
+            ]);
             return $this->errorResult('V8: erro inesperado.', null, false, null);
         }
     }
@@ -216,7 +226,7 @@ class V8ApiService
             if ($resp->status() === 429) {
                 $this->logRateLimit($context, $attempt + 1);
                 try {
-                    $this->markLastRequestNow();
+                    $this->pauseOnRateLimit($context);
                     $resp = $caller();
                 } catch (ConnectionException $e) {
                     if ($attempt < $attempts - 1) {
@@ -270,16 +280,39 @@ class V8ApiService
         }
     }
 
-    private function markLastRequestNow(): void
-    {
-        Cache::put('v8_http_last_at_ms', (int) floor(microtime(true) * 1000), 3600);
-    }
-
     private function logRateLimit(array $context, int $attempt): void
     {
         try {
             Log::warning('[V8] HTTP 429 recebido', array_merge([
                 'attempt' => $attempt,
+                'job_id' => $this->jobId,
+            ], $context));
+        } catch (\Throwable) {
+        }
+    }
+
+    private function pauseOnRateLimit(array $context): void
+    {
+        $sleepSeconds = max(0, $this->httpRateLimitSleepSeconds);
+        if ($sleepSeconds <= 0) {
+            $this->throttleRequests();
+            return;
+        }
+
+        try {
+            Log::warning('[V8] Pausa após 429 iniciada', array_merge([
+                'seconds' => $sleepSeconds,
+                'job_id' => $this->jobId,
+            ], $context));
+        } catch (\Throwable) {
+        }
+
+        sleep($sleepSeconds);
+
+        try {
+            Log::warning('[V8] Pausa após 429 finalizada', array_merge([
+                'seconds' => $sleepSeconds,
+                'job_id' => $this->jobId,
             ], $context));
         } catch (\Throwable) {
         }

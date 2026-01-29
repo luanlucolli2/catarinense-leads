@@ -35,6 +35,7 @@ return [
         'retry'           => (int) env('V8_HTTP_RETRY', 1),
         'retry_delay_ms'  => (int) env('V8_HTTP_RETRY_DELAY_MS', 200),
         'min_interval_ms' => (int) env('V8_HTTP_MIN_INTERVAL_MS', 2000),
+        'rate_limit_sleep_seconds' => (int) env('V8_HTTP_429_SLEEP_SECONDS', 15),
     ],
 
     'job' => [
@@ -42,6 +43,7 @@ return [
         'timeout_seconds'            => (int) env('V8_JOB_TIMEOUT', 115200),
         'status_max_attempts'        => (int) env('V8_STATUS_MAX_ATTEMPTS', 10),
         'status_retry_delay_seconds' => (int) env('V8_STATUS_RETRY_DELAY_SECONDS', 30),
+        'status_round_delay_seconds' => (int) env('V8_STATUS_ROUND_DELAY_SECONDS', 4),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
     ],
 
