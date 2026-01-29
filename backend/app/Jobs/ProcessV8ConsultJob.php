@@ -196,10 +196,34 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 try {
-                    $pendingRegular = [];
-                    $pendingExisting = [];
+                    $pendingRegularRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.regular.csv";
+                    $pendingExistingRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.existing.csv";
+                    $this->pendFiles[] = $pendingRegularRel;
+                    $this->pendFiles[] = $pendingExistingRel;
+
+                    $pendingRegularCount = 0;
+                    $pendingExistingCount = 0;
+
+                    $pendingRegularFp = fopen($disk->path($pendingRegularRel), 'c+');
+                    $pendingExistingFp = fopen($disk->path($pendingExistingRel), 'c+');
+                    if ($pendingRegularFp === false || $pendingExistingFp === false) {
+                        if (is_resource($pendingRegularFp)) {
+                            fclose($pendingRegularFp);
+                        }
+                        if (is_resource($pendingExistingFp)) {
+                            fclose($pendingExistingFp);
+                        }
+                        $this->failFinalize($job);
+                        return;
+                    }
+
+                    ftruncate($pendingRegularFp, 0);
+                    ftruncate($pendingExistingFp, 0);
+
                     while (($line = fgets($reader2)) !== false) {
                         if ($this->finishIfStopped($job)) {
+                            fclose($pendingRegularFp);
+                            fclose($pendingExistingFp);
                             return;
                         }
 
@@ -218,26 +242,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         }
 
                         if ($consultId) {
-                            $pendingRegular[] = [
-                                'mode' => 'regular',
-                                'cpf' => $cpf,
-                                'nome' => $nome,
-                                'nasc' => $nasc,
-                                'consult_id' => $consultId,
-                                'attempts' => 0,
-                            ];
+                            fputcsv($pendingRegularFp, [$cpf, $nome, $nasc, $consultId, 0], ';');
+                            $pendingRegularCount++;
                             continue;
                         }
 
                         if ($mode === 'existing') {
-                            $pendingExisting[] = [
-                                'mode' => 'existing',
-                                'cpf' => $cpf,
-                                'nome' => $nome,
-                                'nasc' => $nasc,
-                                'consult_id' => null,
-                                'attempts' => 0,
-                            ];
+                            fputcsv($pendingExistingFp, [$cpf, $nome, $nasc, '', 0], ';');
+                            $pendingExistingCount++;
                             continue;
                         }
 
@@ -247,16 +259,23 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         ]);
                     }
 
-                    if (!empty($pendingRegular)) {
+                    fclose($pendingRegularFp);
+                    fclose($pendingExistingFp);
+
+                    if ($pendingRegularCount > 0) {
                         $startDate = ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))->copy()->setTimezone('UTC')->startOfDay();
                         $endDate = Carbon::now('UTC')->endOfDay();
-                        $this->runBatchStatusRounds($api, $job, $pendingRegular, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
+                        $this->runBatchStatusFile($api, $job, $pendingRegularRel, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
+                    } else {
+                        $disk->delete($pendingRegularRel);
                     }
 
-                    if (!empty($pendingExisting)) {
+                    if ($pendingExistingCount > 0) {
                         $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
                         $endDate = Carbon::now('UTC')->endOfDay();
-                        $this->runBatchStatusRounds($api, $job, $pendingExisting, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
+                        $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
+                    } else {
+                        $disk->delete($pendingExistingRel);
                     }
                 } finally {
                     fclose($reader2);
@@ -331,12 +350,16 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $authResp = $api->authorizeConsult($consultId);
         if (!$authResp['ok']) {
-            $row['status'] = 'ERROR';
-            $this->markNaoElegivel($row, $this->formatApiError($authResp));
-            $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
-            $row['status'] = 'NAO_ELEGIVEL';
-            $this->spoolAppendManyPersist($job, [$row]);
-            return;
+            if (!$this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
+                $row['status'] = 'ERROR';
+                $this->markNaoElegivel($row, $this->formatApiError($authResp));
+                $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->spoolAppendManyPersist($job, [$row]);
+                return;
+            }
+
+            $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
         }
 
         $statusResp = $this->pollStatus($api, $cpf, $consultId);
@@ -445,11 +468,15 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $authResp = $api->authorizeConsult($consultId);
         if (!$authResp['ok']) {
-            $row['status'] = 'NAO_ELEGIVEL';
-            $this->markNaoElegivel($row, $this->formatApiError($authResp));
-            $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
-            $this->spoolAppendManyPersist($job, [$row]);
-            return false;
+            if (!$this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->markNaoElegivel($row, $this->formatApiError($authResp));
+                $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
+                $this->spoolAppendManyPersist($job, [$row]);
+                return false;
+            }
+
+            $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
         }
 
         if (is_resource($consentsFp)) {
@@ -578,23 +605,34 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolAppendManyPersist($job, [$row]);
     }
 
-    private function runBatchStatusRounds(
+    private function runBatchStatusFile(
         V8ApiService $api,
         V8ConsultJob $job,
-        array $queue,
+        string $pendingRel,
         string $mode,
         Carbon $startDate,
         Carbon $endDate,
         int $maxAttempts
     ): void {
+        $disk = Storage::disk($this->disk);
+        $baseRel = $pendingRel;
+        $currentRel = $baseRel;
         $round = 0;
 
-        while (!empty($queue)) {
+        while ($disk->exists($currentRel)) {
             if ($this->finishIfStopped($job)) {
                 return;
             }
 
-            $batch = $this->fetchBatchStatuses($api, $queue, $mode, $startDate, $endDate);
+            $pendingKeys = $this->collectPendingKeys($disk->path($currentRel), $mode);
+            if (empty($pendingKeys)) {
+                $disk->delete($currentRel);
+                return;
+            }
+
+            $batch = $this->fetchBatchStatusesByKeys($api, $pendingKeys, $mode, $startDate, $endDate);
+            unset($pendingKeys);
+
             if (!$batch['ok']) {
                 if (!empty($batch['retriable'])) {
                     if ($this->statusRoundDelay > 0) {
@@ -603,114 +641,90 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
 
-                $errorMessage = $batch['error'] ?? 'Falha ao obter status.';
-                foreach ($queue as $entry) {
-                    $this->finalizePendingError($job, $entry, $mode, $errorMessage);
-                }
+                $this->finalizePendingFileError($job, $currentRel, $mode, $batch['error'] ?? 'Falha ao obter status.');
+                $disk->delete($currentRel);
                 return;
             }
 
-            $round = ($round ?? 0) + 1;
-            if ($round > $maxAttempts) {
-                foreach ($queue as $entry) {
-                    $this->finalizePendingTimeout($job, $entry, $mode);
-                }
-                return;
-            }
-
+            $round++;
             $matches = $batch['matches'] ?? [];
-            $nextQueue = [];
+            $nextRel = "{$baseRel}.next";
+            $this->pendFiles[] = $nextRel;
 
-            foreach ($queue as $entry) {
-                $cpf = (string) ($entry['cpf'] ?? '');
-                $consultId = $entry['consult_id'] ?? null;
-                $key = $mode === 'existing'
-                    ? $this->normalizeCpfKey($cpf)
-                    : (string) $consultId;
+            $written = $this->processPendingFileRound($api, $job, $disk->path($currentRel), $disk->path($nextRel), $mode, $matches, $maxAttempts);
 
-                $statusResp = $matches[$key] ?? null;
-                if (!$statusResp) {
-                    $nextQueue[] = $entry;
-                    continue;
+            $disk->delete($currentRel);
+            unset($matches);
+
+            if ($written === 0) {
+                if ($disk->exists($nextRel)) {
+                    $disk->delete($nextRel);
                 }
-
-                $status = $statusResp['status'] ?? null;
-                $attempts = (int) ($entry['attempts'] ?? 0);
-
-                if ($this->isWaitingStatus($status)) {
-                    $useConsultId = $statusResp['consult_id'] ?? $consultId;
-                    if ($status === 'WAITING_CONSENT' && $useConsultId) {
-                        $authResp = $api->authorizeConsult($useConsultId);
-                        if (!$authResp['ok'] && !($authResp['retriable'] ?? false)) {
-                            $this->finalizePendingError($job, $entry, $mode, $this->formatApiError($authResp));
-                            continue;
-                        }
-                    }
-
-                    if (empty($statusResp['retriable'])) {
-                        $attempts++;
-                    }
-
-                    if ($attempts >= $maxAttempts) {
-                        $this->finalizePendingTimeout($job, $entry, $mode);
-                        continue;
-                    }
-
-                    $entry['attempts'] = $attempts;
-                    if (!empty($statusResp['consult_id'])) {
-                        $entry['consult_id'] = $statusResp['consult_id'];
-                    }
-                    $nextQueue[] = $entry;
-                    continue;
-                }
-
-                $finalConsultId = $mode === 'existing'
-                    ? ($statusResp['consult_id'] ?? $consultId)
-                    : ($consultId ?? ($statusResp['consult_id'] ?? null));
-
-                $this->finalizeFromStatus(
-                    $api,
-                    $job,
-                    (string) $entry['cpf'],
-                    (string) $entry['nome'],
-                    (string) $entry['nasc'],
-                    $finalConsultId,
-                    $statusResp,
-                    $mode === 'existing'
-                );
+                return;
             }
 
-            if (!empty($nextQueue) && $this->statusRoundDelay > 0) {
+            if ($round >= $maxAttempts) {
+                $this->finalizePendingFileTimeout($job, $nextRel, $mode);
+                $disk->delete($nextRel);
+                return;
+            }
+
+            // promove next -> current
+            $currentReal = $disk->path($currentRel);
+            $nextReal = $disk->path($nextRel);
+            if (!@rename($nextReal, $currentReal)) {
+                try {
+                    $disk->move($nextRel, $currentRel);
+                } catch (Throwable) {
+                    // se falhar, encerra para evitar loop com arquivos inconsistentes
+                    return;
+                }
+            }
+
+            if ($this->statusRoundDelay > 0) {
                 sleep($this->statusRoundDelay);
             }
-
-            $queue = $nextQueue;
         }
     }
 
-    private function fetchBatchStatuses(
+    private function collectPendingKeys(string $realPath, string $mode): array
+    {
+        $keys = [];
+        $fh = fopen($realPath, 'r');
+        if ($fh === false) {
+            return $keys;
+        }
+
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $parsed = $this->parsePendingLine($line);
+                if (!$parsed) {
+                    continue;
+                }
+
+                [$cpf, , , $consultId] = $parsed;
+                $key = $mode === 'existing'
+                    ? $this->normalizeCpfKey($cpf)
+                    : (string) $consultId;
+                if ($key === '') {
+                    continue;
+                }
+                $keys[$key] = true;
+            }
+        } finally {
+            fclose($fh);
+        }
+
+        return $keys;
+    }
+
+    private function fetchBatchStatusesByKeys(
         V8ApiService $api,
-        array $queue,
+        array &$pendingKeys,
         string $mode,
         Carbon $startDate,
         Carbon $endDate
     ): array {
-        $pendingKeys = [];
-        foreach ($queue as $entry) {
-            $cpf = (string) ($entry['cpf'] ?? '');
-            $consultId = (string) ($entry['consult_id'] ?? '');
-            if ($mode === 'existing') {
-                $key = $this->normalizeCpfKey($cpf);
-                if ($key !== '') {
-                    $pendingKeys[$key] = true;
-                }
-            } else {
-                if ($consultId !== '') {
-                    $pendingKeys[$consultId] = true;
-                }
-            }
-        }
-
         $matches = [];
         $page = 1;
         $totalPages = 1;
@@ -725,18 +739,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
 
             if (!$resp['ok']) {
-                if (!($resp['retriable'] ?? false)) {
-                    return [
-                        'ok' => false,
-                        'error' => $this->formatApiError($resp),
-                        'retriable' => false,
-                    ];
-                }
-
                 return [
                     'ok' => false,
                     'error' => $this->formatApiError($resp),
-                    'retriable' => true,
+                    'retriable' => (bool) ($resp['retriable'] ?? false),
                 ];
             }
 
@@ -776,6 +782,180 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         ];
     }
 
+    private function processPendingFileRound(
+        V8ApiService $api,
+        V8ConsultJob $job,
+        string $currentReal,
+        string $nextReal,
+        string $mode,
+        array $matches,
+        int $maxAttempts
+    ): int {
+        $reader = fopen($currentReal, 'r');
+        $writer = fopen($nextReal, 'w');
+        if ($reader === false || $writer === false) {
+            if (is_resource($reader)) {
+                fclose($reader);
+            }
+            if (is_resource($writer)) {
+                fclose($writer);
+            }
+            return 0;
+        }
+
+        $written = 0;
+        try {
+            while (($line = fgets($reader)) !== false) {
+                $parsed = $this->parsePendingLine($line);
+                if (!$parsed) {
+                    continue;
+                }
+
+                [$cpf, $nome, $nasc, $consultId, $attempts] = $parsed;
+                $key = $mode === 'existing'
+                    ? $this->normalizeCpfKey($cpf)
+                    : (string) $consultId;
+
+                $statusResp = $matches[$key] ?? null;
+                if (!$statusResp) {
+                    fputcsv($writer, [$cpf, $nome, $nasc, $consultId, $attempts], ';');
+                    $written++;
+                    continue;
+                }
+
+                $status = $statusResp['status'] ?? null;
+                if ($this->isWaitingStatus($status)) {
+                    $useConsultId = $statusResp['consult_id'] ?? $consultId;
+                    if ($status === 'WAITING_CONSENT' && $useConsultId) {
+                        $authResp = $api->authorizeConsult($useConsultId);
+                        if (
+                            !$authResp['ok']
+                            && !($authResp['retriable'] ?? false)
+                            && !$this->isAuthorizeAlreadyApproved($authResp, $useConsultId)
+                        ) {
+                            $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts), $mode, $this->formatApiError($authResp));
+                            continue;
+                        }
+                    }
+
+                    $attempts++;
+                    if ($attempts >= $maxAttempts) {
+                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts), $mode);
+                        continue;
+                    }
+
+                    $consultId = $statusResp['consult_id'] ?? $consultId;
+                    fputcsv($writer, [$cpf, $nome, $nasc, $consultId, $attempts], ';');
+                    $written++;
+                    continue;
+                }
+
+                $finalConsultId = $mode === 'existing'
+                    ? ($statusResp['consult_id'] ?? $consultId)
+                    : ($consultId ?? ($statusResp['consult_id'] ?? null));
+
+                $this->finalizeFromStatus(
+                    $api,
+                    $job,
+                    $cpf,
+                    $nome,
+                    $nasc,
+                    $finalConsultId,
+                    $statusResp,
+                    $mode === 'existing'
+                );
+            }
+        } finally {
+            fclose($reader);
+            fflush($writer);
+            fclose($writer);
+        }
+
+        return $written;
+    }
+
+    private function parsePendingLine(string $line): ?array
+    {
+        $line = trim($line);
+        if ($line === '') {
+            return null;
+        }
+        $parts = str_getcsv($line, ';');
+        $cpf = Cpf::normalize($parts[0] ?? null);
+        if (!$cpf) {
+            return null;
+        }
+        $nome = $parts[1] ?? '';
+        $nasc = $parts[2] ?? '';
+        $consultId = $parts[3] ?? '';
+        $attempts = isset($parts[4]) ? (int) $parts[4] : 0;
+
+        return [$cpf, $nome, $nasc, $consultId !== '' ? $consultId : null, $attempts];
+    }
+
+    private function entryFromParsed(string $cpf, string $nome, string $nasc, ?string $consultId, int $attempts): array
+    {
+        return [
+            'cpf' => $cpf,
+            'nome' => $nome,
+            'nasc' => $nasc,
+            'consult_id' => $consultId,
+            'attempts' => $attempts,
+        ];
+    }
+
+    private function finalizePendingFileTimeout(V8ConsultJob $job, string $pendingRel, string $mode): void
+    {
+        $disk = Storage::disk($this->disk);
+        if (!$disk->exists($pendingRel)) {
+            return;
+        }
+
+        $fh = fopen($disk->path($pendingRel), 'r');
+        if ($fh === false) {
+            return;
+        }
+
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $parsed = $this->parsePendingLine($line);
+                if (!$parsed) {
+                    continue;
+                }
+                [$cpf, $nome, $nasc, $consultId, $attempts] = $parsed;
+                $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts), $mode);
+            }
+        } finally {
+            fclose($fh);
+        }
+    }
+
+    private function finalizePendingFileError(V8ConsultJob $job, string $pendingRel, string $mode, string $message): void
+    {
+        $disk = Storage::disk($this->disk);
+        if (!$disk->exists($pendingRel)) {
+            return;
+        }
+
+        $fh = fopen($disk->path($pendingRel), 'r');
+        if ($fh === false) {
+            return;
+        }
+
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $parsed = $this->parsePendingLine($line);
+                if (!$parsed) {
+                    continue;
+                }
+                [$cpf, $nome, $nasc, $consultId, $attempts] = $parsed;
+                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts), $mode, $message);
+            }
+        } finally {
+            fclose($fh);
+        }
+    }
+
     private function statusFromItem(array $item): array
     {
         $status = $item['status'] ?? null;
@@ -802,6 +982,33 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $cpf = Cpf::normalize($value);
         return $cpf ? $cpf : '';
+    }
+
+    private function isAuthorizeAlreadyApproved(array $resp, ?string $consultId): bool
+    {
+        if (($resp['type'] ?? null) !== 'consult_already_approved') {
+            return false;
+        }
+
+        $approvedId = $this->extractConsultIdFromMessage((string) ($resp['error'] ?? ''));
+        if (!$approvedId) {
+            return $consultId !== null && $consultId !== '';
+        }
+
+        return $consultId !== null && strcasecmp($approvedId, $consultId) === 0;
+    }
+
+    private function extractConsultIdFromMessage(string $message): ?string
+    {
+        if ($message === '') {
+            return null;
+        }
+
+        if (preg_match('/ID\\s+([0-9a-fA-F-]{36})/i', $message, $m)) {
+            return $m[1] ?? null;
+        }
+
+        return null;
     }
 
     private function finalizePendingTimeout(V8ConsultJob $job, array $entry, string $mode): void
@@ -1069,7 +1276,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $status = $match['status'] ?? null;
         if ($status === 'WAITING_CONSENT') {
             $authResp = $api->authorizeConsult($consultId);
-            if (!$authResp['ok'] && !($authResp['retriable'] ?? false)) {
+            if (
+                !$authResp['ok']
+                && !($authResp['retriable'] ?? false)
+                && !$this->isAuthorizeAlreadyApproved($authResp, $consultId)
+            ) {
                 return [
                     'ok' => false,
                     'error' => $this->formatApiError($authResp),
@@ -1151,7 +1362,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($status === 'WAITING_CONSENT' && $consultId) {
             $authResp = $api->authorizeConsult($consultId);
-            if (!$authResp['ok'] && !($authResp['retriable'] ?? false)) {
+            if (
+                !$authResp['ok']
+                && !($authResp['retriable'] ?? false)
+                && !$this->isAuthorizeAlreadyApproved($authResp, $consultId)
+            ) {
                 return [
                     'ok' => false,
                     'error' => $this->formatApiError($authResp),
@@ -1236,8 +1451,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $status = $match['status'] ?? null;
             if ($status === 'WAITING_CONSULT' || $status === 'CONSENT_APPROVED' || $status === 'WAITING_CREDIT_ANALYSIS' || $status === 'WAITING_CONSENT') {
                 if ($status === 'WAITING_CONSENT') {
-                    $authResp = $api->authorizeConsult((string) ($match['id'] ?? ''));
-                    if (!$authResp['ok'] && !($authResp['retriable'] ?? false)) {
+                    $matchId = (string) ($match['id'] ?? '');
+                    $authResp = $api->authorizeConsult($matchId);
+                    if (
+                        !$authResp['ok']
+                        && !($authResp['retriable'] ?? false)
+                        && !$this->isAuthorizeAlreadyApproved($authResp, $matchId)
+                    ) {
                         return [
                             'ok' => false,
                             'error' => $this->formatApiError($authResp),
