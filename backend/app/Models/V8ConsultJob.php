@@ -12,6 +12,7 @@ class V8ConsultJob extends Model
         'user_id',
         'title',
         'status',
+        'phase',
         'total_cpfs',
         'success_count',
         'nao_elegivel_count',

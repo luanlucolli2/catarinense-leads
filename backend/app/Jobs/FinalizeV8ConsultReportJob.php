@@ -126,14 +126,14 @@ class FinalizeV8ConsultReportJob implements ShouldQueue
 
         $this->cleanupSpool($job);
 
-        $job->update(['status' => $this->targetStatus, 'finished_at' => Carbon::now()]);
+        $job->update(['status' => $this->targetStatus, 'phase' => null, 'finished_at' => Carbon::now()]);
         Log::info("[V8] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
     }
 
     private function finishWithoutFinal(V8ConsultJob $job, string $status): void
     {
         $this->cleanupSpool($job);
-        $job->update(['status' => $status, 'finished_at' => Carbon::now()]);
+        $job->update(['status' => $status, 'phase' => null, 'finished_at' => Carbon::now()]);
     }
 
     private function cleanupSpool(V8ConsultJob $job): void

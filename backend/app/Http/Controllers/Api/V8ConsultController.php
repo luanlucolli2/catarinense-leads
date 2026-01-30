@@ -39,6 +39,7 @@ class V8ConsultController extends Controller
             'id' => $job->id,
             'title' => $job->title,
             'status' => $job->status,
+            'phase' => $job->phase,
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
             'nao_elegivel_count' => $job->nao_elegivel_count,
@@ -111,6 +112,7 @@ class V8ConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -241,6 +243,7 @@ class V8ConsultController extends Controller
 
         $job->update([
             'status' => 'cancelado',
+            'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
@@ -266,6 +269,7 @@ class V8ConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);

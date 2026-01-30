@@ -119,6 +119,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $job->update([
             'status' => 'em_progresso',
+            'phase' => 'fase_1',
             'started_at' => $job->started_at ?? Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
         ]);
@@ -213,6 +214,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             // ===== FASE 2: polling + simulação =====
             if ($consentCount > 0) {
                 $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+                $job->update(['phase' => 'fase_2']);
                 $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
                 if ($prePhase2Delay > 0) {
                     sleep($prePhase2Delay);

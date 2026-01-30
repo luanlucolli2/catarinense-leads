@@ -45,7 +45,7 @@ return [
     'job' => [
         'queue'                      => env('V8_JOB_QUEUE', 'v8'),
         'timeout_seconds'            => (int) env('V8_JOB_TIMEOUT', 115200),
-        'status_max_attempts'        => (int) env('V8_STATUS_MAX_ATTEMPTS', 15),
+        'status_max_attempts'        => (int) env('V8_STATUS_MAX_ATTEMPTS', 30),
         'status_retry_delay_seconds' => (int) env('V8_STATUS_RETRY_DELAY_SECONDS', 30),
         'status_round_delay_seconds' => (int) env('V8_STATUS_ROUND_DELAY_SECONDS', 20),
         'status_batch_limit'         => (int) env('V8_STATUS_BATCH_LIMIT', 80),
