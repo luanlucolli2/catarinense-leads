@@ -37,6 +37,8 @@ return [
         'min_interval_ms' => (int) env('V8_HTTP_MIN_INTERVAL_MS', 2000),
         'min_interval_ms_phase1' => (int) env('V8_HTTP_MIN_INTERVAL_MS_PHASE1', 200),
         'min_interval_ms_phase2' => (int) env('V8_HTTP_MIN_INTERVAL_MS_PHASE2', 10000),
+        'min_interval_ms_phase2_status' => (int) env('V8_HTTP_MIN_INTERVAL_MS_PHASE2_STATUS', 10000),
+        'min_interval_ms_phase2_simulation' => (int) env('V8_HTTP_MIN_INTERVAL_MS_PHASE2_SIMULATION', 2000),
         'rate_limit_sleep_seconds' => (int) env('V8_HTTP_429_SLEEP_SECONDS', 15),
     ],
 
@@ -46,9 +48,12 @@ return [
         'status_max_attempts'        => (int) env('V8_STATUS_MAX_ATTEMPTS', 15),
         'status_retry_delay_seconds' => (int) env('V8_STATUS_RETRY_DELAY_SECONDS', 30),
         'status_round_delay_seconds' => (int) env('V8_STATUS_ROUND_DELAY_SECONDS', 20),
-        'status_batch_limit'         => (int) env('V8_STATUS_BATCH_LIMIT', 50),
+        'status_batch_limit'         => (int) env('V8_STATUS_BATCH_LIMIT', 80),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
         'status_lookback_existing_hours' => (int) env('V8_STATUS_LOOKBACK_EXISTING_HOURS', 168),
+        'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 9),
+        'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
+        'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
     ],
 
     'preview' => [

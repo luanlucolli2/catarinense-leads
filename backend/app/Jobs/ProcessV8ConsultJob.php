@@ -12,10 +12,12 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -52,7 +54,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $statusLookbackExistingHours;
     private int $statusMaxAttemptsExisting = 5;
     private int $httpMinIntervalPhase1;
-    private int $httpMinIntervalPhase2;
+    private int $httpMinIntervalPhase2Status;
+    private int $httpMinIntervalPhase2Simulation;
+    private int $phase1PoolSize;
+    private int $phase1BatchDelaySeconds;
+    private int $httpRateLimitSleepSeconds;
 
     public function __construct(int $jobId)
     {
@@ -71,7 +77,15 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->statusLookbackHours = (int) config('v8.job.status_lookback_hours', 48);
         $this->statusLookbackExistingHours = (int) config('v8.job.status_lookback_existing_hours', 168);
         $this->httpMinIntervalPhase1 = (int) (config('v8.http.min_interval_ms_phase1') ?? config('v8.http.min_interval_ms', 2000));
-        $this->httpMinIntervalPhase2 = (int) (config('v8.http.min_interval_ms_phase2') ?? config('v8.http.min_interval_ms', 2000));
+        $this->httpMinIntervalPhase2Status = (int) (config('v8.http.min_interval_ms_phase2_status')
+            ?? config('v8.http.min_interval_ms_phase2')
+            ?? config('v8.http.min_interval_ms', 2000));
+        $this->httpMinIntervalPhase2Simulation = (int) (config('v8.http.min_interval_ms_phase2_simulation')
+            ?? config('v8.http.min_interval_ms_phase2')
+            ?? config('v8.http.min_interval_ms', 2000));
+        $this->phase1PoolSize = max(1, (int) config('v8.job.phase1_pool_size', 3));
+        $this->phase1BatchDelaySeconds = max(0, (int) config('v8.job.phase1_batch_delay_seconds', 2));
+        $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
     }
 
     public function uniqueId(): string
@@ -157,6 +171,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
             try {
                 $api->setRateLimitMs($this->httpMinIntervalPhase1);
+                $phase1Batch = [];
                 while (($line = fgets($reader)) !== false) {
                     if ($this->finishIfStopped($job)) {
                         return;
@@ -176,9 +191,18 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         continue;
                     }
 
-                    if ($this->prepareConsent($api, $job, $cpf, $nome, $nasc, $consentsFp)) {
-                        $consentCount++;
+                    $phase1Batch[] = [$cpf, $nome, $nasc];
+                    if (count($phase1Batch) >= $this->phase1PoolSize) {
+                        $consentCount += $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
+                        $phase1Batch = [];
+                        if ($this->phase1BatchDelaySeconds > 0) {
+                            sleep($this->phase1BatchDelaySeconds);
+                        }
                     }
+                }
+
+                if (!empty($phase1Batch)) {
+                    $consentCount += $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
                 }
             } finally {
                 fclose($reader);
@@ -188,7 +212,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
             // ===== FASE 2: polling + simulação =====
             if ($consentCount > 0) {
-                $api->setRateLimitMs($this->httpMinIntervalPhase2);
+                $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+                $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
+                if ($prePhase2Delay > 0) {
+                    sleep($prePhase2Delay);
+                }
                 $reader2 = fopen($consentsReal, 'r');
                 if ($reader2 === false) {
                     $this->failFinalize($job);
@@ -384,6 +412,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
             'config_id' => $configId,
@@ -486,6 +515,228 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return true;
     }
 
+    private function processPhase1Batch(V8ApiService $api, V8ConsultJob $job, array $entries, $consentsFp): int
+    {
+        if (empty($entries)) {
+            return 0;
+        }
+
+        $provider = (string) config('v8.bff.provider', 'QI');
+        $baseUrl = rtrim((string) config('v8.bff.base_url', ''), '/');
+        $token = $api->getToken();
+        if (!$token || $baseUrl === '') {
+            foreach ($entries as $entry) {
+                [$cpf, $nome, $nasc] = $entry;
+                $row = $this->baseRow($cpf, $nome, $nasc);
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->markNaoElegivel($row, 'V8 OAuth: token ausente.');
+                $this->logCpfFailure('consult', $cpf, null, $row['mensagem']);
+                $this->spoolAppendManyPersist($job, [$row]);
+            }
+            return 0;
+        }
+
+        $payloads = [];
+        $entryByKey = [];
+        foreach ($entries as $idx => $entry) {
+            [$cpf, $nome, $nasc] = $entry;
+            $gender = $this->genderFromName($nome);
+            if (!$gender) {
+                $row = $this->baseRow($cpf, $nome, $nasc);
+                $row['status'] = 'FALHOU';
+                $this->markErro($row, 'Genero nao encontrado no IBGE.');
+                $this->logCpfFailure('gender', $cpf, null, $row['mensagem'], ['nome' => $nome]);
+                $this->spoolAppendManyPersist($job, [$row]);
+                continue;
+            }
+
+            $key = (string) $idx;
+            $payloads[$key] = [
+                'borrowerDocumentNumber' => $cpf,
+                'gender' => $gender,
+                'birthDate' => $nasc,
+                'signerName' => $nome,
+                'signerEmail' => (string) config('v8.signer.email', 'luangstl@gmail.com'),
+                'signerPhone' => [
+                    'phoneNumber' => (string) config('v8.signer.phone_number', '997664631'),
+                    'countryCode' => (string) config('v8.signer.phone_country', '55'),
+                    'areaCode' => (string) config('v8.signer.phone_area', '47'),
+                ],
+                'provider' => $provider,
+            ];
+            $entryByKey[$key] = [$cpf, $nome, $nasc];
+        }
+
+        if (empty($payloads)) {
+            return 0;
+        }
+
+        $authHeaders = [
+            'Authorization' => 'Bearer ' . $token,
+            'Accept' => 'application/json',
+        ];
+
+        $responses = Http::timeout(max(1, (int) config('v8.http.timeout', 15)))
+            ->connectTimeout(max(1, (int) config('v8.http.connect_timeout', 10)))
+            ->pool(function ($pool) use ($payloads, $baseUrl, $authHeaders) {
+                $reqs = [];
+                foreach ($payloads as $key => $payload) {
+                    $reqs[] = $pool->as($key)->withHeaders($authHeaders)->post("{$baseUrl}/private-consignment/consult", $payload);
+                }
+                return $reqs;
+            });
+
+        $consultIds = [];
+        $createdCount = 0;
+        $saw429 = false;
+
+        foreach ($payloads as $key => $payload) {
+            [$cpf, $nome, $nasc] = $entryByKey[$key];
+            $resp = $responses[$key] ?? null;
+
+            if (!$resp instanceof HttpResponse) {
+                $resp = $api->createConsult($payload);
+                if (!$resp['ok']) {
+                    $row = $this->baseRow($cpf, $nome, $nasc);
+                    if (($resp['type'] ?? null) === 'consult_already_exists_by_user_and_document_number') {
+                        if (is_resource($consentsFp)) {
+                            fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
+                        }
+                        $createdCount++;
+                        continue;
+                    }
+                    $row['status'] = 'NAO_ELEGIVEL';
+                    $this->markNaoElegivel($row, $this->formatApiError($resp));
+                    $this->logCpfFailure('consult', $cpf, null, $row['mensagem'], $this->logContextFromApi($resp));
+                    $this->spoolAppendManyPersist($job, [$row]);
+                    continue;
+                }
+                $consultId = $resp['data']['id'] ?? null;
+                if (is_string($consultId) && $consultId !== '') {
+                    $consultIds[$key] = $consultId;
+                    $createdCount++;
+                }
+                continue;
+            }
+
+            if ($resp->status() === 429) {
+                $saw429 = true;
+            }
+
+            if ($resp->ok()) {
+                $json = $resp->json();
+                $consultId = is_array($json) ? ($json['id'] ?? null) : null;
+                if (is_string($consultId) && $consultId !== '') {
+                    $consultIds[$key] = $consultId;
+                    $createdCount++;
+                    continue;
+                }
+                $row = $this->baseRow($cpf, $nome, $nasc);
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->markNaoElegivel($row, 'ID de consulta ausente.');
+                $this->logCpfFailure('consult', $cpf, null, $row['mensagem']);
+                $this->spoolAppendManyPersist($job, [$row]);
+                continue;
+            }
+
+            $err = $this->extractHttpError($resp);
+            if ($err['type'] === 'consult_already_exists_by_user_and_document_number') {
+                if (is_resource($consentsFp)) {
+                    fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
+                }
+                $createdCount++;
+                continue;
+            }
+
+            $row = $this->baseRow($cpf, $nome, $nasc);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->markNaoElegivel($row, $this->formatApiError($err));
+            $this->logCpfFailure('consult', $cpf, null, $row['mensagem'], $this->logContextFromHttpError($err));
+            $this->spoolAppendManyPersist($job, [$row]);
+        }
+
+        if ($saw429 && $this->httpRateLimitSleepSeconds > 0) {
+            $this->logCpfFailure('consult', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            sleep($this->httpRateLimitSleepSeconds);
+        }
+
+        if (empty($consultIds)) {
+            return $createdCount;
+        }
+
+        $authResponses = Http::timeout(max(1, (int) config('v8.http.timeout', 15)))
+            ->connectTimeout(max(1, (int) config('v8.http.connect_timeout', 10)))
+            ->pool(function ($pool) use ($consultIds, $baseUrl, $authHeaders) {
+                $reqs = [];
+                foreach ($consultIds as $key => $consultId) {
+                    $reqs[] = $pool->as($key)->withHeaders($authHeaders)->post("{$baseUrl}/private-consignment/consult/" . urlencode($consultId) . "/authorize", []);
+                }
+                return $reqs;
+            });
+
+        $authorizedCount = 0;
+        $saw429 = false;
+
+        foreach ($consultIds as $key => $consultId) {
+            [$cpf, $nome, $nasc] = $entryByKey[$key];
+            $resp = $authResponses[$key] ?? null;
+
+            if (!$resp instanceof HttpResponse) {
+                $authResp = $api->authorizeConsult($consultId);
+                if (!$authResp['ok']) {
+                    if (!$this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
+                        $row = $this->baseRow($cpf, $nome, $nasc);
+                        $row['status'] = 'NAO_ELEGIVEL';
+                        $this->markNaoElegivel($row, $this->formatApiError($authResp));
+                        $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
+                        $this->spoolAppendManyPersist($job, [$row]);
+                        continue;
+                    }
+                    $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
+                }
+                if (is_resource($consentsFp)) {
+                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
+                }
+                $authorizedCount++;
+                continue;
+            }
+
+            if ($resp->status() === 429) {
+                $saw429 = true;
+            }
+
+            if ($resp->ok()) {
+                if (is_resource($consentsFp)) {
+                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
+                }
+                $authorizedCount++;
+                continue;
+            }
+
+            $err = $this->extractHttpError($resp);
+            if ($this->isAuthorizeAlreadyApproved($err, $consultId)) {
+                if (is_resource($consentsFp)) {
+                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
+                }
+                $authorizedCount++;
+                continue;
+            }
+
+            $row = $this->baseRow($cpf, $nome, $nasc);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->markNaoElegivel($row, $this->formatApiError($err));
+            $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromHttpError($err));
+            $this->spoolAppendManyPersist($job, [$row]);
+        }
+
+        if ($saw429 && $this->httpRateLimitSleepSeconds > 0) {
+            $this->logCpfFailure('authorize', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            sleep($this->httpRateLimitSleepSeconds);
+        }
+
+        return $authorizedCount;
+    }
+
     private function processConsent(
         V8ApiService $api,
         V8ConsultJob $job,
@@ -523,6 +774,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
             'config_id' => $configId,
@@ -582,6 +834,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
             'config_id' => $configId,
@@ -624,6 +877,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
+            $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
             $pendingKeys = $this->collectPendingKeys($disk->path($currentRel), $mode);
             if (empty($pendingKeys)) {
                 $disk->delete($currentRel);
@@ -1011,6 +1265,39 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return null;
     }
 
+    private function extractHttpError(HttpResponse $resp): array
+    {
+        $json = $resp->json();
+        $type = null;
+        $message = null;
+
+        if (is_array($json)) {
+            $type = $json['type'] ?? null;
+            $message = $json['detail'] ?? $json['message'] ?? $json['mensagem'] ?? $json['title'] ?? null;
+        }
+
+        if (!$message) {
+            $body = trim(strip_tags((string) $resp->body()));
+            $message = $body !== '' ? $body : 'Erro na API V8';
+        }
+
+        return [
+            'type' => $type,
+            'error' => $message,
+            'status' => $resp->status(),
+            'retriable' => $resp->status() === 429 || $resp->status() >= 500,
+        ];
+    }
+
+    private function logContextFromHttpError(array $err): array
+    {
+        return [
+            'status' => $err['status'] ?? null,
+            'type' => $err['type'] ?? null,
+            'retriable' => $err['retriable'] ?? null,
+        ];
+    }
+
     private function finalizePendingTimeout(V8ConsultJob $job, array $entry, string $mode): void
     {
         $cpf = (string) ($entry['cpf'] ?? '');
@@ -1102,6 +1389,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
             'config_id' => $configId,
@@ -1127,6 +1415,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function pollStatus(V8ApiService $api, string $cpf, string $consultId): array
     {
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
         $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
         $end = Carbon::now('UTC')->endOfDay();
 
@@ -1412,6 +1701,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function pollStatusByCpfFirst(V8ApiService $api, string $cpf, int $maxAttempts): array
     {
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
         $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
         $end = Carbon::now('UTC')->endOfDay();
 
