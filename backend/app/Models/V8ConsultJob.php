@@ -1,0 +1,43 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class V8ConsultJob extends Model
+{
+    protected $table = 'v8_consult_jobs';
+
+    protected $fillable = [
+        'user_id',
+        'title',
+        'status',
+        'phase',
+        'total_cpfs',
+        'success_count',
+        'nao_elegivel_count',
+        'fail_count',
+        'file_disk',
+        'file_path',
+        'file_name',
+        'started_at',
+        'finished_at',
+        'canceled_at',
+        'cancel_reason',
+        'spool_path',
+        'spool_inputs_path',
+        'spool_bytes',
+    ];
+
+    protected $casts = [
+        'started_at' => 'datetime',
+        'finished_at' => 'datetime',
+        'canceled_at' => 'datetime',
+        'spool_bytes' => 'integer',
+    ];
+
+    public function getHasFileAttribute(): bool
+    {
+        return !empty($this->file_path) && !empty($this->file_disk);
+    }
+}

@@ -6,7 +6,13 @@ import { toast } from "sonner";
 import { CLTControls } from "@/components/CLTControls";
 import { CLTHistoryTable } from "@/components/CLTHistoryTable";
 import { NewCLTConsultModal } from "@/components/NewCLTConsultModal";
+import { V8Controls } from "@/components/V8Controls";
+import { V8HistoryTable } from "@/components/V8HistoryTable";
+import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePersistedState } from "@/hooks/usePersistedState";
+import factaLogo from "@/assets/factalogo.png";
+import v8Logo from "@/assets/v8logo.png";
 
 import {
   listCltConsultJobs,
@@ -20,6 +26,17 @@ import {
   getCltConsultJob,
   requestCltPreview,
 } from "@/api/clt";
+import {
+  listV8ConsultJobs,
+  createV8ConsultJob,
+  downloadV8Report,
+  downloadV8Preview,
+  cancelV8ConsultJob,
+  deleteV8ConsultJob,
+  V8ConsultJobListItem,
+  V8ConsultJobShow,
+  getV8ConsultJob,
+} from "@/api/v8";
 
 function formatDateTimeBR(iso: string | null | undefined) {
   if (!iso) return "-";
@@ -36,12 +53,22 @@ function formatDateTimeBR(iso: string | null | undefined) {
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
+  const [activeTab, setActiveTab] = useState<"facta" | "v8">("facta");
+
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [page, setPage] = useState(1);
 
+  const [isNewV8ModalOpen, setIsNewV8ModalOpen] = useState(false);
+  const [searchValueV8, setSearchValueV8] = useState("");
+  const [pageV8, setPageV8] = useState(1);
+
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
     "clt:watchJobId",
+    null
+  );
+  const [watchingV8JobId, setWatchingV8JobId] = usePersistedState<number | null>(
+    "v8:watchJobId",
     null
   );
 
@@ -49,6 +76,9 @@ const CLTConsultaPage = () => {
   const waitingPreview = useRef<Set<number>>(new Set());
   const previewToastById = useRef<Map<number, string | number>>(new Map());
   const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null } | null>(null);
+
+  const v8InFlight = useRef<Set<number>>(new Set());
+  const lastV8Snapshot = useRef<{ id: number; status?: string | null } | null>(null);
 
   const {
     data: jobsPage,
@@ -68,6 +98,24 @@ const CLTConsultaPage = () => {
   const titleOf = (id: number) =>
     (jobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
+  const {
+    data: v8JobsPage,
+    isLoading: v8ListLoading,
+    refetch: refetchV8List,
+  } = useQuery({
+    queryKey: ["v8:list", pageV8],
+    queryFn: () => listV8ConsultJobs(pageV8),
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
+    refetchInterval: activeTab === "v8" ? 30000 : false,
+  });
+
+  const v8Items = v8JobsPage?.data ?? [];
+  const v8LastPage = v8JobsPage?.last_page ?? 1;
+
+  const v8TitleOf = (id: number) =>
+    (v8JobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
+
   const { data: watchedJob } = useQuery<CltConsultJobShow>({
     queryKey: ["clt:job", watchingJobId],
     queryFn: () => getCltConsultJob(watchingJobId as number),
@@ -77,6 +125,21 @@ const CLTConsultaPage = () => {
     refetchOnMount: "always",
     refetchInterval: (query) => {
       const job = query.state.data as CltConsultJobShow | undefined;
+      if (!job) return false;
+      const open = job.status === "pendente" || job.status === "em_progresso";
+      return open ? 5000 : false;
+    },
+  });
+
+  const { data: watchedV8Job } = useQuery<V8ConsultJobShow>({
+    queryKey: ["v8:job", watchingV8JobId],
+    queryFn: () => getV8ConsultJob(watchingV8JobId as number),
+    enabled: !!watchingV8JobId,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: "always",
+    refetchInterval: (query) => {
+      const job = query.state.data as V8ConsultJobShow | undefined;
       if (!job) return false;
       const open = job.status === "pendente" || job.status === "em_progresso";
       return open ? 5000 : false;
@@ -104,6 +167,29 @@ const CLTConsultaPage = () => {
     if (!q) return itemsWithOverlay;
     return itemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [itemsWithOverlay, searchValue]);
+
+  const v8ItemsWithOverlay: V8ConsultJobListItem[] = useMemo(() => {
+    if (!watchedV8Job) return v8Items;
+    return v8Items.map((i) => {
+      if (i.id !== watchedV8Job.id) return i;
+      return {
+        ...i,
+        status: watchedV8Job.status,
+        phase: watchedV8Job.phase,
+        total_cpfs: watchedV8Job.total_cpfs,
+        success_count: watchedV8Job.success_count,
+        nao_elegivel_count: watchedV8Job.nao_elegivel_count,
+        fail_count: watchedV8Job.fail_count,
+        spool_bytes: watchedV8Job.spool_bytes ?? i.spool_bytes,
+      };
+    });
+  }, [v8Items, watchedV8Job]);
+
+  const filteredV8Items = useMemo(() => {
+    const q = searchValueV8.trim().toLowerCase();
+    if (!q) return v8ItemsWithOverlay;
+    return v8ItemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
+  }, [v8ItemsWithOverlay, searchValueV8]);
 
   useEffect(() => {
     if (!watchedJob) return;
@@ -162,6 +248,31 @@ const CLTConsultaPage = () => {
     }
   }, [watchedJob, qc, setWatchingJobId]);
 
+  useEffect(() => {
+    if (!watchedV8Job) return;
+
+    const niceTitle = watchedV8Job.title ?? `#${watchedV8Job.id}`;
+    const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedV8Job.status);
+
+    const prev = lastV8Snapshot.current;
+    const changed =
+      !prev ||
+      prev.id !== watchedV8Job.id ||
+      prev.status !== watchedV8Job.status;
+
+    if (!changed) return;
+    lastV8Snapshot.current = { id: watchedV8Job.id, status: watchedV8Job.status };
+
+    if (isTerminal) {
+      if (watchedV8Job.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
+      else if (watchedV8Job.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
+      else if (watchedV8Job.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
+
+      setWatchingV8JobId(null);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+    }
+  }, [watchedV8Job, qc, setWatchingV8JobId]);
+
   // Aceita payload estendido
   const createMutation = useMutation<any, any, any>({
     mutationFn: (vars: any) => createCltConsultJob(vars),
@@ -202,10 +313,48 @@ const CLTConsultaPage = () => {
     mutationFn: (id: number) => requestCltPreview(id),
   });
 
+  const createV8Mutation = useMutation<any, any, { title: string; lines: string }>({
+    mutationFn: (vars) => createV8ConsultJob(vars),
+    onSuccess: (data, vars) => {
+      setWatchingV8JobId(data.id);
+      toast.success(`Consulta "${vars.title}" criada.`);
+      setPageV8(1);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
+  });
+
+  const cancelV8Mutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      cancelV8ConsultJob(id, reason),
+    onSuccess: (_data, { id }) => {
+      if (id === watchingV8JobId) setWatchingV8JobId(null);
+      toast.info(`Consulta "${v8TitleOf(id)}" cancelada.`);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      void qc.invalidateQueries({ queryKey: ["v8:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const deleteV8Mutation = useMutation({
+    mutationFn: (id: number) => deleteV8ConsultJob(id),
+    onSuccess: (_data, id) => {
+      if (id === watchingV8JobId) setWatchingV8JobId(null);
+      toast.success(`Consulta "${v8TitleOf(id)}" excluída.`);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      void qc.removeQueries({ queryKey: ["v8:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+  });
+
   // Mapear modo → variant esperado pelo backend
   const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE") => {
     const variant = modo === "OFF" ? "offline" : "online";
     await createMutation.mutateAsync({ title: titulo, cpfs, variant });
+  };
+
+  const handleNewV8Consult = async (titulo: string, lines: string) => {
+    await createV8Mutation.mutateAsync({ title: titulo, lines });
   };
 
   const getOrCreatePreviewToast = (id: number) => {
@@ -304,42 +453,159 @@ const CLTConsultaPage = () => {
     await deleteMutation.mutateAsync(id);
   };
 
+  const handleDownloadV8 = async (id: number, opts?: { preview?: boolean }) => {
+    if (v8InFlight.current.has(id)) {
+      toast.warning("Já estamos gerando/baixando para este job.");
+      return;
+    }
+    v8InFlight.current.add(id);
+
+    try {
+      const j = await qc.ensureQueryData<V8ConsultJobShow>({
+        queryKey: ["v8:job", id],
+        queryFn: () => getV8ConsultJob(id),
+      });
+
+      if (!opts?.preview && j.has_file) {
+        await downloadV8Report(id);
+        v8InFlight.current.delete(id);
+        return;
+      }
+
+      try {
+        await downloadV8Preview(id);
+      } catch (e: any) {
+        if (e?.status === 409) {
+          toast.info("Prévia indisponível ainda. Aguarde o início do processamento.");
+        } else {
+          const apiMsg = e?.response?.data?.message || e?.message;
+          toast.error(apiMsg ?? "Falha ao baixar a prévia");
+        }
+      } finally {
+        v8InFlight.current.delete(id);
+        void qc.invalidateQueries({ queryKey: ["v8:job", id] });
+      }
+    } catch (e: any) {
+      const apiMsg = e?.response?.data?.message || e?.message;
+      toast.error(apiMsg ?? "Falha no download");
+      v8InFlight.current.delete(id);
+    }
+  };
+
+  const handleCancelV8 = async (id: number, reason?: string) => {
+    await cancelV8Mutation.mutateAsync({ id, reason });
+  };
+
+  const handleDeleteV8 = async (id: number) => {
+    await deleteV8Mutation.mutateAsync(id);
+  };
+
+  const isV8Tab = activeTab === "v8";
+  const headerTitle = isV8Tab
+    ? "Consulta CLT (V8)"
+    : "Consulta CLT (FACTA)";
+  const headerDescription = isV8Tab
+    ? "Envie CPF, nome e data de nascimento em massa e baixe o resultado em CSV."
+    : "Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.";
+
   return (
     <div className="p-4 lg:p-6 max-w-full min-w-0">
       <div className="mb-6 max-w-full">
         <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">
-          Consulta CLT (Facta Crédito do Trabalhador)
+          {headerTitle}
         </h1>
         <p className="text-gray-600 text-sm lg:text-base">
-          Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.
+          {headerDescription}
         </p>
       </div>
 
-      <div className="space-y-6">
-        <CLTControls
-          onNewConsultClick={() => setIsNewConsultModalOpen(true)}
-          searchValue={searchValue}
-          onSearchChange={setSearchValue}
-        />
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as "facta" | "v8")}
+        className="space-y-6"
+      >
+        <TabsList className="flex w-fit h-auto p-1 bg-muted/50 rounded-lg justify-start">
+          <TabsTrigger
+            value="facta"
+            className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <img
+                src={factaLogo}
+                alt="Facta"
+                className="h-4 w-4 object-contain"
+              />
+              Facta
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="v8"
+            className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <img
+                src={v8Logo}
+                alt="V8"
+                className="h-4 w-4 object-contain"
+              />
+              V8
+            </span>
+          </TabsTrigger>
+        </TabsList>
 
-        <CLTHistoryTable
-          items={filteredItems}
-          loading={!!(listLoading && !jobsPage)}
-          onDownload={handleDownload}
-          onCancel={handleCancel}
-          onDelete={handleDelete}
-          onRefresh={() => refetchList()}
-          page={page}
-          lastPage={lastPage}
-          onPageChange={(p) => setPage(p)}
-          formatDateTimeBR={formatDateTimeBR}
-        />
-      </div>
+        <TabsContent value="facta" className="space-y-6">
+          <CLTControls
+            onNewConsultClick={() => setIsNewConsultModalOpen(true)}
+            searchValue={searchValue}
+            onSearchChange={setSearchValue}
+          />
+
+          <CLTHistoryTable
+            items={filteredItems}
+            loading={!!(listLoading && !jobsPage)}
+            onDownload={handleDownload}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onRefresh={() => refetchList()}
+            page={page}
+            lastPage={lastPage}
+            onPageChange={(p) => setPage(p)}
+            formatDateTimeBR={formatDateTimeBR}
+          />
+        </TabsContent>
+
+        <TabsContent value="v8" className="space-y-6">
+          <V8Controls
+            onNewConsultClick={() => setIsNewV8ModalOpen(true)}
+            searchValue={searchValueV8}
+            onSearchChange={setSearchValueV8}
+          />
+
+          <V8HistoryTable
+            items={filteredV8Items}
+            loading={!!(v8ListLoading && !v8JobsPage)}
+            onDownload={handleDownloadV8}
+            onCancel={handleCancelV8}
+            onDelete={handleDeleteV8}
+            onRefresh={() => refetchV8List()}
+            page={pageV8}
+            lastPage={v8LastPage}
+            onPageChange={(p) => setPageV8(p)}
+            formatDateTimeBR={formatDateTimeBR}
+          />
+        </TabsContent>
+      </Tabs>
 
       <NewCLTConsultModal
         isOpen={isNewConsultModalOpen}
         onClose={() => setIsNewConsultModalOpen(false)}
         onSubmit={handleNewConsult}
+      />
+
+      <NewV8ConsultModal
+        isOpen={isNewV8ModalOpen}
+        onClose={() => setIsNewV8ModalOpen(false)}
+        onSubmit={handleNewV8Consult}
       />
     </div>
   );
