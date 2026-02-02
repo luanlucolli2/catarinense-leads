@@ -1,11 +1,10 @@
 FROM php:8.4-fpm
 
-# Argumentos para criar usuário de sistema igual ao host
+# Argumentos
 ARG user=www-data
 ARG uid=1000
 
-# Instalar dependências do sistema
-# ADICIONADO: libicu-dev (necessário para a extensão intl)
+# Instalar dependências do sistema e SUPERVISOR
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -17,39 +16,40 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     libicu-dev \
     default-mysql-client \
+    supervisor \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Instalar extensões PHP necessárias
-# Agora o 'intl' vai funcionar porque instalamos o libicu-dev acima
+# Instalar extensões PHP
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip intl
 
-# Instalar extensão Redis via PECL
+# Instalar Redis via PECL
 RUN pecl install redis && docker-php-ext-enable redis
 
-# Obter o Composer mais recente
+# Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Definir diretório de trabalho
 WORKDIR /var/www/html
 
-# Copiar apenas arquivos de dependência primeiro
+# Dependências (Cache Layer)
 COPY composer.json composer.lock ./
-
-# Instalar dependências (modo prod)
 RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
 
-# Copiar o restante do código da aplicação
+# Código da Aplicação
 COPY . .
 
-# Ajustar permissões
+# Copiar configuração do Supervisor de PROD
+COPY docker/supervisord.prod.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Permissões
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Rodar comandos de build do composer finais
+# Dump Autoload Final
 RUN composer dump-autoload --optimize --no-dev
 
-# Expor porta do FPM
 EXPOSE 9000
 
+# O CMD padrão continua sendo php-fpm para o container 'laravel',
+# mas o container 'leads-workers' irá sobrescrever isso no docker-compose.
 CMD ["php-fpm"]

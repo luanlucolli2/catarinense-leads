@@ -1,4 +1,4 @@
-# version: "3.9" removido para evitar warning
+# version: "3.9"
 
 x-app-env: &app-env
   APP_ENV: production
@@ -10,7 +10,6 @@ services:
     image: mysql:8.0
     container_name: leads-mysql
     restart: unless-stopped
-    # DESLIGA O PERFORMANCE_SCHEMA (Economia de ~40MB a 100MB de RAM)
     command: --performance-schema=0
     volumes:
       - sail-mysql:/var/lib/mysql
@@ -43,11 +42,11 @@ services:
       retries: 20
     mem_limit: 160m
 
-  # ===== APP (LARAVEL API) =====
+  # ===== APP (LARAVEL API - HTTP ONLY) =====
   laravel:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     image: leads-backend
     container_name: leads-backend
     restart: unless-stopped
@@ -58,102 +57,30 @@ services:
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     networks: [sail]
+    # Limite para o servidor web (PHP-FPM)
     mem_limit: 512m
 
-  # ===== SCHEDULER =====
-  scheduler:
-    image: leads-backend
-    container_name: leads-scheduler
+  # ===== WORKER UNIFICADO (SUPERVISOR) =====
+  # Substitui: queue, clt-on, clt-off, fgts, reports, scheduler
+  leads-workers:
+    image: leads-backend # Usa a mesma imagem do laravel, pois o código é o mesmo
+    container_name: leads-workers
     restart: unless-stopped
-    command: php artisan schedule:work
     env_file: .env.staging
     environment: { <<: *app-env }
+    # Sobrescreve o CMD padrão para rodar o Supervisor
+    command: ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
     volumes:
-      - ./docker/php-cli.scheduler.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
     depends_on: [mysql, redis]
     networks: [sail]
-    mem_limit: 192m
-
-  # ===== QUEUE DEFAULT =====
-  queue:
-    image: leads-backend
-    container_name: leads-queue
-    restart: unless-stopped
-    command: php artisan queue:work --queue=default --sleep=1 --verbose --timeout=259200 --memory=896 --tries=3 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - ./docker/php-cli.default.ini:/usr/local/etc/php/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    stop_grace_period: 120s
+    # Limite GLOBAL do container.
+    # PHP Limits somados (teórico): 768+640+512+384+640+320 = ~3.2GB
+    # Realidade: Eles não batem pico juntos.
+    # Limite Hard do Container: 1024m (1GB).
+    # Se estourar 1GB, o OOM Killer reinicia o container (auto-healing).
     mem_limit: 1024m
-
-  # ===== CLT ONLINE =====
-  queue-clt-on:
-    image: leads-backend
-    container_name: leads-queue-clt-on
-    restart: unless-stopped
-    command: php artisan queue:work --queue=${CLT_ON_JOB_QUEUE:-clt-on} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=640 --tries=1 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - ./docker/php-cli.clt-on.ini:/usr/local/etc/php/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    stop_grace_period: 120s
-    mem_limit: 704m
-
-  # ===== CLT OFFLINE =====
-  queue-clt-off:
-    image: leads-backend
-    container_name: leads-queue-clt-off
-    restart: unless-stopped
-    command: php artisan queue:work --queue=${CLT_OFF_JOB_QUEUE:-clt-off} --sleep=1 --verbose --timeout=${CLT_JOB_TIMEOUT:-259200} --memory=512 --tries=1 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - ./docker/php-cli.clt-off.ini:/usr/local/etc/php/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    stop_grace_period: 120s
-    mem_limit: 560m
-
-  # ===== FGTS OFF =====
-  queue-fgts:
-    image: leads-backend
-    container_name: leads-queue-fgts
-    restart: unless-stopped
-    command: php artisan queue:work --queue=${FGTS_OFF_JOB_QUEUE:-fgts} --sleep=1 --verbose --timeout=${FGTS_OFF_JOB_TIMEOUT:-115200} --memory=440 --tries=3 --backoff=60
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - ./docker/php-cli.fgts.ini:/usr/local/etc/php/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    stop_grace_period: 120s
-    mem_limit: 472m
-
-  # ===== RELATÓRIOS/PRÉVIAS =====
-  queue-reports:
-    image: leads-backend
-    container_name: leads-queue-reports
-    restart: unless-stopped
-    command: php artisan queue:work --queue=${CLT_PREVIEW_QUEUE:-reports} --sleep=1 --verbose --timeout=7200 --memory=360 --tries=3 --backoff=30
-    env_file: .env.staging
-    environment: { <<: *app-env }
-    volumes:
-      - ./docker/php-cli.reports.ini:/usr/local/etc/php/conf.d/99-custom.ini
-      - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
-    networks: [sail]
-    stop_grace_period: 120s
-    mem_limit: 384m
 
   # ===== FRONTEND (NGINX + REACT) =====
   frontend:
