@@ -217,7 +217,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 $job->update(['phase' => 'fase_2']);
                 $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
                 if ($prePhase2Delay > 0) {
-                    sleep($prePhase2Delay);
+                    if (!$this->sleepWithCancel($job, $prePhase2Delay)) {
+                        return;
+                    }
                 }
                 $reader2 = fopen($consentsReal, 'r');
                 if ($reader2 === false) {
@@ -298,6 +300,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         $this->runBatchStatusFile($api, $job, $pendingRegularRel, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
                     } else {
                         $disk->delete($pendingRegularRel);
+                    }
+
+                    if ($this->finishIfStopped($job)) {
+                        return;
                     }
 
                     if ($pendingExistingCount > 0) {
@@ -886,13 +892,19 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            $batch = $this->fetchBatchStatusesByKeys($api, $pendingKeys, $mode, $startDate, $endDate);
+            $batch = $this->fetchBatchStatusesByKeys($api, $pendingKeys, $mode, $startDate, $endDate, $job);
             unset($pendingKeys);
 
             if (!$batch['ok']) {
+                if (!empty($batch['cancelled'])) {
+                    $this->cleanupSpool($job);
+                    return;
+                }
                 if (!empty($batch['retriable'])) {
                     if ($this->statusRoundDelay > 0) {
-                        sleep($this->statusRoundDelay);
+                        if (!$this->sleepWithCancel($job, $this->statusRoundDelay)) {
+                            return;
+                        }
                     }
                     continue;
                 }
@@ -938,7 +950,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($this->statusRoundDelay > 0) {
-                sleep($this->statusRoundDelay);
+                if (!$this->sleepWithCancel($job, $this->statusRoundDelay)) {
+                    return;
+                }
             }
         }
     }
@@ -979,13 +993,21 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         array &$pendingKeys,
         string $mode,
         Carbon $startDate,
-        Carbon $endDate
+        Carbon $endDate,
+        ?V8ConsultJob $job = null
     ): array {
         $matches = [];
         $page = 1;
         $totalPages = 1;
 
         while ($page <= $totalPages && !empty($pendingKeys)) {
+            if ($job && $this->isCancelled($job)) {
+                return [
+                    'ok' => false,
+                    'cancelled' => true,
+                ];
+            }
+
             $resp = $api->listConsults([
                 'startDate' => $startDate->format('Y-m-d\\TH:i:s\\Z'),
                 'endDate' => $endDate->format('Y-m-d\\TH:i:s\\Z'),
@@ -1060,8 +1082,16 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $written = 0;
+        $checked = 0;
+        $cancelled = false;
         try {
             while (($line = fgets($reader)) !== false) {
+                $checked++;
+                if ($checked % 200 === 0 && $this->isCancelled($job)) {
+                    $this->cleanupSpool($job);
+                    $cancelled = true;
+                    break;
+                }
                 $parsed = $this->parsePendingLine($line);
                 if (!$parsed) {
                     continue;
@@ -1125,6 +1155,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             fclose($reader);
             fflush($writer);
             fclose($writer);
+        }
+
+        if ($cancelled) {
+            return 0;
         }
 
         return $written;
@@ -1899,7 +1933,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $parts = explode(';', $line);
         $cpf = Cpf::normalize($parts[0] ?? null);
-        $nome = trim($parts[1] ?? '');
+        $nome = $this->cleanName($parts[1] ?? '');
         $nasc = trim($parts[2] ?? '');
         return [$cpf, $nome, $nasc];
     }
@@ -1908,7 +1942,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $parts = explode(';', $line);
         $cpf = Cpf::normalize($parts[0] ?? null);
-        $nome = trim($parts[1] ?? '');
+        $nome = $this->cleanName($parts[1] ?? '');
         $nasc = trim($parts[2] ?? '');
         $consultId = trim($parts[3] ?? '');
         $mode = trim($parts[4] ?? '');
@@ -1919,7 +1953,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $row = array_fill_keys(V8Schema::COLS, null);
         $row['cpf'] = $cpf;
-        $row['nome'] = $nome;
+        $row['nome'] = $this->cleanName($nome);
         $row['data_nascimento'] = $nasc;
         return $row;
     }
@@ -2178,7 +2212,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return ['error' => 'Nome ou data de nascimento ausentes.', 'cpf' => $cpf];
         }
 
-        $nome = trim(implode(' ', array_slice($parts, 1, $dateIdx - 1)));
+        $nome = $this->cleanName(implode(' ', array_slice($parts, 1, $dateIdx - 1)));
         $rawDate = $parts[$dateIdx] ?? '';
         $nasc = $this->normalizeBirthDate($rawDate);
 
@@ -2208,6 +2242,21 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         return null;
+    }
+
+    private function cleanName(?string $nome): ?string
+    {
+        if ($nome === null) {
+            return null;
+        }
+        $nome = trim($nome);
+        if ($nome === '') {
+            return $nome;
+        }
+        $nome = trim($nome, "\"'");
+        $nome = str_replace(['"', "'"], '', $nome);
+        $nome = preg_replace('/\s+/', ' ', $nome) ?? $nome;
+        return $nome;
     }
 
     private function lineCpf(string $line): string
@@ -2346,9 +2395,51 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     }
                 }
             }
+            $this->deletePendFiles();
+            $this->cleanupSpoolArtifacts($job, $disk);
         } finally {
             $job->updateQuietly(['spool_path' => null, 'spool_inputs_path' => null, 'spool_bytes' => 0]);
         }
+    }
+
+    private function cleanupSpoolArtifacts(V8ConsultJob $job, $disk): void
+    {
+        try {
+            $dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
+            $prefix = (string) (config('v8.storage.final_prefix') ?? 'v8-consulta');
+            $prefix = $prefix . '_' . $job->id;
+
+            if (!$disk->exists($dirSpool)) {
+                return;
+            }
+
+            foreach ($disk->files($dirSpool) as $rel) {
+                $base = basename($rel);
+                if (str_starts_with($base, $prefix)) {
+                    try {
+                        $disk->delete($rel);
+                    } catch (Throwable) {
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    private function sleepWithCancel(V8ConsultJob $job, int $seconds): bool
+    {
+        $seconds = max(0, $seconds);
+        if ($seconds === 0) {
+            return true;
+        }
+        for ($i = 0; $i < $seconds; $i++) {
+            if ($this->isCancelled($job)) {
+                $this->cleanupSpool($job);
+                return false;
+            }
+            sleep(1);
+        }
+        return true;
     }
 
     private function fileSizeSafe(string $disk, string $relPath): int

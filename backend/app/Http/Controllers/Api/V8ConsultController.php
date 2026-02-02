@@ -256,6 +256,7 @@ class V8ConsultController extends Controller
                     $disk->delete($p);
                 }
             }
+            $this->cleanupSpoolArtifacts($disk, $job->id);
         } catch (\Throwable $e) {
             Log::warning("[V8] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
         }
@@ -273,6 +274,30 @@ class V8ConsultController extends Controller
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);
+    }
+
+    private function cleanupSpoolArtifacts($disk, int $jobId): void
+    {
+        try {
+            $dirSpool = (string) config('v8.storage.dir_spool', 'v8-spool');
+            $prefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
+            $prefix = $prefix . '_' . $jobId;
+
+            if (!$disk->exists($dirSpool)) {
+                return;
+            }
+
+            foreach ($disk->files($dirSpool) as $rel) {
+                $base = basename($rel);
+                if (str_starts_with($base, $prefix)) {
+                    try {
+                        $disk->delete($rel);
+                    } catch (\Throwable) {
+                    }
+                }
+            }
+        } catch (\Throwable) {
+        }
     }
 
     public function destroy(int $id)

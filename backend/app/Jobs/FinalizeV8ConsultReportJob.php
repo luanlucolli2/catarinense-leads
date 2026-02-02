@@ -149,6 +149,21 @@ class FinalizeV8ConsultReportJob implements ShouldQueue
                     }
                 }
             }
+
+            $dirSpool = (string) config('v8.storage.dir_spool', 'v8-spool');
+            $prefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
+            $prefix = $prefix . '_' . $job->id;
+            if ($disk->exists($dirSpool)) {
+                foreach ($disk->files($dirSpool) as $rel) {
+                    $base = basename($rel);
+                    if (str_starts_with($base, $prefix)) {
+                        try {
+                            $disk->delete($rel);
+                        } catch (Throwable) {
+                        }
+                    }
+                }
+            }
         } finally {
             $job->updateQuietly(['spool_path' => null, 'spool_inputs_path' => null, 'spool_bytes' => 0]);
         }
