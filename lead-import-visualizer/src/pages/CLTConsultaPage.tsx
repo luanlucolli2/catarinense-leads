@@ -53,7 +53,10 @@ function formatDateTimeBR(iso: string | null | undefined) {
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<"facta" | "v8">("facta");
+  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8">(
+    "clt:activeTab",
+    "facta"
+  );
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
