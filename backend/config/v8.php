@@ -54,6 +54,10 @@ return [
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 9),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
+        'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 50),
+        'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 3600),
+        'reconsent_blocked_max'      => (int) env('V8_RECONSENT_BLOCKED_MAX', 1),
+        'reconsent_blocked_delay_seconds' => (int) env('V8_RECONSENT_BLOCKED_DELAY_SECONDS', 4),
     ],
 
     'preview' => [
