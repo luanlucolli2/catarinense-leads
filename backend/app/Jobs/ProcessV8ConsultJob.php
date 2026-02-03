@@ -26,7 +26,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 259200;
+    public int $uniqueFor = 115260;
     public int $timeout;
 
     private int $jobId;
@@ -59,12 +59,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase1PoolSize;
     private int $phase1BatchDelaySeconds;
     private int $httpRateLimitSleepSeconds;
-    private int $cancelCheckIntervalMs = 500;
-    private float $lastCancelCheckAt = 0.0;
-    private bool $lastCancelStatus = false;
-    private array $genderCache = [];
-    private int $genderCacheLimit = 4000;
-    private const GENDER_CACHE_NONE = '__none__';
+    private int $pendingLowThreshold;
+    private int $pendingLowSeconds;
+    private ?int $pendingLowSince = null;
+    private array $pendingCounts = ['regular' => 0, 'existing' => 0];
+    private bool $forceFinish = false;
+    private string $currentPhase = 'FASE 1';
 
     public function __construct(int $jobId)
     {
@@ -92,6 +92,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase1PoolSize = max(1, (int) config('v8.job.phase1_pool_size', 3));
         $this->phase1BatchDelaySeconds = max(0, (int) config('v8.job.phase1_batch_delay_seconds', 2));
         $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
+        $this->pendingLowThreshold = max(0, (int) config('v8.job.pending_low_threshold', 50));
+        $this->pendingLowSeconds = max(0, (int) config('v8.job.pending_low_seconds', 3600));
     }
 
     public function uniqueId(): string
@@ -129,6 +131,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             'started_at' => $job->started_at ?? Carbon::now(),
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
         ]);
+        $this->currentPhase = 'FASE 1';
 
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
@@ -221,6 +224,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             if ($consentCount > 0) {
                 $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
                 $job->update(['phase' => 'fase_2']);
+                $this->currentPhase = 'FASE 2';
                 $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
                 if ($prePhase2Delay > 0) {
                     if (!$this->sleepWithCancel($job, $prePhase2Delay)) {
@@ -300,6 +304,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     fclose($pendingRegularFp);
                     fclose($pendingExistingFp);
 
+                    $this->pendingCounts['regular'] = $pendingRegularCount;
+                    $this->pendingCounts['existing'] = $pendingExistingCount;
+                    $this->touchPendingLowTimer();
+
+                    $stopEarly = false;
                     if ($pendingRegularCount > 0) {
                         $startDate = ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))->copy()->setTimezone('UTC')->startOfDay();
                         $endDate = Carbon::now('UTC')->endOfDay();
@@ -308,16 +317,22 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         $disk->delete($pendingRegularRel);
                     }
 
-                    if ($this->finishIfStopped($job)) {
-                        return;
+                    if ($this->forceFinish) {
+                        $stopEarly = true;
                     }
 
-                    if ($pendingExistingCount > 0) {
-                        $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
-                        $endDate = Carbon::now('UTC')->endOfDay();
-                        $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
-                    } else {
-                        $disk->delete($pendingExistingRel);
+                    if (!$stopEarly) {
+                        if ($this->finishIfStopped($job)) {
+                            return;
+                        }
+
+                        if ($pendingExistingCount > 0) {
+                            $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
+                            $endDate = Carbon::now('UTC')->endOfDay();
+                            $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
+                        } else {
+                            $disk->delete($pendingExistingRel);
+                        }
                     }
                 } finally {
                     fclose($reader2);
@@ -335,6 +350,119 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             ->onQueue((string) config('v8.preview.queue', 'reports'));
 
         $this->deletePendFiles();
+    }
+
+    private function processEntry(V8ApiService $api, V8ConsultJob $job, string $cpf, string $nome, string $nasc): void
+    {
+        $row = $this->baseRow($cpf, $nome, $nasc);
+
+        $gender = $this->genderFromName($nome);
+        if (!$gender) {
+            $row['status'] = 'ERROR';
+            $this->markErro($row, 'Genero nao encontrado no IBGE.');
+            $this->logCpfFailure('gender', $cpf, null, $row['mensagem'], ['nome' => $nome]);
+            $row['status'] = 'FALHOU';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $provider = (string) config('v8.bff.provider', 'QI');
+        $configId = (string) config('v8.bff.config_id', '');
+        $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
+        $installments = (int) config('v8.simulation.installments', 24);
+
+        $consultResp = $api->createConsult([
+            'borrowerDocumentNumber' => $cpf,
+            'gender' => $gender,
+            'birthDate' => $nasc,
+            'signerName' => $nome,
+            'signerEmail' => (string) config('v8.signer.email', 'luangstl@gmail.com'),
+            'signerPhone' => [
+                'phoneNumber' => (string) config('v8.signer.phone_number', '997664631'),
+                'countryCode' => (string) config('v8.signer.phone_country', '55'),
+                'areaCode' => (string) config('v8.signer.phone_area', '47'),
+            ],
+            'provider' => $provider,
+        ]);
+
+        if (!$consultResp['ok']) {
+            $row['status'] = 'ERROR';
+            $this->markNaoElegivel($row, $this->formatApiError($consultResp));
+            $this->logCpfFailure('consult', $cpf, null, $row['mensagem'], $this->logContextFromApi($consultResp));
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $consultId = $consultResp['data']['id'] ?? null;
+        if (!is_string($consultId) || $consultId === '') {
+            $row['status'] = 'ERROR';
+            $this->markNaoElegivel($row, 'ID de consulta ausente.');
+            $this->logCpfFailure('consult', $cpf, null, $row['mensagem']);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+        $row['consult_id'] = $consultId;
+
+        $authResp = $api->authorizeConsult($consultId);
+        if (!$authResp['ok']) {
+            if (!$this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
+                $row['status'] = 'ERROR';
+                $this->markNaoElegivel($row, $this->formatApiError($authResp));
+                $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->spoolAppendManyPersist($job, [$row]);
+                return;
+            }
+
+            $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
+        }
+
+        $statusResp = $this->pollStatus($api, $cpf, $consultId);
+        if (!$statusResp['ok']) {
+            $row['status'] = 'ERROR';
+            $this->markNaoElegivel($row, $statusResp['error'] ?? 'Falha ao obter status.');
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $row['status'] = $statusResp['status'] ?? null;
+        $row['available_margin_value'] = $statusResp['available_margin_value'] ?? null;
+
+        $status = $statusResp['status'] ?? null;
+        if ($status !== 'SUCCESS') {
+            $this->markNaoElegivel($row, $statusResp['error'] ?? ($status ? "Status {$status}" : 'Status inválido.'));
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem'], ['status' => $status]);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
+        $simResult = $this->simulateWithInstallmentsFallback($api, [
+            'consult_id' => $consultId,
+            'config_id' => $configId,
+            'disbursed_amount' => $disbursedAmount,
+            'number_of_installments' => $installments,
+            'provider' => $provider,
+        ], $cpf, $consultId);
+        $simResp = $simResult['resp'];
+
+        if (!$simResp['ok']) {
+            $this->markNaoElegivel($row, $this->simulationErrorMessage($simResp));
+            $this->logCpfFailure('simulation', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($simResp));
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $this->applySimulation($row, $simResp['data'] ?? []);
+        $row['status'] = 'SUCESSO';
+        $this->accSuccess++;
+        $this->spoolAppendManyPersist($job, [$row]);
     }
 
     private function prepareConsent(
@@ -638,6 +766,67 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return $authorizedCount;
     }
 
+    private function processConsent(
+        V8ApiService $api,
+        V8ConsultJob $job,
+        string $cpf,
+        string $nome,
+        string $nasc,
+        string $consultId
+    ): void {
+        $row = $this->baseRow($cpf, $nome, $nasc);
+        $row['consult_id'] = $consultId;
+        $row['status'] = 'CONSENT_APPROVED';
+
+        $statusResp = $this->pollStatus($api, $cpf, $consultId);
+        if (!$statusResp['ok']) {
+            $this->markNaoElegivel($row, $statusResp['error'] ?? 'Falha ao obter status.');
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $row['available_margin_value'] = $statusResp['available_margin_value'] ?? null;
+
+        $status = $statusResp['status'] ?? null;
+        if ($status !== 'SUCCESS') {
+            $this->markNaoElegivel($row, $statusResp['error'] ?? ($status ? "Status {$status}" : 'Status inválido.'));
+            $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem'], ['status' => $status]);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $provider = (string) config('v8.bff.provider', 'QI');
+        $configId = (string) config('v8.bff.config_id', '');
+        $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
+        $installments = (int) config('v8.simulation.installments', 24);
+
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
+        $simResult = $this->simulateWithInstallmentsFallback($api, [
+            'consult_id' => $consultId,
+            'config_id' => $configId,
+            'disbursed_amount' => $disbursedAmount,
+            'number_of_installments' => $installments,
+            'provider' => $provider,
+        ], $cpf, $consultId);
+        $simResp = $simResult['resp'];
+
+        if (!$simResp['ok']) {
+            $this->markNaoElegivel($row, $this->simulationErrorMessage($simResp));
+            $this->logCpfFailure('simulation', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($simResp));
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $this->applySimulation($row, $simResp['data'] ?? []);
+        $row['status'] = 'SUCESSO';
+        $this->accSuccess++;
+        $this->spoolAppendManyPersist($job, [$row]);
+    }
+
     private function finalizeFromStatus(
         V8ApiService $api,
         V8ConsultJob $job,
@@ -755,6 +944,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
             $disk->delete($currentRel);
             unset($matches);
+
+            $this->pendingCounts[$mode] = $written;
+            if ($this->maybeFinalizeOnLowPending($job)) {
+                return;
+            }
 
             if ($written === 0) {
                 if ($disk->exists($nextRel)) {
@@ -996,6 +1190,63 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return $written;
     }
 
+    private function touchPendingLowTimer(): void
+    {
+        if ($this->pendingLowThreshold <= 0 || $this->pendingLowSeconds <= 0) {
+            return;
+        }
+
+        $total = ($this->pendingCounts['regular'] ?? 0) + ($this->pendingCounts['existing'] ?? 0);
+        if ($total < $this->pendingLowThreshold) {
+            if ($this->pendingLowSince === null) {
+                $this->pendingLowSince = time();
+            }
+            return;
+        }
+
+        $this->pendingLowSince = null;
+    }
+
+    private function maybeFinalizeOnLowPending(V8ConsultJob $job): bool
+    {
+        $this->touchPendingLowTimer();
+        if ($this->pendingLowSince === null) {
+            return false;
+        }
+
+        if ((time() - $this->pendingLowSince) < $this->pendingLowSeconds) {
+            return false;
+        }
+
+        $this->finalizePendingFilesLowPending($job);
+        $this->forceFinish = true;
+        return true;
+    }
+
+    private function finalizePendingFilesLowPending(V8ConsultJob $job): void
+    {
+        $disk = Storage::disk($this->disk);
+        $message = sprintf(
+            'Encerrado: pendências abaixo de %d por mais de %d segundos.',
+            $this->pendingLowThreshold,
+            $this->pendingLowSeconds
+        );
+
+        $prefix = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.";
+        foreach ($disk->files($this->dirSpool) as $file) {
+            if (strpos($file, $prefix) !== 0) {
+                continue;
+            }
+
+            $mode = str_contains($file, '.pending.existing') ? 'existing' : 'regular';
+            $this->finalizePendingFileError($job, $file, $mode, $message);
+            $disk->delete($file);
+        }
+
+        $this->pendingCounts['regular'] = 0;
+        $this->pendingCounts['existing'] = 0;
+    }
+
     private function parsePendingLine(string $line): ?array
     {
         $line = trim($line);
@@ -1212,6 +1463,352 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolAppendManyPersist($job, [$row]);
     }
 
+    private function processExistingConsent(
+        V8ApiService $api,
+        V8ConsultJob $job,
+        string $cpf,
+        string $nome,
+        string $nasc
+    ): void {
+        $row = $this->baseRow($cpf, $nome, $nasc);
+        $row['status'] = 'CONSENT_APPROVED';
+
+        $statusResp = $this->pollStatusByCpfFirst($api, $cpf, $this->statusMaxAttemptsExisting);
+        if (!$statusResp['ok']) {
+            $this->markErro($row, $statusResp['error'] ?? 'cliente bugado na api');
+            $this->logCpfFailure('status', $cpf, null, $row['mensagem']);
+            $row['status'] = 'FALHOU';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $row['consult_id'] = $statusResp['consult_id'] ?? null;
+        $row['available_margin_value'] = $statusResp['available_margin_value'] ?? null;
+
+        $status = $statusResp['status'] ?? null;
+        if ($status !== 'SUCCESS') {
+            $this->markNaoElegivel($row, $statusResp['error'] ?? ($status ? "Status {$status}" : 'Status inválido.'));
+            $this->logCpfFailure('status', $cpf, $row['consult_id'], $row['mensagem'], ['status' => $status]);
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $provider = (string) config('v8.bff.provider', 'QI');
+        $configId = (string) config('v8.bff.config_id', '');
+        $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
+        $installments = (int) config('v8.simulation.installments', 24);
+
+        $consultId = $row['consult_id'];
+        if (!$consultId) {
+            $this->markErro($row, 'ID de consulta ausente.');
+            $this->logCpfFailure('status', $cpf, null, $row['mensagem']);
+            $row['status'] = 'FALHOU';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
+        $simResult = $this->simulateWithInstallmentsFallback($api, [
+            'consult_id' => $consultId,
+            'config_id' => $configId,
+            'disbursed_amount' => $disbursedAmount,
+            'number_of_installments' => $installments,
+            'provider' => $provider,
+        ], $cpf, $consultId);
+        $simResp = $simResult['resp'];
+
+        if (!$simResp['ok']) {
+            $this->markNaoElegivel($row, $this->simulationErrorMessage($simResp));
+            $this->logCpfFailure('simulation', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($simResp));
+            $row['status'] = 'NAO_ELEGIVEL';
+            $this->spoolAppendManyPersist($job, [$row]);
+            return;
+        }
+
+        $this->applySimulation($row, $simResp['data'] ?? []);
+        $row['status'] = 'SUCESSO';
+        $this->accSuccess++;
+        $this->spoolAppendManyPersist($job, [$row]);
+    }
+
+    private function pollStatus(V8ApiService $api, string $cpf, string $consultId): array
+    {
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+        $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
+        $end = Carbon::now('UTC')->endOfDay();
+
+        for ($attempt = 1; $attempt <= $this->statusMaxAttempts; $attempt++) {
+            $resp = $api->listConsults([
+                'startDate' => $start->format('Y-m-d\\TH:i:s\\Z'),
+                'endDate' => $end->format('Y-m-d\\TH:i:s\\Z'),
+                'limit' => 50,
+                'page' => 1,
+                'provider' => (string) config('v8.bff.provider', 'QI'),
+                'search' => $cpf,
+            ]);
+
+            if (!$resp['ok']) {
+                if (!($resp['retriable'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'error' => $this->formatApiError($resp),
+                    ];
+                }
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $data = $resp['data']['data'] ?? [];
+            if (!is_array($data)) {
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $match = null;
+            foreach ($data as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (($item['id'] ?? null) === $consultId) {
+                    $match = $item;
+                    break;
+                }
+            }
+
+            if (!$match) {
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $status = $match['status'] ?? null;
+            if ($status === 'WAITING_CONSULT' || $status === 'CONSENT_APPROVED' || $status === 'WAITING_CREDIT_ANALYSIS' || $status === 'WAITING_CONSENT') {
+                if ($status === 'WAITING_CONSENT') {
+                    $authResp = $api->authorizeConsult($consultId);
+                    if (!$authResp['ok'] && !($authResp['retriable'] ?? false)) {
+                        return [
+                            'ok' => false,
+                            'error' => $this->formatApiError($authResp),
+                        ];
+                    }
+                }
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            if ($status === 'REJECTED') {
+                return [
+                    'ok' => true,
+                    'status' => $status,
+                    'available_margin_value' => $match['availableMarginValue'] ?? null,
+                    'error' => $match['description'] ?? 'Contrato não elegível.',
+                ];
+            }
+
+            if ($status === 'SUCCESS') {
+                return [
+                    'ok' => true,
+                    'status' => $status,
+                    'available_margin_value' => $match['availableMarginValue'] ?? null,
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'status' => $status,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+                'error' => $match['description'] ?? 'Status não suportado.',
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'error' => 'Timeout ao aguardar status de consentimento.',
+        ];
+    }
+
+    private function checkStatusOnceByConsultId(V8ApiService $api, string $cpf, string $consultId): array
+    {
+        $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
+        $end = Carbon::now('UTC')->endOfDay();
+
+        $resp = $api->listConsults([
+            'startDate' => $start->format('Y-m-d\\TH:i:s\\Z'),
+            'endDate' => $end->format('Y-m-d\\TH:i:s\\Z'),
+            'limit' => 50,
+            'page' => 1,
+            'provider' => (string) config('v8.bff.provider', 'QI'),
+            'search' => $cpf,
+        ]);
+
+        if (!$resp['ok']) {
+            if (!($resp['retriable'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'error' => $this->formatApiError($resp),
+                ];
+            }
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+                'retriable' => true,
+            ];
+        }
+
+        $data = $resp['data']['data'] ?? [];
+        if (!is_array($data)) {
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+            ];
+        }
+
+        $match = null;
+        foreach ($data as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (($item['id'] ?? null) === $consultId) {
+                $match = $item;
+                break;
+            }
+        }
+
+        if (!$match) {
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+            ];
+        }
+
+        $status = $match['status'] ?? null;
+        if ($status === 'WAITING_CONSENT') {
+            $authResp = $api->authorizeConsult($consultId);
+            if (
+                !$authResp['ok']
+                && !($authResp['retriable'] ?? false)
+                && !$this->isAuthorizeAlreadyApproved($authResp, $consultId)
+            ) {
+                return [
+                    'ok' => false,
+                    'error' => $this->formatApiError($authResp),
+                ];
+            }
+        }
+
+        if ($status === 'REJECTED') {
+            return [
+                'ok' => true,
+                'status' => $status,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+                'error' => $match['description'] ?? 'Contrato não elegível.',
+            ];
+        }
+
+        if ($status === 'SUCCESS') {
+            return [
+                'ok' => true,
+                'status' => $status,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => $status,
+            'available_margin_value' => $match['availableMarginValue'] ?? null,
+            'error' => $match['description'] ?? 'Status não suportado.',
+        ];
+    }
+
+    private function checkStatusOnceByCpfFirst(V8ApiService $api, string $cpf): array
+    {
+        $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
+        $end = Carbon::now('UTC')->endOfDay();
+
+        $resp = $api->listConsults([
+            'startDate' => $start->format('Y-m-d\\TH:i:s\\Z'),
+            'endDate' => $end->format('Y-m-d\\TH:i:s\\Z'),
+            'limit' => 50,
+            'page' => 1,
+            'provider' => (string) config('v8.bff.provider', 'QI'),
+            'search' => $cpf,
+        ]);
+
+        if (!$resp['ok']) {
+            if (!($resp['retriable'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'error' => $this->formatApiError($resp),
+                ];
+            }
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+                'retriable' => true,
+            ];
+        }
+
+        $data = $resp['data']['data'] ?? [];
+        if (!is_array($data) || empty($data)) {
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+            ];
+        }
+
+        $match = $data[0] ?? null;
+        if (!is_array($match)) {
+            return [
+                'ok' => true,
+                'status' => 'WAITING_CONSULT',
+            ];
+        }
+
+        $consultId = $match['id'] ?? null;
+        $status = $match['status'] ?? null;
+
+        if ($status === 'WAITING_CONSENT' && $consultId) {
+            $authResp = $api->authorizeConsult($consultId);
+            if (
+                !$authResp['ok']
+                && !($authResp['retriable'] ?? false)
+                && !$this->isAuthorizeAlreadyApproved($authResp, $consultId)
+            ) {
+                return [
+                    'ok' => false,
+                    'error' => $this->formatApiError($authResp),
+                ];
+            }
+        }
+
+        if ($status === 'REJECTED') {
+            return [
+                'ok' => true,
+                'status' => $status,
+                'consult_id' => $consultId,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+                'error' => $match['description'] ?? 'Contrato não elegível.',
+            ];
+        }
+
+        if ($status === 'SUCCESS') {
+            return [
+                'ok' => true,
+                'status' => $status,
+                'consult_id' => $consultId,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => $status,
+            'consult_id' => $consultId,
+            'available_margin_value' => $match['availableMarginValue'] ?? null,
+            'error' => $match['description'] ?? 'Status não suportado.',
+        ];
+    }
 
     private function isWaitingStatus(?string $status): bool
     {
@@ -1221,6 +1818,98 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             || $status === 'WAITING_CONSENT';
     }
 
+    private function pollStatusByCpfFirst(V8ApiService $api, string $cpf, int $maxAttempts): array
+    {
+        $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+        $start = Carbon::now('UTC')->subHours($this->statusLookbackHours)->startOfDay();
+        $end = Carbon::now('UTC')->endOfDay();
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $resp = $api->listConsults([
+                'startDate' => $start->format('Y-m-d\\TH:i:s\\Z'),
+                'endDate' => $end->format('Y-m-d\\TH:i:s\\Z'),
+                'limit' => 50,
+                'page' => 1,
+                'provider' => (string) config('v8.bff.provider', 'QI'),
+                'search' => $cpf,
+            ]);
+
+            if (!$resp['ok']) {
+                if (!($resp['retriable'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'error' => $this->formatApiError($resp),
+                    ];
+                }
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $data = $resp['data']['data'] ?? [];
+            if (!is_array($data) || empty($data)) {
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $match = $data[0] ?? null;
+            if (!is_array($match)) {
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            $status = $match['status'] ?? null;
+            if ($status === 'WAITING_CONSULT' || $status === 'CONSENT_APPROVED' || $status === 'WAITING_CREDIT_ANALYSIS' || $status === 'WAITING_CONSENT') {
+                if ($status === 'WAITING_CONSENT') {
+                    $matchId = (string) ($match['id'] ?? '');
+                    $authResp = $api->authorizeConsult($matchId);
+                    if (
+                        !$authResp['ok']
+                        && !($authResp['retriable'] ?? false)
+                        && !$this->isAuthorizeAlreadyApproved($authResp, $matchId)
+                    ) {
+                        return [
+                            'ok' => false,
+                            'error' => $this->formatApiError($authResp),
+                        ];
+                    }
+                }
+                sleep($this->statusRetryDelay);
+                continue;
+            }
+
+            if ($status === 'REJECTED') {
+                return [
+                    'ok' => true,
+                    'status' => $status,
+                    'consult_id' => $match['id'] ?? null,
+                    'available_margin_value' => $match['availableMarginValue'] ?? null,
+                    'error' => $match['description'] ?? 'Contrato não elegível.',
+                ];
+            }
+
+            if ($status === 'SUCCESS') {
+                return [
+                    'ok' => true,
+                    'status' => $status,
+                    'consult_id' => $match['id'] ?? null,
+                    'available_margin_value' => $match['availableMarginValue'] ?? null,
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'status' => $status,
+                'consult_id' => $match['id'] ?? null,
+                'available_margin_value' => $match['availableMarginValue'] ?? null,
+                'error' => $match['description'] ?? 'Status não suportado.',
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'error' => 'cliente bugado na api',
+        ];
+    }
 
     private function applySimulation(array &$row, array $data): void
     {
@@ -1363,14 +2052,28 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function markNaoElegivel(array &$row, string $message): void
     {
-        $row['mensagem'] = $message;
+        $row['mensagem'] = $this->formatMessageWithPhase('NAO_ELEGIVEL', $message);
         $this->accNaoElegivel++;
     }
 
     private function markErro(array &$row, string $message): void
     {
-        $row['mensagem'] = $message;
+        $row['mensagem'] = $this->formatMessageWithPhase('ERRO', $message);
         $this->accFail++;
+    }
+
+    private function formatMessageWithPhase(string $type, string $message): string
+    {
+        if ($message === '') {
+            return $message;
+        }
+
+        if (str_starts_with($message, '[') && str_contains($message, 'FASE')) {
+            return $message;
+        }
+
+        $phase = $this->currentPhase !== '' ? $this->currentPhase : 'FASE';
+        return sprintf('[%s] [%s] %s', $phase, $type, $message);
     }
 
     private function logCpfFailure(string $step, ?string $cpf, ?string $consultId, string $message, array $extra = []): void
@@ -1412,29 +2115,18 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return null;
         }
         $first = $this->upper($first);
-
-        if (array_key_exists($first, $this->genderCache)) {
-            $cached = $this->genderCache[$first];
-            return $cached === self::GENDER_CACHE_NONE ? null : $cached;
-        }
-
         $gender = IbgeName::query()->where('name', $first)->value('gender');
-        $result = null;
-        if (is_string($gender) && $gender !== '') {
-            $gender = strtoupper($gender);
-            if ($gender === 'M') {
-                $result = 'male';
-            } elseif ($gender === 'F') {
-                $result = 'female';
-            }
+        if (!is_string($gender) || $gender === '') {
+            return null;
         }
-
-        if (count($this->genderCache) >= $this->genderCacheLimit) {
-            $this->genderCache = [];
+        $gender = strtoupper($gender);
+        if ($gender === 'M') {
+            return 'male';
         }
-        $this->genderCache[$first] = $result ?? self::GENDER_CACHE_NONE;
-
-        return $result;
+        if ($gender === 'F') {
+            return 'female';
+        }
+        return null;
     }
 
     private function extractFirstName(string $nome): ?string
@@ -1463,7 +2155,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $disk->makeDirectory($this->dirSpool);
         }
 
-        $blockSize = 3000;
+        $blockSize = 5000;
         $chunks = [];
 
         $r = fopen($inputsReal, 'r');
@@ -1660,6 +2352,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
         $nome = trim($nome, "\"'");
         $nome = str_replace(['"', "'"], '', $nome);
+        $nome = str_replace('.', '', $nome);
         $nome = preg_replace('/\s+/', ' ', $nome) ?? $nome;
         return $nome;
     }
@@ -1735,17 +2428,17 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $now = microtime(true);
 
-        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
-        $shouldFlush = $force || $triggerTime;
-        if (!$shouldFlush) {
-            return;
-        }
-
         try {
             clearstatcache(true, $this->spoolReal);
             $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
         } catch (Throwable) {
             $bytes = 0;
+        }
+
+        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
+        $shouldFlush = $force || $triggerTime;
+        if (!$shouldFlush) {
+            return;
         }
 
         $updates = array_merge([
@@ -1783,21 +2476,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function isCancelled(V8ConsultJob $job): bool
     {
-        $now = microtime(true);
-        $interval = $this->cancelCheckIntervalMs / 1000;
-        if (($now - $this->lastCancelCheckAt) < $interval) {
-            return $this->lastCancelStatus;
-        }
-
-        try {
-            $status = DB::table('v8_consult_jobs')->where('id', $job->id)->value('status');
-            $this->lastCancelStatus = ($status === 'cancelado');
-        } catch (Throwable) {
-            $this->lastCancelStatus = false;
-        }
-
-        $this->lastCancelCheckAt = $now;
-        return $this->lastCancelStatus;
+        $status = DB::table('v8_consult_jobs')->where('id', $job->id)->value('status');
+        return $status === 'cancelado';
     }
 
     private function cleanupSpool(V8ConsultJob $job): void
