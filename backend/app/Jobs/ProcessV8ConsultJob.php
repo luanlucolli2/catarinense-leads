@@ -788,6 +788,32 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 continue;
             }
 
+            if ($resp->status() === 429 || $resp->status() >= 500) {
+                $authResp = $api->authorizeConsult($consultId);
+                if ($authResp['ok']) {
+                    if (is_resource($consentsFp)) {
+                        fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
+                    }
+                    $authorizedCount++;
+                    continue;
+                }
+
+                if ($this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
+                    if (is_resource($consentsFp)) {
+                        fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
+                    }
+                    $authorizedCount++;
+                    continue;
+                }
+
+                $row = $this->baseRow($cpf, $nome, $nasc);
+                $row['status'] = 'NAO_ELEGIVEL';
+                $this->markNaoElegivel($row, $this->formatApiError($authResp));
+                $this->logCpfFailure('authorize', $cpf, $consultId, $row['mensagem'], $this->logContextFromApi($authResp));
+                $this->spoolAppendManyPersist($job, [$row]);
+                continue;
+            }
+
             $row = $this->baseRow($cpf, $nome, $nasc);
             $row['status'] = 'NAO_ELEGIVEL';
             $this->markNaoElegivel($row, $this->formatApiError($err));
