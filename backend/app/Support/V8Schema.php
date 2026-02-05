@@ -23,6 +23,7 @@ final class V8Schema
         'first_installment_date',
         'is_insured',
         'insurance_amount',
+        'finished_at',
         'mensagem',
     ];
 
@@ -45,6 +46,7 @@ final class V8Schema
         '1ª Parcela',
         'Possui Seguro',
         'Valor do Seguro',
+        'Finalizado em',
         'Mensagem',
     ];
 

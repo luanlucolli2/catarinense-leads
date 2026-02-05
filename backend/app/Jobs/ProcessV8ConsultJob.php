@@ -2617,8 +2617,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         if (!is_resource($this->spoolFp)) {
             throw new \RuntimeException('Writer do spool não inicializado.');
         }
+        $finishedAt = Carbon::now()->toDateTimeString();
         if (flock($this->spoolFp, LOCK_EX)) {
             foreach ($rows as $row) {
+                if (!empty($row['status']) && empty($row['finished_at'])) {
+                    $row['finished_at'] = $finishedAt;
+                }
                 $ordered = [];
                 foreach (V8Schema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
