@@ -152,8 +152,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.inputs.uniq.txt";
             $this->pendFiles[] = $uniqRel;
 
-            $uniqueCount = $this->buildUniqueEntriesFile($inputsReal, $uniqRel, $job);
-            if ($uniqueCount === 0) {
+            [$uniqueCount, $invalidCount] = $this->buildUniqueEntriesFile($inputsReal, $uniqRel, $job);
+            $totalCount = $uniqueCount + $invalidCount;
+            if ($totalCount === 0) {
                 $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
                     'inputs_path' => $job->spool_inputs_path,
                     'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
@@ -163,7 +164,17 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            $this->updateTotalsThrottled($job, ['total_cpfs' => $uniqueCount], true);
+            $this->updateTotalsThrottled($job, ['total_cpfs' => $totalCount], true);
+
+            if ($uniqueCount === 0) {
+                $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
+                    'inputs_path' => $job->spool_inputs_path,
+                    'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
+                ]);
+                $this->updateTotalsThrottled($job, [], true);
+                $this->failFinalize($job);
+                return;
+            }
 
             // ===== FASE 1: criar + autorizar consentimento para todos =====
             $consentsRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.consents.txt";
@@ -2354,7 +2365,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             : strtoupper($value);
     }
 
-    private function buildUniqueEntriesFile(string $inputsReal, string $uniqRel, V8ConsultJob $job): int
+    private function buildUniqueEntriesFile(string $inputsReal, string $uniqRel, V8ConsultJob $job): array
     {
         $disk = Storage::disk($this->disk);
         $uniqReal = $this->isAbsolutePath($uniqRel) ? $uniqRel : $disk->path($uniqRel);
@@ -2366,20 +2377,22 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $blockSize = 5000;
         $chunks = [];
 
+        $invalidCount = 0;
+
         $r = fopen($inputsReal, 'r');
         if ($r === false) {
             $this->logCpfFailure('inputs', null, null, 'Falha ao abrir arquivo de inputs.', [
                 'inputs_real' => $inputsReal,
                 'error' => error_get_last()['message'] ?? null,
             ]);
-            return 0;
+            return [0, $invalidCount];
         }
 
         try {
             $block = [];
             while (($line = fgets($r)) !== false) {
                 if ($this->finishIfStopped($job)) {
-                    return 0;
+                    return [0, $invalidCount];
                 }
 
                 $parsed = $this->parseRawLine($line);
@@ -2388,6 +2401,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     $this->logCpfFailure('parse', $parsed['cpf'] ?? '', null, $parsed['error'], [
                         'raw' => $this->truncate($line),
                     ]);
+                    $invalidCount++;
                     continue;
                 }
 
@@ -2414,12 +2428,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             if ($w !== false) {
                 fclose($w);
             }
-            return 0;
+            return [0, $invalidCount];
         }
 
         if (count($chunks) === 1) {
             @rename($chunks[0], $uniqReal);
-            return $this->countLines($uniqReal);
+            return [$this->countLines($uniqReal), $invalidCount];
         }
 
         $w = fopen($uniqReal, 'w');
@@ -2427,7 +2441,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             foreach ($chunks as $c) {
                 @unlink($c);
             }
-            return 0;
+            return [0, $invalidCount];
         }
 
         $handles = [];
@@ -2481,7 +2495,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             @unlink($c);
         }
 
-        return $written;
+        return [$written, $invalidCount];
     }
 
     private function parseRawLine(string $line): array
