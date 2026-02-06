@@ -49,6 +49,11 @@ return [
         'status_retry_delay_seconds' => (int) env('V8_STATUS_RETRY_DELAY_SECONDS', 30),
         'status_round_delay_seconds' => (int) env('V8_STATUS_ROUND_DELAY_SECONDS', 20),
         'status_batch_limit'         => (int) env('V8_STATUS_BATCH_LIMIT', 80),
+        'status_batch_limit_min'     => (int) env('V8_STATUS_BATCH_LIMIT_MIN', 50),
+        'status_batch_limit_max'     => (int) env('V8_STATUS_BATCH_LIMIT_MAX', 300),
+        'status_batch_limit_divisor' => (int) env('V8_STATUS_BATCH_LIMIT_DIVISOR', 50),
+        'status_batch_limit_round_start' => (int) env('V8_STATUS_BATCH_LIMIT_ROUND_START', 3),
+        'status_batch_limit_round_step'  => (int) env('V8_STATUS_BATCH_LIMIT_ROUND_STEP', 50),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
         'status_lookback_existing_hours' => (int) env('V8_STATUS_LOOKBACK_EXISTING_HOURS', 168),
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 9),
@@ -58,6 +63,11 @@ return [
         'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 3600),
         'reconsent_blocked_max'      => (int) env('V8_RECONSENT_BLOCKED_MAX', 1),
         'reconsent_blocked_delay_seconds' => (int) env('V8_RECONSENT_BLOCKED_DELAY_SECONDS', 4),
+        'pause_enabled'              => (bool) env('V8_PAUSE_ENABLED', true),
+        'pause_start'                => env('V8_PAUSE_START', '16:27'),
+        'pause_end'                  => env('V8_PAUSE_END', '16:30'),
+        'pause_timezone'             => env('V8_PAUSE_TZ', 'America/Sao_Paulo'),
+        'pause_check_interval_seconds' => (int) env('V8_PAUSE_CHECK_INTERVAL', 15),
     ],
 
     'preview' => [

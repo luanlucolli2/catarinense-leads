@@ -3,6 +3,7 @@ import axiosClient from './axiosClient'
 export type V8JobStatus =
   | 'pendente'
   | 'em_progresso'
+  | 'pausado'
   | 'concluido'
   | 'falhou'
   | 'cancelado'

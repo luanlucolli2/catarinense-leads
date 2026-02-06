@@ -48,7 +48,7 @@ class V8ConsultController extends Controller
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -127,7 +127,7 @@ class V8ConsultController extends Controller
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
@@ -306,7 +306,7 @@ class V8ConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true)) {
+        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true)) {
             return response()->json([
                 'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
                 'status' => $job->status,
