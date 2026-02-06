@@ -72,6 +72,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private string $currentPhase = 'FASE 1';
     private int $reconsentBlockedMax;
     private int $reconsentBlockedDelaySeconds;
+    private bool $pauseEnabled;
+    private string $pauseStart;
+    private string $pauseEnd;
+    private string $pauseTimezone;
+    private int $pauseCheckIntervalSeconds;
+    private float $lastPauseCheckAt = 0.0;
+    private bool $isPaused = false;
 
     public function __construct(int $jobId)
     {
@@ -108,6 +115,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->pendingLowSeconds = max(0, (int) config('v8.job.pending_low_seconds', 3600));
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
         $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 0));
+        $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);
+        $this->pauseStart = (string) config('v8.job.pause_start', '20:00');
+        $this->pauseEnd = (string) config('v8.job.pause_end', '07:00');
+        $this->pauseTimezone = (string) config('v8.job.pause_timezone', 'America/Sao_Paulo');
+        $this->pauseCheckIntervalSeconds = max(1, (int) config('v8.job.pause_check_interval_seconds', 15));
     }
 
     public function uniqueId(): string
@@ -136,6 +148,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             Log::error("[V8] Job {$this->jobId} sem spool pré-criado.");
             $this->failFinalize($job);
             $this->deletePendFiles();
+            return;
+        }
+
+        if ($this->pauseIfNeeded($job)) {
             return;
         }
 
@@ -1114,6 +1130,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         while ($page <= $totalPages && !empty($pendingKeys)) {
             if ($job && $this->isCancelled($job)) {
+                return [
+                    'ok' => false,
+                    'cancelled' => true,
+                ];
+            }
+            if ($job && $this->pauseIfNeeded($job)) {
                 return [
                     'ok' => false,
                     'cancelled' => true,
@@ -2736,6 +2758,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $this->cleanupSpool($job);
             return true;
         }
+        if ($this->pauseIfNeeded($job)) {
+            return true;
+        }
         return false;
     }
 
@@ -2743,6 +2768,116 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $status = DB::table('v8_consult_jobs')->where('id', $job->id)->value('status');
         return $status === 'cancelado';
+    }
+
+    private function pauseIfNeeded(V8ConsultJob $job): bool
+    {
+        if (!$this->pauseEnabled || !$this->pauseWindowConfigured()) {
+            return false;
+        }
+
+        $now = microtime(true);
+        if (!$this->isPaused && ($now - $this->lastPauseCheckAt) < $this->pauseCheckIntervalSeconds) {
+            return false;
+        }
+        $this->lastPauseCheckAt = $now;
+
+        $resumeAt = $this->pauseResumeAt();
+        if (!$resumeAt) {
+            if ($this->isPaused) {
+                $this->setJobStatus($job, 'em_progresso');
+                $this->isPaused = false;
+            }
+            return false;
+        }
+
+        if (!$this->isPaused) {
+            $this->setJobStatus($job, 'pausado');
+            $this->isPaused = true;
+        }
+
+        if (!$this->sleepUntil($job, $resumeAt)) {
+            return true;
+        }
+
+        $this->setJobStatus($job, 'em_progresso');
+        $this->isPaused = false;
+        return false;
+    }
+
+    private function pauseWindowConfigured(): bool
+    {
+        return preg_match('/^\\d{2}:\\d{2}$/', $this->pauseStart) === 1
+            && preg_match('/^\\d{2}:\\d{2}$/', $this->pauseEnd) === 1
+            && $this->pauseStart !== $this->pauseEnd;
+    }
+
+    private function pauseResumeAt(): ?Carbon
+    {
+        $tz = $this->pauseTimezone !== '' ? $this->pauseTimezone : 'America/Sao_Paulo';
+        $now = Carbon::now($tz);
+        $start = $now->copy()->setTimeFromTimeString($this->pauseStart);
+        $end = $now->copy()->setTimeFromTimeString($this->pauseEnd);
+
+        if ($start->eq($end)) {
+            return null;
+        }
+
+        if ($start->lt($end)) {
+            if ($now->gte($start) && $now->lt($end)) {
+                return $end;
+            }
+            return null;
+        }
+
+        if ($now->gte($start)) {
+            return $end->addDay();
+        }
+
+        if ($now->lt($end)) {
+            return $end;
+        }
+
+        return null;
+    }
+
+    private function sleepUntil(V8ConsultJob $job, Carbon $resumeAt): bool
+    {
+        $tz = $this->pauseTimezone !== '' ? $this->pauseTimezone : 'America/Sao_Paulo';
+        $now = Carbon::now($tz);
+        if ($resumeAt->lte($now)) {
+            return true;
+        }
+
+        while ($resumeAt->gt($now)) {
+            if ($this->isCancelled($job)) {
+                $this->cleanupSpool($job);
+                return false;
+            }
+
+            $remaining = $resumeAt->diffInSeconds($now);
+            $sleepFor = min(60, max(1, $remaining));
+            sleep($sleepFor);
+            $now = Carbon::now($tz);
+        }
+
+        return true;
+    }
+
+    private function setJobStatus(V8ConsultJob $job, string $status): void
+    {
+        if ($job->status === $status) {
+            return;
+        }
+
+        $job->status = $status;
+        try {
+            DB::table('v8_consult_jobs')->where('id', $job->id)->update([
+                'status' => $status,
+                'updated_at' => Carbon::now(),
+            ]);
+        } catch (Throwable) {
+        }
     }
 
     private function cleanupSpool(V8ConsultJob $job): void

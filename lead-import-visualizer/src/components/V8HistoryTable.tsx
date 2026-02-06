@@ -65,6 +65,13 @@ function getStatusInfo(status: V8JobStatus) {
           "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
         label: "Em andamento",
       };
+    case "pausado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800",
+        label: "Pausado",
+      };
     case "falhou":
       return {
         icon: <XCircle className="w-4 h-4" />,
@@ -228,13 +235,13 @@ export const V8HistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: V8ConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
   const canCancel = (i: V8ConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
   const canDelete = (i: V8ConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso");
+    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado");
 
   const openCancelDialog = (i: V8ConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -291,7 +298,7 @@ export const V8HistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as V8JobStatus);
-          const phaseInfo = i.phase && (i.status === "pendente" || i.status === "em_progresso")
+          const phaseInfo = i.phase && (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")
             ? getPhaseInfo(i.phase)
             : null;
           const finalReady = canDownloadFinal(i);
@@ -329,7 +336,7 @@ export const V8HistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          {(i.status === "pendente" || i.status === "em_progresso") && (
+                          {canCancel(i) && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
                               className="text-orange-600 dark:text-orange-400"
@@ -342,11 +349,11 @@ export const V8HistoryTable = ({
                           <DropdownMenuItem
                             onClick={() => setConfirmDeleteJob(i)}
                             className={
-                              i.status === "em_progresso" || i.status === "pendente"
+                              !canDelete(i)
                                 ? "text-muted-foreground cursor-not-allowed"
                                 : "text-destructive"
                             }
-                            disabled={i.status === "em_progresso" || i.status === "pendente"}
+                            disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Excluir
@@ -404,7 +411,7 @@ export const V8HistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          {(i.status === "pendente" || i.status === "em_progresso") && (
+                          {canCancel(i) && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
                               className="text-orange-600 dark:text-orange-400"
@@ -417,11 +424,11 @@ export const V8HistoryTable = ({
                           <DropdownMenuItem
                             onClick={() => setConfirmDeleteJob(i)}
                             className={
-                              i.status === "em_progresso" || i.status === "pendente"
+                              !canDelete(i)
                                 ? "text-muted-foreground cursor-not-allowed"
                                 : "text-destructive"
                             }
-                            disabled={i.status === "em_progresso" || i.status === "pendente"}
+                            disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Excluir
@@ -480,6 +487,7 @@ export const V8HistoryTable = ({
 
                   {(i.status === "concluido" ||
                     i.status === "em_progresso" ||
+                    i.status === "pausado" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
                     <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-2 border-t border-border">
