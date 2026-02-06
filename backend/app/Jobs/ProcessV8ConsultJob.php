@@ -50,6 +50,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $statusRetryDelay;
     private int $statusRoundDelay;
     private int $statusBatchLimit;
+    private int $statusBatchLimitMin;
+    private int $statusBatchLimitMax;
+    private int $statusBatchLimitDivisor;
+    private int $statusBatchLimitRoundStart;
+    private int $statusBatchLimitRoundStep;
     private int $statusLookbackHours;
     private int $statusLookbackExistingHours;
     private int $statusMaxAttemptsExisting = 5;
@@ -82,6 +87,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->statusRetryDelay = (int) config('v8.job.status_retry_delay_seconds', 30);
         $this->statusRoundDelay = (int) config('v8.job.status_round_delay_seconds', 4);
         $this->statusBatchLimit = (int) config('v8.job.status_batch_limit', 50);
+        $this->statusBatchLimitMin = (int) config('v8.job.status_batch_limit_min', 50);
+        $this->statusBatchLimitMax = (int) config('v8.job.status_batch_limit_max', 300);
+        $this->statusBatchLimitDivisor = max(1, (int) config('v8.job.status_batch_limit_divisor', 50));
+        $this->statusBatchLimitRoundStart = max(1, (int) config('v8.job.status_batch_limit_round_start', 3));
+        $this->statusBatchLimitRoundStep = max(0, (int) config('v8.job.status_batch_limit_round_step', 50));
         $this->statusLookbackHours = (int) config('v8.job.status_lookback_hours', 48);
         $this->statusLookbackExistingHours = (int) config('v8.job.status_lookback_existing_hours', 168);
         $this->httpMinIntervalPhase1 = (int) (config('v8.http.min_interval_ms_phase1') ?? config('v8.http.min_interval_ms', 2000));
@@ -987,7 +997,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            $batch = $this->fetchBatchStatusesByKeys($api, $pendingKeys, $mode, $startDate, $endDate, $job);
+            $batch = $this->fetchBatchStatusesByKeys($api, $pendingKeys, $mode, $startDate, $endDate, $job, $round + 1);
             unset($pendingKeys);
 
             if (!$batch['ok']) {
@@ -1094,9 +1104,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         string $mode,
         Carbon $startDate,
         Carbon $endDate,
-        ?V8ConsultJob $job = null
+        ?V8ConsultJob $job = null,
+        int $roundIndex = 1
     ): array {
         $matches = [];
+        $limit = $this->resolveStatusBatchLimit($job, $roundIndex);
         $page = 1;
         $totalPages = 1;
 
@@ -1111,7 +1123,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $resp = $api->listConsults([
                 'startDate' => $startDate->format('Y-m-d\\TH:i:s\\Z'),
                 'endDate' => $endDate->format('Y-m-d\\TH:i:s\\Z'),
-                'limit' => $this->statusBatchLimit,
+                'limit' => $limit,
                 'page' => $page,
                 'provider' => (string) config('v8.bff.provider', 'QI'),
             ]);
@@ -1158,6 +1170,33 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             'ok' => true,
             'matches' => $matches,
         ];
+    }
+
+    private function resolveStatusBatchLimit(?V8ConsultJob $job, int $roundIndex = 1): int
+    {
+        $min = max(1, $this->statusBatchLimitMin);
+        $max = max($min, $this->statusBatchLimitMax);
+        $base = min($max, max($min, $this->statusBatchLimit));
+
+        $limit = $base;
+        if ($job) {
+            $total = (int) ($job->total_cpfs ?? 0);
+            if ($total > 0) {
+                $scaled = (int) ceil($total / $this->statusBatchLimitDivisor);
+                $limit = max($limit, $scaled);
+            }
+        }
+
+        if ($this->statusBatchLimitRoundStep > 0 && $roundIndex >= $this->statusBatchLimitRoundStart) {
+            $boostRounds = $roundIndex - $this->statusBatchLimitRoundStart + 1;
+            $limit += $boostRounds * $this->statusBatchLimitRoundStep;
+        }
+
+        if ($limit > $max) {
+            return $max;
+        }
+
+        return max($min, $limit);
     }
 
     private function processPendingFileRound(
@@ -2631,7 +2670,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         if (!is_resource($this->spoolFp)) {
             throw new \RuntimeException('Writer do spool não inicializado.');
         }
-        $finishedAt = Carbon::now()->toDateTimeString();
+        $finishedAt = Carbon::now('America/Sao_Paulo')->toDateTimeString();
         if (flock($this->spoolFp, LOCK_EX)) {
             foreach ($rows as $row) {
                 if (!empty($row['status']) && empty($row['finished_at'])) {
