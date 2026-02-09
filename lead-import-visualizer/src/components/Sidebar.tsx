@@ -81,8 +81,8 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {
             name: "Importações (Leads)",
             icon: FileText,
-            path: "/importacoes",
-            active: isActive("/importacoes"),
+            path: "/importacoes/historico",
+            active: isActive("/importacoes/historico"),
           },
         ],
       },
