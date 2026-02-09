@@ -1,25 +1,34 @@
 // src/components/Sidebar.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home,
   LogOut,
   Menu,
   FileText,
   Search,
-  Building,
   Briefcase,
   ChevronDown,
   PiggyBank,
-  Pi
+  Loader2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
 import catarinenselogo from "../../public/catainenseLogo.png";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface SidebarProps {
   className?: string;
@@ -49,58 +58,77 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const firstRender = useRef(true);
 
+  // AlertDialog: logout confirm
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path);
 
-  const menuGroups: MenuGroup[] = [
-    {
-      name: "FGTS",
-      icon: PiggyBank,
-      key: "fgts",
-      items: [
-        {
-          name: "Dashboard (Leads)",
-          icon: Home,
-          path: "/",
-          active: location.pathname === "/",
-        },
-        {
-          name: "Histórico de Importações (Leads)",
-          icon: FileText,
-          path: "/importacoes/historico",
-          active: isActive("/importacoes/historico"),
-        },
-        {
-          name: "Consulta FGTS Base Offline",
-          icon: Search,
-          path: "/fgts-off/consulta", // 👈 rota real do módulo
-          active: isActive("/fgts-off/consulta"),
-        },
-      ],
-    },
-    {
-      name: "CLT",
-      icon: Briefcase,
-      key: "clt",
-      items: [
-        {
-          name: "Consulta CLT",
-          icon: Search,
-          path: "/clt/consulta",
-          active: isActive("/clt/consulta"),
-        },
-      ],
-    },
-  ];
+  const menuGroups: MenuGroup[] = useMemo(
+    () => [
+      {
+        name: "Leads",
+        icon: Home,
+        key: "leads",
+        items: [
+          {
+            name: "Dashboard (Leads)",
+            icon: Home,
+            path: "/",
+            active: location.pathname === "/",
+          },
+          {
+            name: "Importações (Leads)",
+            icon: FileText,
+            path: "/importacoes",
+            active: isActive("/importacoes"),
+          },
+        ],
+      },
+      {
+        name: "Consultas",
+        icon: Search,
+        key: "consultas",
+        items: [
+          {
+            name: "FGTS",
+            icon: PiggyBank,
+            path: "/fgts-off/consulta",
+            active: isActive("/fgts-off/consulta"),
+          },
+          {
+            name: "CLT",
+            icon: Briefcase,
+            path: "/clt/consulta",
+            active: isActive("/clt/consulta"),
+          },
+        ],
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [location.pathname]
+  );
 
-  const singleItems: MenuItem[] = [
-    {
-      name: "Sair",
-      icon: LogOut,
-      path: null,
-      active: false,
-    },
-  ];
+  const singleItems: MenuItem[] = useMemo(
+    () => [
+      {
+        name: "Sair",
+        icon: LogOut,
+        path: null,
+        active: false,
+      },
+    ],
+    []
+  );
+
+  const expandForPath = (path: string) => {
+    const group = menuGroups.find((g) => g.items.some((i) => i.path === path));
+    if (!group) return;
+    setExpandedGroups((prev) =>
+      prev.includes(group.key) ? prev : [...prev, group.key]
+    );
+  };
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) =>
@@ -133,22 +161,39 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  const handleMenuClick = async (item: MenuItem) => {
+  const executeLogout = async () => {
+    if (loggingOut) return;
+
+    try {
+      setLoggingOut(true);
+      await axiosClient.post("/logout");
+      toast.success("Logout realizado com sucesso!");
+    } catch (error) {
+      console.error("Falha ao fazer logout no backend:", error);
+      toast.error("Não foi possível invalidar a sessão no servidor.");
+    } finally {
+      setLoggingOut(false);
+      setConfirmLogoutOpen(false);
+      setUser(null);
+      navigate("/login", { replace: true });
+    }
+  };
+
+  const handleMenuClick = (item: MenuItem) => {
+    // Se sidebar está "fechada" e o user clicar em itens do menu,
+    // abre e expande o grupo da opção clicada.
+    if (isCollapsed) {
+      onToggle();
+      if (item.path) expandForPath(item.path);
+    }
+
     if (item.path) {
       navigate(item.path);
       return;
     }
+
     if (item.name === "Sair") {
-      try {
-        await axiosClient.post("/logout");
-        toast.success("Logout realizado com sucesso!");
-      } catch (error) {
-        console.error("Falha ao fazer logout no backend:", error);
-        toast.error("Não foi possível invalidar a sessão no servidor.");
-      } finally {
-        setUser(null);
-        navigate("/login", { replace: true });
-      }
+      setConfirmLogoutOpen(true);
     }
   };
 
@@ -165,14 +210,15 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
       {/* Sidebar */}
       <div
         className={cn(
-          "fixed left-0 top-0 z-30 h-screen bg-[#333] transition-all duration-300 ease-in-out",
+          "fixed left-0 top-0 z-30 h-screen bg-[#333]",
+          "transition-[width,transform] duration-300 ease-in-out",
           isCollapsed
             ? "lg:translate-x-0 lg:w-16 -translate-x-full"
             : "translate-x-0 w-60",
           className
         )}
       >
-        {/* Header (sem border-b, como no protótipo) */}
+        {/* Header */}
         <div className="p-4 flex items-center justify-between min-h-[73px]">
           <Button
             variant="ghost"
@@ -182,15 +228,26 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           >
             <Menu className="w-5 h-5" />
           </Button>
-          {!isCollapsed && (
-            <div className="flex-1 flex justify-center ml-2">
-              <img
-                src={catarinenselogo}
-                alt="Logo Catarinense"
-                className="h-10 object-contain"
-              />
-            </div>
-          )}
+
+          {/* Para evitar reflow durante a animação:
+              - Mantém o container do logo sempre montado
+              - Controla visibilidade com opacity/scale (sem mexer no layout) */}
+          <div
+            className={cn(
+              "flex-1 flex justify-center ml-2",
+              "transition-all duration-200",
+              isCollapsed
+                ? "opacity-0 scale-95 pointer-events-none select-none"
+                : "opacity-100 scale-100"
+            )}
+            aria-hidden={isCollapsed}
+          >
+            <img
+              src={catarinenselogo}
+              alt="Logo Catarinense"
+              className="h-10 object-contain"
+            />
+          </div>
         </div>
 
         {/* Menu */}
@@ -198,11 +255,22 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {/* Grupos expansíveis */}
           {menuGroups.map((group) => {
             const isExpanded = expandedGroups.includes(group.key);
+
             return (
               <div key={group.key}>
                 {/* Cabeçalho do grupo */}
                 <button
-                  onClick={() => !isCollapsed && toggleGroup(group.key)}
+                  onClick={() => {
+                    // Se estiver fechada, ao clicar no grupo abre a sidebar e expande o grupo.
+                    if (isCollapsed) {
+                      onToggle();
+                      setExpandedGroups((prev) =>
+                        prev.includes(group.key) ? prev : [...prev, group.key]
+                      );
+                      return;
+                    }
+                    toggleGroup(group.key);
+                  }}
                   className={cn(
                     "w-full flex items-center px-3 py-3 rounded-lg text-left transition-colors duration-200",
                     isCollapsed ? "justify-center" : "justify-between",
@@ -210,28 +278,37 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                   )}
                   title={isCollapsed ? group.name : undefined}
                 >
-                  <div
-                    className={cn(
-                      "flex items-center",
-                      isCollapsed ? "justify-center" : "space-x-3"
-                    )}
-                  >
+                  <div className={cn("flex items-center", isCollapsed ? "justify-center" : "space-x-3")}>
                     <group.icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
-                    {!isCollapsed && (
-                      <span className="font-medium text-sm">{group.name}</span>
-                    )}
-                  </div>
-                  {!isCollapsed && (
-                    <ChevronDown
+
+                    {/* Mantém o label montado e oculta via opacity/width (evita “reorganizar”) */}
+                    <span
                       className={cn(
-                        "w-4 h-4 transition-transform duration-300 ease-in-out",
-                        isExpanded ? "rotate-180" : "rotate-0"
+                        "font-medium text-sm whitespace-nowrap",
+                        "transition-[opacity,transform,width] duration-200",
+                        isCollapsed
+                          ? "opacity-0 w-0 translate-x-1 overflow-hidden"
+                          : "opacity-100 w-auto translate-x-0"
                       )}
-                    />
-                  )}
+                    >
+                      {group.name}
+                    </span>
+                  </div>
+
+                  {/* Chevron idem: sempre montado, mas invisível quando colapsada */}
+                  <ChevronDown
+                    className={cn(
+                      "w-4 h-4 transition-all duration-300 ease-in-out",
+                      isCollapsed
+                        ? "opacity-0 w-0 overflow-hidden"
+                        : "opacity-100 w-4",
+                      isExpanded ? "rotate-180" : "rotate-0"
+                    )}
+                    aria-hidden={isCollapsed}
+                  />
                 </button>
 
-                {/* Submenu */}
+                {/* Submenu (só renderiza quando expandido e sidebar aberta) */}
                 {!isCollapsed && isExpanded && (
                   <div className="ml-4 mt-1 space-y-1">
                     {group.items.map((item) => (
@@ -256,6 +333,11 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                     ))}
                   </div>
                 )}
+
+                {/* Quando colapsado: clique no ícone do grupo deve abrir e já expandir,
+                    e também permitir “atalho” via item ativo ao abrir automaticamente.
+                    O requisito “clicar na lupa/casinha” costuma estar no header do grupo (Search/Home),
+                    então isso já fica atendido pelo onClick acima. */}
               </div>
             );
           })}
@@ -267,7 +349,10 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {singleItems.map((item) => (
             <button
               key={item.name}
-              onClick={() => handleMenuClick(item)}
+              onClick={() => {
+                // não abre sidebar para "Sair", só confirma
+                handleMenuClick(item);
+              }}
               className={cn(
                 "w-full flex items-center px-3 py-3 rounded-lg text-left transition-colors duration-200",
                 isCollapsed ? "justify-center" : "space-x-3",
@@ -277,19 +362,59 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
               )}
               title={isCollapsed ? item.name : undefined}
             >
-              <item.icon
+              <item.icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
+              <span
                 className={cn(
-                  "w-5 h-5 flex-shrink-0",
-                  item.active ? "text-white" : "text-gray-400"
+                  "font-medium text-sm whitespace-nowrap",
+                  "transition-[opacity,transform,width] duration-200",
+                  isCollapsed
+                    ? "opacity-0 w-0 translate-x-1 overflow-hidden"
+                    : "opacity-100 w-auto translate-x-0"
                 )}
-              />
-              {!isCollapsed && (
-                <span className="font-medium text-sm">{item.name}</span>
-              )}
+              >
+                {item.name}
+              </span>
             </button>
           ))}
         </nav>
       </div>
+
+      {/* Confirm logout */}
+      <AlertDialog open={confirmLogoutOpen} onOpenChange={setConfirmLogoutOpen}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              Sair do sistema?
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+
+          <div className="text-sm text-gray-700 dark:text-gray-200">
+            <p>Você será desconectado e voltará para a tela de login.</p>
+            <p className="mt-2">Deseja continuar?</p>
+          </div>
+
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel disabled={loggingOut} className="w-full sm:w-auto">
+              Fechar
+            </AlertDialogCancel>
+
+            <AlertDialogAction
+              className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
+              disabled={loggingOut}
+              onClick={(e) => {
+                e.preventDefault();
+                void executeLogout();
+              }}
+            >
+              {loggingOut ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Sim, sair"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
