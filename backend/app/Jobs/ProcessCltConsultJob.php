@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\CltConsultJob;
+use App\Support\CltLog;
 use App\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -12,7 +13,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -20,9 +20,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 259800;
-    public int $tries = 1;
-
+    public int $uniqueFor = 115260;
     public function uniqueId(): string
     {
         return (string) $this->jobId;
@@ -56,16 +54,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /** Guarda a variante (online|offline) para a regra de snapshot */
     private string $variant = 'online';
 
-    /** Hard-timeout guard e preservação de arquivos em timeout */
-    private int $timeoutGuardSecs = 30;
-    private bool $preserveFilesOnTimeout = false;
-
     public function __construct(int $jobId)
     {
         $this->jobId = $jobId;
 
         // Nota: a fila é definida no dispatch (controller) por variante.
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 259200);
+        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
         $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
@@ -100,8 +94,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $disk = Storage::disk($this->disk);
         if (empty($job->spool_path) || empty($job->spool_cpfs_path) || !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)) {
-            Log::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+            CltLog::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
+            $this->dispatchFinalize('falhou');
             $this->deletePendFiles();
             return;
         }
@@ -112,17 +106,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
         ]);
 
-        // hard-timeout antes de iniciar processamento pesado
-        if ($this->hasHardTimedOut($job)) {
-            $this->preserveFilesOnTimeout = true;
-            $this->failFinalize($job, true);
-            return;
-        }
-
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+            $this->dispatchFinalize('falhou');
             $this->deletePendFiles();
             return;
         }
@@ -137,7 +124,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $uniqueCount = $this->buildUniqueCpfsFile($cpfsReal, $uniqRel);
             if ($uniqueCount === 0) {
-                dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+                $this->dispatchFinalize('falhou');
                 return;
             }
             $this->updateTotalsThrottled($job, $job->spool_path, ['total_cpfs' => $uniqueCount], true);
@@ -281,11 +268,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $semRespRatio = $totalInAttempt > 0 ? ($semRespTotal / $totalInAttempt) : 0.0;
                 if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
                     $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    Log::warning("[CLT] Job {$this->jobId} – degradado por sem_resposta, chunk={$chunkSize}.");
+                    CltLog::warning("[CLT] Job {$this->jobId} – degradado por sem_resposta, chunk={$chunkSize}.");
                 }
                 if ($seen429 > 0 && $chunkSize > $minChunk) {
                     $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    Log::warning("[CLT] Job {$this->jobId} – 429 vistos, chunk={$chunkSize}.");
+                    CltLog::warning("[CLT] Job {$this->jobId} – 429 vistos, chunk={$chunkSize}.");
                 }
 
                 if ($attempt < $maxAttempts && $disk->exists($nextPendRel) && ((int) $disk->size($nextPendRel)) > 0) {
@@ -362,15 +349,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
-            dispatch(new FinalizeCltConsultReportJob($this->jobId, 'concluido'))->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+            $this->dispatchFinalize('concluido');
         } finally {
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);
                 @fclose($this->spoolFp);
             }
-            if (!$this->preserveFilesOnTimeout) {
-                $this->deletePendFiles();
-            }
+            $this->deletePendFiles();
         }
     }
 
@@ -412,7 +397,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             try {
                 $batchResults = $api->autorizaConsultaLote($slice);
             } catch (\Throwable $e) {
-                Log::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
+                CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($slice as $cpf) {
                     fwrite($nextPendHandle, $cpf . "\n");
                 }
@@ -608,7 +593,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $elapsed = microtime(true) - $t0;
         $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
-        Log::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
+        CltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
     }
 
     /**
@@ -684,7 +669,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $updates['fail_count'] = DB::raw('COALESCE(fail_count,0) + ' . $this->accFail);
 
         try {
-            Log::info('[CLT][FLUSH]', [
+            CltLog::info('[CLT][FLUSH]', [
                 'job' => $this->jobId,
                 'force' => $force,
                 'bytes_now' => $bytes,
@@ -1005,7 +990,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 );
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
+            CltLog::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
         }
     }
 
@@ -1015,14 +1000,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($total <= 0)
             return $this->finishIfStopped($job);
 
-        Log::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
+        CltLog::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
         $remaining = $total;
         $start = microtime(true);
 
         while ($remaining > 0) {
             if ($this->finishIfStopped($job)) {
                 $slept = (int) floor($total - $remaining);
-                Log::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
+                CltLog::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
                 return true;
             }
             sleep(1);
@@ -1030,7 +1015,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $elapsed = (int) floor(microtime(true) - $start);
-        Log::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
+        CltLog::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
         return $this->finishIfStopped($job);
     }
 
@@ -1053,25 +1038,17 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finishIfStopped(CltConsultJob $job): bool
     {
-        // hard-timeout durante loops
-        if ($this->hasHardTimedOut($job)) {
-            Log::warning("[CLT] Job {$this->jobId} abortado por hard-timeout.");
-            $this->preserveFilesOnTimeout = true;
-            $this->failFinalize($job, true);
-            return true;
-        }
-
         $status = $this->currentStatus($job->id);
         if ($status === null) {
             $this->cleanupSpool($job);
-            Log::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
+            CltLog::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
             return true;
         }
 
         if ($status === 'cancelado') {
             DB::table('clt_consult_jobs')->where('id', $job->id)->update(['finished_at' => Carbon::now()]);
             $this->cleanupSpool($job);
-            Log::info("[CLT] Job {$this->jobId} cancelado.");
+            CltLog::info("[CLT] Job {$this->jobId} cancelado.");
             return true;
         }
 
@@ -1358,16 +1335,28 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function failFinalize(CltConsultJob $job, bool $preserveFiles = false): void
+    private function failFinalize(CltConsultJob $job): void
     {
-        dispatch(new FinalizeCltConsultReportJob($this->jobId, 'falhou'))
-            ->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+        $this->dispatchFinalize('falhou');
+        $this->deletePendFiles();
+    }
 
-        if ($preserveFiles) {
-            $this->preserveFilesOnTimeout = true;
+    private function dispatchFinalize(string $targetStatus): void
+    {
+        $queue = (string) config('cltfacta.preview.queue', 'reports');
+        $inline = (bool) config('cltfacta.preview.inline', true);
+
+        if ($inline) {
+            if (is_resource($this->spoolFp)) {
+                @fflush($this->spoolFp);
+                @fclose($this->spoolFp);
+                $this->spoolFp = null;
+            }
+            FinalizeCltConsultReportJob::dispatchSync($this->jobId, $targetStatus);
             return;
         }
-        $this->deletePendFiles();
+
+        FinalizeCltConsultReportJob::dispatch($this->jobId, $targetStatus)->onQueue($queue);
     }
 
     /** Detecta caminho absoluto em Linux/Windows */
@@ -1380,32 +1369,5 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true; // Unix ou root Windows estilo "\"
         // Drive letter "C:\" ou "C:/"
         return (bool) preg_match('/^[A-Za-z]:[\\\\\\/]/', $path);
-    }
-
-    private function hasHardTimedOut(CltConsultJob $job): bool
-    {
-        $limit = max(60, (int) $this->timeout - $this->timeoutGuardSecs);
-        $start = $job->started_at ? Carbon::parse($job->started_at) : Carbon::now();
-        return $start->lt(Carbon::now()->subSeconds($limit));
-    }
-
-    public function failed(\Throwable $e): void
-    {
-        try {
-            $job = CltConsultJob::query()->whereKey($this->jobId)->first();
-            if (!$job) {
-                return;
-            }
-
-            if ($e instanceof \Illuminate\Queue\TimeoutExceededException) {
-                // timeout do worker: preservar arquivos
-                $this->preserveFilesOnTimeout = true;
-                $this->failFinalize($job, true);
-            } else {
-                $this->failFinalize($job, false);
-            }
-        } catch (\Throwable $ex) {
-            Log::error("[CLT] failed() exception: " . $ex->getMessage(), ['exception' => $ex]);
-        }
     }
 }
