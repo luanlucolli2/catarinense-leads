@@ -20,7 +20,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $uniqueFor = 115260;
+    public int $uniqueFor = 259800;
+    public int $tries = 1;
+
     public function uniqueId(): string
     {
         return (string) $this->jobId;
