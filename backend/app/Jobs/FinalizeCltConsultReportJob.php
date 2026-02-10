@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\CltConsultJob;
+use App\Support\CltLog;
 use App\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -45,8 +45,14 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
         $spoolPath = $job->spool_path ?? null;
         if (!$spoolPath || !$disk->exists($spoolPath)) {
-            Log::warning("[CLT] FINAL (job {$job->id}) spool ausente.");
-            $this->finishWithoutFinal($job, $this->targetStatus);
+            $effectiveStatus = $this->targetStatus === 'concluido' ? 'falhou' : $this->targetStatus;
+            CltLog::warning("[CLT] FINAL (job {$job->id}) spool ausente.", [
+                'target_status' => $this->targetStatus,
+                'effective_status' => $effectiveStatus,
+                'spool_path' => $spoolPath,
+                'disk' => $diskName,
+            ]);
+            $this->finishWithoutFinal($job, $effectiveStatus);
             return;
         }
 
@@ -124,7 +130,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
             $job->update(['file_disk' => $diskName, 'file_path' => $path, 'file_name' => $fileName]);
         } catch (Throwable $e) {
-            Log::error("[CLT] FINAL (job {$job->id}) falhou: " . $e->getMessage());
+            CltLog::error("[CLT] FINAL (job {$job->id}) falhou: " . $e->getMessage());
             $this->finishWithoutFinal($job, 'falhou');
             return;
         }
@@ -132,7 +138,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         $this->cleanupSpool($job);
 
         $job->update(['status' => $this->targetStatus, 'finished_at' => Carbon::now()]);
-        Log::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
+        CltLog::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
     }
 
     private function finishWithoutFinal(CltConsultJob $job, string $status): void

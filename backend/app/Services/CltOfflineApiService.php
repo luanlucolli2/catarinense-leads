@@ -2,11 +2,11 @@
 
 namespace App\Services;
 
+use App\Support\CltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class CltOfflineApiService
@@ -387,14 +387,14 @@ class CltOfflineApiService
             $body = (string) $resp->body();
             $snippet = $this->truncate($body, 4000);
 
-            Log::warning(
+            CltLog::warning(
                 '[CLT-OFF] 403 Forbidden'
                 . ($cpf ? " (cpf={$cpf})" : '')
                 . ' — headers=' . json_encode($safe, JSON_UNESCAPED_UNICODE)
                 . ' body_snippet=' . $snippet
             );
         } catch (\Throwable $e) {
-            Log::warning('[CLT-OFF] Falha ao logar 403: ' . $e->getMessage());
+            CltLog::warning('[CLT-OFF] Falha ao logar 403: ' . $e->getMessage());
         }
     }
 

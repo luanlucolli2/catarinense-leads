@@ -10,6 +10,10 @@ return [
         'token_lock_ttl'  => (int) env('FACTA_TOKEN_LOCK_TTL', 10),
         'token_lock_wait' => (int) env('FACTA_TOKEN_LOCK_WAIT', 5),
         'token_ttl_skew'  => (int) env('FACTA_TOKEN_TTL_SKEW', 30),
+        'pre_auth_averbador' => env('FACTA_PRE_AUTH_AVERBADOR', '10010'),
+        'pre_auth_nome' => env('FACTA_PRE_AUTH_NOME', 'slkjhdsjkha asdkjhd iou'),
+        'pre_auth_tipo_envio' => env('FACTA_PRE_AUTH_TIPO_ENVIO', 'WHATSAPP'),
+        'pre_auth_phone_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_ATTEMPTS', 8),
     ],
 
     'http' => [
@@ -20,6 +24,10 @@ return [
         'second_try'              => (bool) env('CLT_HTTP_SECOND_TRY', true),
         'second_timeout'          => (int) env('CLT_HTTP_TIMEOUT_SECOND', 10),
         'second_connect_timeout'  => (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', 5),
+        'rate_limit_immediate_retry' => (bool) env('CLT_HTTP_RATE_LIMIT_IMMEDIATE_RETRY', true),
+        'rate_limit_max_retries'  => (int) env('CLT_HTTP_RATE_LIMIT_MAX_RETRIES', 1),
+        'rate_limit_default_pause_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_DEFAULT_PAUSE_SECONDS', 3),
+        'rate_limit_pause_cap_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_PAUSE_CAP_SECONDS', 30),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
@@ -63,6 +71,8 @@ return [
     // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====
     'preview' => [
         'queue' => env('CLT_PREVIEW_QUEUE', 'reports'),
+        // Evita depender de outro worker para promover o CSV final quando o spool está em disco local.
+        'inline' => (bool) env('CLT_PREVIEW_INLINE', true),
     ],
 
     // ===== STORAGE =====
@@ -77,5 +87,13 @@ return [
     'csv' => [
         'embed_bom' => (bool) env('CLT_CSV_EMBED_BOM', true),
         'final_eol' => env('CLT_CSV_FINAL_EOL', 'LF'), // 'LF' ou 'CRLF'
+    ],
+
+    // ===== LOG =====
+    'logging' => [
+        // Chave mestre de logs do módulo CLT (online + offline)
+        'enabled' => (bool) env('CLT_LOG_ENABLED', true),
+        // Logs detalhados de resposta FACTA (/solicita e /autoriza)
+        'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
     ],
 ];

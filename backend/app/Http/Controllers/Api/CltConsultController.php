@@ -6,12 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessCltConsultJob;
 use App\Jobs\FinalizeCltConsultReportJob;
 use App\Models\CltConsultJob;
+use App\Support\CltLog;
 use App\Support\Cpf;
 use App\Support\CltSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
@@ -92,7 +92,7 @@ class CltConsultController extends Controller
         } catch (\Throwable $e) {
             $this->safeCleanupInit($job->id);
             $job->delete();
-            Log::error("[CLT] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
+            CltLog::error("[CLT] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
             return response()->json(['message' => 'Falha interna ao preparar arquivos do job.'], 500);
         }
 
@@ -265,7 +265,7 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
         }
 
         $job->update([
@@ -303,7 +303,7 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
         try {
@@ -316,7 +316,7 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
         }
 
         $job->delete();
@@ -424,7 +424,7 @@ class CltConsultController extends Controller
                     $disk->delete($p);
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
+            CltLog::warning("[CLT] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
         }
     }
 
@@ -437,7 +437,7 @@ class CltConsultController extends Controller
                     $disk->delete($p);
             }
         } catch (\Throwable $e) {
-            Log::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
+            CltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
         }
     }
 }
