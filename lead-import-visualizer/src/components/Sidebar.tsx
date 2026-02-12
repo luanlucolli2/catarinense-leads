@@ -9,6 +9,7 @@ import {
   Briefcase,
   ChevronDown,
   PiggyBank,
+  Link2,
   Loader2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -102,6 +103,12 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             icon: Briefcase,
             path: "/clt/consulta",
             active: isActive("/clt/consulta"),
+          },
+          {
+            name: "Links C6",
+            icon: Link2,
+            path: "/c6/links",
+            active: isActive("/c6/links"),
           },
         ],
       },

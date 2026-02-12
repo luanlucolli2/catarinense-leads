@@ -58,6 +58,33 @@ class C6AuthorizationLinkController extends Controller
         );
 
         try {
+            $userId = (int) $request->user()->id;
+
+            // Atualiza status local antes de checar reaproveitamento.
+            C6AuthorizationLink::markExpired($userId);
+
+            $existingActive = C6AuthorizationLink::query()
+                ->where('user_id', $userId)
+                ->where('cpf', $normalizedCpf)
+                ->where('status', C6AuthorizationLink::STATUS_ACTIVE)
+                ->where('expires_at', '>', now())
+                ->orderByDesc('generated_at')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($existingActive) {
+                return response()->json([
+                    'id' => $existingActive->id,
+                    'link' => (string) $existingActive->link,
+                    'nome_cliente' => $existingActive->nome_cliente,
+                    'generated_at' => $existingActive->generated_at?->toIso8601String(),
+                    'data_expiracao' => $existingActive->expires_at?->toIso8601String(),
+                    'status' => (string) ($existingActive->status ?: C6AuthorizationLink::STATUS_ACTIVE),
+                    'reused' => true,
+                    'message' => 'Já existe um link ativo para este CPF. Link reaproveitado.',
+                ]);
+            }
+
             $result = $c6->generateAuthorizationLink(
                 cpf: $normalizedCpf,
                 nome: $nomeClienteInput,
@@ -75,11 +102,8 @@ class C6AuthorizationLinkController extends Controller
                 ? C6AuthorizationLink::STATUS_EXPIRED
                 : C6AuthorizationLink::STATUS_ACTIVE;
 
-            // Não exclui: apenas marca os expirados.
-            C6AuthorizationLink::markExpired((int) $request->user()->id);
-
-            C6AuthorizationLink::create([
-                'user_id' => $request->user()->id,
+            $created = C6AuthorizationLink::create([
+                'user_id' => $userId,
                 'cpf' => $normalizedCpf,
                 'nome_cliente' => $nomeCliente,
                 'link' => (string) $result['link'],
@@ -89,11 +113,13 @@ class C6AuthorizationLinkController extends Controller
             ]);
 
             return response()->json([
+                'id' => $created->id,
                 'link' => (string) $result['link'],
                 'nome_cliente' => $nomeCliente,
                 'generated_at' => $generatedAt->toIso8601String(),
                 'data_expiracao' => $expiresAt->toIso8601String(),
                 'status' => $status,
+                'reused' => false,
             ]);
         } catch (C6ApiException $e) {
             return response()->json([
