@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import catarinenselogo from "../../public/catainenseLogo.png";
-import axiosClient from "@/api/axiosClient";
+import axiosClient, { ensureCsrfCookie } from "@/api/axiosClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react"; // <- import do spinner
 
@@ -32,6 +32,7 @@ const Login = () => {
     setError(null);
 
     try {
+      await ensureCsrfCookie();
       const response = await axiosClient.post('/login', formData);
 
       // A API agora retorna apenas 'user'
@@ -43,15 +44,19 @@ const Login = () => {
       navigate("/");
 
     } catch (err: any) {
-      setIsLoading(false);
       if (err.response?.status === 422) {
-        const msg = err.response.data.errors.email[0];
+        const msg =
+          err?.response?.data?.errors?.credentials?.[0] ??
+          err?.response?.data?.errors?.email?.[0] ??
+          "Credenciais inválidas.";
         setError(msg);
         toast.error(msg);
       } else {
         setError("Ocorreu um erro. Verifique sua conexão.");
         toast.error("Erro ao tentar fazer login.");
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 

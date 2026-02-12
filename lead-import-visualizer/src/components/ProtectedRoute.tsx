@@ -6,15 +6,16 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { user } = useAuth();
+  const { user, isAuthReady } = useAuth();
+
+  if (!isAuthReady) {
+    return null;
+  }
 
   if (!user) {
-    // Se não há objeto de usuário, redireciona para a página de login.
-    // Usar o componente <Navigate> é a forma mais moderna no React Router v6.
     return <Navigate to="/login" replace />;
   }
 
-  // Se o usuário existir, renderiza a página filha.
   return <>{children}</>;
 };
 

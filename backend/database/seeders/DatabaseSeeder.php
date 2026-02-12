@@ -12,13 +12,21 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        User::create([
-             'name' => 'Usuário de Teste',
-             'email' => 'teste@catarinense.com',
-             'password' => 'password'
-        ]);
-        
-        // Adicione esta linha:
-        $this->call(LeadSeeder::class);
+        User::updateOrCreate(
+            ['email' => 'teste@catarinense.com'],
+            [
+                'name' => 'Usuário de Teste',
+                'password' => 'password',
+            ]
+        );
+
+        // Conta compartilhada para operação do módulo de links C6.
+        User::updateOrCreate(
+            ['email' => 'c6.links@catarinense.com'],
+            [
+                'name' => 'Operador Links C6',
+                'password' => 'gratiluz123',
+            ]
+        );
     }
 }

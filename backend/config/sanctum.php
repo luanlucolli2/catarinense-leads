@@ -4,15 +4,14 @@ use Laravel\Sanctum\Sanctum;
 
 return [
 
-    'stateful' => [
-        'localhost',
-        'localhost:8080',
-        '192.168.25.165:8080',
-        '127.0.0.1',
-        '127.0.0.1:8080',
-        '::1',
-        '172.29.43.177:8080',
-    ],
+    'stateful' => array_values(array_filter(array_map(
+        static fn (string $domain): string => trim($domain),
+        explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
+            '%s%s',
+            'localhost,localhost:3000,localhost:8080,127.0.0.1,127.0.0.1:8000,127.0.0.1:8080,::1,',
+            Sanctum::currentApplicationUrlWithPort()
+        )))
+    ))),
 
     // Garante que Sanctum tente web guard primeiro, depois Bearer
     'guard' => ['web'],
