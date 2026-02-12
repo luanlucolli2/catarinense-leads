@@ -28,5 +28,13 @@ class DatabaseSeeder extends Seeder
                 'password' => 'gratiluz123',
             ]
         );
+
+        User::updateOrCreate(
+            ['email' => 'alessandra@catarinensecredito.com.br'],
+            [
+                'name' => 'Alessandra Vitancourt',
+                'password' => 'catarinense123',
+            ]
+        );
     }
 }
