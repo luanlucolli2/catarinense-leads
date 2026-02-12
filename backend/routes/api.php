@@ -42,8 +42,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 
     /* C6 */
-    Route::post('/c6/authorization-link', C6AuthorizationLinkController::class);
-    Route::get('/c6/authorization-links', C6AuthorizationLinkListController::class);
+    Route::post('/c6/authorization-link', C6AuthorizationLinkController::class)
+        ->middleware('throttle:c6-links-write');
+    Route::get('/c6/authorization-links', C6AuthorizationLinkListController::class)
+        ->middleware('throttle:c6-links-read');
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { formatCPF } from "@/lib/formatters";
 
 interface GeneratedLink {
@@ -21,6 +22,8 @@ interface GeneratedLink {
   expiraEm: string;
   status: "ativo" | "expirado";
 }
+
+type C6FilterStatus = "todos" | "ativo" | "expirado";
 
 const toPtBrDateTime = (iso: string | null) => {
   if (!iso) return "--";
@@ -57,9 +60,9 @@ const C6LinksPage = () => {
   const selectFocusClass = "focus:ring-0 focus:ring-offset-0 focus:border-green-700";
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [filterCpf, setFilterCpf] = useState("");
-  const [filterNome, setFilterNome] = useState("");
-  const [filterStatus, setFilterStatus] = useState<"todos" | "ativo" | "expirado">("todos");
+  const [filterCpf, setFilterCpf] = usePersistedState<string>("c6-links:filter-cpf", "");
+  const [filterNome, setFilterNome] = usePersistedState<string>("c6-links:filter-nome", "");
+  const [filterStatus, setFilterStatus] = usePersistedState<C6FilterStatus>("c6-links:filter-status", "todos");
   const [page, setPage] = useState(1);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [justUpdated, setJustUpdated] = useState(false);
@@ -69,6 +72,12 @@ const C6LinksPage = () => {
 
   const debouncedCpfFilter = useDebouncedValue(normalizedCpfFilter, 550);
   const debouncedNameFilter = useDebouncedValue(normalizedNameFilter, 550);
+
+  useEffect(() => {
+    if (filterStatus !== "todos" && filterStatus !== "ativo" && filterStatus !== "expirado") {
+      setFilterStatus("todos");
+    }
+  }, [filterStatus, setFilterStatus]);
 
   const { data, isLoading, isError, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["c6:links", page, debouncedCpfFilter, debouncedNameFilter, filterStatus],
@@ -199,7 +208,7 @@ const C6LinksPage = () => {
           <Select
             value={filterStatus}
             onValueChange={(value) => {
-              setFilterStatus(value as "todos" | "ativo" | "expirado");
+              setFilterStatus(value as C6FilterStatus);
               setPage(1);
             }}
           >

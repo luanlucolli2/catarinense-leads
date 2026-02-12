@@ -9,7 +9,9 @@ use App\Services\C6\Exceptions\C6ApiException;
 use App\Support\Cpf;
 use Carbon\CarbonImmutable;
 use Carbon\Exceptions\InvalidFormatException;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
@@ -59,68 +61,83 @@ class C6AuthorizationLinkController extends Controller
 
         try {
             $userId = (int) $request->user()->id;
+            $lockKey = sprintf('c6:authorization-link:%d:%s', $userId, $normalizedCpf);
+            $lockTtlSeconds = 20;
+            $lockWaitSeconds = 8;
 
-            // Atualiza status local antes de checar reaproveitamento.
-            C6AuthorizationLink::markExpired($userId);
+            return Cache::lock($lockKey, $lockTtlSeconds)->block($lockWaitSeconds, function () use (
+                $c6,
+                $userId,
+                $normalizedCpf,
+                $nomeClienteInput,
+                $data,
+                $areaCode,
+                $phoneNumber
+            ) {
+                $now = now();
 
-            $existingActive = C6AuthorizationLink::query()
-                ->where('user_id', $userId)
-                ->where('cpf', $normalizedCpf)
-                ->where('status', C6AuthorizationLink::STATUS_ACTIVE)
-                ->where('expires_at', '>', now())
-                ->orderByDesc('generated_at')
-                ->orderByDesc('id')
-                ->first();
+                $latestForCpf = C6AuthorizationLink::query()
+                    ->where('user_id', $userId)
+                    ->where('cpf', $normalizedCpf)
+                    ->where('expires_at', '>', $now)
+                    ->orderByDesc('generated_at')
+                    ->orderByDesc('id')
+                    ->first();
 
-            if ($existingActive) {
-                return response()->json([
-                    'id' => $existingActive->id,
-                    'link' => (string) $existingActive->link,
-                    'nome_cliente' => $existingActive->nome_cliente,
-                    'generated_at' => $existingActive->generated_at?->toIso8601String(),
-                    'data_expiracao' => $existingActive->expires_at?->toIso8601String(),
-                    'status' => (string) ($existingActive->status ?: C6AuthorizationLink::STATUS_ACTIVE),
-                    'reused' => true,
-                    'message' => 'Já existe um link ativo para este CPF. Link reaproveitado.',
+                if ($latestForCpf) {
+                    return response()->json([
+                        'id' => $latestForCpf->id,
+                        'link' => (string) $latestForCpf->link,
+                        'nome_cliente' => $latestForCpf->nome_cliente,
+                        'generated_at' => $latestForCpf->generated_at?->toIso8601String(),
+                        'data_expiracao' => $latestForCpf->expires_at?->toIso8601String(),
+                        'status' => C6AuthorizationLink::STATUS_ACTIVE,
+                        'reused' => true,
+                        'message' => 'Já existe um link ativo para este CPF. Link reaproveitado.',
+                    ]);
+                }
+
+                $result = $c6->generateAuthorizationLink(
+                    cpf: $normalizedCpf,
+                    nome: $nomeClienteInput,
+                    dataNascimento: isset($data['data_nascimento']) ? (string) $data['data_nascimento'] : null,
+                    ddd: $areaCode !== '' ? $areaCode : null,
+                    numero: $phoneNumber !== '' ? $phoneNumber : null
+                );
+
+                $expiresAt = CarbonImmutable::parse((string) ($result['data_expiracao'] ?? ''));
+                // Persiste apenas o nome informado pelo usuário; sem fallback aleatório.
+                $nomeCliente = $nomeClienteInput;
+
+                $status = $expiresAt->lessThanOrEqualTo($now)
+                    ? C6AuthorizationLink::STATUS_EXPIRED
+                    : C6AuthorizationLink::STATUS_ACTIVE;
+
+                $created = C6AuthorizationLink::create([
+                    'user_id' => $userId,
+                    'cpf' => $normalizedCpf,
+                    'nome_cliente' => $nomeCliente,
+                    'link' => (string) $result['link'],
+                    'generated_at' => $now,
+                    'expires_at' => $expiresAt,
+                    'status' => $status,
                 ]);
-            }
 
-            $result = $c6->generateAuthorizationLink(
-                cpf: $normalizedCpf,
-                nome: $nomeClienteInput,
-                dataNascimento: isset($data['data_nascimento']) ? (string) $data['data_nascimento'] : null,
-                ddd: $areaCode !== '' ? $areaCode : null,
-                numero: $phoneNumber !== '' ? $phoneNumber : null
-            );
-
-            $expiresAt = CarbonImmutable::parse((string) ($result['data_expiracao'] ?? ''));
-            $generatedAt = now();
-            // Persiste apenas o nome informado pelo usuário; sem fallback aleatório.
-            $nomeCliente = $nomeClienteInput;
-
-            $status = $expiresAt->lessThanOrEqualTo($generatedAt)
-                ? C6AuthorizationLink::STATUS_EXPIRED
-                : C6AuthorizationLink::STATUS_ACTIVE;
-
-            $created = C6AuthorizationLink::create([
-                'user_id' => $userId,
-                'cpf' => $normalizedCpf,
-                'nome_cliente' => $nomeCliente,
-                'link' => (string) $result['link'],
-                'generated_at' => $generatedAt,
-                'expires_at' => $expiresAt,
-                'status' => $status,
-            ]);
-
+                return response()->json([
+                    'id' => $created->id,
+                    'link' => (string) $result['link'],
+                    'nome_cliente' => $nomeCliente,
+                    'generated_at' => $now->toIso8601String(),
+                    'data_expiracao' => $expiresAt->toIso8601String(),
+                    'status' => $status,
+                    'reused' => false,
+                ]);
+            });
+        } catch (LockTimeoutException $e) {
             return response()->json([
-                'id' => $created->id,
-                'link' => (string) $result['link'],
-                'nome_cliente' => $nomeCliente,
-                'generated_at' => $generatedAt->toIso8601String(),
-                'data_expiracao' => $expiresAt->toIso8601String(),
-                'status' => $status,
-                'reused' => false,
-            ]);
+                'error' => 'c6_link_generation_locked',
+                'message' => 'Já existe uma solicitação em processamento para este CPF. Tente novamente em instantes.',
+            ], 429);
         } catch (C6ApiException $e) {
             return response()->json([
                 'error' => $e->error(),

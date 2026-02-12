@@ -41,6 +41,13 @@ return [
         'persist_pending_every_seconds'=> (int) env('C6_PENDING_PERSIST_EVERY_SECONDS', 300),
     ],
 
+    'rate_limit' => [
+        'read_per_minute_user'  => (int) env('C6_RATE_LIMIT_READ_USER', 600),
+        'read_per_minute_ip'    => (int) env('C6_RATE_LIMIT_READ_IP', 1800),
+        'write_per_minute_user' => (int) env('C6_RATE_LIMIT_WRITE_USER', 90),
+        'write_per_minute_ip'   => (int) env('C6_RATE_LIMIT_WRITE_IP', 300),
+    ],
+
     'headers' => [
         'authorization_generate_accept' => env(
             'C6_AUTHORIZATION_GENERATE_ACCEPT',

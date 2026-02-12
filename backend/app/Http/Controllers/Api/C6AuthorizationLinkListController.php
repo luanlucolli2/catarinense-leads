@@ -24,9 +24,7 @@ class C6AuthorizationLinkListController extends Controller
         ]);
 
         $user = $request->user();
-
-        // Não exclui: apenas marca os expirados.
-        C6AuthorizationLink::markExpired((int) $user->id);
+        $now = now();
 
         $perPage = (int) ($data['per_page'] ?? 20);
         $perPage = max(1, min(100, $perPage));
@@ -49,15 +47,21 @@ class C6AuthorizationLinkListController extends Controller
         }
 
         $status = $data['status'] ?? null;
-        if (is_string($status) && $status !== '') {
-            $query->where('status', $status);
+        if ($status === C6AuthorizationLink::STATUS_ACTIVE) {
+            $query->where('expires_at', '>', $now);
+        } elseif ($status === C6AuthorizationLink::STATUS_EXPIRED) {
+            $query->where('expires_at', '<=', $now);
         }
 
         $links = $query
             ->orderByDesc('generated_at')
             ->orderByDesc('id')
             ->paginate($perPage)
-            ->through(static function (C6AuthorizationLink $item): array {
+            ->through(static function (C6AuthorizationLink $item) use ($now): array {
+                $effectiveStatus = $item->expires_at?->lte($now)
+                    ? C6AuthorizationLink::STATUS_EXPIRED
+                    : C6AuthorizationLink::STATUS_ACTIVE;
+
                 return [
                     'id' => $item->id,
                     'cpf' => $item->cpf,
@@ -65,7 +69,7 @@ class C6AuthorizationLinkListController extends Controller
                     'link' => $item->link,
                     'generated_at' => $item->generated_at?->toIso8601String(),
                     'data_expiracao' => $item->expires_at?->toIso8601String(),
-                    'status' => (string) ($item->status ?: C6AuthorizationLink::STATUS_ACTIVE),
+                    'status' => $effectiveStatus,
                 ];
             });
 
