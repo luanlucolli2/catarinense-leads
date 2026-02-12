@@ -93,7 +93,7 @@ const C6LinksPage = () => {
     staleTime: 30_000,
     gcTime: 120_000,
     retry: 1,
-    refetchInterval: 30_000,
+    refetchInterval: 45_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
