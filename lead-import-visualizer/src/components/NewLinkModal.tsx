@@ -113,6 +113,8 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
   const [telefone, setTelefone] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GeneratedLinkResult | null>(null);
+  const cpfDigits = cpf.replace(/\D/g, "");
+  const hasCpfLengthWarning = cpfDigits.length > 0 && cpfDigits.length < 11;
 
   const resetForm = () => {
     setCpf("");
@@ -130,7 +132,9 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
 
   const handleSubmit = async () => {
     if (!isValidCPF(cpf)) {
-      toast.error("CPF inválido. Informe 11 dígitos.");
+      toast.error(
+        "CPF incompleto. Informe os 11 dígitos (se veio de Excel, confira zeros à esquerda)."
+      );
       return;
     }
 
@@ -153,7 +157,6 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
     setLoading(true);
 
     try {
-      const cpfDigits = cpf.replace(/\D/g, "");
       const response = await generateC6AuthorizationLink({
         cpf: cpfDigits,
         nomeCliente: nome.trim() || undefined,
@@ -238,6 +241,11 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
               maxLength={14}
               className={inputFocusClass}
             />
+            {hasCpfLengthWarning ? (
+              <p className="text-xs text-amber-700">
+                CPF com menos de 11 dígitos. Se veio de planilha/Excel, confira zeros à esquerda.
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -284,7 +292,7 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
             </Button>
             <Button
               onClick={result ? handleNewLink : handleSubmit}
-              disabled={result ? false : loading || !cpf}
+              disabled={result ? false : loading || cpfDigits.length !== 11}
               className="bg-green-700 hover:bg-green-800 text-white"
             >
               {loading ? (
