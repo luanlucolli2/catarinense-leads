@@ -8,14 +8,16 @@ interface GuestRouteProps {
 }
 
 const GuestRoute = ({ children }: GuestRouteProps) => {
-  const { user } = useAuth();
+  const { user, isAuthReady } = useAuth();
+
+  if (!isAuthReady) {
+    return null;
+  }
 
   if (user) {
-    // Se o usuário JÁ EXISTE (está logado), redireciona para a página inicial.
     return <Navigate to="/" replace />;
   }
 
-  // Se não há usuário, renderiza a página filha (o Login).
   return <>{children}</>;
 };
 

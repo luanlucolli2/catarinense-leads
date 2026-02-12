@@ -101,6 +101,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Login Rate Limit
+    |--------------------------------------------------------------------------
+    |
+    | Ajustado para uso com conta compartilhada em IP corporativo.
+    | Ainda mantém uma contenção básica contra brute-force.
+    |
+    */
+    'login_rate_limit' => [
+        'ip_per_minute' => (int) env('LOGIN_RATE_LIMIT_IP_PER_MINUTE', 120),
+        'identifier_per_minute' => (int) env('LOGIN_RATE_LIMIT_IDENTIFIER_PER_MINUTE', 120),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Password Confirmation Timeout
     |--------------------------------------------------------------------------
     |

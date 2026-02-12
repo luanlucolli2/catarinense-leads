@@ -1,4 +1,5 @@
 import axiosClient from './axiosClient'
+export { ensureCsrfCookie } from './axiosClient'
 
 /** Estados do job no backend */
 export type FgtsOffJobStatus =
@@ -67,11 +68,6 @@ export interface Paginated<T> {
   last_page: number
   per_page: number
   total: number
-}
-
-/** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
-export async function ensureCsrfCookie() {
-  await axiosClient.get('/sanctum/csrf-cookie')
 }
 
 /** Base de rotas do módulo FGTS OFF */

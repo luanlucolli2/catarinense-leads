@@ -6,10 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import catarinenselogo from "../../public/catainenseLogo.png";
-import axiosClient from "@/api/axiosClient";
+import axiosClient, { ensureCsrfCookie } from "@/api/axiosClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react"; // <- import do spinner
-import http from "@/api/http";           // <= Importa o cliente genérico
 
 const Login = () => {
   const navigate = useNavigate();
@@ -32,13 +31,9 @@ const Login = () => {
     setIsLoading(true);
     setError(null);
 
-     try {
-    // 1. Usar o cliente GENÉRICO para o handshake do Sanctum (sem /api)
-    await http.get('/sanctum/csrf-cookie');
-
-    // 2. Usar o cliente da API para o login (já tem /api na base)
-    // A chamada é para '/login', o resultado final será '/api/login'
-    const response = await axiosClient.post('/login', formData);
+    try {
+      await ensureCsrfCookie();
+      const response = await axiosClient.post('/login', formData);
 
     const { user } = response.data;
     setUser(user);
@@ -46,14 +41,12 @@ const Login = () => {
     toast.success("Login realizado com sucesso!");
     navigate("/");
 
-  } catch (err: any) {
-      setIsLoading(false);
-      // O erro 419 também cairá aqui. Podemos tratá-lo.
-      if (err.response?.status === 419) {
-          setError("Sua sessão expirou. Por favor, tente novamente.");
-          toast.error("Sessão expirada. Tente fazer o login de novo.");
-      } else if (err.response?.status === 422) {
-        const msg = err.response.data.errors.email[0];
+    } catch (err: any) {
+      if (err.response?.status === 422) {
+        const msg =
+          err?.response?.data?.errors?.credentials?.[0] ??
+          err?.response?.data?.errors?.email?.[0] ??
+          "Credenciais inválidas.";
         setError(msg);
         toast.error(msg);
       } else {
@@ -61,6 +54,8 @@ const Login = () => {
         setError(errorMsg);
         toast.error(errorMsg);
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 

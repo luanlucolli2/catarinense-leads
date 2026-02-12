@@ -12,18 +12,21 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        User::create([
-             'name' => 'Usuário de Teste',
-             'email' => 'teste@catarinense.com',
-             'password' => 'password'
-        ]);
+        User::updateOrCreate(
+            ['email' => 'teste@catarinense.com'],
+            [
+                'name' => 'Usuário de Teste',
+                'password' => 'password',
+            ]
+        );
 
-           User::create([
-             'name' => 'Alessandra Vitancourt',
-             'email' => 'alessandra@catarinensecredito.com.br',
-             'password' => 'catarinense123'
-        ]);
-        
-        // Adicione esta linha:
+        // Conta compartilhada para operação do módulo de links C6.
+        User::updateOrCreate(
+            ['email' => 'c6.links@catarinense.com'],
+            [
+                'name' => 'Operador Links C6',
+                'password' => 'gratiluz123',
+            ]
+        );
     }
 }

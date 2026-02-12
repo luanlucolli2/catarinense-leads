@@ -22,6 +22,13 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
+        if (! $request->hasSession()) {
+            return response()->json([
+                'message' => 'Login por sessão indisponível para este cliente.',
+                'hint' => 'Use /api/login-token para fluxo stateless ou configure SANCTUM_STATEFUL_DOMAINS.',
+            ], 400);
+        }
+
         if (! Auth::attempt($data)) {
             throw ValidationException::withMessages([
                 'credentials' => ['Credenciais inválidas.'],

@@ -1,4 +1,5 @@
 import axiosClient from './axiosClient'
+export { ensureCsrfCookie } from './axiosClient'
 
 export type V8JobStatus =
   | 'pendente'
@@ -61,10 +62,6 @@ export interface Paginated<T> {
   last_page: number
   per_page: number
   total: number
-}
-
-export async function ensureCsrfCookie() {
-  await axiosClient.get('/sanctum/csrf-cookie')
 }
 
 const BASE = '/v8/consult-jobs'

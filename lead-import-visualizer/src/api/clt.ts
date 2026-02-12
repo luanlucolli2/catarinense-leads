@@ -1,5 +1,6 @@
 // src/api/clt.ts
 import axiosClient from './axiosClient'
+export { ensureCsrfCookie } from './axiosClient'
 
 /** Estados do job no backend (sem pausa e sem agendamento) */
 export type CltJobStatus =
@@ -99,9 +100,6 @@ export interface Paginated<T> {
   per_page: number
   total: number
 }
-
-/** (Opcional) garantir CSRF da sessão Sanctum antes de POST */
-
 
 const BASE = '/clt/consult-jobs'
 

@@ -14,6 +14,7 @@ import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSOfflineConsultaPage from "./pages/FGTSOfflineConsultaPage"; // 👈 nova página FGTS OFF
+import C6LinksPage from "./pages/C6LinksPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -72,6 +73,11 @@ const App = () => (
                 <Route
                   path="fgts-off/consulta"
                   element={<FGTSOfflineConsultaPage />}
+                />
+
+                <Route
+                  path="c6/links"
+                  element={<C6LinksPage />}
                 />
               </Route>
 
