@@ -20,6 +20,7 @@ import catarinenselogo from "../../public/catainenseLogo.png";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
+import { isC6OnlyUser } from "@/lib/access";
 
 import {
   AlertDialog,
@@ -54,7 +55,7 @@ type MenuGroup = {
 const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
 
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const firstRender = useRef(true);
@@ -66,8 +67,26 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path);
 
-  const menuGroups: MenuGroup[] = useMemo(
-    () => [
+  const menuGroups: MenuGroup[] = useMemo(() => {
+    const c6Group: MenuGroup = {
+      name: "C6",
+      icon: Link2,
+      key: "c6",
+      items: [
+        {
+          name: "Links C6",
+          icon: Link2,
+          path: "/c6/links",
+          active: isActive("/c6/links"),
+        },
+      ],
+    };
+
+    if (isC6OnlyUser(user)) {
+      return [c6Group];
+    }
+
+    return [
       {
         name: "Leads",
         icon: Home,
@@ -104,18 +123,12 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             path: "/clt/consulta",
             active: isActive("/clt/consulta"),
           },
-          {
-            name: "Links C6",
-            icon: Link2,
-            path: "/c6/links",
-            active: isActive("/c6/links"),
-          },
         ],
       },
-    ],
+      c6Group,
+    ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [location.pathname]
-  );
+  }, [location.pathname, user]);
 
   const singleItems: MenuItem[] = useMemo(
     () => [

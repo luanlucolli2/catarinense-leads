@@ -83,7 +83,8 @@ export async function generateC6AuthorizationLink(
 }
 
 export async function listC6AuthorizationLinks(
-  params: ListC6AuthorizationLinksParams = {}
+  params: ListC6AuthorizationLinksParams = {},
+  signal?: AbortSignal
 ): Promise<Paginated<C6AuthorizationLinkListItem>> {
   const query: Record<string, string | number> = {}
 
@@ -95,7 +96,7 @@ export async function listC6AuthorizationLinks(
 
   const { data } = await axiosClient.get<Paginated<C6AuthorizationLinkListItem>>(
     `${BASE}/authorization-links`,
-    { params: query }
+    { params: query, signal }
   )
 
   return data

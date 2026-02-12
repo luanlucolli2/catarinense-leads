@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Copy, Link2, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, CheckCircle2, Copy, Link2, Loader2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { listC6AuthorizationLinks } from "@/api/c6";
@@ -19,36 +19,8 @@ interface GeneratedLink {
   link: string;
   geradoEm: string;
   expiraEm: string;
+  status: "ativo" | "expirado";
 }
-
-const isExpired = (expiraEm: string) => {
-  if (!expiraEm || !expiraEm.includes(" ")) return false;
-
-  const [date, time] = expiraEm.split(" ");
-  if (!date || !time) return false;
-
-  const [day, month, year] = date.split("/");
-  const [hour, minute] = time.split(":");
-
-  const parsedDay = Number(day);
-  const parsedMonth = Number(month);
-  const parsedYear = Number(year);
-  const parsedHour = Number(hour);
-  const parsedMinute = Number(minute);
-
-  if (
-    Number.isNaN(parsedDay) ||
-    Number.isNaN(parsedMonth) ||
-    Number.isNaN(parsedYear) ||
-    Number.isNaN(parsedHour) ||
-    Number.isNaN(parsedMinute)
-  ) {
-    return false;
-  }
-
-  const expDate = new Date(parsedYear, parsedMonth - 1, parsedDay, parsedHour, parsedMinute);
-  return expDate < new Date();
-};
 
 const toPtBrDateTime = (iso: string | null) => {
   if (!iso) return "--";
@@ -63,21 +35,75 @@ const toPtBrDateTime = (iso: string | null) => {
   });
 };
 
+const useDebouncedValue = <T,>(value: T, delayMs: number): T => {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebounced(value);
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [value, delayMs]);
+
+  return debounced;
+};
+
 const C6LinksPage = () => {
+  const queryClient = useQueryClient();
+  const focusClass = "focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-green-700";
+  const selectFocusClass = "focus:ring-0 focus:ring-offset-0 focus:border-green-700";
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterCpf, setFilterCpf] = useState("");
   const [filterNome, setFilterNome] = useState("");
   const [filterStatus, setFilterStatus] = useState<"todos" | "ativo" | "expirado">("todos");
-  const [localLinks, setLocalLinks] = useState<GeneratedLink[]>([]);
+  const [page, setPage] = useState(1);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [justUpdated, setJustUpdated] = useState(false);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["c6:links:all"],
-    queryFn: () => listC6AuthorizationLinks({ page: 1, perPage: 100 }),
-    refetchOnWindowFocus: true,
+  const normalizedCpfFilter = useMemo(() => filterCpf.replace(/\D/g, "").trim(), [filterCpf]);
+  const normalizedNameFilter = useMemo(() => filterNome.trim(), [filterNome]);
+
+  const debouncedCpfFilter = useDebouncedValue(normalizedCpfFilter, 550);
+  const debouncedNameFilter = useDebouncedValue(normalizedNameFilter, 550);
+
+  const { data, isLoading, isError, isFetching, dataUpdatedAt } = useQuery({
+    queryKey: ["c6:links", page, debouncedCpfFilter, debouncedNameFilter, filterStatus],
+    queryFn: ({ signal }) =>
+      listC6AuthorizationLinks({
+        page,
+        perPage: 50,
+        cpf: debouncedCpfFilter || undefined,
+        nome: debouncedNameFilter || undefined,
+        status: filterStatus === "todos" ? "" : filterStatus,
+      }, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    gcTime: 120_000,
+    retry: 1,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const serverLinks = useMemo<GeneratedLink[]>(() => {
+  useEffect(() => {
+    if (!dataUpdatedAt) return;
+
+    setJustUpdated(true);
+    const timer = window.setTimeout(() => {
+      setJustUpdated(false);
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [dataUpdatedAt]);
+
+  const links = useMemo<GeneratedLink[]>(() => {
     const items = data?.data ?? [];
     return items.map((item) => ({
       id: String(item.id),
@@ -86,19 +112,15 @@ const C6LinksPage = () => {
       link: item.link,
       geradoEm: toPtBrDateTime(item.generated_at),
       expiraEm: toPtBrDateTime(item.data_expiracao),
+      status: item.status,
     }));
   }, [data]);
 
-  const links = useMemo(() => {
-    if (localLinks.length === 0) return serverLinks;
+  const currentPage = data?.current_page ?? page;
+  const lastPage = data?.last_page ?? 1;
+  const total = data?.total ?? 0;
 
-    const localIds = new Set(localLinks.map((item) => item.id));
-    const dedupedServer = serverLinks.filter((item) => !localIds.has(item.id));
-
-    return [...localLinks, ...dedupedServer];
-  }, [localLinks, serverLinks]);
-
-  const handleLinkGenerated = (data: {
+  const handleLinkGenerated = async (payload: {
     id?: string;
     reused?: boolean;
     cpf: string;
@@ -107,23 +129,11 @@ const C6LinksPage = () => {
     geradoEm: string;
     expiraEm: string;
   }) => {
-    if (data.reused) {
-      return;
+    if (!payload.reused) {
+      setPage(1);
     }
 
-    const newLink: GeneratedLink = {
-      id: data.id ?? `local-${Date.now()}`,
-      cpf: data.cpf,
-      nome: data.nome,
-      link: data.link,
-      geradoEm: data.geradoEm,
-      expiraEm: data.expiraEm,
-    };
-
-    setLocalLinks((prev) => {
-      const withoutSameId = prev.filter((item) => item.id !== newLink.id);
-      return [newLink, ...withoutSameId];
-    });
+    await queryClient.invalidateQueries({ queryKey: ["c6:links"] });
   };
 
   const handleCopy = async (link: GeneratedLink) => {
@@ -139,30 +149,14 @@ const C6LinksPage = () => {
     }
   };
 
-  const filteredLinks = useMemo(() => {
-    return links.filter((link) => {
-      const cpfMatch =
-        !filterCpf || link.cpf.replace(/\D/g, "").includes(filterCpf.replace(/\D/g, ""));
-      const nomeMatch =
-        !filterNome || link.nome?.toLowerCase().includes(filterNome.toLowerCase());
-      const expired = isExpired(link.expiraEm);
-      const statusMatch =
-        filterStatus === "todos" ||
-        (filterStatus === "ativo" && !expired) ||
-        (filterStatus === "expirado" && expired);
-
-      return cpfMatch && nomeMatch && statusMatch;
-    });
-  }, [links, filterCpf, filterNome, filterStatus]);
-
   return (
     <>
       <div className="p-4 lg:p-6 max-w-full min-w-0">
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">Geração de Links</h1>
+            <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">Geração de Links C6</h1>
             <p className="text-gray-600 text-sm lg:text-base">
-              Gere links exclusivos para clientes. Links expiram em 48 horas.
+              Gere links de autorização de consulta de dados no banco C6. Links expiram em 48 horas.
             </p>
           </div>
 
@@ -181,8 +175,11 @@ const C6LinksPage = () => {
             <Input
               placeholder="Filtrar por CPF..."
               value={filterCpf}
-              onChange={(e) => setFilterCpf(e.target.value)}
-              className="pl-9"
+              onChange={(e) => {
+                setFilterCpf(e.target.value);
+                setPage(1);
+              }}
+              className={`pl-9 ${focusClass}`}
             />
           </div>
 
@@ -191,16 +188,22 @@ const C6LinksPage = () => {
             <Input
               placeholder="Filtrar por nome..."
               value={filterNome}
-              onChange={(e) => setFilterNome(e.target.value)}
-              className="pl-9"
+              onChange={(e) => {
+                setFilterNome(e.target.value);
+                setPage(1);
+              }}
+              className={`pl-9 ${focusClass}`}
             />
           </div>
 
           <Select
             value={filterStatus}
-            onValueChange={(v) => setFilterStatus(v as "todos" | "ativo" | "expirado")}
+            onValueChange={(value) => {
+              setFilterStatus(value as "todos" | "ativo" | "expirado");
+              setPage(1);
+            }}
           >
-            <SelectTrigger>
+            <SelectTrigger className={selectFocusClass}>
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -211,11 +214,17 @@ const C6LinksPage = () => {
           </Select>
         </div>
 
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Histórico de Links</h2>
-          <p className="text-muted-foreground text-sm">
-            {filteredLinks.length} de {links.length} link(s)
-          </p>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Histórico de Links</h2>
+            <p className="text-muted-foreground text-sm">
+              {links.length} nesta página • {total} no total
+            </p>
+          </div>
+          <div className="text-sm text-gray-500 flex items-center gap-2">
+            {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+            {isFetching ? "Atualizando..." : "Atualizado"}
+          </div>
         </div>
 
         {isLoading ? (
@@ -233,26 +242,27 @@ const C6LinksPage = () => {
               <p className="text-sm">Atualize a página para tentar novamente.</p>
             </CardContent>
           </Card>
-        ) : filteredLinks.length === 0 ? (
+        ) : links.length === 0 ? (
           <Card>
             <CardContent className="py-12 flex flex-col items-center text-gray-500">
               <Link2 className="w-10 h-10 mb-3 text-gray-300" />
-              <p className="font-medium">Nenhum link gerado</p>
-              <p className="text-sm">Clique em "Gerar Novo Link" para começar.</p>
+              <p className="font-medium">Nenhum link encontrado</p>
+              <p className="text-sm">Ajuste os filtros ou gere um novo link.</p>
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
-            {filteredLinks.map((link) => {
-              const expired = isExpired(link.expiraEm);
+          <div
+            className={`space-y-3 transition-all duration-500 ${justUpdated ? "bg-emerald-50/35 rounded-lg p-2" : ""}`}
+          >
+            {links.map((link) => {
+              const expired = link.status === "expirado";
+
               return (
                 <Card key={link.id} className={expired ? "opacity-60" : ""}>
                   <CardContent className="py-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-sm font-medium text-gray-900">{link.cpf}</span>
-                        {link.nome && <span className="text-sm text-gray-500">- {link.nome}</span>}
-
                         {expired ? (
                           <Badge variant="destructive" className="text-xs">
                             <AlertCircle className="w-3 h-3 mr-1" />
@@ -265,6 +275,12 @@ const C6LinksPage = () => {
                           </Badge>
                         )}
                       </div>
+
+                      {link.nome ? (
+                        <p className="text-sm font-semibold text-gray-800 truncate">{link.nome}</p>
+                      ) : (
+                        <p className="text-xs text-gray-400">Nome não informado</p>
+                      )}
 
                       <p className="text-sm text-blue-600 truncate font-mono">{link.link}</p>
                       <div className="flex gap-4 text-xs text-gray-400">
@@ -289,6 +305,30 @@ const C6LinksPage = () => {
             })}
           </div>
         )}
+
+        {lastPage > 1 ? (
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={currentPage <= 1 || isFetching}
+            >
+              Anterior
+            </Button>
+            <span className="text-sm text-gray-600">
+              Página {currentPage} de {lastPage}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPage((current) => Math.min(lastPage, current + 1))}
+              disabled={currentPage >= lastPage || isFetching}
+            >
+              Próxima
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <NewLinkModal

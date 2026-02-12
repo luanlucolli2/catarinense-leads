@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { CheckCircle2, Clock, Copy, Link2, Plus } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Clock, Copy, Link2, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { generateC6AuthorizationLink } from "@/api/c6";
@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 interface GeneratedLinkResult {
-  id: string;
   link: string;
   expiraEm: string;
   reused: boolean;
@@ -24,8 +23,6 @@ interface NewLinkModalProps {
     reused?: boolean;
     cpf: string;
     nome?: string;
-    dataNasc?: string;
-    telefone?: string;
     link: string;
     geradoEm: string;
     expiraEm: string;
@@ -78,8 +75,13 @@ const parsePhoneToApi = (value: string): { codigo_area: string; numero: string }
   };
 };
 
-const getApiErrorMessage = (error: any): string => {
-  const data = error?.response?.data;
+type ApiErrorPayload = {
+  message?: string;
+  errors?: Record<string, string | string[]>;
+};
+
+const getApiErrorMessage = (error: unknown): string => {
+  const data = (error as { response?: { data?: ApiErrorPayload } } | null)?.response?.data;
   const message = data?.message;
 
   if (typeof message === "string" && message.trim() !== "") {
@@ -101,21 +103,16 @@ const getApiErrorMessage = (error: any): string => {
   return "Erro ao gerar link.";
 };
 
+const TODAY_ISO_DATE = new Date().toISOString().slice(0, 10);
+
 export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalProps) => {
+  const inputFocusClass = "focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-green-700";
   const [cpf, setCpf] = useState("");
   const [nome, setNome] = useState("");
   const [dataNasc, setDataNasc] = useState("");
   const [telefone, setTelefone] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GeneratedLinkResult | null>(null);
-
-  const todayIsoDate = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }, []);
 
   const resetForm = () => {
     setCpf("");
@@ -173,7 +170,6 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
       const expiraEm = toPtBrDateTime(response.data_expiracao);
 
       setResult({
-        id: String(response.id),
         link: response.link,
         expiraEm,
         reused: !!response.reused,
@@ -189,13 +185,11 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
         reused: !!response.reused,
         cpf: formatCPF(cpfDigits),
         nome: nome.trim() || undefined,
-        dataNasc: dataNasc || undefined,
-        telefone: telefone.trim() || undefined,
         link: response.link,
         geradoEm,
         expiraEm,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(getApiErrorMessage(error));
     } finally {
       setLoading(false);
@@ -242,56 +236,55 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
               value={cpf}
               onChange={(e) => setCpf(formatCPF(e.target.value))}
               maxLength={14}
+              className={inputFocusClass}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="modal-nome">Nome</Label>
+            <Label htmlFor="modal-nome">Nome (opcional)</Label>
             <Input
               id="modal-nome"
               placeholder="Nome do cliente (opcional)"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               maxLength={255}
+              className={inputFocusClass}
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="modal-dataNasc">Data de Nascimento</Label>
+              <Label htmlFor="modal-dataNasc">Data de Nascimento (opcional)</Label>
               <Input
                 id="modal-dataNasc"
                 type="date"
                 value={dataNasc}
                 onChange={(e) => setDataNasc(e.target.value)}
-                max={todayIsoDate}
+                max={TODAY_ISO_DATE}
+                className={inputFocusClass}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="modal-telefone">Telefone</Label>
+              <Label htmlFor="modal-telefone">Telefone (opcional)</Label>
               <Input
                 id="modal-telefone"
                 placeholder="(00) 00000-0000"
                 value={telefone}
                 onChange={(e) => setTelefone(formatPhone(e.target.value))}
                 maxLength={15}
+                className={inputFocusClass}
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            {result ? (
-              <Button variant="outline" onClick={handleNewLink}>
-                Limpar
-              </Button>
-            ) : null}
             <Button variant="outline" onClick={handleClose}>
               {result ? "Fechar" : "Cancelar"}
             </Button>
             <Button
-              onClick={handleSubmit}
-              disabled={loading || !cpf}
+              onClick={result ? handleNewLink : handleSubmit}
+              disabled={result ? false : loading || !cpf}
               className="bg-green-700 hover:bg-green-800 text-white"
             >
               {loading ? (
@@ -301,12 +294,18 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
                 </>
               ) : (
                 <>
-                  <Plus className="w-4 h-4" />
-                  {result ? "Gerar Novamente" : "Gerar Link"}
+                  {result ? <RotateCcw className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  {result ? "Iniciar Novo Link" : "Gerar Link"}
                 </>
               )}
             </Button>
           </div>
+
+          {result ? (
+            <p className="text-xs text-gray-500">
+              "Iniciar Novo Link" limpa os campos para gerar para outro CPF.
+            </p>
+          ) : null}
 
           {result ? (
             <div
