@@ -11,7 +11,6 @@ import {
   PiggyBank,
   Link2,
   Loader2,
-  UserCircle2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +21,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
 import { isC6OnlyUser } from "@/lib/access";
+import { SidebarAccountInfo } from "@/components/SidebarAccountInfo";
 
 import {
   AlertDialog,
@@ -385,48 +385,12 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             );
           })}
 
-          <div
-            className={cn(
-              "mt-3 w-full rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-900/40 via-emerald-800/20 to-transparent",
-              "transition-all duration-200",
-              isCollapsed ? "h-10 px-1 flex items-center justify-center overflow-hidden" : "p-3"
-            )}
-            title={`Conta logada: ${userEmail}`}
-          >
-            <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-3")}>
-              <div className="relative flex-shrink-0">
-                <div
-                  className={cn(
-                    "rounded-full bg-emerald-600 text-white font-semibold flex items-center justify-center shadow-md shadow-emerald-900/40",
-                    isCollapsed ? "h-8 w-8 text-[11px]" : "h-9 w-9 text-xs"
-                  )}
-                >
-                  {userInitials}
-                </div>
-                <span
-                  className={cn(
-                    "absolute rounded-full bg-emerald-300 ring-2 ring-[#333]",
-                    isCollapsed ? "-bottom-0 -right-0 h-2 w-2" : "-bottom-0.5 -right-0.5 h-2.5 w-2.5"
-                  )}
-                />
-              </div>
-
-              <div
-                className={cn(
-                  "min-w-0 transition-[opacity,transform,width] duration-200",
-                  isCollapsed ? "opacity-0 w-0 -translate-x-1 overflow-hidden" : "opacity-100 w-auto translate-x-0"
-                )}
-                aria-hidden={isCollapsed}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-100/80 flex items-center gap-1">
-                  <UserCircle2 className="h-3 w-3" />
-                  Conta logada
-                </p>
-                <p className="text-sm font-semibold text-white truncate">{userName}</p>
-                <p className="text-xs text-emerald-100/80 truncate">{userEmail}</p>
-              </div>
-            </div>
-          </div>
+          <SidebarAccountInfo
+            isCollapsed={isCollapsed}
+            userName={userName}
+            userEmail={userEmail}
+            userInitials={userInitials}
+          />
 
           {/* Separador */}
           <div className="border-t border-gray-600 my-4" />
