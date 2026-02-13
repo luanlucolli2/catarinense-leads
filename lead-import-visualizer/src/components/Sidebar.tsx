@@ -11,6 +11,7 @@ import {
   PiggyBank,
   Link2,
   Loader2,
+  UserCircle2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -52,10 +53,32 @@ type MenuGroup = {
   items: MenuItem[];
 };
 
+const getUserInitials = (name: string, email: string): string => {
+  const source = (name || email || "U").trim();
+  if (!source) return "U";
+
+  const chunks = source
+    .split(/[\s@._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (chunks.length === 0) return "U";
+  if (chunks.length === 1) return chunks[0].slice(0, 2).toUpperCase();
+
+  return `${chunks[0][0]}${chunks[1][0]}`.toUpperCase();
+};
+
 const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, setUser } = useAuth();
+  const userName = typeof user?.name === "string" && user.name.trim() !== ""
+    ? user.name.trim()
+    : "Conta compartilhada";
+  const userEmail = typeof user?.email === "string" && user.email.trim() !== ""
+    ? user.email.trim().toLowerCase()
+    : "sem-email";
+  const userInitials = getUserInitials(userName, userEmail);
 
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const firstRender = useRef(true);
@@ -271,7 +294,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
         </div>
 
         {/* Menu */}
-        <nav className="p-4 space-y-2">
+        <nav className={cn("space-y-2", isCollapsed ? "px-2 py-4" : "p-4")}>
           {/* Grupos expansíveis */}
           {menuGroups.map((group) => {
             const isExpanded = expandedGroups.includes(group.key);
@@ -361,6 +384,49 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
               </div>
             );
           })}
+
+          <div
+            className={cn(
+              "mt-3 w-full rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-900/40 via-emerald-800/20 to-transparent",
+              "transition-all duration-200",
+              isCollapsed ? "h-10 px-1 flex items-center justify-center overflow-hidden" : "p-3"
+            )}
+            title={`Conta logada: ${userEmail}`}
+          >
+            <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-3")}>
+              <div className="relative flex-shrink-0">
+                <div
+                  className={cn(
+                    "rounded-full bg-emerald-600 text-white font-semibold flex items-center justify-center shadow-md shadow-emerald-900/40",
+                    isCollapsed ? "h-8 w-8 text-[11px]" : "h-9 w-9 text-xs"
+                  )}
+                >
+                  {userInitials}
+                </div>
+                <span
+                  className={cn(
+                    "absolute rounded-full bg-emerald-300 ring-2 ring-[#333]",
+                    isCollapsed ? "-bottom-0 -right-0 h-2 w-2" : "-bottom-0.5 -right-0.5 h-2.5 w-2.5"
+                  )}
+                />
+              </div>
+
+              <div
+                className={cn(
+                  "min-w-0 transition-[opacity,transform,width] duration-200",
+                  isCollapsed ? "opacity-0 w-0 -translate-x-1 overflow-hidden" : "opacity-100 w-auto translate-x-0"
+                )}
+                aria-hidden={isCollapsed}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-100/80 flex items-center gap-1">
+                  <UserCircle2 className="h-3 w-3" />
+                  Conta logada
+                </p>
+                <p className="text-sm font-semibold text-white truncate">{userName}</p>
+                <p className="text-xs text-emerald-100/80 truncate">{userEmail}</p>
+              </div>
+            </div>
+          </div>
 
           {/* Separador */}
           <div className="border-t border-gray-600 my-4" />
