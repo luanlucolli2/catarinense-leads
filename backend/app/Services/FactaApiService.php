@@ -36,6 +36,7 @@ class FactaApiService
     private int $httpRateLimitDefaultPauseSeconds;
     private int $httpRateLimitPauseCapSeconds;
     private bool $logFactaResponses;
+    private bool $logFactaSuccessResponses;
 
     /** Pré-autorização (CLT online) */
     private string $preAuthAverbador;
@@ -127,6 +128,7 @@ class FactaApiService
         $this->httpRateLimitDefaultPauseSeconds = max(1, (int) ($http['rate_limit_default_pause_seconds'] ?? 3));
         $this->httpRateLimitPauseCapSeconds = max(1, (int) ($http['rate_limit_pause_cap_seconds'] ?? 30));
         $this->logFactaResponses = (bool) config('cltfacta.logging.facta_log_responses', true);
+        $this->logFactaSuccessResponses = (bool) config('cltfacta.logging.facta_log_success_responses', false);
 
         // Pré-autorização obrigatória antes do autoriza-consulta
         $this->preAuthAverbador = (string) ($api['pre_auth_averbador'] ?? '10010');
@@ -348,10 +350,14 @@ class FactaApiService
      */
     public function autorizaConsultaLote(array $cpfs): array
     {
-        $cpfs = array_values(array_filter(array_map(function ($c) {
-            $c = preg_replace('/\D+/', '', (string) $c);
-            return strlen($c) === 11 ? $c : null;
-        }, $cpfs)));
+        $normalizedCpfs = [];
+        foreach ($cpfs as $c) {
+            $digits = preg_replace('/\D+/', '', (string) $c);
+            if (strlen($digits) === 11) {
+                $normalizedCpfs[] = $digits;
+            }
+        }
+        $cpfs = $normalizedCpfs;
 
         if (empty($cpfs)) {
             return [];
@@ -644,11 +650,27 @@ class FactaApiService
             ];
         }
 
-        if ((float) $valorParcela <= 0.0 || (float) $valorRenda <= 0.0) {
+        $valorParcelaNum = (float) $valorParcela;
+        $valorRendaNum = (float) $valorRenda;
+
+        $validationMessages = [];
+        if ($valorParcelaNum < 0.0) {
+            $validationMessages[] = 'Parcela negativa (margem indisponível).';
+        } elseif ($valorParcelaNum == 0.0) {
+            $validationMessages[] = 'Parcela zerada (margem indisponível).';
+        }
+
+        if ($valorRendaNum < 0.0) {
+            $validationMessages[] = 'Renda negativa.';
+        } elseif ($valorRendaNum == 0.0) {
+            $validationMessages[] = 'Renda zerada.';
+        }
+
+        if (!empty($validationMessages)) {
             return [
                 'attempted' => true,
                 'aprovado' => false,
-                'mensagem' => 'Dados insuficientes para continuação da análise de crédito.',
+                'mensagem' => implode(' ', $validationMessages),
                 'valor_maximo_disponivel' => null,
                 'prazo_maximo_disponivel' => null,
                 'retriable' => false,
@@ -657,7 +679,26 @@ class FactaApiService
             ];
         }
 
-        $op = $this->consultaOperacoesDisponiveis($cpf, $dataNascimento, $valorRenda, $valorParcela);
+        $token = null;
+        try {
+            $token = $this->getToken();
+            if (!is_string($token) || $token === '') {
+                throw new \RuntimeException('Token FACTA ausente');
+            }
+        } catch (Throwable $e) {
+            return [
+                'attempted' => true,
+                'aprovado' => false,
+                'mensagem' => 'Falha ao gerar token: ' . $e->getMessage(),
+                'valor_maximo_disponivel' => null,
+                'prazo_maximo_disponivel' => null,
+                'retriable' => true,
+                'http_status' => null,
+                'retry_after' => null,
+            ];
+        }
+
+        $op = $this->consultaOperacoesDisponiveis($cpf, $dataNascimento, $valorRenda, $valorParcela, $token);
         if (!($op['ok'] ?? false)) {
             return [
                 'attempted' => true,
@@ -703,7 +744,8 @@ class FactaApiService
                 $dataNascimento,
                 $dataAdmissao,
                 $prazo,
-                $valorEmprestimo
+                $valorEmprestimo,
+                $token
             );
 
             if (!($policy['ok'] ?? false)) {
@@ -751,24 +793,9 @@ class FactaApiService
         string $cpf,
         string $dataNascimento,
         string $valorRenda,
-        string $valorParcela
+        string $valorParcela,
+        string &$token
     ): array {
-        try {
-            $token = $this->getToken();
-            if (!is_string($token) || $token === '') {
-                throw new \RuntimeException('Token FACTA ausente');
-            }
-        } catch (Throwable $e) {
-            return [
-                'ok' => false,
-                'tabelas' => [],
-                'mensagem' => 'Falha ao gerar token: ' . $e->getMessage(),
-                'retriable' => true,
-                'http_status' => null,
-                'retry_after' => null,
-            ];
-        }
-
         $params = [
             'produto' => $this->creditProduto,
             'tipo_operacao' => $this->creditTipoOperacao,
@@ -864,26 +891,9 @@ class FactaApiService
         string $dataNascimento,
         string $dataAdmissao,
         int $prazo,
-        string $valorEmprestimo
+        string $valorEmprestimo,
+        string &$token
     ): array {
-        try {
-            $token = $this->getToken();
-            if (!is_string($token) || $token === '') {
-                throw new \RuntimeException('Token FACTA ausente');
-            }
-        } catch (Throwable $e) {
-            return [
-                'ok' => false,
-                'aprovado' => false,
-                'mensagem' => 'Falha ao gerar token: ' . $e->getMessage(),
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => true,
-                'http_status' => null,
-                'retry_after' => null,
-            ];
-        }
-
         $params = [
             'cpf' => $cpf,
             'matricula' => $matricula,
@@ -1153,7 +1163,7 @@ class FactaApiService
 
     private function logOperacoesDisponiveisResponse(HttpResponse $resp, string $cpf, string $stage, int $attempt): void
     {
-        if (!$this->logFactaResponses) {
+        if (!$this->shouldLogFactaResponse($resp)) {
             return;
         }
 
@@ -1189,7 +1199,7 @@ class FactaApiService
         int $prazo,
         string $valorEmprestimo
     ): void {
-        if (!$this->logFactaResponses) {
+        if (!$this->shouldLogFactaResponse($resp)) {
             return;
         }
 
@@ -1475,7 +1485,7 @@ class FactaApiService
         int $attempt,
         string $stage
     ): void {
-        if (!$this->logFactaResponses) {
+        if (!$this->shouldLogFactaResponse($resp)) {
             return;
         }
 
@@ -1516,13 +1526,26 @@ class FactaApiService
         }
     }
 
+    private function shouldLogFactaResponse(HttpResponse $resp): bool
+    {
+        if (!$this->logFactaResponses) {
+            return false;
+        }
+
+        if ($this->logFactaSuccessResponses) {
+            return true;
+        }
+
+        return $resp->status() >= 400;
+    }
+
     private function logAutorizaConsultaResponse(
         HttpResponse $resp,
         string $cpf,
         string $stage,
         int $attempt
     ): void {
-        if (!$this->logFactaResponses) {
+        if (!$this->shouldLogFactaResponse($resp)) {
             return;
         }
 

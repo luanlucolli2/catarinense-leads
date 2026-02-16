@@ -50,9 +50,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $chunkDelayMs;
     private int $subchunkSize;
     private int $subchunkDelayMs;
+    private int $rowsBufferFlush;
+    private int $snapBufferFlush;
+    private bool $backoffLog;
+    private bool $chunkPerfDebug;
+    private bool $flushProgressLog;
 
     /** Guarda a variante (online|offline) para a regra de snapshot */
     private string $variant = 'online';
+    private array $baseRowTemplate = [];
 
     public function __construct(int $jobId)
     {
@@ -69,6 +75,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->chunkDelayMs = (int) config('cltfacta.job.chunk_delay_ms', 200);
         $this->subchunkSize = max(1, (int) config('cltfacta.job.subchunk', 5));
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
+        $this->rowsBufferFlush = max(1, (int) config('cltfacta.job.rows_buffer_flush', 300));
+        $this->snapBufferFlush = max(1, (int) config('cltfacta.job.snap_buffer_flush', 300));
+        $this->backoffLog = (bool) config('cltfacta.logging.backoff_log', false);
+        $this->chunkPerfDebug = (bool) config('cltfacta.logging.chunk_perf_debug', false);
+        $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
+        $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
     }
 
     public function handle(): void
@@ -375,6 +387,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $micro = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
+        $sliceTotal = count($slices);
 
         $rows = [];
         $snapRows = [];
@@ -530,7 +543,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $row['consulted_at'] = $nowStr;
 
                             if ($bestIdx !== null && $i === $bestIdx && is_array($politica) && !empty($politica['attempted'])) {
-                                $row['politicaCreditoAprovado'] = !empty($politica['aprovado']) ? '1' : '0';
+                                $row['politicaCreditoAprovado'] = !empty($politica['aprovado']) ? 'SIM' : 'NÃO';
                                 $row['politicaCreditoMensagem'] = $politica['mensagem'] ?? null;
                                 $row['politicaCreditoValorMaximoDisponivel'] = $politica['valor_maximo_disponivel'] ?? null;
                                 $row['politicaCreditoPrazoMaximoDisponivel'] = $politica['prazo_maximo_disponivel'] ?? null;
@@ -615,6 +628,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $retriableInChunk++;
                     }
                 }
+
+                if (count($rows) >= $this->rowsBufferFlush) {
+                    $this->spoolAppendManyPersist($job, $rows);
+                    $rows = [];
+                }
+                if (count($snapRows) >= $this->snapBufferFlush) {
+                    $this->persistSnapshots($snapRows);
+                    $snapRows = [];
+                }
             }
 
             if (!empty($rows)) {
@@ -626,7 +648,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $snapRows = [];
             }
 
-            if ($this->subchunkDelayMs > 0 && $idx < count($slices) - 1) {
+            if ($this->subchunkDelayMs > 0 && $idx < $sliceTotal - 1) {
                 if ($this->microSleepCoop($this->subchunkDelayMs, $job))
                     return;
             }
@@ -642,9 +664,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->updateTotalsThrottled($job, $job->spool_path);
         $totalInAttempt += $chunkCount;
 
-        $elapsed = microtime(true) - $t0;
-        $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
-        CltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
+        if ($this->chunkPerfDebug) {
+            $elapsed = microtime(true) - $t0;
+            $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
+            CltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
+        }
     }
 
     /**
@@ -665,7 +689,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function baseRow(string $cpf): array
     {
-        $row = array_fill_keys(CltSchema::COLS, null);
+        $row = $this->baseRowTemplate;
         $row['cpf'] = $cpf;
         return $row;
     }
@@ -719,13 +743,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($this->accFail > 0)
             $updates['fail_count'] = DB::raw('COALESCE(fail_count,0) + ' . $this->accFail);
 
-        try {
-            CltLog::info('[CLT][FLUSH]', [
-                'job' => $this->jobId,
-                'force' => $force,
-                'bytes_now' => $bytes,
-            ]);
-        } catch (Throwable $e) {
+        if ($this->flushProgressLog) {
+            try {
+                CltLog::info('[CLT][FLUSH]', [
+                    'job' => $this->jobId,
+                    'force' => $force,
+                    'bytes_now' => $bytes,
+                ]);
+            } catch (Throwable $e) {
+            }
         }
 
         DB::table('clt_consult_jobs')->where('id', $job->id)->update($updates);
@@ -1076,14 +1102,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($total <= 0)
             return $this->finishIfStopped($job);
 
-        CltLog::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
+        if ($this->backoffLog) {
+            CltLog::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
+        }
         $remaining = $total;
         $start = microtime(true);
 
         while ($remaining > 0) {
             if ($this->finishIfStopped($job)) {
                 $slept = (int) floor($total - $remaining);
-                CltLog::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
+                if ($this->backoffLog) {
+                    CltLog::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
+                }
                 return true;
             }
             sleep(1);
@@ -1091,7 +1121,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $elapsed = (int) floor(microtime(true) - $start);
-        CltLog::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
+        if ($this->backoffLog) {
+            CltLog::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
+        }
         return $this->finishIfStopped($job);
     }
 

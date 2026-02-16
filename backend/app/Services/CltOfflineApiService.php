@@ -135,20 +135,27 @@ class CltOfflineApiService
      */
     public function autorizaConsultaLote(array $cpfs): array
     {
-        $cpfs = array_values(array_filter(array_map(function ($c) {
-            $c = preg_replace('/\D+/', '', (string) $c);
-            return strlen($c) === 11 ? $c : null;
-        }, $cpfs)));
+        $normalizedCpfs = [];
+        foreach ($cpfs as $c) {
+            $digits = preg_replace('/\D+/', '', (string) $c);
+            if (strlen($digits) === 11) {
+                $normalizedCpfs[] = $digits;
+            }
+        }
+        $cpfs = $normalizedCpfs;
 
         if (empty($cpfs)) {
             return [];
         }
+
+        $retryAfterDefault = $this->minIntervalMs / 1000;
 
         try {
             $token = $this->getToken();
         } catch (Throwable $e) {
             $msg = 'Falha ao gerar token: ' . $e->getMessage();
             $permanent = $this->isFatalAuthError($e->getMessage());
+            $retryAfter = $permanent ? null : $retryAfterDefault;
             $out = [];
             foreach ($cpfs as $cpf) {
                 $out[$cpf] = [
@@ -158,7 +165,7 @@ class CltOfflineApiService
                     'retriable' => !$permanent,
                     'not_found' => false,
                     'http_status' => null,
-                    'retry_after' => $permanent ? null : $this->minIntervalMs / 1000,
+                    'retry_after' => $retryAfter,
                 ];
             }
             return $out;
@@ -205,7 +212,7 @@ class CltOfflineApiService
                     'retriable' => true,
                     'not_found' => false,
                     'http_status' => null,
-                    'retry_after' => $this->minIntervalMs / 1000,
+                    'retry_after' => $retryAfterDefault,
                 ];
             } finally {
                 // Atualiza o timer APÓS a requisição para garantir o intervalo entre o FIM de uma e o INÍCIO da próxima

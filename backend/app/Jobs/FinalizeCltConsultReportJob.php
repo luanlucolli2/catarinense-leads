@@ -121,7 +121,15 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             }
 
             // move tmp -> destino no disk
-            $disk->put($path, fopen($tmpReal, 'rb'));
+            $tmpRead = fopen($tmpReal, 'rb');
+            if ($tmpRead === false) {
+                throw new \RuntimeException("Falha ao abrir temporário para promoção do CSV final.");
+            }
+            try {
+                $disk->put($path, $tmpRead);
+            } finally {
+                fclose($tmpRead);
+            }
             @unlink($tmpReal);
 
             if (!$disk->exists($path)) {

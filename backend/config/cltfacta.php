@@ -76,6 +76,9 @@ return [
         'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 200),
         'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 5),
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 120),
+        // Flush incremental dos buffers internos do job para reduzir pico de RAM.
+        'rows_buffer_flush'   => (int) env('CLT_JOB_ROWS_BUFFER_FLUSH', 300),
+        'snap_buffer_flush'   => (int) env('CLT_JOB_SNAP_BUFFER_FLUSH', 300),
     ],
 
     // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====
@@ -105,5 +108,14 @@ return [
         'enabled' => (bool) env('CLT_LOG_ENABLED', true),
         // Logs detalhados de resposta FACTA (/solicita e /autoriza)
         'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
+        // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
+        // Mantemos por padrão apenas respostas com erro (>=400).
+        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        // Log de performance por chunk do job (verbose).
+        'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
+        // Log periódico de flush de spool (verbose).
+        'flush_progress_log' => (bool) env('CLT_FLUSH_PROGRESS_LOG', false),
+        // Log do ciclo de backoff cooperativo do job.
+        'backoff_log' => (bool) env('CLT_BACKOFF_LOG', false),
     ],
 ];
