@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
 import { isC6OnlyUser } from "@/lib/access";
+import { SidebarAccountInfo } from "@/components/SidebarAccountInfo";
 
 import {
   AlertDialog,
@@ -52,10 +53,32 @@ type MenuGroup = {
   items: MenuItem[];
 };
 
+const getUserInitials = (name: string, email: string): string => {
+  const source = (name || email || "U").trim();
+  if (!source) return "U";
+
+  const chunks = source
+    .split(/[\s@._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (chunks.length === 0) return "U";
+  if (chunks.length === 1) return chunks[0].slice(0, 2).toUpperCase();
+
+  return `${chunks[0][0]}${chunks[1][0]}`.toUpperCase();
+};
+
 const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, setUser } = useAuth();
+  const userName = typeof user?.name === "string" && user.name.trim() !== ""
+    ? user.name.trim()
+    : "Conta compartilhada";
+  const userEmail = typeof user?.email === "string" && user.email.trim() !== ""
+    ? user.email.trim().toLowerCase()
+    : "sem-email";
+  const userInitials = getUserInitials(userName, userEmail);
 
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const firstRender = useRef(true);
@@ -271,7 +294,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
         </div>
 
         {/* Menu */}
-        <nav className="p-4 space-y-2">
+        <nav className={cn("space-y-2", isCollapsed ? "px-2 py-4" : "p-4")}>
           {/* Grupos expansíveis */}
           {menuGroups.map((group) => {
             const isExpanded = expandedGroups.includes(group.key);
@@ -361,6 +384,13 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
               </div>
             );
           })}
+
+          <SidebarAccountInfo
+            isCollapsed={isCollapsed}
+            userName={userName}
+            userEmail={userEmail}
+            userInitials={userInitials}
+          />
 
           {/* Separador */}
           <div className="border-t border-gray-600 my-4" />
