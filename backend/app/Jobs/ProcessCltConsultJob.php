@@ -389,6 +389,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
         // Isso é extremamente leve para o servidor (custo zero de CPU no loop).
         $nowStr = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
+        $onlineFactaApi = ($this->variant === 'online' && $api instanceof \App\Services\FactaApiService)
+            ? $api
+            : null;
 
         foreach ($slices as $idx => $slice) {
             if ($this->finishIfStopped($job))
@@ -439,7 +442,49 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $total = is_array($vinculos) ? count($vinculos) : 0;
 
                     if ($total > 0) {
-                        foreach ($vinculos as $v) {
+                        $bestIdx = $this->pickLatestVinculoIndex($vinculos);
+                        $best = ($bestIdx !== null && isset($vinculos[$bestIdx]) && is_array($vinculos[$bestIdx]))
+                            ? $vinculos[$bestIdx]
+                            : null;
+
+                        $politica = null;
+                        if ($onlineFactaApi !== null && $best !== null) {
+                            $bestElegivel = $this->simNaoToBool($best['elegivel'] ?? null) === true;
+                            if ($bestElegivel) {
+                                $politica = $onlineFactaApi->continuarCreditoTrabalhadorElegivel([
+                                    'cpf' => $cpf,
+                                    'matricula' => $best['matricula'] ?? null,
+                                    'dataNascimento' => $best['dataNascimento'] ?? null,
+                                    'dataAdmissao' => $best['dataAdmissao'] ?? null,
+                                    'valorParcela' => $this->computeValorMaxPrestFloat($best['valorMargemDisponivel'] ?? null),
+                                    'valorRenda' => $best['valorTotalVencimentos'] ?? null,
+                                ]);
+
+                                if (($politica['retriable'] ?? false) === true) {
+                                    $pHttp = $politica['http_status'] ?? null;
+                                    if ($pHttp === 429) {
+                                        $http429InChunk++;
+                                        $seen429InAttempt++;
+                                    }
+                                    if ($pHttp === null) {
+                                        $semRespInChunk++;
+                                        $semRespTotal++;
+                                    }
+                                    if (!empty($politica['retry_after'])) {
+                                        $retryAfterMaxSeen = max($retryAfterMaxSeen, (int) $politica['retry_after']);
+                                    }
+
+                                    fwrite($nextPendHandle, $cpf . "\n");
+                                    $retriableInChunk++;
+                                    continue;
+                                }
+                            }
+                        }
+
+                        foreach ($vinculos as $i => $v) {
+                            if (!is_array($v)) {
+                                continue;
+                            }
                             $row = $this->baseRow($cpf);
                             $row['numeroVinculos'] = $total;
 
@@ -484,13 +529,19 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $row['updated_at'] = $this->toBrDateTime($rawUpdated);
                             $row['consulted_at'] = $nowStr;
 
+                            if ($bestIdx !== null && $i === $bestIdx && is_array($politica) && !empty($politica['attempted'])) {
+                                $row['politicaCreditoAprovado'] = !empty($politica['aprovado']) ? '1' : '0';
+                                $row['politicaCreditoMensagem'] = $politica['mensagem'] ?? null;
+                                $row['politicaCreditoValorMaximoDisponivel'] = $politica['valor_maximo_disponivel'] ?? null;
+                                $row['politicaCreditoPrazoMaximoDisponivel'] = $politica['prazo_maximo_disponivel'] ?? null;
+                            }
+
                             $rows[] = $row;
                         }
 
-                        $best = $this->pickLatestVinculo($vinculos);
                         if ($best) {
                             $margemFloat = $this->toFloatSmart($best['valorMargemDisponivel'] ?? null);
-                            $valorMaxFloat = $margemFloat !== null ? round($margemFloat * 0.70, 2) : null;
+                            $valorMaxFloat = $this->computeValorMaxPrestFloat($best['valorMargemDisponivel'] ?? null);
 
                             $snapRows[] = [
                                 'cpf' => $cpf,
@@ -686,11 +737,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function computeValorMaxPrest($valor): ?string
     {
+        $n = $this->computeValorMaxPrestFloat($valor);
+        if ($n === null)
+            return null;
+        return number_format($n, 2, ',', '');
+    }
+
+    private function computeValorMaxPrestFloat($valor): ?float
+    {
         $f = $this->toFloatSmart($valor);
         if ($f === null)
             return null;
-        $n = round($f * 0.70, 2);
-        return number_format($n, 2, ',', '');
+        return round($f * 0.70, 2);
     }
 
     private function computeTempoAdmissaoMeses(?string $admissao, ?string $deslig): ?int
@@ -770,11 +828,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return is_numeric($s) ? (float) $s : null;
     }
 
-    private function pickLatestVinculo(array $vinculos): ?array
+    private function pickLatestVinculoIndex(array $vinculos): ?int
     {
-        $best = null;
+        $bestIdx = null;
         $bestKey = null;
-        foreach ($vinculos as $v) {
+        foreach ($vinculos as $i => $v) {
+            if (!is_array($v))
+                continue;
             $d = $v['dataAdmissao'] ?? null;
             $key = null;
             try {
@@ -786,12 +846,28 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
             if ($key === null)
                 continue;
-            if ($best === null || $key > $bestKey) {
-                $best = $v;
+            if ($bestIdx === null || $key > $bestKey) {
+                $bestIdx = $i;
                 $bestKey = $key;
             }
         }
-        return $best ?? ($vinculos[0] ?? null);
+        if ($bestIdx !== null)
+            return $bestIdx;
+
+        foreach ($vinculos as $i => $v) {
+            if (is_array($v))
+                return $i;
+        }
+
+        return null;
+    }
+
+    private function pickLatestVinculo(array $vinculos): ?array
+    {
+        $idx = $this->pickLatestVinculoIndex($vinculos);
+        if ($idx === null || !isset($vinculos[$idx]) || !is_array($vinculos[$idx]))
+            return null;
+        return $vinculos[$idx];
     }
 
     private function parseDateFlexible(?string $s): ?string

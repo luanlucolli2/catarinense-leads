@@ -38,6 +38,10 @@ final class CltSchema
         'qtdEmprestimosAtivosSuspensos',
         'emprestimosLegados',
         'pessoaExpostaPoliticamente_descricao',
+        'politicaCreditoAprovado',
+        'politicaCreditoMensagem',
+        'politicaCreditoValorMaximoDisponivel',
+        'politicaCreditoPrazoMaximoDisponivel',
         'status_code',
         'mensagem',
         // NOVAS COLUNAS DE DATA
@@ -78,6 +82,10 @@ final class CltSchema
         'Qtde Empréstimos Ativos/Suspensos',
         'Empréstimos Legados',
         'Pessoa Exposta Politicamente',
+        'Política de Crédito Aprovado',
+        'Política de Crédito Mensagem',
+        'Política de Crédito Valor Máximo Disponível',
+        'Política de Crédito Prazo Máximo Disponível',
         'Status Code',
         'Mensagem',
         // NOVOS TÍTULOS

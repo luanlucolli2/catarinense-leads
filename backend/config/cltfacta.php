@@ -30,6 +30,16 @@ return [
         'rate_limit_pause_cap_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_PAUSE_CAP_SECONDS', 30),
     ],
 
+    // ===== CRÉDITO TRABALHADOR (continuação online) =====
+    'credit_worker' => [
+        // ETAPA 4: /proposta/operacoes-disponiveis
+        'produto'       => env('FACTA_CLT_CREDITO_PRODUTO', 'D'),
+        'tipo_operacao' => env('FACTA_CLT_CREDITO_TIPO_OPERACAO', '13'),
+        'averbador'     => env('FACTA_CLT_CREDITO_AVERBADOR', '10010'),
+        'convenio'      => env('FACTA_CLT_CREDITO_CONVENIO', '3'),
+        'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
+    ],
+
     // ===== OFFLINE (CLT-OFF) =====
     'clt_off' => [
         'api' => [
