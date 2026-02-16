@@ -71,7 +71,8 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
             $srcReal = $disk->path($spoolPath);
-            $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+            $finalReal = $disk->path($path);
+            $tmpReal = "{$finalReal}.tmp";
 
             $in = @fopen($srcReal, 'rb');
             $out = @fopen($tmpReal, 'wb');
@@ -120,17 +121,11 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                 fclose($out);
             }
 
-            // move tmp -> destino no disk
-            $tmpRead = fopen($tmpReal, 'rb');
-            if ($tmpRead === false) {
-                throw new \RuntimeException("Falha ao abrir temporário para promoção do CSV final.");
+            // promoção local atômica (evita segunda cópia completa do arquivo)
+            if (!@rename($tmpReal, $finalReal)) {
+                @unlink($tmpReal);
+                throw new \RuntimeException("Falha ao promover CSV final para destino.");
             }
-            try {
-                $disk->put($path, $tmpRead);
-            } finally {
-                fclose($tmpRead);
-            }
-            @unlink($tmpReal);
 
             if (!$disk->exists($path)) {
                 throw new \RuntimeException("Arquivo FINAL não encontrado após promover CSV: {$path}");

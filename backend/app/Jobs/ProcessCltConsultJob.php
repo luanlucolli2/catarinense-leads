@@ -41,6 +41,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     // ====== FLUSH: mantemos apenas por tempo ======
     private int $flushEverySecs = 10;
     private float $lastFlushAt = 0.0;
+    private int $statusCheckIntervalMs;
+    private float $lastStatusCheckAt = 0.0;
+    private ?string $cachedStatus = null;
 
     private int $accSuccess = 0;
     private int $accNotFound = 0;
@@ -77,6 +80,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
         $this->rowsBufferFlush = max(1, (int) config('cltfacta.job.rows_buffer_flush', 300));
         $this->snapBufferFlush = max(1, (int) config('cltfacta.job.snap_buffer_flush', 300));
+        $this->statusCheckIntervalMs = max(100, (int) config('cltfacta.job.status_check_interval_ms', 1000));
         $this->backoffLog = (bool) config('cltfacta.logging.backoff_log', false);
         $this->chunkPerfDebug = (bool) config('cltfacta.logging.chunk_perf_debug', false);
         $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
@@ -94,6 +98,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         // variante para snapshots
         $this->variant = ($job->variant === 'offline') ? 'offline' : 'online';
+        $this->cachedStatus = $job->status;
+        $this->lastStatusCheckAt = microtime(true);
 
         $api = $job->variant === 'offline'
             ? app(\App\Services\CltOfflineApiService::class)
@@ -718,18 +724,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $now = microtime(true);
 
-        // lê bytes atuais apenas para telemetria (não como trigger)
+        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
+        $shouldFlush = $force || $triggerTime;
+        if (!$shouldFlush)
+            return;
+
+        // lê bytes apenas quando realmente houver flush de progresso
         try {
             clearstatcache(true, $this->spoolReal);
             $bytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
         } catch (Throwable) {
             $bytes = 0;
         }
-
-        $triggerTime = ($now - $this->lastFlushAt) >= $this->flushEverySecs;
-        $shouldFlush = $force || $triggerTime;
-        if (!$shouldFlush)
-            return;
 
         $updates = array_merge([
             'spool_bytes' => $bytes,
@@ -1146,7 +1152,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finishIfStopped(CltConsultJob $job): bool
     {
-        $status = $this->currentStatus($job->id);
+        $status = $this->currentStatusCached($job->id);
         if ($status === null) {
             $this->cleanupSpool($job);
             CltLog::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
@@ -1165,6 +1171,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ->where('id', $job->id)
                 ->whereNotIn('status', ['cancelado', 'concluido', 'falhou'])
                 ->update(['status' => 'em_progresso']);
+            $this->cachedStatus = 'em_progresso';
+            $this->lastStatusCheckAt = microtime(true);
         }
 
         return false;
@@ -1175,9 +1183,23 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return DB::table('clt_consult_jobs')->where('id', $id)->value('status');
     }
 
+    private function currentStatusCached(int $id, bool $force = false): ?string
+    {
+        $now = microtime(true);
+        $intervalSecs = max(0, $this->statusCheckIntervalMs) / 1000;
+        $expired = ($now - $this->lastStatusCheckAt) >= $intervalSecs;
+
+        if ($force || $this->lastStatusCheckAt <= 0.0 || $expired) {
+            $this->cachedStatus = $this->currentStatus($id);
+            $this->lastStatusCheckAt = $now;
+        }
+
+        return $this->cachedStatus;
+    }
+
     private function isCancelled(CltConsultJob $job): bool
     {
-        $s = $this->currentStatus($job->id);
+        $s = $this->currentStatusCached($job->id, true);
         return ($s === 'cancelado') || ($s === null);
     }
 

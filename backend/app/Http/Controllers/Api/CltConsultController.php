@@ -168,8 +168,6 @@ class CltConsultController extends Controller
 
         return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
             try {
-                flock($fh, LOCK_SH);
-
                 if ($withBOM) echo "\xEF\xBB\xBF";
 
                 // trata possível BOM no spool
@@ -184,10 +182,15 @@ class CltConsultController extends Controller
                 // escreve cabeçalho normalizado
                 echo \App\Support\CltSchema::headerCsvLine(';') . $finalEol;
 
-                // despeja o restante
-                fpassthru($fh);
+                // Não segura lock aqui para não bloquear o writer do job.
+                while (!feof($fh)) {
+                    $chunk = fread($fh, 1024 * 256);
+                    if ($chunk === false) {
+                        break;
+                    }
+                    echo $chunk;
+                }
             } finally {
-                flock($fh, LOCK_UN);
                 if (is_resource($fh)) fclose($fh);
             }
         }, $filename, $headers);

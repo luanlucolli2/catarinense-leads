@@ -14,6 +14,8 @@ return [
         'pre_auth_nome' => env('FACTA_PRE_AUTH_NOME', 'slkjhdsjkha asdkjhd iou'),
         'pre_auth_tipo_envio' => env('FACTA_PRE_AUTH_TIPO_ENVIO', 'WHATSAPP'),
         'pre_auth_phone_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_ATTEMPTS', 8),
+        // cache da pré-autorização por CPF para reduzir chamadas repetidas entre tentativas
+        'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
     ],
 
     'http' => [
@@ -76,6 +78,8 @@ return [
         'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 200),
         'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 5),
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 120),
+        // intervalo mínimo para reconsultar status do job no banco (reduz polling excessivo)
+        'status_check_interval_ms' => (int) env('CLT_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
         // Flush incremental dos buffers internos do job para reduzir pico de RAM.
         'rows_buffer_flush'   => (int) env('CLT_JOB_ROWS_BUFFER_FLUSH', 300),
         'snap_buffer_flush'   => (int) env('CLT_JOB_SNAP_BUFFER_FLUSH', 300),
