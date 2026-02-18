@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\CLT\Services;
 
-use App\Support\CltLog;
+use App\Modules\CLT\Support\CltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;

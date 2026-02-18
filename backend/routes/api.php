@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
-use App\Http\Controllers\Api\CltConsultController;
+use App\Modules\CLT\Controllers\CltConsultController;
 use App\Http\Controllers\Api\V8ConsultController;
 use App\Http\Controllers\Api\FgtsOfflineController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;

@@ -66,9 +66,6 @@ return [
         'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-on'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
 
-        // legado (não usado quando enviamos para filas distintas, mas mantido como fallback)
-        'queue'               => env('CLT_JOB_QUEUE', 'clt'),
-
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60),

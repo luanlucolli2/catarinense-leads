@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\CLT\Jobs;
 
-use App\Models\CltConsultJob;
-use App\Support\CltLog;
-use App\Support\CltSchema;
+use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltLog;
+use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -102,8 +102,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $job->variant === 'offline'
-            ? app(\App\Services\CltOfflineApiService::class)
-            : app(\App\Services\FactaApiService::class);
+            ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
+            : app(\App\Modules\CLT\Services\FactaApiService::class);
 
         if ($this->isCancelled($job)) {
             $this->cleanupSpool($job);
@@ -408,7 +408,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
         // Isso é extremamente leve para o servidor (custo zero de CPU no loop).
         $nowStr = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
-        $onlineFactaApi = ($this->variant === 'online' && $api instanceof \App\Services\FactaApiService)
+        $onlineFactaApi = ($this->variant === 'online' && $api instanceof \App\Modules\CLT\Services\FactaApiService)
             ? $api
             : null;
 

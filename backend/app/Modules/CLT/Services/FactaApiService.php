@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\CLT\Services;
 
-use App\Support\CltLog;
+use App\Modules\CLT\Support\CltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -1360,7 +1360,7 @@ class FactaApiService
         return $retryAfterSeconds === null || $retryAfterSeconds <= 1;
     }
 
-    // App\Services\FactaApiService.php
+    // App\Modules\CLT\Services\FactaApiService.php
 
     private function errorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
     {

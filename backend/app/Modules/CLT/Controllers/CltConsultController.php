@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\CLT\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessCltConsultJob;
-use App\Jobs\FinalizeCltConsultReportJob;
-use App\Models\CltConsultJob;
-use App\Support\CltLog;
+use App\Modules\CLT\Jobs\ProcessCltConsultJob;
+use App\Modules\CLT\Jobs\FinalizeCltConsultReportJob;
+use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltLog;
 use App\Support\Cpf;
-use App\Support\CltSchema;
+use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -180,7 +180,7 @@ class CltConsultController extends Controller
                 fgets($fh);
 
                 // escreve cabeçalho normalizado
-                echo \App\Support\CltSchema::headerCsvLine(';') . $finalEol;
+                echo \App\Modules\CLT\Support\CltSchema::headerCsvLine(';') . $finalEol;
 
                 // Não segura lock aqui para não bloquear o writer do job.
                 while (!feof($fh)) {

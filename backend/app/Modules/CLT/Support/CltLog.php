@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support;
+namespace App\Modules\CLT\Support;
 
 use Illuminate\Support\Facades\Log;
 
@@ -47,4 +47,3 @@ final class CltLog
         Log::error($message, $context);
     }
 }
-

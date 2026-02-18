@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support;
+namespace App\Modules\CLT\Support;
 
 final class CltSchema
 {
