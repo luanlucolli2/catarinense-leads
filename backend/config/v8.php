@@ -71,7 +71,7 @@ return [
     ],
 
     'preview' => [
-        'queue' => env('CLT_PREVIEW_QUEUE', 'reports'),
+        'queue' => env('V8_PREVIEW_QUEUE', 'reports'),
     ],
 
     'storage' => [

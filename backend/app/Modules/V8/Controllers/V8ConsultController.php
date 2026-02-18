@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\V8\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessV8ConsultJob;
-use App\Models\V8ConsultJob;
-use App\Support\V8Schema;
+use App\Modules\V8\Jobs\ProcessV8ConsultJob;
+use App\Modules\V8\Models\V8ConsultJob;
+use App\Modules\V8\Support\V8Schema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;

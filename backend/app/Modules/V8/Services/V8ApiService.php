@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\V8\Services;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;

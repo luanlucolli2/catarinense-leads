@@ -1,13 +1,12 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\V8\Jobs;
 
-use App\Models\IbgeName;
-use App\Models\V8ConsultJob;
-use App\Services\V8ApiService;
+use App\Modules\V8\Models\IbgeName;
+use App\Modules\V8\Models\V8ConsultJob;
+use App\Modules\V8\Services\V8ApiService;
+use App\Modules\V8\Support\V8Schema;
 use App\Support\Cpf;
-use App\Support\V8Schema;
-use App\Jobs\FinalizeV8ConsultReportJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -90,10 +89,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
         $this->finalPrefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
 
-        $this->statusMaxAttempts = (int) config('v8.job.status_max_attempts', 10);
+        $this->statusMaxAttempts = (int) config('v8.job.status_max_attempts', 60);
         $this->statusRetryDelay = (int) config('v8.job.status_retry_delay_seconds', 30);
-        $this->statusRoundDelay = (int) config('v8.job.status_round_delay_seconds', 4);
-        $this->statusBatchLimit = (int) config('v8.job.status_batch_limit', 50);
+        $this->statusRoundDelay = (int) config('v8.job.status_round_delay_seconds', 20);
+        $this->statusBatchLimit = (int) config('v8.job.status_batch_limit', 80);
         $this->statusBatchLimitMin = (int) config('v8.job.status_batch_limit_min', 50);
         $this->statusBatchLimitMax = (int) config('v8.job.status_batch_limit_max', 300);
         $this->statusBatchLimitDivisor = max(1, (int) config('v8.job.status_batch_limit_divisor', 50));
@@ -108,16 +107,16 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->httpMinIntervalPhase2Simulation = (int) (config('v8.http.min_interval_ms_phase2_simulation')
             ?? config('v8.http.min_interval_ms_phase2')
             ?? config('v8.http.min_interval_ms', 2000));
-        $this->phase1PoolSize = max(1, (int) config('v8.job.phase1_pool_size', 3));
-        $this->phase1BatchDelaySeconds = max(0, (int) config('v8.job.phase1_batch_delay_seconds', 2));
+        $this->phase1PoolSize = max(1, (int) config('v8.job.phase1_pool_size', 9));
+        $this->phase1BatchDelaySeconds = max(0, (int) config('v8.job.phase1_batch_delay_seconds', 1));
         $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
         $this->pendingLowThreshold = max(0, (int) config('v8.job.pending_low_threshold', 50));
         $this->pendingLowSeconds = max(0, (int) config('v8.job.pending_low_seconds', 3600));
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
-        $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 0));
+        $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 4));
         $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);
-        $this->pauseStart = (string) config('v8.job.pause_start', '20:00');
-        $this->pauseEnd = (string) config('v8.job.pause_end', '07:00');
+        $this->pauseStart = (string) config('v8.job.pause_start', '16:27');
+        $this->pauseEnd = (string) config('v8.job.pause_end', '16:30');
         $this->pauseTimezone = (string) config('v8.job.pause_timezone', 'America/Sao_Paulo');
         $this->pauseCheckIntervalSeconds = max(1, (int) config('v8.job.pause_check_interval_seconds', 15));
     }
