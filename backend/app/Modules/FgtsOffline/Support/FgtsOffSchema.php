@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support;
+namespace App\Modules\FgtsOffline\Support;
 
 final class FgtsOffSchema
 {

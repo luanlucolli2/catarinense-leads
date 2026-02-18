@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Models;
+namespace App\Modules\FgtsOffline\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 class FgtsOfflineJob extends Model

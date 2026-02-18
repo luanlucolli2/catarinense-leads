@@ -3,7 +3,7 @@
 return [
     /*
     |--------------------------------------------------------------------------
-    | FACTA OFF – API (FGTS Base Offline)
+    | FGTS OFF – API (FGTS Base Offline)
     |--------------------------------------------------------------------------
     */
     'base_url'   => env('FACTA_OFF_BASE_URL', 'https://fgtsoff.facta.com.br'),
@@ -22,10 +22,10 @@ return [
     |--------------------------------------------------------------------------
     */
     'http' => [
-        'timeout'         => (int) env('FGTS_HTTP_TIMEOUT', 10),
-        'connect_timeout' => (int) env('FGTS_HTTP_CONNECT_TIMEOUT', 5),
-        'retry'           => (int) env('FGTS_HTTP_RETRY', 1),
-        'retry_delay_ms'  => (int) env('FGTS_HTTP_RETRY_DELAY_MS', 200),
+        'timeout'         => (int) env('FGTS_OFF_HTTP_TIMEOUT', 10),
+        'connect_timeout' => (int) env('FGTS_OFF_HTTP_CONNECT_TIMEOUT', 5),
+        'retry'           => (int) env('FGTS_OFF_HTTP_RETRY', 1),
+        'retry_delay_ms'  => (int) env('FGTS_OFF_HTTP_RETRY_DELAY_MS', 200),
     ],
 
     /*
