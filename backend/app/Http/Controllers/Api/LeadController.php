@@ -12,13 +12,15 @@ class LeadController extends Controller
 {
     public function index(Request $r)
     {
-        $perPage = (int) $r->input('per_page', 10);
-        $query = \App\Http\Filters\LeadFilter::apply($r);
-        $leads = $query->paginate($perPage);
-        return response()->json($leads);
+        return $this->paginateLeads($r);
     }
 
     public function search(Request $r)
+    {
+        return $this->paginateLeads($r);
+    }
+
+    private function paginateLeads(Request $r)
     {
         $perPage = (int) $r->input('per_page', 10);
         $query = \App\Http\Filters\LeadFilter::apply($r);

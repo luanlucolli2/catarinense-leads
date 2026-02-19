@@ -51,8 +51,12 @@ const HistoricoPage = () => {
       const jobErrors = await fetchImportErrors(job.id);
       setErrors(jobErrors);
       setIsModalOpen(true);
-    } catch {
-      toast.error("Não foi possível carregar relatório de erros.");
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        toast.error("Apenas o responsável pela importação pode visualizar o relatório de erros.");
+      } else {
+        toast.error("Não foi possível carregar relatório de erros.");
+      }
     } finally {
       setLoadingErrors(false);
     }

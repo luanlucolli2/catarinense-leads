@@ -49,7 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
-    Route::apiResource('leads', LeadController::class);
+    Route::apiResource('leads', LeadController::class)->only(['index', 'show']);
     Route::post('/leads/search', [LeadController::class, 'search']);
 
     /* Importação (FGTS) */

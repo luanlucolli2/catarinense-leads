@@ -28,5 +28,13 @@ class DatabaseSeeder extends Seeder
                 'password' => 'gratiluz123',
             ]
         );
+
+        User::updateOrCreate(
+            ['email' => 'teste2@catarinense.com'],
+            [
+                'name' => 'Usuário de Teste 2',
+                'password' => 'password',
+            ]
+        );
     }
 }

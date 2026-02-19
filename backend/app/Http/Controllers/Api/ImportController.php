@@ -13,6 +13,11 @@ use Illuminate\Http\UploadedFile;
 
 class ImportController extends Controller
 {
+    private function canAccessImportJob(Request $request, ImportJob $importJob): bool
+    {
+        return (int) $importJob->user_id === (int) $request->user()->id;
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -64,8 +69,14 @@ class ImportController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
-    public function show(ImportJob $importJob)
+    public function show(Request $request, ImportJob $importJob)
     {
+        if (!$this->canAccessImportJob($request, $importJob)) {
+            return response()->json([
+                'message' => 'Você não tem permissão para acessar esta importação.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
         $errors = $importJob->errors()->count();
 
         $percent = $importJob->total_rows
@@ -83,12 +94,19 @@ class ImportController extends Controller
 
     public function index(Request $request)
     {
+        $scope = strtolower((string) $request->query('scope', 'mine'));
+        $scope = in_array($scope, ['mine', 'all'], true) ? $scope : 'mine';
+
         $statuses = $request->query('status');
 
-        $query = ImportJob::where('user_id', $request->user()->id)
+        $query = ImportJob::query()
             ->orderByDesc('id')
             ->withCount('errors')
             ->with('user:id,name');
+
+        if ($scope === 'mine') {
+            $query->where('user_id', $request->user()->id);
+        }
 
         if ($statuses) {
             $query->whereIn('status', explode(',', $statuses));
@@ -109,15 +127,27 @@ class ImportController extends Controller
         return response()->json($jobs);
     }
 
-    public function errors(ImportJob $importJob)
+    public function errors(Request $request, ImportJob $importJob)
     {
+        if (!$this->canAccessImportJob($request, $importJob)) {
+            return response()->json([
+                'message' => 'Você não tem permissão para acessar esta importação.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
         $errors = $importJob->errors()->get(['id', 'row_number', 'column_name', 'error_message']);
         return response()->json($errors);
     }
 
-    public function exportErrors(ImportJob $importJob)
+    public function exportErrors(Request $request, ImportJob $importJob)
     {
-        $filename = "import_job_{$importJob->id}_errors.csv";
+        if (!$this->canAccessImportJob($request, $importJob)) {
+            return response()->json([
+                'message' => 'Você não tem permissão para acessar esta importação.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $filename = "importacao_{$importJob->id}_erros.csv";
 
         return response()->streamDownload(function () use ($importJob) {
             $handle = fopen('php://output', 'w');
