@@ -790,6 +790,31 @@ class FactaApiService
                 ];
             }
 
+            $policyMensagem = (string) ($policy['mensagem'] ?? '');
+            if (
+                empty($policy['aprovado'])
+                && (
+                    $this->isPrazoMinimoPolicyApprovalMessage($policyMensagem)
+                    || $this->isValorMaiorPermitido4000PolicyApprovalMessage($policyMensagem)
+                )
+            ) {
+                $mensagemAprovadaInternamente = $policyMensagem !== '' ? $policyMensagem : 'Aprovado pela política de crédito.';
+                if (!str_contains($this->normalize($mensagemAprovadaInternamente), 'aprovado internamente')) {
+                    $mensagemAprovadaInternamente .= ' (aprovado internamente)';
+                }
+
+                return [
+                    'attempted' => true,
+                    'aprovado' => true,
+                    'mensagem' => $mensagemAprovadaInternamente,
+                    'valor_maximo_disponivel' => $valorEmprestimo,
+                    'prazo_maximo_disponivel' => (string) $prazo,
+                    'retriable' => false,
+                    'http_status' => 200,
+                    'retry_after' => null,
+                ];
+            }
+
             if (!empty($policy['aprovado'])) {
                 return [
                     'attempted' => true,
@@ -2083,6 +2108,37 @@ class FactaApiService
 
         return str_contains($norm, 'nao encontrado na base')
             || str_contains($norm, 'não encontrado na base');
+    }
+
+    private function isPrazoMinimoPolicyApprovalMessage(string $mensagem): bool
+    {
+        $norm = $this->normalize($mensagem);
+        if ($norm === '' || !str_contains($norm, 'politica de credito')) {
+            return false;
+        }
+
+        return preg_match('/prazo minimo\D*\d+\s*parcelas?/i', $norm) === 1;
+    }
+
+    private function isValorMaiorPermitido4000PolicyApprovalMessage(string $mensagem): bool
+    {
+        $norm = $this->normalize($mensagem);
+        if ($norm === '' || !str_contains($norm, 'politica de credito')) {
+            return false;
+        }
+        if (!str_contains($norm, 'valor maior que o permitido para politica de credito')) {
+            return false;
+        }
+        if (!preg_match('/valor maior que o permitido para politica de credito\s*\(([^)]*)\)/i', $norm, $m)) {
+            return false;
+        }
+
+        $valor = $this->toFloatSmart($m[1] ?? null);
+        if ($valor === null) {
+            return false;
+        }
+
+        return abs($valor - 4000.0) < 0.00001;
     }
 
     private function normalize(string $s): string
