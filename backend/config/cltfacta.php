@@ -40,6 +40,8 @@ return [
         'averbador'     => env('FACTA_CLT_CREDITO_AVERBADOR', '10010'),
         'convenio'      => env('FACTA_CLT_CREDITO_CONVENIO', '3'),
         'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
+        // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
+        'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 3),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
