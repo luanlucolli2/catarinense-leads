@@ -1,8 +1,9 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\FgtsOffline\Jobs;
 
-use App\Models\FgtsOfflineJob;
+use App\Modules\FgtsOffline\Models\FgtsOfflineJob;
+use App\Modules\FgtsOffline\Support\FgtsOffSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -25,7 +26,7 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
 
     public function __construct(public int $jobId, string $targetStatus)
     {
-        $this->onQueue((string) config('facta_off.preview.queue', 'reports'));
+        $this->onQueue((string) config('fgts_off.preview.queue', 'reports'));
         $this->targetStatus = in_array($targetStatus, ['concluido','expirado','falhou'], true)
             ? $targetStatus
             : 'falhou';
@@ -41,7 +42,7 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
             return;
         }
 
-        $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+        $diskName = (string) config('fgts_off.storage.reports_disk', 'public');
         /** @var FilesystemAdapter $disk */
         $disk = Storage::disk($diskName);
 
@@ -53,8 +54,8 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
         }
 
         try {
-            $finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
-            $dirReports  = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
+            $finalPrefix = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
+            $dirReports  = (string) config('fgts_off.storage.dir_reports', 'fgts-off-reports');
 
             if (!$disk->exists($dirReports)) {
                 $disk->makeDirectory($dirReports);
@@ -65,8 +66,8 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
             $path     = "{$dirReports}/{$fileName}";
 
             // ---- Normalização do CSV final (BOM/EOL) + cabeçalho normalizado
-            $embedBom   = (bool) config('facta_off.csv.embed_bom', true);
-            $finalEol   = strtoupper((string) config('facta_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+            $embedBom   = (bool) config('fgts_off.csv.embed_bom', true);
+            $finalEol   = strtoupper((string) config('fgts_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
             $srcReal = $disk->path($spoolPath);
             $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
@@ -93,7 +94,7 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
                 }
 
                 // Escreve cabeçalho normalizado
-                fwrite($out, \App\Support\FgtsOffSchema::headerCsvLine(';') . $finalEol);
+                fwrite($out, FgtsOffSchema::headerCsvLine(';') . $finalEol);
 
                 // Pula a 1ª linha do arquivo de origem (cabeçalho antigo)
                 fgets($in);
@@ -164,7 +165,7 @@ class FinalizeFgtsOffReportJob implements ShouldQueue
     private function cleanupSpool(FgtsOfflineJob $job): void
     {
         try {
-            $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+            $disk = Storage::disk((string) config('fgts_off.storage.reports_disk', 'public'));
             foreach (['spool_path','spool_cpfs_path'] as $field) {
                 $p = $job->{$field} ?? null;
                 if ($p && $disk->exists($p)) {

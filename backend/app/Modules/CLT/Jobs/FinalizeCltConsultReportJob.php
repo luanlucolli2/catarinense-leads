@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\CLT\Jobs;
 
-use App\Models\CltConsultJob;
-use App\Support\CltLog;
-use App\Support\CltSchema;
+use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltLog;
+use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;

@@ -8,9 +8,9 @@ use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\LeadExportController;
 use App\Http\Controllers\Api\RollbackController;
-use App\Http\Controllers\Api\CltConsultController;
-use App\Http\Controllers\Api\V8ConsultController;
-use App\Http\Controllers\Api\FgtsOfflineController;
+use App\Modules\CLT\Controllers\CltConsultController;
+use App\Modules\V8\Controllers\V8ConsultController;
+use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 
@@ -49,7 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /* Leads */
     Route::get('/leads/filters', [LeadController::class, 'filters']);
-    Route::apiResource('leads', LeadController::class);
+    Route::apiResource('leads', LeadController::class)->only(['index', 'show']);
     Route::post('/leads/search', [LeadController::class, 'search']);
 
     /* Importação (FGTS) */

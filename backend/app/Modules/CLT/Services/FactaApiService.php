@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\CLT\Services;
 
-use App\Support\CltLog;
+use App\Modules\CLT\Support\CltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -52,6 +52,7 @@ class FactaApiService
     private string $creditAverbador;
     private string $creditConvenio;
     private string $creditOpcaoValor;
+    private int $creditPolicyBatchSize;
 
     /** DDDs válidos do Brasil (ANATEL) */
     private const VALID_BR_DDDS = [
@@ -145,6 +146,7 @@ class FactaApiService
         $this->creditAverbador = (string) ($credit['averbador'] ?? '10010');
         $this->creditConvenio = (string) ($credit['convenio'] ?? '3');
         $this->creditOpcaoValor = (string) ($credit['opcao_valor'] ?? '2');
+        $this->creditPolicyBatchSize = max(1, (int) ($credit['policy_batch_size'] ?? 3));
     }
 
     /**
@@ -755,7 +757,7 @@ class FactaApiService
             ];
         }
 
-        $lastMensagem = 'Operação fora da política de crédito.';
+        $policyCandidates = [];
         foreach ($tabelas as $tb) {
             if (!is_array($tb)) {
                 continue;
@@ -767,43 +769,81 @@ class FactaApiService
                 continue;
             }
 
-            $policy = $this->consultaAnalisePoliticaCredito(
+            $policyCandidates[] = [
+                'prazo' => $prazo,
+                'valorEmprestimo' => $valorEmprestimo,
+            ];
+        }
+
+        $lastMensagem = 'Operação fora da política de crédito.';
+        foreach (array_chunk($policyCandidates, max(1, $this->creditPolicyBatchSize)) as $policyChunk) {
+            $policies = $this->consultaAnalisePoliticaCreditoLote(
                 $cpf,
                 $matricula,
                 $dataNascimento,
                 $dataAdmissao,
-                $prazo,
-                $valorEmprestimo,
+                $policyChunk,
                 $token
             );
 
-            if (!($policy['ok'] ?? false)) {
-                return [
-                    'attempted' => true,
-                    'aprovado' => false,
-                    'mensagem' => (string) ($policy['mensagem'] ?? 'Falha na análise de política de crédito.'),
-                    'valor_maximo_disponivel' => null,
-                    'prazo_maximo_disponivel' => null,
-                    'retriable' => (bool) ($policy['retriable'] ?? true),
-                    'http_status' => $policy['http_status'] ?? null,
-                    'retry_after' => $policy['retry_after'] ?? null,
-                ];
-            }
+            foreach ($policyChunk as $idx => $candidate) {
+                $prazo = (int) ($candidate['prazo'] ?? 0);
+                $valorEmprestimo = (string) ($candidate['valorEmprestimo'] ?? '');
 
-            if (!empty($policy['aprovado'])) {
-                return [
-                    'attempted' => true,
-                    'aprovado' => true,
-                    'mensagem' => (string) ($policy['mensagem'] ?? 'Aprovado pela política de crédito.'),
-                    'valor_maximo_disponivel' => $policy['valor_maximo_disponivel'] ?? null,
-                    'prazo_maximo_disponivel' => $policy['prazo_maximo_disponivel'] ?? null,
-                    'retriable' => false,
-                    'http_status' => 200,
-                    'retry_after' => null,
-                ];
-            }
+                $policy = $policies[$idx] ?? $this->policyErrorResult('Sem resposta na análise de política de crédito.', true);
+                if (!($policy['ok'] ?? false)) {
+                    return [
+                        'attempted' => true,
+                        'aprovado' => false,
+                        'mensagem' => (string) ($policy['mensagem'] ?? 'Falha na análise de política de crédito.'),
+                        'valor_maximo_disponivel' => null,
+                        'prazo_maximo_disponivel' => null,
+                        'retriable' => (bool) ($policy['retriable'] ?? true),
+                        'http_status' => $policy['http_status'] ?? null,
+                        'retry_after' => $policy['retry_after'] ?? null,
+                    ];
+                }
 
-            $lastMensagem = (string) ($policy['mensagem'] ?? $lastMensagem);
+                $policyMensagem = (string) ($policy['mensagem'] ?? '');
+                if (
+                    empty($policy['aprovado'])
+                    && (
+                        $this->isPrazoMinimoPolicyApprovalMessage($policyMensagem)
+                        || $this->isValorMaiorPermitido4000PolicyApprovalMessage($policyMensagem)
+                    )
+                ) {
+                    $mensagemAprovadaInternamente = $policyMensagem !== '' ? $policyMensagem : 'Aprovado pela política de crédito.';
+                    if (!str_contains($this->normalize($mensagemAprovadaInternamente), 'aprovado internamente')) {
+                        $mensagemAprovadaInternamente .= ' (aprovado internamente)';
+                    }
+
+                    return [
+                        'attempted' => true,
+                        'aprovado' => true,
+                        'mensagem' => $mensagemAprovadaInternamente,
+                        'valor_maximo_disponivel' => $valorEmprestimo,
+                        'prazo_maximo_disponivel' => (string) $prazo,
+                        'retriable' => false,
+                        'http_status' => 200,
+                        'retry_after' => null,
+                    ];
+                }
+
+                if (!empty($policy['aprovado'])) {
+                    return [
+                        'attempted' => true,
+                        'aprovado' => true,
+                        'mensagem' => (string) ($policy['mensagem'] ?? 'Aprovado pela política de crédito.'),
+                        'valor_maximo_disponivel' => $policy['valor_maximo_disponivel'] ?? null,
+                        'prazo_maximo_disponivel' => $policy['prazo_maximo_disponivel'] ?? null,
+                        'retriable' => false,
+                        'http_status' => 200,
+                        'retry_after' => null,
+                    ];
+                }
+
+                $lastMensagem = (string) ($policy['mensagem'] ?? $lastMensagem);
+            }
         }
 
         return [
@@ -1037,6 +1077,276 @@ class FactaApiService
                 'retry_after' => null,
             ];
         }
+    }
+
+    /**
+     * @param array<int,array{prazo:int,valorEmprestimo:string}> $policyChunk
+     * @return array<int,array<string,mixed>>
+     */
+    private function consultaAnalisePoliticaCreditoLote(
+        string $cpf,
+        string $matricula,
+        string $dataNascimento,
+        string $dataAdmissao,
+        array $policyChunk,
+        string &$token
+    ): array {
+        if (empty($policyChunk)) {
+            return [];
+        }
+
+        $results = [];
+        $pending = $policyChunk;
+        $rateLimitAttempt = 0;
+        $maxRateLimitRetries = $this->httpRateLimitImmediateRetry
+            ? max(0, $this->httpRateLimitMaxRetries)
+            : 0;
+
+        while (!empty($pending)) {
+            $stage = $rateLimitAttempt === 0 ? 'initial_pool' : 'retry_429_pool';
+            $attempt = $rateLimitAttempt + 1;
+
+            try {
+                $responses = $this->requestAnalisePoliticaCreditoPool(
+                    $cpf,
+                    $matricula,
+                    $dataNascimento,
+                    $dataAdmissao,
+                    $pending,
+                    $token,
+                    $this->httpTimeout,
+                    $this->httpConnectTimeout,
+                    $stage,
+                    $attempt
+                );
+            } catch (Throwable $e) {
+                $msg = 'Exceção na análise de política de crédito (pool): ' . $e->getMessage();
+                foreach ($pending as $idx => $_) {
+                    $results[$idx] = $this->policyErrorResult($msg, true);
+                }
+                break;
+            }
+
+            $retry401 = [];
+            foreach ($pending as $idx => $item) {
+                $resp = $responses[$idx] ?? null;
+                if ($resp instanceof HttpResponse && $resp->status() === 401) {
+                    $retry401[$idx] = $item;
+                }
+            }
+
+            if (!empty($retry401)) {
+                Cache::forget('facta_token');
+                $this->clearPreAuthGrantCache();
+
+                try {
+                    $tokenRefreshed = $this->getToken();
+                    if (!is_string($tokenRefreshed) || $tokenRefreshed === '') {
+                        throw new \RuntimeException('Token FACTA ausente após refresh');
+                    }
+                    $token = $tokenRefreshed;
+
+                    $retry401Responses = $this->requestAnalisePoliticaCreditoPool(
+                        $cpf,
+                        $matricula,
+                        $dataNascimento,
+                        $dataAdmissao,
+                        $retry401,
+                        $token,
+                        $this->httpSecondTimeout,
+                        $this->httpSecondConnectTimeout,
+                        'retry_401_pool',
+                        $attempt
+                    );
+
+                    foreach ($retry401 as $idx => $_) {
+                        if (isset($retry401Responses[$idx]) && $retry401Responses[$idx] instanceof HttpResponse) {
+                            $responses[$idx] = $retry401Responses[$idx];
+                        } else {
+                            $results[$idx] = $this->policyErrorResult('Sem resposta do serviço após renovar token.', true);
+                            unset($pending[$idx]);
+                        }
+                    }
+                } catch (Throwable $e) {
+                    $msg = 'Falha ao renovar token FACTA: ' . $e->getMessage();
+                    foreach ($retry401 as $idx => $_) {
+                        $results[$idx] = $this->policyErrorResult($msg, true);
+                        unset($pending[$idx]);
+                    }
+                }
+            }
+
+            if (empty($pending)) {
+                break;
+            }
+
+            $retry429 = [];
+            $retryAfterMax = null;
+
+            foreach ($pending as $idx => $item) {
+                $resp = $responses[$idx] ?? null;
+                if (!$resp instanceof HttpResponse) {
+                    $results[$idx] = $this->policyErrorResult('Sem resposta na análise de política de crédito.', true);
+                    unset($pending[$idx]);
+                    continue;
+                }
+
+                if ($resp->status() === 429) {
+                    $retry429[$idx] = $item;
+                    $retryAfter = $this->getRetryAfterSeconds($resp);
+                    if ($retryAfter !== null) {
+                        $retryAfterMax = $retryAfterMax === null ? $retryAfter : max($retryAfterMax, $retryAfter);
+                    }
+                    continue;
+                }
+
+                $results[$idx] = $this->parseAnalisePoliticaCreditoResponse($resp);
+                unset($pending[$idx]);
+            }
+
+            if (!empty($retry429) && $rateLimitAttempt < $maxRateLimitRetries) {
+                $rateLimitAttempt++;
+                $this->sleepBeforePolicy429Retry($cpf, $rateLimitAttempt, $retryAfterMax, count($retry429));
+                $pending = $retry429;
+                continue;
+            }
+
+            foreach ($retry429 as $idx => $_) {
+                $resp = $responses[$idx] ?? null;
+                if ($resp instanceof HttpResponse) {
+                    $results[$idx] = $this->parseAnalisePoliticaCreditoResponse($resp);
+                } else {
+                    $results[$idx] = $this->policyErrorResult('Sem resposta na análise de política de crédito.', true);
+                }
+            }
+            break;
+        }
+
+        ksort($results);
+        return $results;
+    }
+
+    /**
+     * @param array<int,array{prazo:int,valorEmprestimo:string}> $policyChunk
+     * @return array<int,HttpResponse>
+     */
+    private function requestAnalisePoliticaCreditoPool(
+        string $cpf,
+        string $matricula,
+        string $dataNascimento,
+        string $dataAdmissao,
+        array $policyChunk,
+        string $token,
+        int $timeout,
+        int $connectTimeout,
+        string $stage,
+        int $attempt
+    ): array {
+        if (empty($policyChunk)) {
+            return [];
+        }
+
+        $aliasToIndex = [];
+        foreach ($policyChunk as $idx => $_) {
+            $aliasToIndex["tb_{$idx}"] = $idx;
+        }
+
+        $responses = Http::pool(function (Pool $pool) use (
+            $aliasToIndex,
+            $policyChunk,
+            $token,
+            $timeout,
+            $connectTimeout,
+            $cpf,
+            $matricula,
+            $dataNascimento,
+            $dataAdmissao
+        ) {
+            $reqs = [];
+            foreach ($aliasToIndex as $alias => $idx) {
+                $item = $policyChunk[$idx] ?? null;
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $prazo = isset($item['prazo']) && is_numeric($item['prazo']) ? (int) $item['prazo'] : 0;
+                $valorEmprestimo = (string) ($item['valorEmprestimo'] ?? '');
+                if ($prazo <= 0 || $valorEmprestimo === '') {
+                    continue;
+                }
+
+                $reqs[] = $pool->as($alias)
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $token,
+                        'Accept' => 'application/json',
+                    ])
+                    ->timeout($timeout)
+                    ->connectTimeout($connectTimeout)
+                    ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
+                    ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', [
+                        'cpf' => $cpf,
+                        'matricula' => $matricula,
+                        'dataNascimento' => $dataNascimento,
+                        'dataAdmissao' => $dataAdmissao,
+                        'prazo' => $prazo,
+                        'valorEmprestimo' => $valorEmprestimo,
+                    ]);
+            }
+
+            return $reqs;
+        });
+
+        $out = [];
+        foreach ($responses as $alias => $resp) {
+            if (!isset($aliasToIndex[$alias]) || !$resp instanceof HttpResponse) {
+                continue;
+            }
+
+            $idx = $aliasToIndex[$alias];
+            $item = $policyChunk[$idx] ?? [];
+            $prazo = isset($item['prazo']) && is_numeric($item['prazo']) ? (int) $item['prazo'] : 0;
+            $valorEmprestimo = (string) ($item['valorEmprestimo'] ?? '');
+
+            $this->logAnalisePoliticaCreditoResponse(
+                $resp,
+                $cpf,
+                $stage,
+                $attempt,
+                $prazo,
+                $valorEmprestimo
+            );
+
+            if ($resp->status() === 403) {
+                $this->logForbidden($resp, $cpf);
+            }
+
+            $out[$idx] = $resp;
+        }
+
+        return $out;
+    }
+
+    private function sleepBeforePolicy429Retry(
+        string $cpf,
+        int $attempt,
+        ?int $retryAfterSeconds,
+        int $batchSize
+    ): void {
+        $pauseSeconds = $retryAfterSeconds !== null && $retryAfterSeconds > 0
+            ? $retryAfterSeconds
+            : $this->httpRateLimitDefaultPauseSeconds;
+
+        $pauseSeconds = min($this->httpRateLimitPauseCapSeconds, max(1, $pauseSeconds));
+
+        CltLog::warning('[FACTA] 429 backoff (analise-politica-credito pool)', [
+            'cpf' => $cpf,
+            'attempt' => $attempt,
+            'batch_size' => $batchSize,
+            'retry_after' => $retryAfterSeconds,
+            'sleep_seconds' => $pauseSeconds,
+        ]);
+
+        sleep($pauseSeconds);
     }
 
     private function parseOperacoesDisponiveisResponse(HttpResponse $resp): array
@@ -1360,7 +1670,7 @@ class FactaApiService
         return $retryAfterSeconds === null || $retryAfterSeconds <= 1;
     }
 
-    // App\Services\FactaApiService.php
+    // App\Modules\CLT\Services\FactaApiService.php
 
     private function errorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
     {
@@ -1370,6 +1680,20 @@ class FactaApiService
             'vinculos' => null,
             'retriable' => $retriable,
             'not_found' => false,
+            'http_status' => $httpStatus,
+            'retry_after' => $retryAfter,
+        ];
+    }
+
+    private function policyErrorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
+    {
+        return [
+            'ok' => false,
+            'aprovado' => false,
+            'mensagem' => $mensagem,
+            'valor_maximo_disponivel' => null,
+            'prazo_maximo_disponivel' => null,
+            'retriable' => $retriable,
             'http_status' => $httpStatus,
             'retry_after' => $retryAfter,
         ];
@@ -2083,6 +2407,37 @@ class FactaApiService
 
         return str_contains($norm, 'nao encontrado na base')
             || str_contains($norm, 'não encontrado na base');
+    }
+
+    private function isPrazoMinimoPolicyApprovalMessage(string $mensagem): bool
+    {
+        $norm = $this->normalize($mensagem);
+        if ($norm === '' || !str_contains($norm, 'politica de credito')) {
+            return false;
+        }
+
+        return preg_match('/prazo minimo\D*\d+\s*parcelas?/i', $norm) === 1;
+    }
+
+    private function isValorMaiorPermitido4000PolicyApprovalMessage(string $mensagem): bool
+    {
+        $norm = $this->normalize($mensagem);
+        if ($norm === '' || !str_contains($norm, 'politica de credito')) {
+            return false;
+        }
+        if (!str_contains($norm, 'valor maior que o permitido para politica de credito')) {
+            return false;
+        }
+        if (!preg_match('/valor maior que o permitido para politica de credito\s*\(([^)]*)\)/i', $norm, $m)) {
+            return false;
+        }
+
+        $valor = $this->toFloatSmart($m[1] ?? null);
+        if ($valor === null) {
+            return false;
+        }
+
+        return abs($valor - 4000.0) < 0.00001;
     }
 
     private function normalize(string $s): string

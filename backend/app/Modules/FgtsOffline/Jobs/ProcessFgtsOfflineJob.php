@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\FgtsOffline\Jobs;
 
-use App\Models\FgtsOfflineJob;
-use App\Services\FactaOfflineApiService;
+use App\Modules\FgtsOffline\Models\FgtsOfflineJob;
+use App\Modules\FgtsOffline\Services\FactaOfflineApiService;
+use App\Modules\FgtsOffline\Support\FgtsOffSchema;
 use App\Support\Cpf;
-use App\Support\FgtsOffSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -50,13 +50,13 @@ class ProcessFgtsOfflineJob implements ShouldQueue
     {
         $this->jobId = $jobId;
 
-        $this->onQueue((string) config('facta_off.job.queue', 'fgts'));
+        $this->onQueue((string) config('fgts_off.job.queue', 'fgts'));
 
-        $this->timeout = (int) config('facta_off.job.timeout_seconds', 115200);
-        $this->disk = (string) config('facta_off.storage.reports_disk', 'public');
-        $this->dirReports = (string) config('facta_off.storage.dir_reports', 'fgts-off-reports');
-        $this->dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
-        $this->finalPrefix = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+        $this->timeout = (int) config('fgts_off.job.timeout_seconds', 115200);
+        $this->disk = (string) config('fgts_off.storage.reports_disk', 'public');
+        $this->dirReports = (string) config('fgts_off.storage.dir_reports', 'fgts-off-reports');
+        $this->dirSpool = (string) (config('fgts_off.storage.dir_spool') ?? 'fgts-off-spool');
+        $this->finalPrefix = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
     }
 
     public function handle(FactaOfflineApiService $api): void
@@ -82,7 +82,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)
         ) {
             Log::error("[FGTS-OFF] Job {$this->jobId} sem spool pré-criado.");
-            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
@@ -97,7 +97,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
             Log::error("[FGTS-OFF] Job {$this->jobId} falha ao abrir spool para append.");
-            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
             $this->deletePendFiles();
             return;
         }
@@ -112,7 +112,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
             $uniqueCount = $this->buildUniqueCpfsFile($cpfsReal, $uniqRel);
             if ($uniqueCount === 0) {
-                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                 return;
             }
 
@@ -128,7 +128,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             $pf = fopen($pend1Real, 'c+');
             if ($pf === false) {
                 Log::error("[FGTS-OFF] Job {$this->jobId} não conseguiu criar pendências a1.");
-                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                 $this->deletePendFiles();
                 return;
             }
@@ -138,7 +138,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             if ($reader === false) {
                 fclose($pf);
                 Log::error("[FGTS-OFF] Job {$this->jobId} não conseguiu abrir lista única de CPFs.");
-                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                 $this->deletePendFiles();
                 return;
             }
@@ -154,7 +154,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     if ($this->isExpired($deadlineUtc)) {
                         fclose($reader);
                         fclose($pf);
-                        dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                        dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                         $this->deletePendFiles();
                         return;
                     }
@@ -206,16 +206,16 @@ class ProcessFgtsOfflineJob implements ShouldQueue
             Log::info("[FGTS-OFF] Job {$this->jobId} classificado – únicos={$uniqueCount}, inválidos={$invalidCnt}");
 
             if ($this->isExpired($deadlineUtc)) {
-                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                 $this->deletePendFiles();
                 return;
             }
 
-            $maxAttempts = (int) config('facta_off.job.max_attempts', 5);
-            $retryDelay = (int) config('facta_off.job.retry_delay_seconds', 30);
-            $chunkSize = (int) config('facta_off.job.chunk', 6);
-            $minChunk = max(1, (int) config('facta_off.job.min_chunk', 2));
-            $retryAfterCap = (int) config('facta_off.job.retry_after_max', 120);
+            $maxAttempts = (int) config('fgts_off.job.max_attempts', 5);
+            $retryDelay = (int) config('fgts_off.job.retry_delay_seconds', 30);
+            $chunkSize = (int) config('fgts_off.job.chunk', 6);
+            $minChunk = max(1, (int) config('fgts_off.job.min_chunk', 2));
+            $retryAfterCap = (int) config('fgts_off.job.retry_after_max', 120);
 
             $currPendRel = $pend1Rel;
 
@@ -225,7 +225,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                     return;
                 }
                 if ($this->isExpired($deadlineUtc)) {
-                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                     $this->deletePendFiles();
                     return;
                 }
@@ -242,7 +242,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 $nf = fopen($nextPendReal, 'c+');
                 if ($nf === false) {
                     Log::error("[FGTS-OFF] Job {$this->jobId} falhou ao criar arquivo de pendências da próxima tentativa.");
-                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                     $this->deletePendFiles();
                     return;
                 }
@@ -260,7 +260,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                 if ($reader2 === false) {
                     fclose($nf);
                     Log::error("[FGTS-OFF] Job {$this->jobId} não conseguiu abrir pendências atuais.");
-                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                    dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'falhou'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                     $this->deletePendFiles();
                     return;
                 }
@@ -277,7 +277,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         if ($this->isExpired($deadlineUtc)) {
                             fclose($reader2);
                             fclose($nf);
-                            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                             $this->deletePendFiles();
                             return;
                         }
@@ -349,7 +349,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
                         return;
                     }
                     if ($this->isExpired($deadlineUtc)) {
-                        dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+                        dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'expirado'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
                         $this->deletePendFiles();
                         return;
                     }
@@ -447,7 +447,7 @@ class ProcessFgtsOfflineJob implements ShouldQueue
 
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
-            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'concluido'))->onQueue((string) config('facta_off.preview.queue', 'reports'));
+            dispatch(new FinalizeFgtsOffReportJob($this->jobId, 'concluido'))->onQueue((string) config('fgts_off.preview.queue', 'reports'));
         } finally {
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);

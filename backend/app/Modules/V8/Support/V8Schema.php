@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support;
+namespace App\Modules\V8\Support;
 
 final class V8Schema
 {

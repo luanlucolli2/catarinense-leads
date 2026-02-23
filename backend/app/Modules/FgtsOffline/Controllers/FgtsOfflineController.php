@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\FgtsOffline\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessFgtsOfflineJob;
-use App\Models\FgtsOfflineJob;
+use App\Modules\FgtsOffline\Jobs\ProcessFgtsOfflineJob;
+use App\Modules\FgtsOffline\Models\FgtsOfflineJob;
+use App\Modules\FgtsOffline\Support\FgtsOffSchema;
 use App\Support\Cpf;
-use App\Support\FgtsOffSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -33,7 +33,7 @@ class FgtsOfflineController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $reportsDiskName = (string) config('facta_off.storage.reports_disk', 'public');
+        $reportsDiskName = (string) config('fgts_off.storage.reports_disk', 'public');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
 
@@ -103,10 +103,10 @@ class FgtsOfflineController extends Controller
             );
         } catch (\Throwable $e) {
             try {
-                $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+                $diskName = (string) config('fgts_off.storage.reports_disk', 'public');
                 $disk     = Storage::disk($diskName);
-                $dirSpool = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
-                $finalPref= (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+                $dirSpool = (string) (config('fgts_off.storage.dir_spool') ?? 'fgts-off-spool');
+                $finalPref= (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
                 $spool    = "{$dirSpool}/{$finalPref}_{$job->id}.spool.csv";
                 $cpfs     = "{$dirSpool}/{$finalPref}_{$job->id}.cpfs.txt";
                 foreach ([$spool, $cpfs] as $p) {
@@ -133,7 +133,7 @@ class FgtsOfflineController extends Controller
 
         if ($cpfsCount === 0) {
             try {
-                $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+                $diskName = (string) config('fgts_off.storage.reports_disk', 'public');
                 $disk = Storage::disk($diskName);
                 foreach ([$spoolPath, $cpfsPath] as $p) {
                     if ($p && $disk->exists($p)) { $disk->delete($p); }
@@ -179,7 +179,7 @@ class FgtsOfflineController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+        $disk = Storage::disk((string) config('fgts_off.storage.reports_disk', 'public'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
 
         return response()->json([
@@ -196,7 +196,7 @@ class FgtsOfflineController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+        $disk = Storage::disk((string) config('fgts_off.storage.reports_disk', 'public'));
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
@@ -214,7 +214,7 @@ class FgtsOfflineController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
         $withBOM = (bool) env('FGTS_OFF_CSV_BOM', true);
-        $finalEol   = strtoupper((string) config('facta_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+        $finalEol   = strtoupper((string) config('fgts_off.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
         return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
             try {
@@ -232,7 +232,7 @@ class FgtsOfflineController extends Controller
                 fgets($fh);
 
                 // escreve o novo cabeçalho normalizado
-                echo \App\Support\FgtsOffSchema::headerCsvLine(';') . $finalEol;
+                echo FgtsOffSchema::headerCsvLine(';') . $finalEol;
 
                 // despeja o restante
                 fpassthru($fh);
@@ -307,7 +307,7 @@ class FgtsOfflineController extends Controller
         ]);
 
         try {
-            $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+            $disk = Storage::disk((string) config('fgts_off.storage.reports_disk', 'public'));
             foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
@@ -357,7 +357,7 @@ class FgtsOfflineController extends Controller
         }
 
         try {
-            $disk = Storage::disk((string) config('facta_off.storage.reports_disk', 'public'));
+            $disk = Storage::disk((string) config('fgts_off.storage.reports_disk', 'public'));
             foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
@@ -375,7 +375,7 @@ class FgtsOfflineController extends Controller
 
     private function finalPrefix(): string
     {
-        return (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+        return (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
     }
 
     private function tokenizeCpfsLazy($cpfs): \Generator
@@ -406,11 +406,11 @@ class FgtsOfflineController extends Controller
 
     private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
-        $diskName = (string) config('facta_off.storage.reports_disk', 'public');
+        $diskName = (string) config('fgts_off.storage.reports_disk', 'public');
         $disk = Storage::disk($diskName);
 
-        $dirSpool   = (string) (config('facta_off.storage.dir_spool') ?? 'fgts-off-spool');
-        $finalPref  = (string) config('facta_off.storage.final_prefix', 'fgts-offline');
+        $dirSpool   = (string) (config('fgts_off.storage.dir_spool') ?? 'fgts-off-spool');
+        $finalPref  = (string) config('fgts_off.storage.final_prefix', 'fgts-offline');
 
         if (!$disk->exists($dirSpool)) {
             $disk->makeDirectory($dirSpool);

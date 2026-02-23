@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\FgtsOffline\Services;
 
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\ConnectionException;
@@ -37,7 +37,7 @@ class FactaOfflineApiService
 
     public function __construct()
     {
-        $cfg = (array) config('facta_off', []);
+        $cfg = (array) config('fgts_off', []);
 
         // Base/credenciais/token
         $this->baseUrl   = rtrim((string) ($cfg['base_url'] ?? ''), '/');

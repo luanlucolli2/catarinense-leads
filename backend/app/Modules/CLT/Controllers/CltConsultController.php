@@ -1,23 +1,26 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\CLT\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessV8ConsultJob;
-use App\Models\V8ConsultJob;
-use App\Support\V8Schema;
+use App\Modules\CLT\Jobs\ProcessCltConsultJob;
+use App\Modules\CLT\Jobs\FinalizeCltConsultReportJob;
+use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltLog;
+use App\Support\Cpf;
+use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
 
-class V8ConsultController extends Controller
+class CltConsultController extends Controller
 {
     public function index()
     {
-        $jobs = V8ConsultJob::query()
+        $jobs = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->orderByDesc('created_at')
             ->paginate(15);
@@ -27,118 +30,122 @@ class V8ConsultController extends Controller
 
     public function show(int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $reportsDiskName = (string) config('v8.storage.reports_disk', 'local');
+        $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
 
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
+            'variant' => $job->variant,
             'status' => $job->status,
-            'phase' => $job->phase,
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
-            'nao_elegivel_count' => $job->nao_elegivel_count,
+            'not_found_count' => $job->not_found_count,
             'fail_count' => $job->fail_count,
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
 
     public function store(Request $request)
     {
-        $rawLines = $request->input('lines', $request->input('entries', $request->input('rows')));
-
-        $validator = Validator::make([
-            'title' => $request->input('title'),
-            'lines' => $rawLines,
-        ], [
+        $rules = [
             'title' => ['required', 'string', 'max:191'],
-            'lines' => ['required'],
-        ]);
-
+            'cpfs' => ['required'],
+            'variant' => ['nullable', 'in:online,offline'],
+        ];
+        $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
             return response()->json([
                 'message' => 'Os dados fornecidos são inválidos.',
-                'errors' => $validator->errors(),
+                'errors' => $validator->errors()
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
+        $data = $validator->validated();
+        $variant = $data['variant'] ?? 'online';
 
-        $job = V8ConsultJob::create([
+        $job = CltConsultJob::create([
             'user_id' => $request->user()->id,
-            'title' => (string) $request->input('title'),
+            'title' => $data['title'],
             'status' => 'pendente',
+            'variant' => $variant,
             'total_cpfs' => 0,
             'success_count' => 0,
-            'nao_elegivel_count' => 0,
+            'not_found_count' => 0,
             'fail_count' => 0,
         ]);
 
         try {
-            [$spoolPath, $inputsPath, $spoolBytes, $linesCount] = $this->createInitialSpool(
+            [$spoolPath, $cpfsPath, $spoolBytes, $cpfsCount] = $this->createInitialSpool(
                 $job->id,
-                $this->tokenizeLinesLazy($rawLines)
+                $this->tokenizeCpfsLazy($data['cpfs'])
             );
         } catch (\Throwable $e) {
             $this->safeCleanupInit($job->id);
             $job->delete();
-            Log::error("[V8] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
+            CltLog::error("[CLT] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
             return response()->json(['message' => 'Falha interna ao preparar arquivos do job.'], 500);
         }
 
-        if ($linesCount === 0) {
-            $this->safeCleanupPaths([$spoolPath, $inputsPath]);
+        if ($cpfsCount === 0) {
+            $this->safeCleanupPaths([$spoolPath, $cpfsPath]);
             $job->delete();
-            return response()->json(['message' => 'Nenhuma linha válida encontrada.'], 422);
+            return response()->json(['message' => 'Nenhum CPF normalizável encontrado.'], 422);
         }
 
         $job->update([
             'spool_path' => $spoolPath,
-            'spool_inputs_path' => $inputsPath,
+            'spool_cpfs_path' => $cpfsPath,
             'spool_bytes' => $spoolBytes,
         ]);
 
-        $queue = (string) config('v8.job.queue', 'v8');
-        ProcessV8ConsultJob::dispatch($job->id)->onQueue($queue);
+        // ===== DISPATCH POR FILA SEPARADA =====
+        $queue = $variant === 'offline'
+            ? (string) config('cltfacta.job.queue_offline', 'clt-off')
+            : (string) config('cltfacta.job.queue_online', 'clt-on');
+
+        ProcessCltConsultJob::dispatch($job->id)->onQueue($queue);
 
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
-            'phase' => $job->phase,
         ], Response::HTTP_ACCEPTED);
     }
 
+    /** Estado “prévia” leve */
     public function requestPreview(Request $request, int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
 
+    /** Streaming da PRÉVIA (CSV) com cabeçalho normalizado */
     public function downloadPreview(Request $request, int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
@@ -156,39 +163,43 @@ class V8ConsultController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
 
-        $withBOM = (bool) config('v8.csv.embed_bom', true);
-        $finalEol = strtoupper((string) config('v8.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+        $withBOM = (bool) config('cltfacta.csv.embed_bom', true);
+        $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
         return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
             try {
-                flock($fh, LOCK_SH);
+                if ($withBOM) echo "\xEF\xBB\xBF";
 
-                if ($withBOM) {
-                    echo "\xEF\xBB\xBF";
-                }
-
+                // trata possível BOM no spool
                 $peek = fread($fh, 3);
                 if ($peek !== "\xEF\xBB\xBF") {
                     fseek($fh, 0);
                 }
 
+                // descarta a 1ª linha do spool (cabeçalho original)
                 fgets($fh);
 
-                echo V8Schema::headerCsvLine(';') . $finalEol;
+                // escreve cabeçalho normalizado
+                echo \App\Modules\CLT\Support\CltSchema::headerCsvLine(';') . $finalEol;
 
-                fpassthru($fh);
-            } finally {
-                flock($fh, LOCK_UN);
-                if (is_resource($fh)) {
-                    fclose($fh);
+                // Não segura lock aqui para não bloquear o writer do job.
+                while (!feof($fh)) {
+                    $chunk = fread($fh, 1024 * 256);
+                    if ($chunk === false) {
+                        break;
+                    }
+                    echo $chunk;
                 }
+            } finally {
+                if (is_resource($fh)) fclose($fh);
             }
         }, $filename, $headers);
     }
 
+    /** Download do FINAL (CSV) */
     public function download(int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -213,20 +224,21 @@ class V8ConsultController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
 
-        return response()->streamDownload(function () use ($fh) {
+        $withBOM = false; // final já vem normalizado pelo job de finalização
+
+        return response()->streamDownload(function () use ($fh, $withBOM) {
             try {
+                if ($withBOM) echo "\xEF\xBB\xBF";
                 fpassthru($fh);
             } finally {
-                if (is_resource($fh)) {
-                    fclose($fh);
-                }
+                if (is_resource($fh)) fclose($fh);
             }
         }, $filename, $headers);
     }
 
     public function cancel(Request $request, int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -243,70 +255,43 @@ class V8ConsultController extends Controller
 
         $job->update([
             'status' => 'cancelado',
-            'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
 
         try {
-            $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_inputs_path'] as $field) {
+            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
                     $disk->delete($p);
                 }
             }
-            $this->cleanupSpoolArtifacts($disk, $job->id);
         } catch (\Throwable $e) {
-            Log::warning("[V8] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
         }
 
         $job->update([
             'spool_path' => null,
-            'spool_inputs_path' => null,
+            'spool_cpfs_path' => null,
             'spool_bytes' => 0,
         ]);
 
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
-            'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);
     }
 
-    private function cleanupSpoolArtifacts($disk, int $jobId): void
-    {
-        try {
-            $dirSpool = (string) config('v8.storage.dir_spool', 'v8-spool');
-            $prefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
-            $prefix = $prefix . '_' . $jobId;
-
-            if (!$disk->exists($dirSpool)) {
-                return;
-            }
-
-            foreach ($disk->files($dirSpool) as $rel) {
-                $base = basename($rel);
-                if (str_starts_with($base, $prefix)) {
-                    try {
-                        $disk->delete($rel);
-                    } catch (\Throwable) {
-                    }
-                }
-            }
-        } catch (\Throwable) {
-        }
-    }
-
     public function destroy(int $id)
     {
-        $job = V8ConsultJob::query()
+        $job = CltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true)) {
+        if (in_array($job->status, ['pendente', 'em_progresso'], true)) {
             return response()->json([
                 'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
                 'status' => $job->status,
@@ -321,20 +306,20 @@ class V8ConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[V8] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
         try {
-            $diskName = (string) config('v8.storage.reports_disk', 'local');
+            $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
             $disk = Storage::disk($diskName);
-            foreach (['spool_path', 'spool_inputs_path'] as $field) {
+            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
                 $p = $job->{$field};
                 if ($p && $disk->exists($p)) {
                     $disk->delete($p);
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning("[V8] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
+            CltLog::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
         }
 
         $job->delete();
@@ -344,47 +329,36 @@ class V8ConsultController extends Controller
 
     private function finalPrefix(): string
     {
-        return (string) config('v8.storage.final_prefix', 'v8-consulta');
+        return (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
     }
 
-    private function tokenizeLinesLazy($lines): \Generator
+    private function tokenizeCpfsLazy($cpfs): \Generator
     {
-        if (is_string($lines)) {
-            $tok = strtok($lines, "\n");
+        if (is_string($cpfs)) {
+            $tok = strtok($cpfs, " \t\n\r,;");
             while ($tok !== false) {
-                $line = trim($tok);
-                if ($line !== '') {
-                    yield $line;
-                }
-                $tok = strtok("\n");
+                yield $tok;
+                $tok = strtok(" \t\n\r,;");
             }
             return;
         }
-        if (is_array($lines)) {
-            foreach ($lines as $t) {
-                $line = trim((string) $t);
-                if ($line !== '') {
-                    yield $line;
-                }
-            }
+        if (is_array($cpfs)) {
+            foreach ($cpfs as $t)
+                yield $t;
             return;
         }
-        if ($lines instanceof \Traversable) {
-            foreach ($lines as $t) {
-                $line = trim((string) $t);
-                if ($line !== '') {
-                    yield $line;
-                }
-            }
+        if ($cpfs instanceof \Traversable) {
+            foreach ($cpfs as $t)
+                yield $t;
         }
     }
 
-    private function createInitialSpool(int $jobId, iterable $lines): array
+    private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
-        $diskName = (string) config('v8.storage.reports_disk', 'local');
+        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
         $disk = Storage::disk($diskName);
 
-        $dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
+        $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
         $finalPref = $this->finalPrefix();
 
         if (!$disk->exists($dirSpool)) {
@@ -392,16 +366,15 @@ class V8ConsultController extends Controller
         }
 
         $spoolPath = "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv";
-        $inputsPath = "{$dirSpool}/{$finalPref}_{$jobId}.inputs.txt";
+        $cpfsPath = "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt";
 
         $fp = fopen($disk->path($spoolPath), 'c+');
-        if ($fp === false) {
+        if ($fp === false)
             throw new \RuntimeException("Não foi possível criar spool em {$spoolPath}");
-        }
         try {
             if (flock($fp, LOCK_EX)) {
                 ftruncate($fp, 0);
-                fputcsv($fp, V8Schema::TITLES, ';');
+                fputcsv($fp, CltSchema::TITLES, ';');
                 fflush($fp);
                 flock($fp, LOCK_UN);
             }
@@ -409,21 +382,22 @@ class V8ConsultController extends Controller
             fclose($fp);
         }
 
-        $fp2 = fopen($disk->path($inputsPath), 'c+');
-        if ($fp2 === false) {
-            throw new \RuntimeException("Não foi possível criar inputs em {$inputsPath}");
-        }
+        $fp2 = fopen($disk->path($cpfsPath), 'c+');
+        if ($fp2 === false)
+            throw new \RuntimeException("Não foi possível criar cpfs em {$cpfsPath}");
 
         $count = 0;
         try {
             if (flock($fp2, LOCK_EX)) {
                 ftruncate($fp2, 0);
-                foreach ($lines as $line) {
-                    $line = trim((string) $line);
-                    if ($line === '') {
+                foreach ($allCpfs as $raw) {
+                    $norm = Cpf::normalize((string) $raw);
+                    if ($norm === null)
                         continue;
-                    }
-                    fwrite($fp2, $line . "\n");
+                    $digits = preg_replace('/\D+/', '', $norm);
+                    if ($digits === '' || strlen($digits) !== 11)
+                        continue;
+                    fwrite($fp2, $digits . "\n");
                     $count++;
                 }
                 fflush($fp2);
@@ -433,61 +407,40 @@ class V8ConsultController extends Controller
             fclose($fp2);
         }
 
-        $this->fixSpoolPermissions($disk->path($spoolPath), $disk->path($inputsPath));
-
         $bytes = 0;
         try {
             $bytes = (int) $disk->size($spoolPath);
         } catch (\Throwable) {
         }
 
-        return [$spoolPath, $inputsPath, $bytes, $count];
+        return [$spoolPath, $cpfsPath, $bytes, $count];
     }
 
     private function safeCleanupInit(int $jobId): void
     {
         try {
-            $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
-            $dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
+            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+            $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
             $finalPref = $this->finalPrefix();
-            foreach ([
-                "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv",
-                "{$dirSpool}/{$finalPref}_{$jobId}.inputs.txt",
-            ] as $p) {
-                if ($disk->exists($p)) {
+            foreach (["{$dirSpool}/{$finalPref}_{$jobId}.spool.csv", "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt"] as $p) {
+                if ($disk->exists($p))
                     $disk->delete($p);
-                }
             }
         } catch (\Throwable $e) {
-            Log::warning("[V8] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
+            CltLog::warning("[CLT] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
         }
     }
 
     private function safeCleanupPaths(array $relPaths): void
     {
         try {
-            $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
             foreach ($relPaths as $p) {
-                if ($p && $disk->exists($p)) {
+                if ($p && $disk->exists($p))
                     $disk->delete($p);
-                }
             }
         } catch (\Throwable $e) {
-            Log::warning("[V8] Erro limpando arquivos: " . $e->getMessage());
-        }
-    }
-
-    private function fixSpoolPermissions(string ...$paths): void
-    {
-        $uid = (int) env('WWWUSER', 1000);
-        $gid = (int) env('WWWGROUP', 1000);
-        foreach ($paths as $path) {
-            if ($path === '' || !file_exists($path)) {
-                continue;
-            }
-            @chown($path, $uid);
-            @chgrp($path, $gid);
-            @chmod($path, 0664);
+            CltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
         }
     }
 }

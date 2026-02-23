@@ -40,6 +40,8 @@ return [
         'averbador'     => env('FACTA_CLT_CREDITO_AVERBADOR', '10010'),
         'convenio'      => env('FACTA_CLT_CREDITO_CONVENIO', '3'),
         'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
+        // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
+        'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 3),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
@@ -71,9 +73,6 @@ return [
         // filas distintas
         'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-on'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
-
-        // fallback legado
-        'queue'               => env('CLT_JOB_QUEUE', 'clt'),
 
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 259200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),

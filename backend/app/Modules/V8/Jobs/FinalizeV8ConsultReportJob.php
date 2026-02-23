@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\V8\Jobs;
 
-use App\Models\V8ConsultJob;
-use App\Support\V8Schema;
+use App\Modules\V8\Models\V8ConsultJob;
+use App\Modules\V8\Support\V8Schema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;

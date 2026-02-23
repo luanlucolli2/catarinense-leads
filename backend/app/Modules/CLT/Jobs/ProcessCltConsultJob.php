@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\CLT\Jobs;
 
-use App\Models\CltConsultJob;
-use App\Support\CltLog;
-use App\Support\CltSchema;
+use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltLog;
+use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -104,8 +104,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $job->variant === 'offline'
-            ? app(\App\Services\CltOfflineApiService::class)
-            : app(\App\Services\FactaApiService::class);
+            ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
+            : app(\App\Modules\CLT\Services\FactaApiService::class);
 
         if ($this->isCancelled($job)) {
             $this->cleanupSpool($job);
@@ -410,7 +410,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
         // Isso é extremamente leve para o servidor (custo zero de CPU no loop).
         $nowStr = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
-        $onlineFactaApi = ($this->variant === 'online' && $api instanceof \App\Services\FactaApiService)
+        $onlineFactaApi = ($this->variant === 'online' && $api instanceof \App\Modules\CLT\Services\FactaApiService)
             ? $api
             : null;
 
@@ -468,17 +468,25 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             ? $vinculos[$bestIdx]
                             : null;
 
-                        $politica = null;
-                        if ($onlineFactaApi !== null && $best !== null) {
-                            $bestElegivel = $this->simNaoToBool($best['elegivel'] ?? null) === true;
-                            if ($bestElegivel) {
+                        $politicasPorVinculo = [];
+                        if ($onlineFactaApi !== null) {
+                            foreach ($vinculos as $i => $v) {
+                                if (!is_array($v)) {
+                                    continue;
+                                }
+
+                                $elegivel = $this->simNaoToBool($v['elegivel'] ?? null) === true;
+                                if (!$elegivel) {
+                                    continue;
+                                }
+
                                 $politica = $onlineFactaApi->continuarCreditoTrabalhadorElegivel([
                                     'cpf' => $cpf,
-                                    'matricula' => $best['matricula'] ?? null,
-                                    'dataNascimento' => $best['dataNascimento'] ?? null,
-                                    'dataAdmissao' => $best['dataAdmissao'] ?? null,
-                                    'valorParcela' => $this->computeValorMaxPrestFloat($best['valorMargemDisponivel'] ?? null),
-                                    'valorRenda' => $best['valorTotalVencimentos'] ?? null,
+                                    'matricula' => $v['matricula'] ?? null,
+                                    'dataNascimento' => $v['dataNascimento'] ?? null,
+                                    'dataAdmissao' => $v['dataAdmissao'] ?? null,
+                                    'valorParcela' => $this->computeValorMaxPrestFloat($v['valorMargemDisponivel'] ?? null),
+                                    'valorRenda' => $v['valorTotalVencimentos'] ?? null,
                                 ]);
 
                                 if (($politica['retriable'] ?? false) === true) {
@@ -494,10 +502,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                     if (!empty($politica['retry_after'])) {
                                         $retryAfterMaxSeen = max($retryAfterMaxSeen, (int) $politica['retry_after']);
                                     }
+                                }
 
-                                    fwrite($nextPendHandle, $cpf . "\n");
-                                    $retriableInChunk++;
-                                    continue;
+                                if (is_array($politica) && !empty($politica['attempted'])) {
+                                    $politicasPorVinculo[$i] = $politica;
                                 }
                             }
                         }
@@ -550,11 +558,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $row['updated_at'] = $this->toBrDateTime($rawUpdated);
                             $row['consulted_at'] = $nowStr;
 
-                            if ($bestIdx !== null && $i === $bestIdx && is_array($politica) && !empty($politica['attempted'])) {
-                                $row['politicaCreditoAprovado'] = !empty($politica['aprovado']) ? 'SIM' : 'NÃO';
-                                $row['politicaCreditoMensagem'] = $politica['mensagem'] ?? null;
-                                $row['politicaCreditoValorMaximoDisponivel'] = $politica['valor_maximo_disponivel'] ?? null;
-                                $row['politicaCreditoPrazoMaximoDisponivel'] = $politica['prazo_maximo_disponivel'] ?? null;
+                            $politicaVinculo = $politicasPorVinculo[$i] ?? null;
+                            if (is_array($politicaVinculo) && !empty($politicaVinculo['attempted'])) {
+                                $row['politicaCreditoAprovado'] = !empty($politicaVinculo['aprovado']) ? 'SIM' : 'NÃO';
+                                $row['politicaCreditoMensagem'] = $politicaVinculo['mensagem'] ?? null;
+                                $row['politicaCreditoValorMaximoDisponivel'] = $politicaVinculo['valor_maximo_disponivel'] ?? null;
+                                $row['politicaCreditoPrazoMaximoDisponivel'] = $politicaVinculo['prazo_maximo_disponivel'] ?? null;
                             }
 
                             $rows[] = $row;
