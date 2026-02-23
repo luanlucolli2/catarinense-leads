@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\Leads\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
@@ -22,8 +22,9 @@ class LeadController extends Controller
 
     private function paginateLeads(Request $r)
     {
-        $perPage = (int) $r->input('per_page', 10);
-        $query = \App\Http\Filters\LeadFilter::apply($r);
+        $perPage = (int) $r->input('per_page', (int) config('leads.pagination.per_page_default', 10));
+        $perPage = max(1, $perPage);
+        $query = \App\Modules\Leads\Filters\LeadFilter::apply($r);
         $leads = $query->paginate($perPage);
         return response()->json($leads);
     }

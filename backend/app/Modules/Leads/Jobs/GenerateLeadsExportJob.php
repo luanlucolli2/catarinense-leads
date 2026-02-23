@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace App\Jobs;
+namespace App\Modules\Leads\Jobs;
 
-use App\Http\Filters\LeadFilter;
+use App\Modules\Leads\Filters\LeadFilter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -29,7 +29,8 @@ class GenerateLeadsExportJob implements ShouldQueue
         public array $payload,
         public int $ttlSeconds
     ) {
-        $this->onQueue((string) env('PREVIEW_JOB_QUEUE', 'reports'));
+        $this->timeout = max(1, (int) config('leads.export.timeout_seconds', 7200));
+        $this->onQueue((string) config('leads.export.queue', 'reports'));
     }
 
     public function handle(): void
@@ -37,7 +38,7 @@ class GenerateLeadsExportJob implements ShouldQueue
         $key = $this->cacheKey($this->userId, $this->token);
 
         if (function_exists('ini_set')) {
-            @ini_set('memory_limit', env('LEADS_EXPORT_MEMORY', '256M'));
+            @ini_set('memory_limit', (string) config('leads.export.memory_limit', '256M'));
             @ini_set('max_execution_time', '0');
             @ini_set('zend.enable_gc', '1');
             @ini_set('output_buffering', '0');
@@ -52,19 +53,26 @@ class GenerateLeadsExportJob implements ShouldQueue
         } catch (\Throwable) {
         }
 
-        Config::set('excel.temporary_files.local_path', storage_path('framework/cache/excel-temp'));
+        $excelTempPath = (string) config('leads.export.storage.excel_temp_local_path', 'framework/cache/excel-temp');
+        if ($excelTempPath !== '') {
+            $resolvedExcelTempPath = str_starts_with($excelTempPath, DIRECTORY_SEPARATOR)
+                ? $excelTempPath
+                : storage_path(ltrim($excelTempPath, '/'));
+            Config::set('excel.temporary_files.local_path', $resolvedExcelTempPath);
+        }
 
-        $diskName = (string) env('LEADS_EXPORT_DISK', 'local');
-        $dir = trim((string) env('LEADS_EXPORT_DIR', 'leads-exports'), '/');
-        $filename = "leads_export_{$this->token}.csv";
+        $diskName = (string) config('leads.export.storage.disk', 'local');
+        $dir = trim((string) config('leads.export.storage.directory', 'leads-exports'), '/');
+        $filenamePrefix = (string) config('leads.export.storage.filename_prefix', 'leads_export');
+        $filename = "{$filenamePrefix}_{$this->token}.csv";
         $path = "{$dir}/{$filename}";
         $tmpPath = "{$dir}/{$this->token}.tmp.csv";
 
-        $delimiter = env('LEADS_EXPORT_CSV_DELIMITER', ';');
-        $enclosure = env('LEADS_EXPORT_CSV_ENCLOSURE', '"');
-        $writeBOM = (bool) env('LEADS_EXPORT_CSV_BOM', true);
-        $chunkSize = (int) env('LEADS_EXPORT_CHUNK', 800);
-        $flushEvery = (int) env('LEADS_EXPORT_FLUSH_EVERY', 2000);
+        $delimiter = (string) config('leads.export.csv.delimiter', ';');
+        $enclosure = (string) config('leads.export.csv.enclosure', '"');
+        $writeBOM = (bool) config('leads.export.csv.bom', true);
+        $chunkSize = max(1, (int) config('leads.export.query.chunk_size', 800));
+        $flushEvery = max(1, (int) config('leads.export.query.flush_every', 2000));
 
         try {
             $req = new HttpRequest();
@@ -157,8 +165,8 @@ class GenerateLeadsExportJob implements ShouldQueue
                 'ttl_seconds' => $this->ttlSeconds,
             ], $this->ttlSeconds);
 
-            $grace = (int) env('LEADS_EXPORT_GRACE_SECONDS', 600);
-            \App\Jobs\CleanupLeadsExportJob::dispatch($this->userId, $this->token)
+            $grace = (int) config('leads.export.grace_seconds', 600);
+            \App\Modules\Leads\Jobs\CleanupLeadsExportJob::dispatch($this->userId, $this->token)
                 ->delay(now()->addSeconds(max(60, $this->ttlSeconds + $grace)));
         } catch (Throwable $e) {
             Log::warning("[LEADS][EXPORT] Falha token={$this->token}: " . $e->getMessage(), ['exception' => $e]);
@@ -189,7 +197,8 @@ class GenerateLeadsExportJob implements ShouldQueue
 
     private function cacheKey(int $userId, string $token): string
     {
-        return "leads_export:{$userId}:{$token}";
+        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
+        return "{$prefix}:{$userId}:{$token}";
     }
 
     private function headings(array $columns): array

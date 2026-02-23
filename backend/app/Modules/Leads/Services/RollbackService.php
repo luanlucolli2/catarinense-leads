@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Modules\Leads\Services;
 
 use App\Models\ImportJob;
 use App\Models\Lead;

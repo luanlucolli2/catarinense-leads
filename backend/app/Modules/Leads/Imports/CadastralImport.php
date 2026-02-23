@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Imports;
+namespace App\Modules\Leads\Imports;
 
 use App\Models\Lead;
 use App\Models\LeadContract;
@@ -203,7 +203,7 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
     public function chunkSize(): int
     {
-        return 1000;
+        return max(1, (int) config('leads.import.chunk_size', 1000));
     }
 
     private function transformDate($value): ?string

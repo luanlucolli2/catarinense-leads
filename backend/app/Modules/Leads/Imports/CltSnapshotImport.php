@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Imports;
+namespace App\Modules\Leads\Imports;
 
 use App\Models\ImportJob;
 use App\Support\Cpf;
@@ -105,7 +105,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
 
     public function chunkSize(): int
     {
-        return 1000;
+        return max(1, (int) config('leads.import.chunk_size', 1000));
     }
 
     public function registerEvents(): array

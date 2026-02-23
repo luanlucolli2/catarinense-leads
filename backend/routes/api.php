@@ -4,10 +4,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Api\LeadController;
-use App\Http\Controllers\Api\ImportController;
-use App\Http\Controllers\Api\LeadExportController;
-use App\Http\Controllers\Api\RollbackController;
+use App\Modules\Leads\Controllers\LeadController;
+use App\Modules\Leads\Controllers\ImportController;
+use App\Modules\Leads\Controllers\LeadExportController;
+use App\Modules\Leads\Controllers\RollbackController;
 use App\Modules\CLT\Controllers\CltConsultController;
 use App\Modules\V8\Controllers\V8ConsultController;
 use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
