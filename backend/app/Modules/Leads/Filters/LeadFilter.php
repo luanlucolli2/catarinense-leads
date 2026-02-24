@@ -14,7 +14,25 @@ class LeadFilter
     public static function apply(Request $r, ?array $columnsForExport = null): Builder
     {
         $exportMode = is_array($columnsForExport);
+        $columnsForExport = $columnsForExport ?? [];
         $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt'
+
+        $cltFields = [
+            'elegivel',
+            'idade',
+            'sexo',
+            'data_admissao',
+            'meses_admissao',
+            'valor_renda',
+            'valor_base_margem',
+            'margem_disponivel',
+            'valor_max_prestacao',
+            'categoria_trabalhador_codigo',
+            'inicio_atividade_empregador',
+            'qtd_emprestimos_ativos_suspensos',
+            'emprestimos_legados',
+            'not_found'
+        ];
 
         // ---- FGTS OFF: colunas projetadas (quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
@@ -24,6 +42,18 @@ class LeadFilter
         $needFgtsConsultadoCol = $exportMode
             ? in_array('fgts_off_consultado_em', $columnsForExport, true)
             : ($mode === 'fgts');
+
+        $needAnyClt = $exportMode
+            ? (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em', 'clt_dados_atualizados_em']))
+            : ($mode === 'clt');
+
+        $needCltJoin = $mode === 'clt' || $needAnyClt;
+        $needFgtsJoin = $mode === 'fgts'
+            || $needFgtsAuthorizedCol
+            || $needFgtsConsultadoCol
+            || $r->filled('fgts_status')
+            || $r->filled('fgts_consulta_from')
+            || $r->filled('fgts_consulta_to');
 
         if ($exportMode) {
             $select = ['leads.id'];
@@ -51,6 +81,13 @@ class LeadFilter
                     $select[] = 'leads.id';
             }
             $query = Lead::query()->select($select);
+
+            if ($needCltJoin) {
+                $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
+            }
+            if ($needFgtsJoin) {
+                $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
+            }
 
             if (in_array('ultima_origem_cadastral', $columnsForExport, true)) {
                 $query->addSelect([
@@ -109,56 +146,36 @@ class LeadFilter
 
             // FGTS OFF no export (se pedido)
             if ($needFgtsAuthorizedCol) {
-                $query->addSelect([
-                    'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
-                        ->select('authorized')
-                        ->whereColumn('fos.cpf', 'leads.cpf')
-                        ->limit(1),
-                ]);
+                $query->addSelect(DB::raw('fos.authorized as fgts_off_authorized'));
             }
             if ($needFgtsConsultadoCol) {
-                $query->addSelect([
-                    'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                        ->select('updated_at')
-                        ->whereColumn('fos.cpf', 'leads.cpf')
-                        ->limit(1),
-                ]);
+                $query->addSelect(DB::raw('fos.updated_at as fgts_off_consultado_em'));
             }
 
             // CLT no export (se pedido explicitamente)
-            $cltFields = [
-                'elegivel',
-                'idade',
-                'sexo',
-                'data_admissao',
-                'meses_admissao',
-                'valor_renda',
-                'valor_base_margem',
-                'margem_disponivel',
-                'valor_max_prestacao',
-                'categoria_trabalhador_codigo',
-                'inicio_atividade_empregador',
-                'qtd_emprestimos_ativos_suspensos',
-                'emprestimos_legados',
-                'not_found'
-            ];
-            $needAnyClt = (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em', 'clt_dados_atualizados_em']));
             if ($needAnyClt) {
                 foreach ($cltFields as $f) {
                     if (in_array($f, $columnsForExport, true)) {
-                        $query->addSelect([$f => DB::table('clt_snapshots as cs')->select($f)->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
+                        $query->addSelect(DB::raw("cs.{$f} as {$f}"));
                     }
                 }
                 if (in_array('clt_consultado_em', $columnsForExport, true)) {
-                    $query->addSelect(['clt_consultado_em' => DB::table('clt_snapshots as cs')->select('consulted_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
+                    $query->addSelect(DB::raw('cs.consulted_at as clt_consultado_em'));
                 }
                 if (in_array('clt_dados_atualizados_em', $columnsForExport, true)) {
-                    $query->addSelect(['clt_dados_atualizados_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1)]);
+                    $query->addSelect(DB::raw('cs.updated_at as clt_dados_atualizados_em'));
                 }
             }
         } else {
             // ====== LISTA (API) ======
             $query = Lead::query()->select('leads.*');
+
+            if ($needCltJoin) {
+                $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
+            }
+            if ($needFgtsJoin) {
+                $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
+            }
 
             if ($mode === 'fgts') {
                 $query->withCount('contracts');
@@ -209,42 +226,30 @@ class LeadFilter
                 ]);
 
                 if ($needFgtsAuthorizedCol) {
-                    $query->addSelect([
-                        'fgts_off_authorized' => DB::table('fgts_off_snapshots as fos')
-                            ->select('authorized')
-                            ->whereColumn('fos.cpf', 'leads.cpf')
-                            ->limit(1),
-                    ]);
+                    $query->addSelect(DB::raw('fos.authorized as fgts_off_authorized'));
                 }
                 if ($needFgtsConsultadoCol) {
-                    $query->addSelect([
-                        'fgts_off_consultado_em' => DB::table('fgts_off_snapshots as fos')
-                            ->select('updated_at')
-                            ->whereColumn('fos.cpf', 'leads.cpf')
-                            ->limit(1),
-                    ]);
+                    $query->addSelect(DB::raw('fos.updated_at as fgts_off_consultado_em'));
                 }
             } else {
                 // ===== MODO CLT
                 $query->addSelect([
-                    'elegivel' => DB::table('clt_snapshots as cs')->select('elegivel')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'idade' => DB::table('clt_snapshots as cs')->select('idade')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'sexo' => DB::table('clt_snapshots as cs')->select('sexo')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'data_admissao' => DB::table('clt_snapshots as cs')->select('data_admissao')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'meses_admissao' => DB::table('clt_snapshots as cs')->select('meses_admissao')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'valor_renda' => DB::table('clt_snapshots as cs')->select('valor_renda')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'valor_base_margem' => DB::table('clt_snapshots as cs')->select('valor_base_margem')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'margem_disponivel' => DB::table('clt_snapshots as cs')->select('margem_disponivel')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'valor_max_prestacao' => DB::table('clt_snapshots as cs')->select('valor_max_prestacao')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'categoria_trabalhador_codigo' => DB::table('clt_snapshots as cs')->select('categoria_trabalhador_codigo')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'inicio_atividade_empregador' => DB::table('clt_snapshots as cs')->select('inicio_atividade_empregador')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'qtd_emprestimos_ativos_suspensos' => DB::table('clt_snapshots as cs')->select('qtd_emprestimos_ativos_suspensos')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'emprestimos_legados' => DB::table('clt_snapshots as cs')->select('emprestimos_legados')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'not_found' => DB::table('clt_snapshots as cs')->select('not_found')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-
-                    // datas separadas
-                    'clt_consultado_em' => DB::table('clt_snapshots as cs')->select('consulted_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
-                    'clt_dados_atualizados_em' => DB::table('clt_snapshots as cs')->select('updated_at')->whereColumn('cs.cpf', 'leads.cpf')->limit(1),
+                    DB::raw('cs.elegivel as elegivel'),
+                    DB::raw('cs.idade as idade'),
+                    DB::raw('cs.sexo as sexo'),
+                    DB::raw('cs.data_admissao as data_admissao'),
+                    DB::raw('cs.meses_admissao as meses_admissao'),
+                    DB::raw('cs.valor_renda as valor_renda'),
+                    DB::raw('cs.valor_base_margem as valor_base_margem'),
+                    DB::raw('cs.margem_disponivel as margem_disponivel'),
+                    DB::raw('cs.valor_max_prestacao as valor_max_prestacao'),
+                    DB::raw('cs.categoria_trabalhador_codigo as categoria_trabalhador_codigo'),
+                    DB::raw('cs.inicio_atividade_empregador as inicio_atividade_empregador'),
+                    DB::raw('cs.qtd_emprestimos_ativos_suspensos as qtd_emprestimos_ativos_suspensos'),
+                    DB::raw('cs.emprestimos_legados as emprestimos_legados'),
+                    DB::raw('cs.not_found as not_found'),
+                    DB::raw('cs.consulted_at as clt_consultado_em'),
+                    DB::raw('cs.updated_at as clt_dados_atualizados_em'),
 
                     'ultima_origem_cadastral' => function ($q) {
                         $q->select('ij.origin')
@@ -267,19 +272,19 @@ class LeadFilter
             $digits = preg_replace('/\D+/', '', $termRaw) ?: '';
 
             $query->where(function (Builder $q) use ($termLike, $digits) {
-                $q->where('nome', 'like', $termLike)
-                    ->orWhere('fone1', 'like', $termLike)
-                    ->orWhere('fone2', 'like', $termLike)
-                    ->orWhere('fone3', 'like', $termLike)
-                    ->orWhere('fone4', 'like', $termLike);
+                $q->where('leads.nome', 'like', $termLike)
+                    ->orWhere('leads.fone1', 'like', $termLike)
+                    ->orWhere('leads.fone2', 'like', $termLike)
+                    ->orWhere('leads.fone3', 'like', $termLike)
+                    ->orWhere('leads.fone4', 'like', $termLike);
 
                 if ($digits !== '') {
                     $norm = Cpf::normalize($digits);
                     if ($norm)
-                        $q->orWhere('cpf', $norm);
-                    $q->orWhere('cpf', 'like', '%' . $digits . '%');
+                        $q->orWhere('leads.cpf', $norm);
+                    $q->orWhere('leads.cpf', 'like', '%' . $digits . '%');
                 } else {
-                    $q->orWhere('cpf', 'like', $termLike);
+                    $q->orWhere('leads.cpf', 'like', $termLike);
                 }
             });
         }
@@ -288,7 +293,7 @@ class LeadFilter
         if ($mode === 'fgts') {
             $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string) $r->motivos)) : [];
             if ($motivos)
-                $query->whereIn('consulta', $motivos);
+                $query->whereIn('leads.consulta', $motivos);
 
             $origHig = $r->filled('origens_hig') ? (is_array($r->origens_hig) ? $r->origens_hig : explode(',', (string) $r->origens_hig)) : [];
             if ($origHig) {
@@ -346,19 +351,15 @@ class LeadFilter
         if ($r->filled('date_from') || $r->filled('date_to')) {
             $from = $r->input('date_from', '1900-01-01');
             $to = $r->input('date_to', now()->toDateString());
-            $query->whereBetween('data_atualizacao', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+            $query->whereBetween('leads.data_atualizacao', ["{$from} 00:00:00", "{$to} 23:59:59"]);
         }
 
-        self::applyMassFilter($query, $r, 'cpf', ['cpf']);
-        self::applyMassFilter($query, $r, 'names', ['nome']);
-        self::applyMassFilter($query, $r, 'phones', ['fone1', 'fone2', 'fone3', 'fone4']);
+        self::applyMassFilter($query, $r, 'cpf', ['leads.cpf']);
+        self::applyMassFilter($query, $r, 'names', ['leads.nome']);
+        self::applyMassFilter($query, $r, 'phones', ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4']);
 
         $birth = $r->filled('birth_month') ? (is_array($r->birth_month) ? $r->birth_month : explode(',', (string) $r->birth_month)) : [];
-        if ($birth) {
-            $months = array_values(array_filter(array_map(fn($m) => ($m = (int) $m) >= 1 && $m <= 12 ? $m : null, $birth)));
-            if ($months)
-                $query->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
-        }
+        self::applyBirthMonthFilter($query, $birth);
 
         // ======== CLT – filtros específicos ========
         if ($mode === 'clt') {
@@ -383,109 +384,118 @@ class LeadFilter
                 $r->filled('clt_tem_legados');
 
             if ($consultado === 'nao') {
-                $query->whereNotIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('clt_snapshots');
-                });
+                $query->whereNull('cs.cpf');
             } elseif ($consultado === 'sim' || $hasCltFilters) {
-                $query->whereIn('leads.cpf', function ($sq) use ($r, $situacao) {
-                    $sq->from('clt_snapshots as cs')->select('cpf');
+                $query->whereNotNull('cs.cpf');
 
-                    if ($situacao !== null) {
-                        if ($situacao === 'elegivel') {
-                            $sq->where('cs.not_found', 0)->where('cs.elegivel', 1);
-                        } elseif ($situacao === 'nao_elegivel') {
-                            $sq->where('cs.not_found', 0)
-                                ->where(function ($q) {
-                                    $q->where('cs.elegivel', 0)->orWhereNull('cs.elegivel'); });
-                        } elseif ($situacao === 'nao_encontrado') {
-                            $sq->where('cs.not_found', 1);
-                        }
+                if ($situacao !== null) {
+                    if ($situacao === 'elegivel') {
+                        $query->where('cs.not_found', 0)->where('cs.elegivel', 1);
+                    } elseif ($situacao === 'nao_elegivel') {
+                        $query->where('cs.not_found', 0)
+                            ->where(function ($q) {
+                                $q->where('cs.elegivel', 0)->orWhereNull('cs.elegivel');
+                            });
+                    } elseif ($situacao === 'nao_encontrado') {
+                        $query->where('cs.not_found', 1);
+                    }
+                } else {
+                    if (($v = self::yn($r->input('clt_elegivel'))) !== null) {
+                        $query->where('cs.elegivel', $v === 'sim' ? 1 : 0);
+                    }
+                    if (($v = self::yn($r->input('clt_not_found'))) !== null) {
+                        $query->where('cs.not_found', $v === 'sim' ? 1 : 0);
+                    }
+                }
+
+                if ($r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')) {
+                    $from = $r->input('clt_consulta_from', '1900-01-01');
+                    $to = $r->input('clt_consulta_to', now()->toDateString());
+                    $query->whereBetween('cs.consulted_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                }
+
+                if ($r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')) {
+                    $from = $r->input('clt_admissao_from', '1900-01-01');
+                    $to = $r->input('clt_admissao_to', now()->toDateString());
+                    $query->whereBetween('cs.data_admissao', [$from, $to]);
+                }
+
+                if ($r->filled('clt_meses_min') || $r->filled('clt_meses_max')) {
+                    $min = (int) $r->input('clt_meses_min', 0);
+                    $max = (int) $r->input('clt_meses_max', PHP_INT_MAX);
+                    $query->whereBetween('cs.meses_admissao', [$min, $max]);
+                }
+
+                if ($r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to')) {
+                    $from = $r->input('clt_inicio_empregador_from', '1900-01-01');
+                    $to = $r->input('clt_inicio_empregador_to', now()->toDateString());
+                    $query->whereBetween('cs.inicio_atividade_empregador', [$from, $to]);
+                }
+
+                if ($r->filled('clt_categoria_codigos')) {
+                    $raw = is_array($r->clt_categoria_codigos)
+                        ? $r->clt_categoria_codigos
+                        : preg_split('/[\s,;]+/', (string) $r->clt_categoria_codigos);
+                    $codes = array_values(array_filter(array_unique(array_map('trim', $raw)), fn($v) => $v !== ''));
+                    if ($codes) {
+                        $query->whereIn('cs.categoria_trabalhador_codigo', $codes);
+                    }
+                }
+
+                if ($r->filled('clt_idade_min') || $r->filled('clt_idade_max')) {
+                    $min = (int) $r->input('clt_idade_min', 0);
+                    $max = (int) $r->input('clt_idade_max', 200);
+                    $query->whereBetween('cs.idade', [$min, $max]);
+                }
+
+                if ($r->filled('clt_sexo')) {
+                    $raw = is_array($r->clt_sexo) ? $r->clt_sexo : [$r->clt_sexo];
+                    $vals = array_map(fn($s) => mb_strtoupper(trim((string) $s)), $raw);
+                    $map = [];
+                    foreach ($vals as $v) {
+                        if ($v === 'M' || $v === 'MASCULINO')
+                            $map[] = ['M', 'Masculino'];
+                        if ($v === 'F' || $v === 'FEMININO')
+                            $map[] = ['F', 'Feminino'];
+                    }
+                    $flat = array_values(array_unique(array_merge(...($map ?: [[]]))));
+                    if ($flat) {
+                        $query->whereIn('cs.sexo', $flat);
+                    }
+                }
+
+                self::range($query, $r, 'clt_renda_min', 'clt_renda_max', 'cs.valor_renda');
+                self::range($query, $r, 'clt_base_min', 'clt_base_max', 'cs.valor_base_margem');
+                self::range($query, $r, 'clt_margem_min', 'clt_margem_max', 'cs.margem_disponivel');
+                self::range($query, $r, 'clt_prestacao_min', 'clt_prestacao_max', 'cs.valor_max_prestacao');
+
+                if ($r->filled('clt_ativos_min') || $r->filled('clt_ativos_max')) {
+                    $min = (int) $r->input('clt_ativos_min', 0);
+                    $max = (int) $r->input('clt_ativos_max', PHP_INT_MAX);
+                    $query->whereBetween('cs.qtd_emprestimos_ativos_suspensos', [$min, $max]);
+                }
+
+                if (($v = self::yn($r->input('clt_tem_ativos'))) !== null) {
+                    if ($v === 'sim') {
+                        $query->where('cs.qtd_emprestimos_ativos_suspensos', '>', 0);
                     } else {
-                        if (($v = self::yn($r->input('clt_elegivel'))) !== null) {
-                            $sq->where('cs.elegivel', $v === 'sim' ? 1 : 0);
-                        }
-                        if (($v = self::yn($r->input('clt_not_found'))) !== null) {
-                            $sq->where('cs.not_found', $v === 'sim' ? 1 : 0);
-                        }
+                        $query->where(function ($q) {
+                            $q->whereNull('cs.qtd_emprestimos_ativos_suspensos')
+                                ->orWhere('cs.qtd_emprestimos_ativos_suspensos', '=', 0);
+                        });
                     }
+                }
 
-                    // AGORA filtra por quando NÓS consultamos
-                    if ($r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')) {
-                        $from = $r->input('clt_consulta_from', '1900-01-01');
-                        $to = $r->input('clt_consulta_to', now()->toDateString());
-                        $sq->whereBetween('cs.consulted_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                if (($v = self::yn($r->input('clt_tem_legados'))) !== null) {
+                    if ($v === 'sim') {
+                        $query->where('cs.emprestimos_legados', '=', 1);
+                    } else {
+                        $query->where(function ($q) {
+                            $q->whereNull('cs.emprestimos_legados')
+                                ->orWhere('cs.emprestimos_legados', '=', 0);
+                        });
                     }
-
-                    if ($r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')) {
-                        $from = $r->input('clt_admissao_from', '1900-01-01');
-                        $to = $r->input('clt_admissao_to', now()->toDateString());
-                        $sq->whereBetween('cs.data_admissao', [$from, $to]);
-                    }
-                    if ($r->filled('clt_meses_min') || $r->filled('clt_meses_max')) {
-                        $min = (int) $r->input('clt_meses_min', 0);
-                        $max = (int) $r->input('clt_meses_max', PHP_INT_MAX);
-                        $sq->whereBetween('cs.meses_admissao', [$min, $max]);
-                    }
-                    if ($r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to')) {
-                        $from = $r->input('clt_inicio_empregador_from', '1900-01-01');
-                        $to = $r->input('clt_inicio_empregador_to', now()->toDateString());
-                        $sq->whereBetween('cs.inicio_atividade_empregador', [$from, $to]);
-                    }
-                    if ($r->filled('clt_categoria_codigos')) {
-                        $raw = is_array($r->clt_categoria_codigos)
-                            ? $r->clt_categoria_codigos
-                            : preg_split('/[\s,;]+/', (string) $r->clt_categoria_codigos);
-                        $codes = array_values(array_filter(array_unique(array_map('trim', $raw)), fn($v) => $v !== ''));
-                        if ($codes)
-                            $sq->whereIn('cs.categoria_trabalhador_codigo', $codes);
-                    }
-
-                    if ($r->filled('clt_idade_min') || $r->filled('clt_idade_max')) {
-                        $min = (int) $r->input('clt_idade_min', 0);
-                        $max = (int) $r->input('clt_idade_max', 200);
-                        $sq->whereBetween('cs.idade', [$min, $max]);
-                    }
-                    if ($r->filled('clt_sexo')) {
-                        $raw = is_array($r->clt_sexo) ? $r->clt_sexo : [$r->clt_sexo];
-                        $vals = array_map(fn($s) => mb_strtoupper(trim((string) $s)), $raw);
-                        $map = [];
-                        foreach ($vals as $v) {
-                            if ($v === 'M' || $v === 'MASCULINO')
-                                $map[] = ['M', 'Masculino'];
-                            if ($v === 'F' || $v === 'FEMININO')
-                                $map[] = ['F', 'Feminino'];
-                        }
-                        $flat = array_values(array_unique(array_merge(...($map ?: [[]]))));
-                        if ($flat)
-                            $sq->whereIn('cs.sexo', $flat);
-                    }
-
-                    self::range($sq, $r, 'clt_renda_min', 'clt_renda_max', 'cs.valor_renda');
-                    self::range($sq, $r, 'clt_base_min', 'clt_base_max', 'cs.valor_base_margem');
-                    self::range($sq, $r, 'clt_margem_min', 'clt_margem_max', 'cs.margem_disponivel');
-                    self::range($sq, $r, 'clt_prestacao_min', 'clt_prestacao_max', 'cs.valor_max_prestacao');
-
-                    if ($r->filled('clt_ativos_min') || $r->filled('clt_ativos_max')) {
-                        $min = (int) $r->input('clt_ativos_min', 0);
-                        $max = (int) $r->input('clt_ativos_max', PHP_INT_MAX);
-                        $sq->whereBetween('cs.qtd_emprestimos_ativos_suspensos', [$min, $max]);
-                    }
-                    if (($v = self::yn($r->input('clt_tem_ativos'))) !== null) {
-                        if ($v === 'sim')
-                            $sq->where('cs.qtd_emprestimos_ativos_suspensos', '>', 0);
-                        else
-                            $sq->where(function ($q) {
-                                $q->whereNull('cs.qtd_emprestimos_ativos_suspensos')->orWhere('cs.qtd_emprestimos_ativos_suspensos', '=', 0); });
-                    }
-                    if (($v = self::yn($r->input('clt_tem_legados'))) !== null) {
-                        if ($v === 'sim') {
-                            $sq->where('cs.emprestimos_legados', '=', 1);
-                        } else {
-                            $sq->where(function ($q) {
-                                $q->whereNull('cs.emprestimos_legados')->orWhere('cs.emprestimos_legados', '=', 0); });
-                        }
-                    }
-                });
+                }
             }
         }
 
@@ -495,29 +505,24 @@ class LeadFilter
             $hasFgtsDateFilter = $r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to');
 
             if ($fgtsStatus === 'autorizado') {
-                $query->whereIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 1); });
+                $query->where('fos.authorized', 1);
             } elseif ($fgtsStatus === 'nao_autorizado') {
-                $query->whereIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots')->where('authorized', 0); });
+                $query->where('fos.authorized', 0);
             } elseif ($fgtsStatus === 'nao_consultado') {
-                $query->whereNotIn('leads.cpf', function ($sq) {
-                    $sq->select('cpf')->from('fgts_off_snapshots'); });
+                $query->whereNull('fos.cpf');
             }
 
             if ($hasFgtsDateFilter) {
                 $from = $r->input('fgts_consulta_from', '1900-01-01');
                 $to = $r->input('fgts_consulta_to', now()->toDateString());
-                $query->whereIn('leads.cpf', function ($sq) use ($from, $to) {
-                    $sq->select('cpf')->from('fgts_off_snapshots')->whereBetween('updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
-                });
+                $query->whereBetween('fos.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
             }
         }
 
         // ordem final
         return $exportMode
             ? $query->orderBy('leads.id', 'asc')
-            : $query->latest('updated_at');
+            : $query->orderByDesc('leads.updated_at');
     }
 
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
@@ -528,16 +533,43 @@ class LeadFilter
         $input = $r->input($key);
         $raw = is_array($input) ? $input : preg_split('/[\s,;]+/', (string) $input);
 
-        $raw = array_values(array_filter($raw, fn($v) => $v !== '' && $v !== null));
+        $raw = array_values(array_filter(
+            array_map(fn($v) => trim((string) $v), $raw),
+            fn($v) => $v !== ''
+        ));
         if (empty($raw))
             return;
 
         if ($key === 'names') {
-            $values = array_values(array_unique($raw));
-            $q->where(function ($sub) use ($columns, $values) {
-                foreach ($columns as $col) {
-                    foreach ($values as $v)
-                        $sub->orWhere($col, 'like', "%{$v}%");
+            $values = [];
+            foreach ($raw as $v) {
+                $normalized = preg_replace('/\s+/', ' ', $v);
+                if ($normalized === null)
+                    continue;
+                if (mb_strlen($normalized) < 2)
+                    continue;
+                $values[] = mb_substr($normalized, 0, 100);
+            }
+
+            $values = array_values(array_unique($values));
+            if (empty($values))
+                return;
+
+            $maxTerms = self::maxMassFilterTerms($key);
+            if (count($values) > $maxTerms) {
+                $values = array_slice($values, 0, $maxTerms);
+            }
+
+            $chunkSize = max(1, (int) config('leads.filters.mass_filter.names_chunk_size', 20));
+
+            $q->where(function (Builder $outer) use ($columns, $values, $chunkSize) {
+                foreach (array_chunk($values, $chunkSize) as $chunk) {
+                    $outer->orWhere(function (Builder $sub) use ($columns, $chunk) {
+                        foreach ($columns as $col) {
+                            foreach ($chunk as $v)
+                                $sub->orWhere($col, 'like', "%{$v}%");
+                        }
+                    });
                 }
             });
             return;
@@ -568,6 +600,11 @@ class LeadFilter
         if (empty($values))
             return;
 
+        $maxTerms = self::maxMassFilterTerms($key);
+        if (count($values) > $maxTerms) {
+            $values = array_slice($values, 0, $maxTerms);
+        }
+
         $chunkSize = 1000;
         $chunks = array_chunk($values, $chunkSize);
 
@@ -577,6 +614,90 @@ class LeadFilter
                     $sub->orWhereIn($col, $set);
             }
         });
+    }
+
+    private static function applyBirthMonthFilter(Builder $query, array $birth): void
+    {
+        if (empty($birth))
+            return;
+
+        $months = array_values(array_unique(array_filter(
+            array_map(fn($m) => ($m = (int) $m) >= 1 && $m <= 12 ? $m : null, $birth)
+        )));
+        sort($months);
+
+        if (empty($months) || count($months) === 12)
+            return;
+
+        $monthRanges = self::buildMonthRanges($months);
+        [$yearStart, $yearEnd] = self::birthMonthYearBounds();
+        if ($yearStart > $yearEnd) {
+            [$yearStart, $yearEnd] = [$yearEnd, $yearStart];
+        }
+
+        $query->where(function (Builder $outer) use ($monthRanges, $yearStart, $yearEnd) {
+            for ($year = $yearStart; $year <= $yearEnd; $year++) {
+                foreach ($monthRanges as [$monthStart, $monthEnd]) {
+                    $rangeStart = sprintf('%04d-%02d-01', $year, $monthStart);
+                    $rangeEnd = $monthEnd === 12
+                        ? sprintf('%04d-01-01', $year + 1)
+                        : sprintf('%04d-%02d-01', $year, $monthEnd + 1);
+
+                    $outer->orWhere(function (Builder $rangeQuery) use ($rangeStart, $rangeEnd) {
+                        $rangeQuery->where('leads.data_nascimento', '>=', $rangeStart)
+                            ->where('leads.data_nascimento', '<', $rangeEnd);
+                    });
+                }
+            }
+        });
+    }
+
+    private static function buildMonthRanges(array $months): array
+    {
+        if (empty($months))
+            return [];
+
+        $ranges = [];
+        $start = $months[0];
+        $end = $months[0];
+
+        foreach (array_slice($months, 1) as $month) {
+            if ($month === $end + 1) {
+                $end = $month;
+                continue;
+            }
+
+            $ranges[] = [$start, $end];
+            $start = $month;
+            $end = $month;
+        }
+
+        $ranges[] = [$start, $end];
+        return $ranges;
+    }
+
+    private static function birthMonthYearBounds(): array
+    {
+        $currentYear = (int) now()->format('Y');
+        $yearStart = (int) config('leads.filters.birth_month.year_start', 1900);
+        $yearEnd = (int) config('leads.filters.birth_month.year_end', $currentYear);
+
+        if ($yearStart < 1)
+            $yearStart = 1;
+        if ($yearEnd < 1)
+            $yearEnd = $currentYear;
+
+        return [$yearStart, $yearEnd];
+    }
+
+    private static function maxMassFilterTerms(string $key): int
+    {
+        return match ($key) {
+            'names' => max(1, (int) config('leads.filters.mass_filter.names_max_terms', 120)),
+            'cpf' => max(1, (int) config('leads.filters.mass_filter.cpf_max_terms', 5000)),
+            'phones' => max(1, (int) config('leads.filters.mass_filter.phones_max_terms', 5000)),
+            default => max(1, (int) config('leads.filters.mass_filter.default_max_terms', 1000)),
+        };
     }
 
     private static function range($sq, Request $r, string $minKey, string $maxKey, string $column): void

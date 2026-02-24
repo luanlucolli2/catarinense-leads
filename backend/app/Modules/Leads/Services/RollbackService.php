@@ -27,108 +27,202 @@ class RollbackService
      */
     public function rollback(ImportJob $job): void
     {
-        DB::transaction(function () use ($job) {
-            // -----------------------------------------------
-            // 0) Descobrir leads que foram INSERIDOS no job
-            // -----------------------------------------------
-            $insertedByBackup = LeadBackup::where('import_job_id', $job->id)
-                ->where('was_new', true)
-                ->pluck('lead_id')
-                ->all();
+        $chunkSize = max(100, (int) config('leads.rollback.chunk_size', 1000));
 
-            // fallback: caso exista algum lead "insert" sem backup por algum motivo
-            $insertedByPivot = LeadImport::where('import_job_id', $job->id)
-                ->where('action', 'insert')
-                ->pluck('lead_id')
-                ->all();
+        // 0..2) Remove dependências e leads inseridos no job em lotes pequenos.
+        $this->rollbackInsertedLeadsFromBackups($job->id, $chunkSize);
+        $this->rollbackInsertedLeadsFromPivotFallback($job->id, $chunkSize);
 
-            $leadIdsToDelete = array_values(array_unique(array_merge($insertedByBackup, $insertedByPivot)));
+        // 3) Restaura dados dos leads atualizados em batch (upsert por id).
+        $this->restoreUpdatedLeads($job->id, $chunkSize);
 
-            // -----------------------------------------------
-            // 1) Remover dependências dos leads inseridos
-            //    (ordem importa p/ não violar FKs)
-            // -----------------------------------------------
-            if (!empty($leadIdsToDelete)) {
-                // 1.1) remover pivot do próprio job (e de outros por segurança, se existirem)
-                LeadImport::whereIn('lead_id', $leadIdsToDelete)->delete();
+        // 4) Remove contratos inseridos em leads pré-existentes.
+        $this->rollbackInsertedContracts($job->id, $chunkSize);
 
-                // 1.2) remover contratos associados a esses leads
-                LeadContract::whereIn('lead_id', $leadIdsToDelete)->delete();
-            }
+        // 5) Remove vendors criados que ficaram órfãos.
+        $this->rollbackOrphanVendors($job->id, $chunkSize);
 
-            // -----------------------------------------------
-            // 2) Deletar leads inseridos
-            // -----------------------------------------------
-            if (!empty($leadIdsToDelete)) {
-                Lead::whereIn('id', $leadIdsToDelete)->delete();
-            }
-
-            // -----------------------------------------------
-            // 3) Restaurar dados dos leads ATUALIZADOS
-            // -----------------------------------------------
-            $backups = LeadBackup::where('import_job_id', $job->id)
-                ->where('was_new', false)
-                ->get();
-
-            foreach ($backups as $bkp) {
-                Lead::whereKey($bkp->lead_id)->update([
-                    'cpf'              => $bkp->cpf,
-                    'nome'             => $bkp->nome,
-                    'data_nascimento'  => $bkp->data_nascimento,
-                    'fone1'            => $bkp->fone1,
-                    'classe_fone1'     => $bkp->classe_fone1,
-                    'fone2'            => $bkp->fone2,
-                    'classe_fone2'     => $bkp->classe_fone2,
-                    'fone3'            => $bkp->fone3,
-                    'classe_fone3'     => $bkp->classe_fone3,
-                    'fone4'            => $bkp->fone4,
-                    'classe_fone4'     => $bkp->classe_fone4,
-                    'consulta'         => $bkp->consulta,
-                    'data_atualizacao' => $bkp->data_atualizacao,
-                    'saldo'            => $bkp->saldo,
-                    'libera'           => $bkp->libera,
-                    'updated_at'       => now(),
-                ]);
-            }
-
-            // -----------------------------------------------
-            // 4) Remover contratos inseridos (de leads pré-existentes)
-            // -----------------------------------------------
-            $contractIdsToDelete = LeadContractBackup::where('import_job_id', $job->id)
-                ->where('action', 'insert')
-                ->pluck('lead_contract_id')
-                ->all();
-
-            if (!empty($contractIdsToDelete)) {
-                LeadContract::whereIn('id', $contractIdsToDelete)->delete();
-            }
-
-            // -----------------------------------------------
-            // 5) Remover vendors criados no job que ficaram sem contratos
-            // -----------------------------------------------
-            $vendorIds = VendorBackup::where('import_job_id', $job->id)
-                ->pluck('vendor_id')
-                ->all();
-
-            if (!empty($vendorIds)) {
-                Vendor::whereIn('id', $vendorIds)
-                    ->doesntHave('contracts')
-                    ->delete();
-            }
-
-            // -----------------------------------------------
-            // 6) Marcar job revertido e limpar resíduos
-            // -----------------------------------------------
+        // 6) Marca job como revertido e limpa resíduos.
+        DB::transaction(function () use ($job): void {
             $job->update([
                 'status'         => 'revertido',
                 'rolled_back_at' => now(),
             ]);
 
-            // Limpa registros de pivot e backups do job (restante)
             LeadImport::where('import_job_id', $job->id)->delete();
             LeadBackup::where('import_job_id', $job->id)->delete();
             LeadContractBackup::where('import_job_id', $job->id)->delete();
             VendorBackup::where('import_job_id', $job->id)->delete();
         });
+    }
+
+    private function rollbackInsertedLeadsFromBackups(int $jobId, int $chunkSize): void
+    {
+        LeadBackup::query()
+            ->where('import_job_id', $jobId)
+            ->where('was_new', true)
+            ->select(['id', 'lead_id'])
+            ->orderBy('id')
+            ->chunkById($chunkSize, function ($rows): void {
+                $leadIds = $rows->pluck('lead_id')->filter()->unique()->values()->all();
+                $this->deleteLeadGraphByIds($leadIds);
+            }, 'id');
+    }
+
+    private function rollbackInsertedLeadsFromPivotFallback(int $jobId, int $chunkSize): void
+    {
+        DB::table('lead_imports as li')
+            ->select('li.lead_id')
+            ->where('li.import_job_id', $jobId)
+            ->where('li.action', 'insert')
+            ->whereNotExists(function ($q) use ($jobId) {
+                $q->selectRaw('1')
+                    ->from('lead_backups as lb')
+                    ->whereColumn('lb.lead_id', 'li.lead_id')
+                    ->where('lb.import_job_id', $jobId)
+                    ->where('lb.was_new', true);
+            })
+            ->orderBy('li.lead_id')
+            ->chunkById($chunkSize, function ($rows): void {
+                $leadIds = collect($rows)->pluck('lead_id')->filter()->unique()->values()->all();
+                $this->deleteLeadGraphByIds($leadIds);
+            }, 'lead_id');
+    }
+
+    private function deleteLeadGraphByIds(array $leadIds): void
+    {
+        if (empty($leadIds)) {
+            return;
+        }
+
+        DB::transaction(function () use ($leadIds): void {
+            LeadContract::whereIn('lead_id', $leadIds)->delete();
+            Lead::whereIn('id', $leadIds)->delete();
+        });
+    }
+
+    private function restoreUpdatedLeads(int $jobId, int $chunkSize): void
+    {
+        LeadBackup::query()
+            ->where('import_job_id', $jobId)
+            ->where('was_new', false)
+            ->whereNotIn('lead_id', function ($q) use ($jobId) {
+                $q->select('lead_id')
+                    ->from('lead_backups')
+                    ->where('import_job_id', $jobId)
+                    ->where('was_new', true);
+            })
+            ->select([
+                'id',
+                'lead_id',
+                'cpf',
+                'nome',
+                'data_nascimento',
+                'fone1',
+                'classe_fone1',
+                'fone2',
+                'classe_fone2',
+                'fone3',
+                'classe_fone3',
+                'fone4',
+                'classe_fone4',
+                'consulta',
+                'data_atualizacao',
+                'saldo',
+                'libera',
+            ])
+            ->orderBy('id')
+            ->chunkById($chunkSize, function ($rows): void {
+                if ($rows->isEmpty()) {
+                    return;
+                }
+
+                $now = now();
+                $payload = [];
+
+                foreach ($rows as $bkp) {
+                    if (!$bkp->lead_id) {
+                        continue;
+                    }
+
+                    $payload[] = [
+                        'id'               => $bkp->lead_id,
+                        'cpf'              => $bkp->cpf,
+                        'nome'             => $bkp->nome,
+                        'data_nascimento'  => $bkp->data_nascimento,
+                        'fone1'            => $bkp->fone1,
+                        'classe_fone1'     => $bkp->classe_fone1,
+                        'fone2'            => $bkp->fone2,
+                        'classe_fone2'     => $bkp->classe_fone2,
+                        'fone3'            => $bkp->fone3,
+                        'classe_fone3'     => $bkp->classe_fone3,
+                        'fone4'            => $bkp->fone4,
+                        'classe_fone4'     => $bkp->classe_fone4,
+                        'consulta'         => $bkp->consulta,
+                        'data_atualizacao' => $bkp->data_atualizacao,
+                        'saldo'            => $bkp->saldo,
+                        'libera'           => $bkp->libera,
+                        'updated_at'       => $now,
+                    ];
+                }
+
+                if (empty($payload)) {
+                    return;
+                }
+
+                DB::table('leads')->upsert(
+                    $payload,
+                    ['id'],
+                    [
+                        'cpf',
+                        'nome',
+                        'data_nascimento',
+                        'fone1',
+                        'classe_fone1',
+                        'fone2',
+                        'classe_fone2',
+                        'fone3',
+                        'classe_fone3',
+                        'fone4',
+                        'classe_fone4',
+                        'consulta',
+                        'data_atualizacao',
+                        'saldo',
+                        'libera',
+                        'updated_at',
+                    ]
+                );
+            }, 'id');
+    }
+
+    private function rollbackInsertedContracts(int $jobId, int $chunkSize): void
+    {
+        LeadContractBackup::query()
+            ->where('import_job_id', $jobId)
+            ->where('action', 'insert')
+            ->select(['id', 'lead_contract_id'])
+            ->orderBy('id')
+            ->chunkById($chunkSize, function ($rows): void {
+                $contractIds = $rows->pluck('lead_contract_id')->filter()->unique()->values()->all();
+                if (!empty($contractIds)) {
+                    LeadContract::whereIn('id', $contractIds)->delete();
+                }
+            }, 'id');
+    }
+
+    private function rollbackOrphanVendors(int $jobId, int $chunkSize): void
+    {
+        VendorBackup::query()
+            ->where('import_job_id', $jobId)
+            ->select(['id', 'vendor_id'])
+            ->orderBy('id')
+            ->chunkById($chunkSize, function ($rows): void {
+                $vendorIds = $rows->pluck('vendor_id')->filter()->unique()->values()->all();
+                if (!empty($vendorIds)) {
+                    Vendor::whereIn('id', $vendorIds)
+                        ->doesntHave('contracts')
+                        ->delete();
+                }
+            }, 'id');
     }
 }

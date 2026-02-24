@@ -36,6 +36,33 @@ return [
         'in_progress_statuses' => ['pendente', 'em_progresso'],
 
         'chunk_size' => 1000,
+        'db_batch_size' => (int) env('LEADS_IMPORT_DB_BATCH_SIZE', 500),
+        'max_errors_per_job' => (int) env('LEADS_IMPORT_MAX_ERRORS_PER_JOB', 5000),
+        'vendor_cache_max' => (int) env('LEADS_IMPORT_VENDOR_CACHE_MAX', 5000),
+        'pre_count_total_rows' => filter_var(env('LEADS_IMPORT_PRE_COUNT_TOTAL_ROWS', true), FILTER_VALIDATE_BOOL),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Leads - Filtros
+    |--------------------------------------------------------------------------
+    */
+    'filters' => [
+        'cache_ttl_seconds' => (int) env('LEADS_FILTERS_CACHE_TTL_SECONDS', 60),
+        'cache_key' => (string) env('LEADS_FILTERS_CACHE_KEY', 'leads:filters:v1'),
+
+        'mass_filter' => [
+            'names_max_terms' => (int) env('LEADS_FILTERS_NAMES_MAX_TERMS', 120),
+            'names_chunk_size' => (int) env('LEADS_FILTERS_NAMES_CHUNK_SIZE', 20),
+            'cpf_max_terms' => (int) env('LEADS_FILTERS_CPF_MAX_TERMS', 5000),
+            'phones_max_terms' => (int) env('LEADS_FILTERS_PHONES_MAX_TERMS', 5000),
+            'default_max_terms' => (int) env('LEADS_FILTERS_DEFAULT_MAX_TERMS', 1000),
+        ],
+
+        'birth_month' => [
+            'year_start' => (int) env('LEADS_BIRTH_MONTH_YEAR_START', 1900),
+            'year_end' => (int) env('LEADS_BIRTH_MONTH_YEAR_END', (int) date('Y')),
+        ],
     ],
 
     /*
@@ -81,4 +108,3 @@ return [
         ],
     ],
 ];
-

@@ -97,13 +97,16 @@ class ProcessLeadImportJob implements ShouldQueue
                 }
             }
 
-            // total de linhas estimado
-            try {
-                $totalRows = $this->quickTotalRows($fullPath);
-                if ($totalRows > 0 && (int)$this->importJob->total_rows !== (int)$totalRows) {
-                    $this->importJob->update(['total_rows' => (int)$totalRows]);
+            // Contagem prévia é opcional (evita uma passagem extra no arquivo em ambientes restritos).
+            if ($this->shouldPreCountTotalRows($type)) {
+                try {
+                    $totalRows = $this->quickTotalRows($fullPath);
+                    if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
+                        $this->importJob->update(['total_rows' => (int) $totalRows]);
+                    }
+                } catch (ReaderException $e) {
                 }
-            } catch (ReaderException $e) {}
+            }
 
             // importar
             $importer = match ($type) {
@@ -168,6 +171,15 @@ class ProcessLeadImportJob implements ShouldQueue
 
         $info = $readerInfo->listWorksheetInfo($fullPath);
         return max((int)(($info[0]['totalRows'] ?? 1) - 1), 0);
+    }
+
+    private function shouldPreCountTotalRows(string $type): bool
+    {
+        if ($type === 'clt') {
+            return true;
+        }
+
+        return (bool) config('leads.import.pre_count_total_rows', true);
     }
 
     private function diffMissingHeadersIndexed(array $presentByIndex, array $requiredOriginal): array
