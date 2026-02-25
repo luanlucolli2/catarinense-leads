@@ -130,7 +130,7 @@ return [
         'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
         // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
         // Mantemos por padrão apenas respostas com erro (>=400).
-        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', true),
         // Log de performance por chunk do job (verbose).
         'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
         // Log periódico de flush de spool (verbose).
