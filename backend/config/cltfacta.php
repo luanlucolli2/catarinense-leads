@@ -19,8 +19,10 @@ return [
         'pre_auth_phone_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_ATTEMPTS', 8),
         // cache da pré-autorização por CPF para reduzir chamadas repetidas entre tentativas
         'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
+        // validade persistente no banco para evitar nova autorização em consultas futuras
+        'pre_auth_persist_ttl_days' => (int) env('FACTA_PRE_AUTH_PERSIST_TTL_DAYS', 30),
         // cooldown único entre a última pré-autorização do lote e o início das consultas
-        'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 6000),
+        'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 15000),
     ],
 
     'http' => [
@@ -28,6 +30,8 @@ return [
         'connect_timeout'         => (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10),
         'retry'                   => (int) env('CLT_HTTP_RETRY', 1),
         'retry_delay_ms'          => (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
+        'transient_retry_delay_ms' => (int) env('CLT_HTTP_TRANSIENT_RETRY_DELAY_MS', 3000),
+        'transient_pause_seconds' => (int) env('CLT_HTTP_TRANSIENT_PAUSE_SECONDS', 3),
         'second_try'              => (bool) env('CLT_HTTP_SECOND_TRY', true),
         'second_timeout'          => (int) env('CLT_HTTP_TIMEOUT_SECOND', 10),
         'second_connect_timeout'  => (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', 5),
