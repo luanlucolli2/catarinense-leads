@@ -9,6 +9,8 @@ x-app-environment: &app-environment
   # Variáveis Default (Fallback)
   CLT_ON_JOB_QUEUE: 'clt-on'
   CLT_OFF_JOB_QUEUE: 'clt-off'
+  CLT_FACTA_LOG_RESPONSES: 'true'
+  CLT_FACTA_LOG_SUCCESS_RESPONSES: 'true'
   FGTS_OFF_JOB_QUEUE: 'fgts'
   CLT_PREVIEW_QUEUE: 'reports'
   V8_JOB_QUEUE: 'v8'

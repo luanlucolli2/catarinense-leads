@@ -10,12 +10,17 @@ return [
         'token_lock_ttl'  => (int) env('FACTA_TOKEN_LOCK_TTL', 10),
         'token_lock_wait' => (int) env('FACTA_TOKEN_LOCK_WAIT', 5),
         'token_ttl_skew'  => (int) env('FACTA_TOKEN_TTL_SKEW', 30),
+        'token_retry_max_attempts' => (int) env('FACTA_TOKEN_RETRY_MAX_ATTEMPTS', 8),
+        'token_retry_base_delay_ms' => (int) env('FACTA_TOKEN_RETRY_BASE_DELAY_MS', 1000),
+        'token_retry_max_delay_ms' => (int) env('FACTA_TOKEN_RETRY_MAX_DELAY_MS', 30000),
         'pre_auth_averbador' => env('FACTA_PRE_AUTH_AVERBADOR', '10010'),
         'pre_auth_nome' => env('FACTA_PRE_AUTH_NOME', 'slkjhdsjkha asdkjhd iou'),
         'pre_auth_tipo_envio' => env('FACTA_PRE_AUTH_TIPO_ENVIO', 'WHATSAPP'),
         'pre_auth_phone_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_ATTEMPTS', 8),
         // cache da pré-autorização por CPF para reduzir chamadas repetidas entre tentativas
         'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
+        // cooldown único entre a última pré-autorização do lote e o início das consultas
+        'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 6000),
     ],
 
     'http' => [
