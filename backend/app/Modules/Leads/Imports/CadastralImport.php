@@ -1,11 +1,10 @@
 <?php
 
-namespace App\Imports;
+namespace App\Modules\Leads\Imports;
 
 use App\Models\Lead;
 use App\Models\LeadContract;
 use App\Models\ImportJob;
-use App\Models\ImportError;
 use App\Models\Vendor;
 use App\Support\Cpf;
 use Maatwebsite\Excel\Concerns\ToModel;
@@ -13,8 +12,7 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\RemembersRowNumber;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterChunk;
@@ -48,6 +46,12 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
     protected BackupService $backup;
 
     protected array $vendorCache = [];
+    protected array $backedUpLeadIds = [];
+    protected array $rowBuffer = [];
+    protected array $pendingLeadImports = [];
+    protected array $pendingErrors = [];
+    protected int $errorCount = 0;
+    protected int $maxErrorsPerJob = 0;
 
     /** contador real deste chunk */
     protected int $rowsInCurrentChunk = 0;
@@ -76,134 +80,229 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             return null;
         }
 
-        try {
-            // 1) valida cpf requerido
-            $validatorCpf = Validator::make($row, ['cpfcliente' => ['required']]);
-            if ($validatorCpf->fails()) {
-                throw new ValidationException($validatorCpf);
-            }
+        $this->rowBuffer[] = [
+            'row'        => $row,
+            'row_number' => $this->getRowNumber(),
+        ];
 
-            // 2) normaliza/valida cpf
-            $cpf = Cpf::normalize($row['cpfcliente'] ?? null);
-            if (!$cpf || !Cpf::isValid($cpf)) {
-                throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
-            }
-
-            // 3) busca/cria lead
-            $lead   = Lead::firstOrNew(['cpf' => $cpf]);
-            $action = $lead->exists ? 'update' : 'insert';
-
-            // 4) insert exige nome
-            if ($action === 'insert') {
-                $validatorNome = Validator::make($row, ['nomecliente' => ['required', 'string']]);
-                if ($validatorNome->fails()) {
-                    throw new ValidationException($validatorNome);
-                }
-            }
-
-            // 5) backup antes de atualizar
-            if ($action === 'update' && !$lead->backups()->where('import_job_id', $this->importJob->id)->exists()) {
-                $this->backup->backupExistingLead($lead, $this->importJob);
-            }
-
-            // 6) normalização de campos
-            $normalizedNameForInsert = null;
-            if ($action === 'insert') {
-                $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
-                if ($normalizedNameForInsert === null) {
-                    throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
-                }
-            }
-
-            $dataFromSheet = [
-                'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
-                'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
-
-                'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
-                'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
-
-                'fone2'            => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
-                'classe_fone2'     => $this->normalizeClasse($row['classefone2'] ?? null),
-
-                'fone3'            => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
-                'classe_fone3'     => $this->normalizeClasse($row['classefone3'] ?? null),
-
-                'fone4'            => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
-                'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
-            ];
-
-            // 7) merge de telefones (com prioridades Carteira > Atendimento IA > demais)
-            $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
-            foreach ($mergedPhones as $field => $value) {
-                $dataFromSheet[$field] = $value;
-            }
-
-            // 8) aplica somente campos não vazios
-            foreach ($dataFromSheet as $field => $value) {
-                if (!is_null($value) && $value !== '') {
-                    $lead->{$field} = $value;
-                }
-            }
-            $lead->save();
-
-            // 9) backup de lead novo
-            if ($action === 'insert') {
-                $this->backup->backupNewLead($lead, $this->importJob);
-            }
-
-            // 10) contratos + vendedor
-            if (!empty($row['datacontrato'])) {
-                $contractDate = $this->transformDate($row['datacontrato']);
-                if (!$contractDate) {
-                    throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
-                }
-
-                $vendorId = null;
-                if (!empty($row['vendedor'])) {
-                    $cleanedVendorName = $this->normalizeName($row['vendedor']);
-                    $vendorId = $this->resolveVendorId($cleanedVendorName);
-                }
-
-                $contract = LeadContract::updateOrCreate(
-                    ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
-                    ['vendor_id' => $vendorId]
-                );
-
-                if ($contract->wasRecentlyCreated) {
-                    $this->backup->backupInsertedContract($contract, $this->importJob);
-                }
-            }
-
-            // 11) pivot idempotente
-            DB::table('lead_imports')->insertOrIgnore([[
-                'lead_id'       => $lead->id,
-                'import_job_id' => $this->importJob->id,
-                'action'        => $action,
-                'created_at'    => now(),
-            ]]);
-
-        } catch (\Exception $e) {
-            $columnName = 'Geral';
-            if ($e instanceof ValidationException) {
-                $columnName = array_key_first($e->errors());
-            } elseif ($e->getPrevious()) {
-                $columnName = $e->getPrevious()->getMessage();
-            }
-
-            ImportError::create([
-                'import_job_id' => $this->importJob->id,
-                'row_number'    => $this->getRowNumber(),
-                'column_name'   => $columnName,
-                'error_message' => $e->getMessage(),
-            ]);
+        if (count($this->rowBuffer) >= $this->dbBatchSize()) {
+            $this->flushRowBuffer();
         }
 
         return null;
     }
 
+    private function dbBatchSize(): int
+    {
+        return max(50, (int) config('leads.import.db_batch_size', 500));
+    }
+
+    private function maxErrorsPerJob(): int
+    {
+        return max(1, (int) config('leads.import.max_errors_per_job', 5000));
+    }
+
+    private function flushRowBuffer(): void
+    {
+        if (empty($this->rowBuffer)) {
+            return;
+        }
+
+        $buffer = $this->rowBuffer;
+        $this->rowBuffer = [];
+
+        $cpfs = [];
+        foreach ($buffer as $item) {
+            $cpf = Cpf::normalize($item['row']['cpfcliente'] ?? null);
+            if ($cpf !== null) {
+                $cpfs[$cpf] = true;
+            }
+        }
+
+        /** @var Collection<string, Lead> $leadsByCpf */
+        $leadsByCpf = empty($cpfs)
+            ? collect()
+            : Lead::query()->whereIn('cpf', array_keys($cpfs))->get()->keyBy('cpf');
+
+        foreach ($buffer as $item) {
+            $row = $item['row'];
+            $rowNumber = (int) $item['row_number'];
+
+            try {
+                $this->processBufferedRow($row, $leadsByCpf);
+            } catch (\Throwable $e) {
+                $columnName = $e->getPrevious() ? $e->getPrevious()->getMessage() : 'Geral';
+                $this->queueImportError($rowNumber, $columnName, $e->getMessage());
+            }
+        }
+
+        $this->flushQueuedLeadImports();
+        $this->flushQueuedErrors();
+
+        // mantém cache sob controle em arquivos com alta cardinalidade de vendedores.
+        if (count($this->vendorCache) > max(100, (int) config('leads.import.vendor_cache_max', 5000))) {
+            $this->vendorCache = [];
+        }
+    }
+
+    private function processBufferedRow(array $row, Collection $leadsByCpf): void
+    {
+        $cpf = Cpf::normalize($row['cpfcliente'] ?? null);
+        if (!$cpf) {
+            throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
+        }
+        if (!Cpf::isValid($cpf)) {
+            throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
+        }
+
+        /** @var Lead|null $lead */
+        $lead = $leadsByCpf->get($cpf);
+        if (!$lead) {
+            $lead = new Lead(['cpf' => $cpf]);
+            $leadsByCpf->put($cpf, $lead);
+        }
+
+        $action = $lead->exists ? 'update' : 'insert';
+
+        // backup apenas uma vez por lead atualizado neste job.
+        if ($action === 'update' && !isset($this->backedUpLeadIds[$lead->id])) {
+            $this->backup->backupExistingLead($lead, $this->importJob);
+            $this->backedUpLeadIds[$lead->id] = true;
+        }
+
+        $normalizedNameForInsert = null;
+        if ($action === 'insert') {
+            $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
+            if ($normalizedNameForInsert === null) {
+                throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
+            }
+        }
+
+        $dataFromSheet = [
+            'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
+            'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
+            'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
+            'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
+            'fone2'            => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
+            'classe_fone2'     => $this->normalizeClasse($row['classefone2'] ?? null),
+            'fone3'            => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
+            'classe_fone3'     => $this->normalizeClasse($row['classefone3'] ?? null),
+            'fone4'            => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
+            'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
+        ];
+
+        $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
+        foreach ($mergedPhones as $field => $value) {
+            $dataFromSheet[$field] = $value;
+        }
+
+        foreach ($dataFromSheet as $field => $value) {
+            if (!is_null($value) && $value !== '') {
+                $lead->{$field} = $value;
+            }
+        }
+
+        $lead->save();
+
+        if ($action === 'insert') {
+            $this->backup->backupNewLead($lead, $this->importJob);
+            $this->backedUpLeadIds[$lead->id] = true;
+        }
+
+        if (!empty($row['datacontrato'])) {
+            $contractDate = $this->transformDate($row['datacontrato']);
+            if (!$contractDate) {
+                throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
+            }
+
+            $vendorId = null;
+            if (!empty($row['vendedor'])) {
+                $cleanedVendorName = $this->normalizeName($row['vendedor']);
+                if ($cleanedVendorName === null) {
+                    throw new \Exception("Vendedor inválido.", 0, new \Exception('vendedor'));
+                }
+                $vendorId = $this->resolveVendorId($cleanedVendorName);
+            }
+
+            $contract = LeadContract::updateOrCreate(
+                ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
+                ['vendor_id' => $vendorId]
+            );
+
+            if ($contract->wasRecentlyCreated) {
+                $this->backup->backupInsertedContract($contract, $this->importJob);
+            }
+        }
+
+        $this->queueLeadImport((int) $lead->id, $action);
+    }
+
+    private function queueLeadImport(int $leadId, string $action): void
+    {
+        if (isset($this->pendingLeadImports[$leadId])) {
+            return;
+        }
+
+        $this->pendingLeadImports[$leadId] = [
+            'lead_id'       => $leadId,
+            'import_job_id' => $this->importJob->id,
+            'action'        => $action,
+            'created_at'    => now(),
+        ];
+
+        if (count($this->pendingLeadImports) >= $this->dbBatchSize()) {
+            $this->flushQueuedLeadImports();
+        }
+    }
+
+    private function flushQueuedLeadImports(): void
+    {
+        if (empty($this->pendingLeadImports)) {
+            return;
+        }
+
+        DB::table('lead_imports')->insertOrIgnore(array_values($this->pendingLeadImports));
+        $this->pendingLeadImports = [];
+    }
+
+    private function queueImportError(int $rowNumber, string $columnName, string $message): void
+    {
+        if ($this->maxErrorsPerJob > 0 && $this->errorCount >= $this->maxErrorsPerJob) {
+            return;
+        }
+
+        $now = now();
+        $this->pendingErrors[] = [
+            'import_job_id' => $this->importJob->id,
+            'row_number'    => $rowNumber,
+            'column_name'   => $columnName,
+            'error_message' => $message,
+            'created_at'    => $now,
+            'updated_at'    => $now,
+        ];
+        $this->errorCount++;
+
+        if (count($this->pendingErrors) >= $this->dbBatchSize()) {
+            $this->flushQueuedErrors();
+        }
+    }
+
+    private function flushQueuedErrors(): void
+    {
+        if (empty($this->pendingErrors)) {
+            return;
+        }
+
+        foreach (array_chunk($this->pendingErrors, $this->dbBatchSize()) as $chunk) {
+            DB::table('import_errors')->insert($chunk);
+        }
+
+        $this->pendingErrors = [];
+    }
+
     public function chunkSize(): int
     {
-        return 1000;
+        return max(1, (int) config('leads.import.chunk_size', 1000));
     }
 
     private function transformDate($value): ?string
@@ -377,9 +476,19 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                 // limpa backups antigos no início do import
                 $this->backup->purgeOldBackups();
                 $this->rowsInCurrentChunk = 0;
+                $this->rowBuffer = [];
+                $this->pendingLeadImports = [];
+                $this->pendingErrors = [];
+                $this->backedUpLeadIds = [];
+                $this->maxErrorsPerJob = $this->maxErrorsPerJob();
+                $this->errorCount = (int) DB::table('import_errors')
+                    ->where('import_job_id', $this->importJob->id)
+                    ->count();
             },
 
             AfterChunk::class => function () {
+                $this->flushRowBuffer();
+
                 if ($this->rowsInCurrentChunk <= 0) {
                     return;
                 }
@@ -387,16 +496,31 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
                 DB::table('import_jobs')
                     ->where('id', $this->importJob->id)
                     ->update([
-                        'processed_rows' => DB::raw('LEAST(processed_rows + ' . (int)$this->rowsInCurrentChunk . ', total_rows)')
+                        'processed_rows' => DB::raw(
+                            'CASE
+                                WHEN total_rows > 0
+                                    THEN LEAST(processed_rows + ' . (int) $this->rowsInCurrentChunk . ', total_rows)
+                                ELSE processed_rows + ' . (int) $this->rowsInCurrentChunk . '
+                             END'
+                        )
                     ]);
 
                 $this->rowsInCurrentChunk = 0;
             },
 
             AfterImport::class => function () {
+                $this->flushRowBuffer();
                 $this->rowsInCurrentChunk = 0;
+                $snapshot = DB::table('import_jobs')
+                    ->where('id', $this->importJob->id)
+                    ->first(['processed_rows', 'total_rows']);
+
+                $processed = (int) ($snapshot->processed_rows ?? 0);
+                $total = max((int) ($snapshot->total_rows ?? 0), $processed);
+
                 $this->importJob->update([
-                    'processed_rows' => $this->importJob->total_rows,
+                    'total_rows'     => $total,
+                    'processed_rows' => $total,
                     'status'         => 'concluido',
                     'finished_at'    => now(),
                 ]);

@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\Leads\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\ExportLeadsRequest;
-use App\Jobs\GenerateLeadsExportJob;
+use App\Modules\Leads\Requests\ExportLeadsRequest;
+use App\Modules\Leads\Jobs\GenerateLeadsExportJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +19,7 @@ class LeadExportController extends Controller
         $token  = (string) Str::uuid();
         $userId = (int) $request->user()->id;
 
-        $ttlSeconds = (int) env('LEADS_EXPORT_TTL_SECONDS', 6 * 3600);
+        $ttlSeconds = max(60, (int) config('leads.export.ttl_seconds', 6 * 3600));
 
         $payload = $request->validated();
 
@@ -81,7 +81,7 @@ class LeadExportController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        $diskName = $data['disk'] ?: 'local';
+        $diskName = $data['disk'] ?: (string) config('leads.export.storage.disk', 'local');
         $path     = $data['path'] ?? null;
         if (!$path) {
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
@@ -92,7 +92,7 @@ class LeadExportController extends Controller
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_GONE);
         }
 
-        $name = $data['filename'] ?: 'leads_export.csv';
+        $name = $data['filename'] ?: (string) config('leads.export.storage.fallback_filename', 'leads_export.csv');
 
         // stream manual para poder deletar e atualizar o cache após o envio
         $stream = $disk->readStream($path);
@@ -100,12 +100,13 @@ class LeadExportController extends Controller
             return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
         }
 
+        $deletedStatusTtlCap = max(1, (int) config('leads.export.cache.deleted_status_ttl_cap_seconds', 600));
         $headers = [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'X-Accel-Buffering'   => 'no',
+            'Content-Type'        => (string) config('leads.export.stream.content_type', 'text/csv; charset=UTF-8'),
+            'X-Accel-Buffering'   => (string) config('leads.export.stream.accel_buffering', 'no'),
         ];
 
-        return response()->streamDownload(function () use ($stream, $diskName, $path, $cacheKey, $data) {
+        return response()->streamDownload(function () use ($stream, $diskName, $path, $cacheKey, $data, $deletedStatusTtlCap) {
             try {
                 fpassthru($stream);
             } finally {
@@ -136,7 +137,7 @@ class LeadExportController extends Controller
                         'error'       => null,
                         'ttl_seconds' => $ttl,
                     ];
-                    Cache::put($cacheKey, $cache, min($ttl, 600)); // mantém por até 10 min
+                    Cache::put($cacheKey, $cache, min($ttl, $deletedStatusTtlCap));
                 } catch (\Throwable $e) {
                     // ignore
                 }
@@ -146,6 +147,7 @@ class LeadExportController extends Controller
 
     private function cacheKey(int $userId, string $token): string
     {
-        return "leads_export:{$userId}:{$token}";
+        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
+        return "{$prefix}:{$userId}:{$token}";
     }
 }

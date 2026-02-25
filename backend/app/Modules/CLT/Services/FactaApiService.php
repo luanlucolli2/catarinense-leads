@@ -7,6 +7,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 use Throwable;
@@ -20,6 +21,9 @@ class FactaApiService
     private int $tokenLockTtl;
     private int $tokenLockWait;
     private int $tokenTtlSkew;
+    private int $tokenRetryMaxAttempts;
+    private int $tokenRetryBaseDelayMs;
+    private int $tokenRetryMaxDelayMs;
 
     /** HTTP (1ª rodada) */
     private int $httpTimeout;
@@ -31,6 +35,8 @@ class FactaApiService
     private bool $httpSecondTry;
     private int $httpSecondTimeout;
     private int $httpSecondConnectTimeout;
+    private int $httpTransientRetryDelayMs;
+    private int $httpTransientPauseSeconds;
     private bool $httpRateLimitImmediateRetry;
     private int $httpRateLimitMaxRetries;
     private int $httpRateLimitDefaultPauseSeconds;
@@ -44,7 +50,11 @@ class FactaApiService
     private string $preAuthTipoEnvio;
     private int $preAuthPhoneAttempts;
     private int $preAuthCacheTtl;
+    private int $preAuthPersistTtlDays;
+    private int $preAuthPostCooldownMs;
     private array $preAuthApprovedLocal = [];
+    private array $preAuthLookupCheckedLocal = [];
+    private ?int $runtimeJobId = null;
 
     /** Continuação CLT Online (Etapa 4 e Etapa 3) */
     private string $creditProduto;
@@ -73,29 +83,17 @@ class FactaApiService
     private function logForbidden(HttpResponse $resp, ?string $cpf = null): void
     {
         try {
-            // Headers (array<string, array<string>>)
-            $all = $resp->headers();
-            $safe = [];
-            foreach ($all as $k => $vals) {
-                $key = (string) $k;
-                // Redação de itens sensíveis
-                if (stripos($key, 'authorization') === 0 || stripos($key, 'cookie') === 0 || stripos($key, 'set-cookie') === 0) {
-                    $safe[$key] = ['REDACTED'];
-                } else {
-                    $safe[$key] = array_map('strval', (array) $vals);
-                }
-            }
-
-            // Corpo (trecho)
+            $status = $resp->status();
             $body = (string) $resp->body();
-            $snippet = $this->truncate($body, 4000);
+            $context = [
+                'job_id' => $this->runtimeJobId,
+                'cpf' => $cpf,
+                'http_status' => $status,
+                'headers' => $this->compactHeadersForLog($resp->headers()),
+            ];
+            $context = array_merge($context, $this->compactResponseLogContext($body, null, $status, 700));
 
-            CltLog::warning(
-                '[FACTA] 403 Forbidden'
-                . ($cpf ? " (cpf={$cpf})" : '')
-                . ' — headers=' . json_encode($safe, JSON_UNESCAPED_UNICODE)
-                . ' body_snippet=' . $snippet
-            );
+            CltLog::warning('[FACTA] 403 Forbidden', $context);
         } catch (\Throwable $e) {
             CltLog::warning('[FACTA] Falha ao logar 403: ' . $e->getMessage());
         }
@@ -115,6 +113,9 @@ class FactaApiService
         $this->tokenLockTtl = (int) ($api['token_lock_ttl'] ?? 10);
         $this->tokenLockWait = (int) ($api['token_lock_wait'] ?? 5);
         $this->tokenTtlSkew = (int) ($api['token_ttl_skew'] ?? 30);
+        $this->tokenRetryMaxAttempts = max(1, (int) ($api['token_retry_max_attempts'] ?? 8));
+        $this->tokenRetryBaseDelayMs = max(0, (int) ($api['token_retry_base_delay_ms'] ?? 1000));
+        $this->tokenRetryMaxDelayMs = max($this->tokenRetryBaseDelayMs, (int) ($api['token_retry_max_delay_ms'] ?? 30000));
 
         // HTTP (1ª)
         $this->httpTimeout = (int) ($http['timeout'] ?? 15);
@@ -126,6 +127,8 @@ class FactaApiService
         $this->httpSecondTry = (bool) ($http['second_try'] ?? true);
         $this->httpSecondTimeout = (int) ($http['second_timeout'] ?? 10);
         $this->httpSecondConnectTimeout = (int) ($http['second_connect_timeout'] ?? 5);
+        $this->httpTransientRetryDelayMs = max(0, (int) ($http['transient_retry_delay_ms'] ?? 3000));
+        $this->httpTransientPauseSeconds = max(1, (int) ($http['transient_pause_seconds'] ?? 3));
         $this->httpRateLimitImmediateRetry = (bool) ($http['rate_limit_immediate_retry'] ?? true);
         $this->httpRateLimitMaxRetries = max(0, (int) ($http['rate_limit_max_retries'] ?? 1));
         $this->httpRateLimitDefaultPauseSeconds = max(1, (int) ($http['rate_limit_default_pause_seconds'] ?? 3));
@@ -139,6 +142,8 @@ class FactaApiService
         $this->preAuthTipoEnvio = (string) ($api['pre_auth_tipo_envio'] ?? 'WHATSAPP');
         $this->preAuthPhoneAttempts = max(1, (int) ($api['pre_auth_phone_attempts'] ?? 8));
         $this->preAuthCacheTtl = max(0, (int) ($api['pre_auth_cache_ttl'] ?? 1800));
+        $this->preAuthPersistTtlDays = max(0, (int) ($api['pre_auth_persist_ttl_days'] ?? 30));
+        $this->preAuthPostCooldownMs = max(0, (int) ($api['pre_auth_post_cooldown_ms'] ?? 3000));
 
         // Continuação (crédito trabalhador) - somente online
         $this->creditProduto = (string) ($credit['produto'] ?? 'D');
@@ -147,6 +152,12 @@ class FactaApiService
         $this->creditConvenio = (string) ($credit['convenio'] ?? '3');
         $this->creditOpcaoValor = (string) ($credit['opcao_valor'] ?? '2');
         $this->creditPolicyBatchSize = max(1, (int) ($credit['policy_batch_size'] ?? 3));
+    }
+
+    public function setRuntimeJobId(?int $jobId): self
+    {
+        $this->runtimeJobId = $jobId;
+        return $this;
     }
 
     /**
@@ -191,6 +202,8 @@ class FactaApiService
             )
             ->get($this->baseUrl.'/gera-token');
 
+        $this->logGeraTokenResponse($resp, 'initial');
+
         if ($resp->status() === 403) {
             $this->logForbidden($resp, null);
         }
@@ -234,7 +247,86 @@ class FactaApiService
     } finally {
         optional($lock)->release();
     }
-}
+	}
+
+
+    private function getTokenWithBackoff(string $context): string
+    {
+        $attempts = max(1, $this->tokenRetryMaxAttempts);
+        $lastError = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $token = $this->getToken();
+                if (!is_string($token) || $token === '') {
+                    throw new \RuntimeException('Token FACTA ausente');
+                }
+                return $token;
+            } catch (Throwable $e) {
+                $lastError = $e;
+                $contextData = [
+                    'context' => $context,
+                    'attempt' => $attempt,
+                    'max_attempts' => $attempts,
+                    'exception_class' => get_class($e),
+                    'is_timeout' => $this->isTimeoutException($e),
+                    'is_connection_exception' => $this->isConnectionException($e),
+                    'error' => $e->getMessage(),
+                ];
+
+                if ($attempt >= $attempts) {
+                    CltLog::warning('[FACTA] Falha ao obter token; tentativas esgotadas.', $contextData);
+                    break;
+                }
+
+                $sleepMs = $this->tokenRetrySleepMs($attempt);
+                $contextData['sleep_ms'] = $sleepMs;
+                CltLog::warning('[FACTA] Falha ao obter token; aguardando retry.', $contextData);
+
+                if ($sleepMs > 0) {
+                    usleep($sleepMs * 1000);
+                }
+            }
+        }
+
+        $lastMsg = $lastError ? $lastError->getMessage() : 'erro desconhecido';
+        throw new \RuntimeException(
+            "Falha ao obter token em {$context} após {$attempts} tentativas: {$lastMsg}",
+            0,
+            $lastError
+        );
+    }
+
+    private function tokenRetrySleepMs(int $attempt): int
+    {
+        $base = max(0, $this->tokenRetryBaseDelayMs);
+        if ($base === 0) {
+            return 0;
+        }
+
+        $cap = max($base, $this->tokenRetryMaxDelayMs);
+        $factor = max(0, $attempt - 1);
+        $delay = $base;
+
+        for ($i = 0; $i < $factor; $i++) {
+            if ($delay >= $cap) {
+                break;
+            }
+            $delay = min($cap, $delay * 2);
+        }
+
+        $jitterMax = (int) floor($delay * 0.20);
+        $jitter = 0;
+        if ($jitterMax > 0) {
+            try {
+                $jitter = random_int(0, $jitterMax);
+            } catch (Throwable) {
+                $jitter = 0;
+            }
+        }
+
+        return min($cap, $delay + $jitter);
+    }
 
 
     /**
@@ -256,10 +348,8 @@ class FactaApiService
         }
 
         try {
-            $token = $this->getToken();
-            if (!is_string($token) || $token === '') {
-                throw new \RuntimeException('Token FACTA ausente');
-            }
+            $token = $this->getTokenWithBackoff('autoriza-consulta:init');
+            $latestPreAuthAt = null;
 
             if (!$this->hasPreAuthGrant($cpf)) {
                 $preAuth = $this->solicitaAutorizacaoConsulta($cpf, $token);
@@ -271,7 +361,10 @@ class FactaApiService
                         $preAuth['retry_after'] ?? null
                     );
                 }
+                $latestPreAuthAt = microtime(true);
             }
+
+            $this->sleepPreAuthCooldown($latestPreAuthAt);
 
             $doRequest = function () use ($cpf, &$token) {
                 return Http::withHeaders([
@@ -280,7 +373,11 @@ class FactaApiService
                 ])
                     ->timeout($this->httpTimeout)
                     ->connectTimeout($this->httpConnectTimeout)
-                    ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
+                    ->retry(
+                        max(0, $this->httpRetry),
+                        max(0, $this->httpTransientRetryDelayMs),
+                        fn($e, $request) => $this->shouldRetryTransientHttpOnClientRetry($e, $request)
+                    )
                     ->get($this->baseUrl . '/consignado-trabalhador/autoriza-consulta', [
                         'cpf' => $cpf,
                     ]);
@@ -296,10 +393,7 @@ class FactaApiService
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $this->clearPreAuthGrantCache();
-                $token = $this->getToken();
-                if (!is_string($token) || $token === '') {
-                    throw new \RuntimeException('Token FACTA ausente após refresh');
-                }
+                $token = $this->getTokenWithBackoff('autoriza-consulta:refresh_401');
                 $resp = $doRequest();
                 $this->logAutorizaConsultaResponse($resp, $cpf, 'after_401_refresh', 1);
                 if ($resp->status() === 403) {
@@ -308,21 +402,27 @@ class FactaApiService
             }
 
             if ($this->httpRateLimitImmediateRetry && $this->httpRateLimitMaxRetries > 0) {
-                for ($rlAttempt = 1; $resp->status() === 429 && $rlAttempt <= $this->httpRateLimitMaxRetries; $rlAttempt++) {
-                    $retryAfter = $this->getRetryAfterSeconds($resp);
-                    if (!$this->shouldRetry429Immediately($retryAfter)) {
+                for ($rlAttempt = 1; $rlAttempt <= $this->httpRateLimitMaxRetries; $rlAttempt++) {
+                    if (!$this->isTransientAutorizaResponse($resp)) {
                         break;
                     }
 
-                    $this->sleepBeforeImmediate429Retry(
+                    $retryAfter = $this->getRetryAfterSeconds($resp);
+                    if ($resp->status() === 429 && !$this->shouldRetry429Immediately($retryAfter)) {
+                        break;
+                    }
+
+                    $this->sleepBeforeTransientRetry(
                         'autoriza-consulta',
                         $retryAfter,
                         $cpf,
-                        $rlAttempt
+                        $rlAttempt,
+                        null,
+                        'transient_response'
                     );
 
                     $resp = $doRequest();
-                    $this->logAutorizaConsultaResponse($resp, $cpf, 'after_429_backoff', $rlAttempt);
+                    $this->logAutorizaConsultaResponse($resp, $cpf, 'after_transient_backoff', $rlAttempt + 1);
 
                     if ($resp->status() === 403) {
                         $this->logForbidden($resp, $cpf);
@@ -331,12 +431,9 @@ class FactaApiService
                     if ($resp->status() === 401) {
                         Cache::forget('facta_token');
                         $this->clearPreAuthGrantCache();
-                        $token = $this->getToken();
-                        if (!is_string($token) || $token === '') {
-                            throw new \RuntimeException('Token FACTA ausente após refresh');
-                        }
+                        $token = $this->getTokenWithBackoff('autoriza-consulta:refresh_401_after_transient');
                         $resp = $doRequest();
-                        $this->logAutorizaConsultaResponse($resp, $cpf, 'after_429_backoff_401_refresh', $rlAttempt);
+                        $this->logAutorizaConsultaResponse($resp, $cpf, 'after_transient_backoff_401_refresh', $rlAttempt + 1);
                         if ($resp->status() === 403) {
                             $this->logForbidden($resp, $cpf);
                         }
@@ -346,10 +443,15 @@ class FactaApiService
 
             $parsed = $this->parseAutorizaResponse($resp);
             if (!empty($parsed['ok'])) {
-                $this->markPreAuthGrant($cpf);
+                $this->markPreAuthGrant($cpf, false);
             }
             return $parsed;
         } catch (Throwable $e) {
+            $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                'cpf' => $cpf,
+                'stage' => 'autoriza-consulta',
+                'attempt' => 1,
+            ]);
             return [
                 'ok' => false,
                 'mensagem' => 'Exceção: ' . $e->getMessage(),
@@ -385,11 +487,12 @@ class FactaApiService
 
         // ✅ PROTEGE a geração do token
         try {
-            $token = $this->getToken();
-            if (!is_string($token) || $token === '') {
-                throw new \RuntimeException('Token FACTA ausente');
-            }
+            $token = $this->getTokenWithBackoff('autoriza-consulta-lote:init');
         } catch (\Throwable $e) {
+            $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                'stage' => 'autoriza-consulta-lote:init',
+                'batch_size' => count($cpfs),
+            ]);
             $msg = 'Falha ao gerar token: ' . $e->getMessage();
             foreach ($cpfs as $cpf) {
                 $out[$cpf] = $this->errorResult($msg, true);
@@ -398,7 +501,9 @@ class FactaApiService
         }
 
         // Pré-autorização obrigatória (endpoint /solicita-autorizacao-consulta)
+        $this->warmPreAuthGrants($cpfs);
         $authorizedCpfs = [];
+        $latestPreAuthAt = null;
         foreach ($cpfs as $cpf) {
             if ($this->hasPreAuthGrant($cpf)) {
                 $authorizedCpfs[] = $cpf;
@@ -416,11 +521,14 @@ class FactaApiService
                 continue;
             }
             $authorizedCpfs[] = $cpf;
+            $latestPreAuthAt = microtime(true);
         }
 
         if (empty($authorizedCpfs)) {
             return $out;
         }
+
+        $this->sleepPreAuthCooldown($latestPreAuthAt);
 
         $headers = [
             'Authorization' => 'Bearer ' . $token,
@@ -429,6 +537,8 @@ class FactaApiService
         $url = $this->baseUrl . '/consignado-trabalhador/autoriza-consulta';
         /** @var array<string,HttpResponse> $responses */
         $responses = [];
+        $canRunFollowUpPools = true;
+        $tokenRefreshError = null;
 
         // -------- 1ª TENTATIVA (POOL) --------
         try {
@@ -442,6 +552,19 @@ class FactaApiService
                 1
             );
         } catch (Throwable $e) {
+            $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                'stage' => 'initial_pool',
+                'attempt' => 1,
+                'batch_size' => count($authorizedCpfs),
+            ]);
+            $this->sleepBeforeTransientRetry(
+                'autoriza-consulta',
+                null,
+                null,
+                1,
+                count($authorizedCpfs),
+                'initial_pool_exception'
+            );
             // Pool inteiro falhou → devolve retriable (o Job vai retriar)
             foreach ($authorizedCpfs as $cpf) {
                 $out[$cpf] = $this->errorResult('Sem resposta (pool falhou)', true);
@@ -460,15 +583,18 @@ class FactaApiService
             Cache::forget('facta_token');
             $this->clearPreAuthGrantCache();
             try {
-                $token2 = $this->getToken();
-                if (!is_string($token2) || $token2 === '') {
-                    throw new \RuntimeException('Token FACTA ausente após refresh');
-                }
+                $token2 = $this->getTokenWithBackoff('autoriza-consulta-lote:refresh_401');
             } catch (Throwable $e) {
-                foreach ($needRetry401 as $cpf) {
-                    unset($responses[$cpf]);
-                }
                 $token2 = null;
+                $canRunFollowUpPools = false;
+                $tokenRefreshError = 'Falha ao renovar token FACTA: ' . $e->getMessage();
+                CltLog::warning('[FACTA] Refresh token falhou em autorizaConsultaLote; pulando retries subsequentes no pool.', [
+                    'need_retry_401' => count($needRetry401),
+                    'is_timeout' => $this->isTimeoutException($e),
+                    'is_connection_exception' => $this->isConnectionException($e),
+                    'exception_class' => get_class($e),
+                    'error' => $e->getMessage(),
+                ]);
             }
             if (is_string($token2) && $token2 !== '') {
                 $token = $token2;
@@ -496,6 +622,11 @@ class FactaApiService
                         $responses[$cpf] = $resp;
                     }
                 } catch (Throwable $e) {
+                    $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                        'stage' => 'retry_401_pool',
+                        'attempt' => 1,
+                        'batch_size' => count($needRetry401),
+                    ]);
                     // mantém as 401 (o Job tentará de novo depois)
                 }
             }
@@ -508,7 +639,16 @@ class FactaApiService
                 $missing[] = $cpf;
             }
         }
-        if (!empty($missing) && $this->httpSecondTry) {
+        if ($canRunFollowUpPools && !empty($missing) && $this->httpSecondTry) {
+            $this->sleepBeforeTransientRetry(
+                'autoriza-consulta',
+                null,
+                null,
+                1,
+                count($missing),
+                'missing_pool'
+            );
+
             try {
                 $retry2 = $this->requestAutorizaPool(
                     $missing,
@@ -523,70 +663,81 @@ class FactaApiService
                     $responses[$cpf] = $resp;
                 }
             } catch (Throwable $e) {
+                $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                    'stage' => 'missing_pool_retry2',
+                    'attempt' => 1,
+                    'batch_size' => count($missing),
+                ]);
                 // segunda tentativa falhou → deixa missing (Job vai retriar depois)
             }
         }
 
-        // -------- 429 IMEDIATO (POOL) --------
-        if ($this->httpRateLimitImmediateRetry && $this->httpRateLimitMaxRetries > 0) {
-            for ($rlAttempt = 1; $rlAttempt <= $this->httpRateLimitMaxRetries; $rlAttempt++) {
-                $retry429Cpfs = [];
+        // -------- RETRY TRANSIENTE PADRONIZADO (POOL) --------
+        if ($canRunFollowUpPools && $this->httpRateLimitImmediateRetry && $this->httpRateLimitMaxRetries > 0) {
+            for ($transientAttempt = 1; $transientAttempt <= $this->httpRateLimitMaxRetries; $transientAttempt++) {
+                $retryCpfs = [];
                 $retryAfterMax = null;
 
                 foreach ($authorizedCpfs as $cpf) {
                     $resp = $responses[$cpf] ?? null;
-                    if (!$resp instanceof HttpResponse || $resp->status() !== 429) {
+                    if (!$resp instanceof HttpResponse || !$this->isTransientAutorizaResponse($resp)) {
                         continue;
                     }
 
-                    $retry429Cpfs[] = $cpf;
+                    $retryCpfs[] = $cpf;
                     $retryAfter = $this->getRetryAfterSeconds($resp);
                     if ($retryAfter !== null) {
                         $retryAfterMax = $retryAfterMax === null ? $retryAfter : max($retryAfterMax, $retryAfter);
                     }
                 }
 
-                if (empty($retry429Cpfs)) {
+                if (empty($retryCpfs)) {
                     break;
                 }
-                if (!$this->shouldRetry429Immediately($retryAfterMax)) {
+                if (!$this->canRetryTransientPoolSubset($responses, $retryCpfs, $retryAfterMax)) {
                     break;
                 }
 
-                $this->sleepBeforeImmediate429Retry(
+                $this->sleepBeforeTransientRetry(
                     'autoriza-consulta',
                     $retryAfterMax,
                     null,
-                    $rlAttempt,
-                    count($retry429Cpfs)
+                    $transientAttempt,
+                    count($retryCpfs),
+                    'transient_subset'
                 );
 
                 try {
-                    $retry429Responses = $this->requestAutorizaPool(
-                        $retry429Cpfs,
+                    $retryResponses = $this->requestAutorizaPool(
+                        $retryCpfs,
                         $headers,
                         $url,
                         $this->httpSecondTimeout,
                         $this->httpSecondConnectTimeout,
-                        'retry_429_pool',
-                        $rlAttempt
+                        'retry_transient_pool',
+                        $transientAttempt + 1
                     );
                 } catch (Throwable $e) {
+                    $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                        'stage' => 'retry_transient_pool',
+                        'attempt' => $transientAttempt + 1,
+                        'batch_size' => count($retryCpfs),
+                    ]);
                     break;
                 }
 
-                $retry401After429 = [];
-                foreach ($retry429Responses as $cpf => $resp) {
+                $retry401AfterTransient = [];
+                foreach ($retryResponses as $cpf => $resp) {
                     if ($resp instanceof HttpResponse && $resp->status() === 401) {
-                        $retry401After429[] = $cpf;
+                        $retry401AfterTransient[] = $cpf;
                     }
                 }
 
-                if (!empty($retry401After429)) {
+                if (!empty($retry401AfterTransient)) {
                     Cache::forget('facta_token');
                     $this->clearPreAuthGrantCache();
                     try {
-                        $token3 = $this->getToken();
+                        $token3 = $this->getTokenWithBackoff('autoriza-consulta-lote:refresh_401_after_transient');
                         if (is_string($token3) && $token3 !== '') {
                             $token = $token3;
                             $headers = [
@@ -595,25 +746,35 @@ class FactaApiService
                             ];
 
                             $retry401Responses = $this->requestAutorizaPool(
-                                $retry401After429,
+                                $retry401AfterTransient,
                                 $headers,
                                 $url,
                                 $this->httpSecondTimeout,
                                 $this->httpSecondConnectTimeout,
-                                'retry_401_after_429_pool',
-                                $rlAttempt
+                                'retry_401_after_transient_pool',
+                                $transientAttempt + 1
                             );
 
                             foreach ($retry401Responses as $cpf => $resp) {
-                                $retry429Responses[$cpf] = $resp;
+                                $retryResponses[$cpf] = $resp;
                             }
                         }
-                    } catch (Throwable) {
+                    } catch (Throwable $e) {
+                        $canRunFollowUpPools = false;
+                        CltLog::warning('[FACTA] Refresh token falhou em retry_401_after_transient_pool; encerrando retries subsequentes no pool.', [
+                            'retry_401_after_transient' => count($retry401AfterTransient),
+                            'attempt' => $transientAttempt + 1,
+                            'is_timeout' => $this->isTimeoutException($e),
+                            'is_connection_exception' => $this->isConnectionException($e),
+                            'exception_class' => get_class($e),
+                            'error' => $e->getMessage(),
+                        ]);
                         // mantém resposta atual desses CPFs
+                        break;
                     }
                 }
 
-                foreach ($retry429Responses as $cpf => $resp) {
+                foreach ($retryResponses as $cpf => $resp) {
                     $responses[$cpf] = $resp;
                 }
             }
@@ -623,6 +784,14 @@ class FactaApiService
         foreach ($authorizedCpfs as $cpf) {
             $resp = $responses[$cpf] ?? null;
             if (!$resp instanceof HttpResponse) {
+                if (
+                    $tokenRefreshError !== null
+                    && !empty($needRetry401)
+                    && in_array($cpf, $needRetry401, true)
+                ) {
+                    $out[$cpf] = $this->errorResult($tokenRefreshError, true);
+                    continue;
+                }
                 $out[$cpf] = $this->errorResult('Sem resposta do serviço', true);
                 continue;
             }
@@ -634,7 +803,7 @@ class FactaApiService
 
             $out[$cpf] = $this->parseAutorizaResponse($resp);
             if (!empty($out[$cpf]['ok'])) {
-                $this->markPreAuthGrant($cpf);
+                $this->markPreAuthGrant($cpf, false);
             }
         }
 
@@ -712,10 +881,7 @@ class FactaApiService
 
         $token = null;
         try {
-            $token = $this->getToken();
-            if (!is_string($token) || $token === '') {
-                throw new \RuntimeException('Token FACTA ausente');
-            }
+            $token = $this->getTokenWithBackoff('credito-trabalhador:init');
         } catch (Throwable $e) {
             return [
                 'attempted' => true,
@@ -899,10 +1065,7 @@ class FactaApiService
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $this->clearPreAuthGrantCache();
-                $token = $this->getToken();
-                if (!is_string($token) || $token === '') {
-                    throw new \RuntimeException('Token FACTA ausente após refresh');
-                }
+                $token = $this->getTokenWithBackoff('operacoes-disponiveis:refresh_401');
 
                 $resp = $doRequest();
                 $this->logOperacoesDisponiveisResponse($resp, $cpf, 'after_401_refresh', 1);
@@ -934,10 +1097,7 @@ class FactaApiService
                     if ($resp->status() === 401) {
                         Cache::forget('facta_token');
                         $this->clearPreAuthGrantCache();
-                        $token = $this->getToken();
-                        if (!is_string($token) || $token === '') {
-                            throw new \RuntimeException('Token FACTA ausente após refresh');
-                        }
+                        $token = $this->getTokenWithBackoff('operacoes-disponiveis:refresh_401_after_429');
 
                         $resp = $doRequest();
                         $this->logOperacoesDisponiveisResponse($resp, $cpf, 'after_429_backoff_401_refresh', $rlAttempt);
@@ -1001,10 +1161,7 @@ class FactaApiService
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
                 $this->clearPreAuthGrantCache();
-                $token = $this->getToken();
-                if (!is_string($token) || $token === '') {
-                    throw new \RuntimeException('Token FACTA ausente após refresh');
-                }
+                $token = $this->getTokenWithBackoff('analise-politica-credito:refresh_401');
 
                 $resp = $doRequest();
                 $this->logAnalisePoliticaCreditoResponse($resp, $cpf, 'after_401_refresh', 1, $prazo, $valorEmprestimo);
@@ -1043,10 +1200,7 @@ class FactaApiService
                     if ($resp->status() === 401) {
                         Cache::forget('facta_token');
                         $this->clearPreAuthGrantCache();
-                        $token = $this->getToken();
-                        if (!is_string($token) || $token === '') {
-                            throw new \RuntimeException('Token FACTA ausente após refresh');
-                        }
+                        $token = $this->getTokenWithBackoff('analise-politica-credito:refresh_401_after_429');
 
                         $resp = $doRequest();
                         $this->logAnalisePoliticaCreditoResponse(
@@ -1140,10 +1294,7 @@ class FactaApiService
                 $this->clearPreAuthGrantCache();
 
                 try {
-                    $tokenRefreshed = $this->getToken();
-                    if (!is_string($tokenRefreshed) || $tokenRefreshed === '') {
-                        throw new \RuntimeException('Token FACTA ausente após refresh');
-                    }
+                    $tokenRefreshed = $this->getTokenWithBackoff('analise-politica-credito-lote:refresh_401');
                     $token = $tokenRefreshed;
 
                     $retry401Responses = $this->requestAnalisePoliticaCreditoPool(
@@ -1516,32 +1667,8 @@ class FactaApiService
 
     private function logOperacoesDisponiveisResponse(HttpResponse $resp, string $cpf, string $stage, int $attempt): void
     {
-        if (!$this->shouldLogFactaResponse($resp)) {
-            return;
-        }
-
-        try {
-            $decoded = null;
-            try {
-                $json = $resp->json();
-                if (is_array($json)) {
-                    $decoded = $json;
-                }
-            } catch (Throwable) {
-                // ignore
-            }
-
-            CltLog::warning('[FACTA] /proposta/operacoes-disponiveis response', [
-                'cpf' => $cpf,
-                'attempt' => $attempt,
-                'stage' => $stage,
-                'http_status' => $resp->status(),
-                'body_snippet' => $this->truncate((string) $resp->body(), 4000),
-                'json' => $decoded,
-            ]);
-        } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar /proposta/operacoes-disponiveis: ' . $e->getMessage());
-        }
+        // Requisito: logar somente /gera-token, /autoriza-consulta e /solicita-autorizacao-consulta.
+        return;
     }
 
     private function logAnalisePoliticaCreditoResponse(
@@ -1552,34 +1679,8 @@ class FactaApiService
         int $prazo,
         string $valorEmprestimo
     ): void {
-        if (!$this->shouldLogFactaResponse($resp)) {
-            return;
-        }
-
-        try {
-            $decoded = null;
-            try {
-                $json = $resp->json();
-                if (is_array($json)) {
-                    $decoded = $json;
-                }
-            } catch (Throwable) {
-                // ignore
-            }
-
-            CltLog::warning('[FACTA] /consignado-trabalhador/analise-politica-credito response', [
-                'cpf' => $cpf,
-                'attempt' => $attempt,
-                'stage' => $stage,
-                'prazo' => $prazo,
-                'valorEmprestimo' => $valorEmprestimo,
-                'http_status' => $resp->status(),
-                'body_snippet' => $this->truncate((string) $resp->body(), 4000),
-                'json' => $decoded,
-            ]);
-        } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar /analise-politica-credito: ' . $e->getMessage());
-        }
+        // Requisito: logar somente /gera-token, /autoriza-consulta e /solicita-autorizacao-consulta.
+        return;
     }
 
 
@@ -1601,6 +1702,7 @@ class FactaApiService
             return [];
         }
 
+        $poolStartedAtMs = (int) round(microtime(true) * 1000);
         $responses = Http::pool(function (Pool $pool) use ($cpfs, $headers, $url, $timeout, $connectTimeout) {
             $reqs = [];
             foreach ($cpfs as $cpf) {
@@ -1608,7 +1710,11 @@ class FactaApiService
                     ->withHeaders($headers)
                     ->timeout($timeout)
                     ->connectTimeout($connectTimeout)
-                    ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
+                    ->retry(
+                        max(0, $this->httpRetry),
+                        max(0, $this->httpTransientRetryDelayMs),
+                        fn($e, $request) => $this->shouldRetryTransientHttpOnClientRetry($e, $request)
+                    )
                     ->get($url, ['cpf' => $cpf]);
             }
             return $reqs;
@@ -1617,12 +1723,150 @@ class FactaApiService
         if ($this->logFactaResponses) {
             foreach ($responses as $cpf => $resp) {
                 if ($resp instanceof HttpResponse) {
-                    $this->logAutorizaConsultaResponse($resp, (string) $cpf, $stage, $attempt);
+                    $this->logAutorizaConsultaResponse($resp, (string) $cpf, $stage, $attempt, $poolStartedAtMs);
                 }
             }
         }
 
         return $responses;
+    }
+
+    /**
+     * Callback unificado de retry para requests HTTP da FACTA.
+     * Re-tenta apenas exceções de rede/timeout.
+     * Respostas HTTP transitórias são tratadas em fluxo explícito no serviço.
+     */
+    private function shouldRetryTransientHttpOnClientRetry($e, $request): bool
+    {
+        if ($e instanceof ConnectionException) {
+            return true;
+        }
+
+        if ($e instanceof Throwable && $this->isTimeoutException($e)) {
+            return true;
+        }
+        return false;
+    }
+
+    private function isTransientHttpStatus(int $status): bool
+    {
+        return in_array($status, [403, 408, 429], true) || $status >= 500;
+    }
+
+    private function isTransientBodyShape(HttpResponse $resp): bool
+    {
+        $status = $resp->status();
+
+        if ($status !== 200) {
+            return false;
+        }
+
+        $body = trim((string) $resp->body());
+        if ($body === '') {
+            return true;
+        }
+
+        if ($this->looksLikeHtml($body)) {
+            return true;
+        }
+
+        try {
+            $json = $resp->json();
+            return !is_array($json);
+        } catch (Throwable) {
+            return true;
+        }
+    }
+
+    private function isTransientSolicitaResponse(HttpResponse $resp): bool
+    {
+        return $this->isTransientHttpStatus($resp->status()) || $this->isTransientBodyShape($resp);
+    }
+
+    private function isTransientAutorizaResponse(HttpResponse $resp): bool
+    {
+        if ($this->isTransientHttpStatus($resp->status()) || $this->isTransientBodyShape($resp)) {
+            return true;
+        }
+
+        try {
+            $json = $resp->json();
+            if (!is_array($json)) {
+                return false;
+            }
+
+            $msgRaw = trim((string) ($json['mensagem'] ?? $json['message'] ?? ''));
+            if ($msgRaw !== '' && $this->looksLikeHtml($msgRaw)) {
+                return true;
+            }
+        } catch (Throwable) {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /**
+     * Decide se o subset de respostas transitórias pode ser retentado no mesmo ciclo.
+     *
+     * @param array<string,HttpResponse> $responses
+     * @param array<int,string> $retryCpfs
+     */
+    private function canRetryTransientPoolSubset(array $responses, array $retryCpfs, ?int $retryAfterMax): bool
+    {
+        $has429 = false;
+
+        foreach ($retryCpfs as $cpf) {
+            $resp = $responses[$cpf] ?? null;
+            if ($resp instanceof HttpResponse && $resp->status() === 429) {
+                $has429 = true;
+                break;
+            }
+        }
+
+        if (!$has429) {
+            return true;
+        }
+
+        return $this->shouldRetry429Immediately($retryAfterMax);
+    }
+
+    private function sleepBeforeTransientRetry(
+        string $endpoint,
+        ?int $retryAfterSeconds,
+        ?string $cpf,
+        int $attempt,
+        ?int $batchSize = null,
+        string $reason = 'transient'
+    ): void {
+        $baseSeconds = max(1, $this->httpTransientPauseSeconds);
+        $pauseSeconds = $baseSeconds;
+
+        if ($retryAfterSeconds !== null && $retryAfterSeconds > 0) {
+            $pauseSeconds = min(
+                $this->httpRateLimitPauseCapSeconds,
+                max($baseSeconds, $retryAfterSeconds)
+            );
+        }
+
+        $jitterMs = random_int(0, 400);
+        CltLog::warning('[FACTA] transient backoff', [
+            'endpoint' => $endpoint,
+            'reason' => $reason,
+            'cpf' => $cpf,
+            'attempt' => $attempt,
+            'batch_size' => $batchSize,
+            'retry_after' => $retryAfterSeconds,
+            'sleep_seconds' => $pauseSeconds,
+            'jitter_ms' => $jitterMs,
+        ]);
+
+        if ($pauseSeconds > 0) {
+            sleep($pauseSeconds);
+        }
+        if ($jitterMs > 0) {
+            usleep($jitterMs * 1000);
+        }
     }
 
     private function sleepBeforeImmediate429Retry(
@@ -1632,10 +1876,8 @@ class FactaApiService
         int $attempt,
         ?int $batchSize = null
     ): void {
-        // Evita segurar worker por longos períodos dentro da camada HTTP.
-        // Em retry-after alto, o job externo faz o backoff cooperativo.
         if (!$this->shouldRetry429Immediately($retryAfterSeconds)) {
-            CltLog::warning('[FACTA] 429 sem retry imediato (delegado ao backoff do job)', [
+            CltLog::warning('[FACTA] 429 sem retry no mesmo ciclo (delegado ao backoff do job)', [
                 'endpoint' => $endpoint,
                 'cpf' => $cpf,
                 'attempt' => $attempt,
@@ -1645,29 +1887,19 @@ class FactaApiService
             return;
         }
 
-        $baseMs = $retryAfterSeconds !== null
-            ? max(50, min(1000, $retryAfterSeconds * 1000))
-            : 120;
-        $jitterMs = random_int(0, 80);
-        $sleepMs = min(250, $baseMs + $jitterMs);
-
-        CltLog::warning('[FACTA] 429 immediate backoff', [
-            'endpoint' => $endpoint,
-            'cpf' => $cpf,
-            'attempt' => $attempt,
-            'batch_size' => $batchSize,
-            'retry_after' => $retryAfterSeconds,
-            'sleep_ms' => $sleepMs,
-        ]);
-
-        if ($sleepMs > 0) {
-            usleep($sleepMs * 1000);
-        }
+        $this->sleepBeforeTransientRetry(
+            $endpoint,
+            $retryAfterSeconds,
+            $cpf,
+            $attempt,
+            $batchSize,
+            'http_429'
+        );
     }
 
     private function shouldRetry429Immediately(?int $retryAfterSeconds): bool
     {
-        return $retryAfterSeconds === null || $retryAfterSeconds <= 1;
+        return $retryAfterSeconds === null || $retryAfterSeconds <= $this->httpRateLimitPauseCapSeconds;
     }
 
     // App\Modules\CLT\Services\FactaApiService.php
@@ -1701,47 +1933,202 @@ class FactaApiService
 
     private function hasPreAuthGrant(string $cpf): bool
     {
-        if ($this->preAuthCacheTtl <= 0) {
+        $nowTs = microtime(true);
+
+        if (isset($this->preAuthApprovedLocal[$cpf])) {
+            $expiresAt = (float) $this->preAuthApprovedLocal[$cpf];
+            if ($expiresAt >= $nowTs) {
+                return true;
+            }
+
+            unset($this->preAuthApprovedLocal[$cpf]);
+        }
+
+        if ($this->preAuthPersistTtlDays <= 0) {
             return false;
         }
 
-        if (!isset($this->preAuthApprovedLocal[$cpf])) {
+        if (
+            array_key_exists($cpf, $this->preAuthLookupCheckedLocal)
+            && $this->preAuthLookupCheckedLocal[$cpf] === false
+        ) {
             return false;
         }
 
-        $expiresAt = (float) $this->preAuthApprovedLocal[$cpf];
-        if ($expiresAt >= microtime(true)) {
+        try {
+            $nowUtc = now('UTC')->format('Y-m-d H:i:s');
+            $row = DB::table('clt_pre_authorizations')
+                ->where('cpf', $cpf)
+                ->where('expires_at', '>', $nowUtc)
+                ->select('expires_at')
+                ->first();
+
+            if ($row === null) {
+                $this->preAuthLookupCheckedLocal[$cpf] = false;
+                return false;
+            }
+
+            $expiresAt = strtotime((string) ($row->expires_at ?? ''));
+            if (!is_int($expiresAt) || $expiresAt <= 0) {
+                $this->preAuthLookupCheckedLocal[$cpf] = false;
+                return false;
+            }
+
+            $this->preAuthApprovedLocal[$cpf] = (float) $expiresAt;
+            $this->preAuthLookupCheckedLocal[$cpf] = true;
             return true;
+        } catch (Throwable $e) {
+            $this->preAuthLookupCheckedLocal[$cpf] = false;
+            CltLog::warning('[FACTA] Falha ao consultar cache persistente de pré-autorização.', [
+                'cpf' => $cpf,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
         }
-
-        unset($this->preAuthApprovedLocal[$cpf]);
-        return false;
     }
 
-    private function markPreAuthGrant(string $cpf): void
+    private function markPreAuthGrant(string $cpf, bool $persist = true): void
     {
-        if ($this->preAuthCacheTtl <= 0) {
-            return;
+        $nowTs = microtime(true);
+        $localExpiryTs = null;
+
+        if ($this->preAuthCacheTtl > 0) {
+            $localExpiryTs = $nowTs + max(1, $this->preAuthCacheTtl);
         }
 
-        $ttl = max(1, $this->preAuthCacheTtl);
-        $this->preAuthApprovedLocal[$cpf] = microtime(true) + $ttl;
+        if ($persist && $this->preAuthPersistTtlDays > 0) {
+            try {
+                $nowUtc = now('UTC');
+                $nowStr = $nowUtc->format('Y-m-d H:i:s');
+                $expiresStr = $nowUtc->copy()->addDays($this->preAuthPersistTtlDays)->format('Y-m-d H:i:s');
+
+                DB::table('clt_pre_authorizations')->upsert(
+                    [[
+                        'cpf' => $cpf,
+                        'authorized_at' => $nowStr,
+                        'expires_at' => $expiresStr,
+                        'created_at' => $nowStr,
+                        'updated_at' => $nowStr,
+                    ]],
+                    ['cpf'],
+                    ['authorized_at', 'expires_at', 'updated_at']
+                );
+
+                $persistExpiryTs = strtotime($expiresStr);
+                if (is_int($persistExpiryTs) && $persistExpiryTs > 0) {
+                    $localExpiryTs = $localExpiryTs === null
+                        ? (float) $persistExpiryTs
+                        : max($localExpiryTs, (float) $persistExpiryTs);
+                }
+            } catch (Throwable $e) {
+                CltLog::warning('[FACTA] Falha ao persistir cache de pré-autorização.', [
+                    'cpf' => $cpf,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($localExpiryTs !== null) {
+            $this->preAuthApprovedLocal[$cpf] = $localExpiryTs;
+            $this->preAuthLookupCheckedLocal[$cpf] = true;
+        }
     }
 
     private function clearPreAuthGrantCache(): void
     {
         $this->preAuthApprovedLocal = [];
+        $this->preAuthLookupCheckedLocal = [];
+    }
+
+    /** @param array<int,string> $cpfs */
+    private function warmPreAuthGrants(array $cpfs): void
+    {
+        if ($this->preAuthPersistTtlDays <= 0 || empty($cpfs)) {
+            return;
+        }
+
+        $normalized = [];
+        foreach ($cpfs as $cpf) {
+            $digits = preg_replace('/\D+/', '', (string) $cpf);
+            if (is_string($digits) && strlen($digits) === 11) {
+                $normalized[] = $digits;
+            }
+        }
+
+        $normalized = array_values(array_unique($normalized));
+        if (empty($normalized)) {
+            return;
+        }
+
+        foreach ($normalized as $cpf) {
+            $this->preAuthLookupCheckedLocal[$cpf] = false;
+        }
+
+        try {
+            $nowUtc = now('UTC')->format('Y-m-d H:i:s');
+            $rows = DB::table('clt_pre_authorizations')
+                ->whereIn('cpf', $normalized)
+                ->where('expires_at', '>', $nowUtc)
+                ->select('cpf', 'expires_at')
+                ->get();
+
+            $reusedCpfs = [];
+            foreach ($rows as $row) {
+                $cpf = (string) ($row->cpf ?? '');
+                if ($cpf === '') {
+                    continue;
+                }
+
+                $expiresAt = strtotime((string) ($row->expires_at ?? ''));
+                if (!is_int($expiresAt) || $expiresAt <= 0) {
+                    continue;
+                }
+
+                $this->preAuthApprovedLocal[$cpf] = (float) $expiresAt;
+                $this->preAuthLookupCheckedLocal[$cpf] = true;
+                $reusedCpfs[] = $cpf;
+            }
+
+            if (!empty($reusedCpfs)) {
+                $sample = array_slice($reusedCpfs, 0, 8);
+                CltLog::warning('[FACTA] pré-autorização reaproveitada do banco (sem /solicita-autorizacao-consulta)', [
+                    'job_id' => $this->runtimeJobId,
+                    'reused_count' => count($reusedCpfs),
+                    'sample_cpfs' => $sample,
+                    'sample_extra' => max(0, count($reusedCpfs) - count($sample)),
+                ]);
+            }
+        } catch (Throwable $e) {
+            CltLog::warning('[FACTA] Falha ao carregar cache persistente de pré-autorização em lote.', [
+                'batch_size' => count($normalized),
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function sleepPreAuthCooldown(?float $latestPreAuthAt): void
+    {
+        if ($latestPreAuthAt === null || $this->preAuthPostCooldownMs <= 0) {
+            return;
+        }
+
+        $elapsedMs = (int) floor((microtime(true) - $latestPreAuthAt) * 1000);
+        $remainingMs = $this->preAuthPostCooldownMs - max(0, $elapsedMs);
+
+        if ($remainingMs > 0) {
+            usleep($remainingMs * 1000);
+        }
     }
 
     private function solicitaAutorizacaoConsulta(string $cpf, string &$token): array
     {
         $maxAttempts = max(1, $this->preAuthPhoneAttempts);
-        $maxRateLimitRetries = $this->httpRateLimitImmediateRetry ? $this->httpRateLimitMaxRetries : 0;
+        $maxTransientRetries = $this->httpRateLimitImmediateRetry ? $this->httpRateLimitMaxRetries : 0;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $celular = $this->generateRandomCellular();
 
-            $rateLimitAttempt = 0;
+            $transientRetryAttempt = 0;
             while (true) {
                 try {
                     $resp = $this->postSolicitaAutorizacaoConsulta($cpf, $token, $celular);
@@ -1754,10 +2141,7 @@ class FactaApiService
                     if ($resp->status() === 401) {
                         Cache::forget('facta_token');
                         $this->clearPreAuthGrantCache();
-                        $token = $this->getToken();
-                        if (!is_string($token) || $token === '') {
-                            throw new \RuntimeException('Token FACTA ausente após refresh');
-                        }
+                        $token = $this->getTokenWithBackoff('solicita-autorizacao-consulta:refresh_401');
 
                         $resp = $this->postSolicitaAutorizacaoConsulta($cpf, $token, $celular);
                         $this->logSolicitaAutorizacaoResponse($resp, $cpf, $celular, $attempt, 'after_401_refresh');
@@ -1766,6 +2150,29 @@ class FactaApiService
                         }
                     }
                 } catch (Throwable $e) {
+                    if (
+                        $transientRetryAttempt < $maxTransientRetries
+                        && ($this->isTimeoutException($e) || $this->isConnectionException($e))
+                    ) {
+                        $transientRetryAttempt++;
+                        $this->sleepBeforeTransientRetry(
+                            'solicita-autorizacao-consulta',
+                            null,
+                            $cpf,
+                            $transientRetryAttempt,
+                            null,
+                            'request_exception'
+                        );
+                        continue;
+                    }
+
+                    $this->logRequestException('/solicita-autorizacao-consulta', $e, [
+                        'cpf' => $cpf,
+                        'celular' => $celular,
+                        'stage' => 'request_exception',
+                        'attempt' => $attempt,
+                        'rate_limit_attempt' => $transientRetryAttempt,
+                    ]);
                     return [
                         'ok' => false,
                         'mensagem' => 'Pré-autorização: Exceção: ' . $e->getMessage(),
@@ -1775,18 +2182,23 @@ class FactaApiService
                     ];
                 }
 
-                if ($resp->status() === 429 && $rateLimitAttempt < $maxRateLimitRetries) {
+                if (
+                    $transientRetryAttempt < $maxTransientRetries
+                    && $this->isTransientSolicitaResponse($resp)
+                ) {
                     $retryAfter = $this->getRetryAfterSeconds($resp);
-                    if (!$this->shouldRetry429Immediately($retryAfter)) {
+                    if ($resp->status() === 429 && !$this->shouldRetry429Immediately($retryAfter)) {
                         break;
                     }
 
-                    $rateLimitAttempt++;
-                    $this->sleepBeforeImmediate429Retry(
+                    $transientRetryAttempt++;
+                    $this->sleepBeforeTransientRetry(
                         'solicita-autorizacao-consulta',
                         $retryAfter,
                         $cpf,
-                        $rateLimitAttempt
+                        $transientRetryAttempt,
+                        null,
+                        'transient_response'
                     );
                     continue;
                 }
@@ -1907,11 +2319,13 @@ class FactaApiService
         int $attempt,
         string $stage
     ): void {
-        if (!$this->shouldLogFactaResponse($resp)) {
+        if (!$this->logFactaResponses) {
             return;
         }
 
         try {
+            $status = $resp->status();
+            $body = (string) $resp->body();
             $json = null;
             $mensagem = null;
             $erro = null;
@@ -1932,19 +2346,83 @@ class FactaApiService
                 // mantém fallback para body bruto
             }
 
-            CltLog::warning('[FACTA] /solicita-autorizacao-consulta response', [
+            $elapsedMs = $this->extractElapsedMs($resp);
+            $context = [
+                'job_id' => $this->runtimeJobId,
                 'cpf' => $cpf,
                 'celular' => $celular,
                 'attempt' => $attempt,
                 'stage' => $stage,
-                'http_status' => $resp->status(),
+                'http_status' => $status,
+                'elapsed_ms' => $elapsedMs,
+                'logged_at_ms' => (int) round(microtime(true) * 1000),
                 'erro' => $erro,
                 'mensagem' => $mensagem,
-                'body_snippet' => $this->truncate((string) $resp->body(), 4000),
-                'json' => $json,
-            ]);
+            ];
+            $context = array_merge($context, $this->compactResponseLogContext($body, $json, $status));
+
+            CltLog::warning('[FACTA] /solicita-autorizacao-consulta response', $context);
         } catch (Throwable $e) {
             CltLog::warning('[FACTA] Falha ao logar /solicita-autorizacao-consulta: ' . $e->getMessage());
+        }
+    }
+
+    private function logGeraTokenResponse(HttpResponse $resp, string $stage): void
+    {
+        if (!$this->logFactaResponses) {
+            return;
+        }
+
+        try {
+            $status = $resp->status();
+            $body = (string) $resp->body();
+            $json = null;
+            $mensagem = null;
+            $erro = null;
+            $isJsonArray = false;
+
+            try {
+                $decoded = $resp->json();
+                if (is_array($decoded)) {
+                    $isJsonArray = true;
+                    $json = $decoded;
+                    $mensagem = (string) ($decoded['mensagem'] ?? $decoded['message'] ?? '');
+                    if (array_key_exists('erro', $decoded)) {
+                        $erro = (bool) $decoded['erro'];
+                    }
+                }
+            } catch (Throwable) {
+                // mantém fallback para body bruto
+            }
+
+            $mensagemStr = is_string($mensagem) ? trim($mensagem) : '';
+            $mensagemHtml = $mensagemStr !== '' && $this->looksLikeHtml($mensagemStr);
+            $bodyHtml = $body !== '' && $this->looksLikeHtml($body);
+            $invalidBody = (!$isJsonArray && $status === 200) || $mensagemHtml;
+            if ($bodyHtml && ($status === 200 || !$isJsonArray)) {
+                $invalidBody = true;
+            }
+
+            $outcome = 'success';
+            if ($invalidBody) {
+                $outcome = 'invalid_body';
+            } elseif ($status >= 400 || $erro === true) {
+                $outcome = 'error';
+            }
+
+            $context = [
+                'job_id' => $this->runtimeJobId,
+                'stage' => $stage,
+                'http_status' => $status,
+                'outcome' => $outcome,
+                'erro' => $erro,
+                'mensagem' => $mensagem,
+            ];
+            $context = array_merge($context, $this->compactResponseLogContext($body, $json, $status));
+
+            CltLog::warning('[FACTA] /gera-token response', $context);
+        } catch (Throwable $e) {
+            CltLog::warning('[FACTA] Falha ao logar /gera-token: ' . $e->getMessage());
         }
     }
 
@@ -1965,20 +2443,25 @@ class FactaApiService
         HttpResponse $resp,
         string $cpf,
         string $stage,
-        int $attempt
+        int $attempt,
+        ?int $poolStartedAtMs = null
     ): void {
-        if (!$this->shouldLogFactaResponse($resp)) {
+        if (!$this->logFactaResponses) {
             return;
         }
 
         try {
+            $status = $resp->status();
+            $body = (string) $resp->body();
             $json = null;
             $mensagem = null;
             $erro = null;
+            $isJsonArray = false;
 
             try {
                 $decoded = $resp->json();
                 if (is_array($decoded)) {
+                    $isJsonArray = true;
                     $json = $decoded;
                     $mensagem = (string) ($decoded['mensagem'] ?? $decoded['message'] ?? '');
                     if (array_key_exists('erro', $decoded)) {
@@ -1989,18 +2472,72 @@ class FactaApiService
                 // mantém fallback para body bruto
             }
 
-            CltLog::warning('[FACTA] /autoriza-consulta response', [
+            $mensagemStr = is_string($mensagem) ? trim($mensagem) : '';
+            $mensagemHtml = $mensagemStr !== '' && $this->looksLikeHtml($mensagemStr);
+            $bodyHtml = $body !== '' && $this->looksLikeHtml($body);
+            $invalidBody = (!$isJsonArray && $status === 200) || $mensagemHtml;
+            if ($bodyHtml && ($status === 200 || !$isJsonArray)) {
+                $invalidBody = true;
+            }
+
+            $outcome = 'success';
+            if ($invalidBody) {
+                $outcome = 'invalid_body';
+            } elseif ($status >= 400 || $erro === true) {
+                $outcome = 'error';
+            }
+
+            $elapsedMs = $this->extractElapsedMs($resp);
+            $mensagem = is_string($mensagem) ? trim($mensagem) : $mensagem;
+            $context = [
+                'job_id' => $this->runtimeJobId,
                 'cpf' => $cpf,
-                'attempt' => $attempt,
                 'stage' => $stage,
-                'http_status' => $resp->status(),
-                'erro' => $erro,
-                'mensagem' => $mensagem,
-                'body_snippet' => $this->truncate((string) $resp->body(), 4000),
-                'json' => $json,
-            ]);
+                'http_status' => $status,
+                'elapsed_ms' => $elapsedMs,
+                'outcome' => $outcome,
+            ];
+
+            if ($attempt > 1 || $outcome !== 'success') {
+                $context['attempt'] = $attempt;
+            }
+
+            if ($mensagem !== null && $mensagem !== '') {
+                $context['mensagem'] = $mensagem;
+            }
+
+            if ($outcome !== 'success') {
+                $context['erro'] = $erro;
+                if ($poolStartedAtMs !== null) {
+                    $context['pool_started_at_ms'] = $poolStartedAtMs;
+                }
+                $context = array_merge($context, $this->compactResponseLogContext($body, $json, $status, 320));
+            }
+
+            // Usa warning para todos os outcomes neste endpoint,
+            // pois o ambiente roda com LOG_LEVEL=warning e precisa registrar também sucessos.
+            CltLog::warning('[FACTA] /autoriza-consulta response', $context);
         } catch (Throwable $e) {
             CltLog::warning('[FACTA] Falha ao logar /autoriza-consulta: ' . $e->getMessage());
+        }
+    }
+
+    private function extractElapsedMs(HttpResponse $resp): ?int
+    {
+        try {
+            $stats = $resp->handlerStats();
+            if (!is_array($stats)) {
+                return null;
+            }
+
+            $totalTime = $stats['total_time'] ?? null;
+            if (!is_numeric($totalTime)) {
+                return null;
+            }
+
+            return (int) round(((float) $totalTime) * 1000);
+        } catch (Throwable) {
+            return null;
         }
     }
 
@@ -2037,7 +2574,11 @@ class FactaApiService
             ->asForm()
             ->timeout($this->httpTimeout)
             ->connectTimeout($this->httpConnectTimeout)
-            ->retry(max(0, $this->httpRetry), max(0, $this->httpRetryDelayMs), fn($e) => $e instanceof ConnectionException)
+            ->retry(
+                max(0, $this->httpRetry),
+                max(0, $this->httpTransientRetryDelayMs),
+                fn($e, $request) => $this->shouldRetryTransientHttpOnClientRetry($e, $request)
+            )
             ->post($this->baseUrl . '/solicita-autorizacao-consulta', [
                 'averbador' => $this->preAuthAverbador,
                 'nome' => $this->preAuthNome,
@@ -2269,6 +2810,123 @@ class FactaApiService
         if (mb_strlen($s, 'UTF-8') <= $max)
             return $s;
         return mb_substr($s, 0, $max, 'UTF-8') . '…';
+    }
+
+    /** @param array<string,mixed> $headers */
+    private function compactHeadersForLog(array $headers, int $maxHeaders = 12, int $maxValueLen = 120): array
+    {
+        $safe = [];
+        $count = 0;
+
+        foreach ($headers as $k => $vals) {
+            if ($count >= $maxHeaders) {
+                break;
+            }
+
+            $key = (string) $k;
+            if (stripos($key, 'authorization') === 0 || stripos($key, 'cookie') === 0 || stripos($key, 'set-cookie') === 0) {
+                $safe[$key] = ['REDACTED'];
+            } else {
+                $safe[$key] = array_map(
+                    fn ($v) => $this->truncate((string) $v, $maxValueLen),
+                    (array) $vals
+                );
+            }
+
+            $count++;
+        }
+
+        $extraHeaders = count($headers) - $count;
+        if ($extraHeaders > 0) {
+            $safe['_extra_headers'] = $extraHeaders;
+        }
+
+        return $safe;
+    }
+
+    private function compactResponseLogContext(string $body, ?array $json, int $status, int $snippetMax = 700): array
+    {
+        $trimmedBody = trim($body);
+
+        if (is_array($json)) {
+            $keys = array_keys($json);
+            $context = [
+                'body_type' => 'json',
+                'json_keys' => array_slice($keys, 0, 12),
+            ];
+
+            $extraKeys = count($keys) - count($context['json_keys']);
+            if ($extraKeys > 0) {
+                $context['json_keys_extra'] = $extraKeys;
+            }
+
+            if ($status >= 400 && $trimmedBody !== '') {
+                $context['body_snippet'] = $this->truncate($trimmedBody, $snippetMax);
+            }
+
+            return $context;
+        }
+
+        if ($trimmedBody === '') {
+            return ['body_type' => 'empty'];
+        }
+
+        return [
+            'body_type' => $this->looksLikeHtml($trimmedBody) ? 'html' : 'text',
+            'body_snippet' => $this->truncate($trimmedBody, $snippetMax),
+        ];
+    }
+
+    /** @param array<string,mixed> $context */
+    private function logRequestException(string $endpoint, Throwable $e, array $context = []): void
+    {
+        if (!$this->logFactaResponses) {
+            return;
+        }
+
+        CltLog::warning("[FACTA] {$endpoint} request exception", array_merge([
+            'job_id' => $this->runtimeJobId,
+            'logged_at_ms' => (int) round(microtime(true) * 1000),
+            'is_timeout' => $this->isTimeoutException($e),
+            'is_connection_exception' => $this->isConnectionException($e),
+            'exception_class' => get_class($e),
+            'error' => $e->getMessage(),
+        ], $context));
+    }
+
+    private function isConnectionException(Throwable $e): bool
+    {
+        $current = $e;
+        while ($current instanceof Throwable) {
+            if ($current instanceof ConnectionException) {
+                return true;
+            }
+
+            $current = $current->getPrevious();
+        }
+
+        return false;
+    }
+
+    private function isTimeoutException(Throwable $e): bool
+    {
+        $current = $e;
+        while ($current instanceof Throwable) {
+            $msg = mb_strtolower((string) $current->getMessage(), 'UTF-8');
+
+            if (
+                str_contains($msg, 'timeout')
+                || str_contains($msg, 'timed out')
+                || str_contains($msg, 'curl error 28')
+                || (is_numeric($current->getCode()) && (int) $current->getCode() === 28)
+            ) {
+                return true;
+            }
+
+            $current = $current->getPrevious();
+        }
+
+        return false;
     }
 
     private function toFactaDate($val): ?string

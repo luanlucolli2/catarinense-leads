@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\Leads\Jobs;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -20,7 +20,8 @@ class CleanupLeadsExportJob implements ShouldQueue
 
     public function __construct(public int $userId, public string $token)
     {
-        $this->onQueue((string) env('PREVIEW_JOB_QUEUE', 'reports'));
+        $this->timeout = max(1, (int) config('leads.export.cleanup_timeout_seconds', 300));
+        $this->onQueue((string) config('leads.export.queue', 'reports'));
     }
 
     public function handle(): void
@@ -35,7 +36,7 @@ class CleanupLeadsExportJob implements ShouldQueue
             return;
         }
 
-        $diskName = $data['disk'] ?: 'local';
+        $diskName = $data['disk'] ?: (string) config('leads.export.storage.disk', 'local');
         $path     = $data['path'] ?? null;
 
         if ($path) {
@@ -51,6 +52,7 @@ class CleanupLeadsExportJob implements ShouldQueue
         // publica "deleted" por curto período para o poller, depois some
         try {
             $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
+            $deletedStatusTtlCap = max(1, (int) config('leads.export.cache.deleted_status_ttl_cap_seconds', 600));
             Cache::put($key, [
                 'status'      => 'deleted',
                 'message'     => 'Arquivo removido por expiração.',
@@ -62,7 +64,7 @@ class CleanupLeadsExportJob implements ShouldQueue
                 'size_bytes'  => 0,
                 'error'       => null,
                 'ttl_seconds' => $ttl,
-            ], min($ttl, 600));
+            ], min($ttl, $deletedStatusTtlCap));
         } catch (\Throwable $e) {
             Cache::forget($key);
         }
@@ -70,6 +72,7 @@ class CleanupLeadsExportJob implements ShouldQueue
 
     private function cacheKey(int $userId, string $token): string
     {
-        return "leads_export:{$userId}:{$token}";
+        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
+        return "{$prefix}:{$userId}:{$token}";
     }
 }

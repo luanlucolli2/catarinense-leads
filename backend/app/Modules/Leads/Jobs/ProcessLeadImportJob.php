@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\Leads\Jobs;
 
 use App\Models\ImportJob;
 use App\Models\ImportError;
-use App\Imports\CadastralImport;
-use App\Imports\HigienizacaoImport;
-use App\Imports\CltSnapshotImport;
+use App\Modules\Leads\Imports\CadastralImport;
+use App\Modules\Leads\Imports\HigienizacaoImport;
+use App\Modules\Leads\Imports\CltSnapshotImport;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Excel as ExcelReaderType;
 use Illuminate\Bus\Queueable;
@@ -30,8 +30,8 @@ class ProcessLeadImportJob implements ShouldQueue
     public function __construct(ImportJob $importJob)
     {
         $this->importJob = $importJob;
-        // ✅ Força o job a ir para a fila 'imports'
-        $this->onQueue('imports');
+        // Forca o job a ir para a fila configurada para importacao de leads
+        $this->onQueue((string) config('leads.import.queue', 'imports'));
     }
 
     public function handle(): void
@@ -45,17 +45,27 @@ class ProcessLeadImportJob implements ShouldQueue
         $uploadPath = $this->importJob->file_path;
 
         try {
-            $disk = 'local';
+            $primaryDisk = (string) config('leads.import.storage.disk', 'local');
+            $fallbackDisks = array_values(array_filter((array) config('leads.import.storage.fallback_disks', ['public'])));
+
+            $disk = $primaryDisk;
             $path = $this->importJob->file_path;
 
             $exists = Storage::disk($disk)->exists($path);
             $fullPath = $exists ? Storage::disk($disk)->path($path) : null;
 
             if (!$exists) {
-                if (Storage::disk('public')->exists($path)) {
-                    $disk = 'public';
-                    $fullPath = Storage::disk('public')->path($path);
-                    $exists = true;
+                foreach ($fallbackDisks as $fallbackDisk) {
+                    if ($fallbackDisk === '' || $fallbackDisk === $disk) {
+                        continue;
+                    }
+
+                    if (Storage::disk($fallbackDisk)->exists($path)) {
+                        $disk = $fallbackDisk;
+                        $fullPath = Storage::disk($fallbackDisk)->path($path);
+                        $exists = true;
+                        break;
+                    }
                 }
             }
 
@@ -87,13 +97,16 @@ class ProcessLeadImportJob implements ShouldQueue
                 }
             }
 
-            // total de linhas estimado
-            try {
-                $totalRows = $this->quickTotalRows($fullPath);
-                if ($totalRows > 0 && (int)$this->importJob->total_rows !== (int)$totalRows) {
-                    $this->importJob->update(['total_rows' => (int)$totalRows]);
+            // Contagem prévia é opcional (evita uma passagem extra no arquivo em ambientes restritos).
+            if ($this->shouldPreCountTotalRows($type)) {
+                try {
+                    $totalRows = $this->quickTotalRows($fullPath);
+                    if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
+                        $this->importJob->update(['total_rows' => (int) $totalRows]);
+                    }
+                } catch (ReaderException $e) {
                 }
-            } catch (ReaderException $e) {}
+            }
 
             // importar
             $importer = match ($type) {
@@ -160,6 +173,15 @@ class ProcessLeadImportJob implements ShouldQueue
         return max((int)(($info[0]['totalRows'] ?? 1) - 1), 0);
     }
 
+    private function shouldPreCountTotalRows(string $type): bool
+    {
+        if ($type === 'clt') {
+            return true;
+        }
+
+        return (bool) config('leads.import.pre_count_total_rows', true);
+    }
+
     private function diffMissingHeadersIndexed(array $presentByIndex, array $requiredOriginal): array
     {
         $present = array_values($presentByIndex);
@@ -178,8 +200,15 @@ class ProcessLeadImportJob implements ShouldQueue
     {
         if (!$relativePath) return;
 
-        // tenta nos discos "local" e "public"
-        foreach (['local', 'public'] as $disk) {
+        $primaryDisk = (string) config('leads.import.storage.disk', 'local');
+        $fallbackDisks = array_values(array_filter((array) config('leads.import.storage.fallback_disks', ['public'])));
+        $disks = array_values(array_unique(array_filter(array_merge([$primaryDisk], $fallbackDisks))));
+        if (empty($disks)) {
+            $disks = ['local', 'public'];
+        }
+
+        // tenta apagar no disco principal e nos discos de fallback
+        foreach ($disks as $disk) {
             try {
                 if (Storage::disk($disk)->exists($relativePath)) {
                     Storage::disk($disk)->delete($relativePath);

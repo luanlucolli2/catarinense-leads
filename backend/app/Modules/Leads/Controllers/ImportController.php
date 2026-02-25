@@ -1,13 +1,14 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\Leads\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ImportJob;
-use App\Jobs\ProcessLeadImportJob;
+use App\Modules\Leads\Jobs\ProcessLeadImportJob;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\UploadedFile;
 
@@ -20,9 +21,19 @@ class ImportController extends Controller
 
     public function store(Request $request)
     {
+        $mimes = array_values(array_filter((array) config('leads.import.mimes', ['xlsx', 'xls'])));
+        if (empty($mimes)) {
+            $mimes = ['xlsx', 'xls'];
+        }
+
+        $types = array_values(array_filter((array) config('leads.import.types', ['cadastral', 'higienizacao', 'clt'])));
+        if (empty($types)) {
+            $types = ['cadastral', 'higienizacao', 'clt'];
+        }
+
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls'],
-            'type' => ['required', 'string', 'in:cadastral,higienizacao,clt'],
+            'file' => ['required', 'file', 'mimes:' . implode(',', $mimes)],
+            'type' => ['required', 'string', Rule::in($types)],
             'origin' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -30,7 +41,10 @@ class ImportController extends Controller
         $file = $validated['file'];
         $type = $validated['type'];
 
-        $locked = DB::selectOne('SELECT GET_LOCK(?, ? ) AS l', ['imports_mutex', 5]);
+        $lockName = (string) config('leads.import.lock.name', 'imports_mutex');
+        $lockWaitSeconds = (int) config('leads.import.lock.wait_seconds', 5);
+
+        $locked = DB::selectOne('SELECT GET_LOCK(?, ? ) AS l', [$lockName, $lockWaitSeconds]);
         if (!$locked || (int) $locked->l !== 1) {
             return response()->json([
                 'message' => 'Outro processo de importação está iniciando. Tente novamente.'
@@ -38,19 +52,27 @@ class ImportController extends Controller
         }
 
         try {
-            $inProgress = ImportJob::whereIn('status', ['pendente', 'em_progresso'])->exists();
+            $inProgressStatuses = array_values(array_filter((array) config('leads.import.in_progress_statuses', ['pendente', 'em_progresso'])));
+            if (empty($inProgressStatuses)) {
+                $inProgressStatuses = ['pendente', 'em_progresso'];
+            }
+
+            $inProgress = ImportJob::whereIn('status', $inProgressStatuses)->exists();
             if ($inProgress) {
                 return response()->json([
                     'message' => 'Já existe uma importação em andamento. Aguarde a conclusão antes de iniciar outra.'
                 ], Response::HTTP_CONFLICT);
             }
 
-            $path = $file->store('imports', 'local');
+            $path = $file->store(
+                (string) config('leads.import.storage.directory', 'imports'),
+                (string) config('leads.import.storage.disk', 'local')
+            );
 
             $importJob = ImportJob::create([
                 'user_id' => Auth::id(),
                 'type' => $type,
-                'origin' => $validated['origin'] ?? 'Upload Padrão',
+                'origin' => $validated['origin'] ?? (string) config('leads.import.default_origin', 'Upload Padrão'),
                 'file_name' => $file->getClientOriginalName(),
                 'file_path' => $path,
                 'status' => 'pendente',
@@ -58,7 +80,7 @@ class ImportController extends Controller
                 'processed_rows' => 0,
             ]);
         } finally {
-            DB::select('SELECT RELEASE_LOCK(?) AS r', ['imports_mutex']);
+            DB::select('SELECT RELEASE_LOCK(?) AS r', [$lockName]);
         }
 
         ProcessLeadImportJob::dispatch($importJob);

@@ -106,6 +106,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $api = $job->variant === 'offline'
             ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
             : app(\App\Modules\CLT\Services\FactaApiService::class);
+        if ($api instanceof \App\Modules\CLT\Services\FactaApiService) {
+            $api->setRuntimeJobId($this->jobId);
+        }
 
         if ($this->isCancelled($job)) {
             $this->cleanupSpool($job);

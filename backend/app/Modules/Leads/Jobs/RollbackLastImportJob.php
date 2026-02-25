@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Modules\Leads\Jobs;
 
 use App\Models\ImportJob;
-use App\Services\RollbackService;
+use App\Modules\Leads\Services\RollbackService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;

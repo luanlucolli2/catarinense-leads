@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\Leads\Controllers;
 
-use App\Jobs\RollbackLastImportJob;
+use App\Modules\Leads\Jobs\RollbackLastImportJob;
 use App\Models\ImportJob;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Http\Controllers\Controller;
-use App\Services\RollbackService;
+use App\Modules\Leads\Services\RollbackService;
 class RollbackController extends Controller
 {
     /**

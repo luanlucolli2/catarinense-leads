@@ -1,11 +1,12 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Modules\Leads\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\Vendor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class LeadController extends Controller
@@ -22,57 +23,69 @@ class LeadController extends Controller
 
     private function paginateLeads(Request $r)
     {
-        $perPage = (int) $r->input('per_page', 10);
-        $query = \App\Http\Filters\LeadFilter::apply($r);
+        $perPage = (int) $r->input('per_page', (int) config('leads.pagination.per_page_default', 10));
+        $perPage = max(1, $perPage);
+        $query = \App\Modules\Leads\Filters\LeadFilter::apply($r);
         $leads = $query->paginate($perPage);
         return response()->json($leads);
     }
 
     public function filters()
     {
-        $lastCadJobIds = DB::table('lead_imports as li')
-            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-            ->where('ij.type', 'cadastral')
-            ->selectRaw('MAX(li.import_job_id) as id')
-            ->groupBy('li.lead_id');
+        $ttlSeconds = max(1, (int) config('leads.filters.cache_ttl_seconds', 60));
+        $cacheKey = (string) config('leads.filters.cache_key', 'leads:filters:v1');
 
-        $lastHigJobIds = DB::table('lead_imports as li')
-            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-            ->where('ij.type', 'higienizacao')
-            ->selectRaw('MAX(li.import_job_id) as id')
-            ->groupBy('li.lead_id');
+        $payload = Cache::remember($cacheKey, now()->addSeconds($ttlSeconds), function () {
+            $lastCadJobIds = DB::table('lead_imports as li')
+                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                ->where('ij.type', 'cadastral')
+                ->selectRaw('MAX(li.import_job_id) as id')
+                ->groupBy('li.lead_id');
 
-        return response()->json([
-            'motivos' => Lead::query()
-                ->whereNotNull('consulta')
-                ->distinct()
-                ->orderBy('consulta')
-                ->pluck('consulta')
-                ->values(),
+            $lastHigJobIds = DB::table('lead_imports as li')
+                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                ->where('ij.type', 'higienizacao')
+                ->selectRaw('MAX(li.import_job_id) as id')
+                ->groupBy('li.lead_id');
 
-            'origens' => DB::table('import_jobs')
-                ->where('type', 'cadastral')
-                ->whereIn('id', $lastCadJobIds)
-                ->distinct()
-                ->orderBy('origin')
-                ->pluck('origin')
-                ->values(),
+            return [
+                'motivos' => Lead::query()
+                    ->whereNotNull('consulta')
+                    ->distinct()
+                    ->orderBy('consulta')
+                    ->pluck('consulta')
+                    ->values()
+                    ->all(),
 
-            'origens_hig' => DB::table('import_jobs')
-                ->where('type', 'higienizacao')
-                ->whereIn('id', $lastHigJobIds)
-                ->distinct()
-                ->orderBy('origin')
-                ->pluck('origin')
-                ->values(),
+                'origens' => DB::table('import_jobs')
+                    ->where('type', 'cadastral')
+                    ->whereIn('id', $lastCadJobIds)
+                    ->distinct()
+                    ->orderBy('origin')
+                    ->pluck('origin')
+                    ->values()
+                    ->all(),
 
-            'vendors' => Vendor::query()
-                ->whereHas('contracts')
-                ->orderBy('name')
-                ->get(['id', 'name'])
-                ->map(fn($v) => ['id' => $v->id, 'name' => $v->name])
-                ->values(),
-        ]);
+                'origens_hig' => DB::table('import_jobs')
+                    ->where('type', 'higienizacao')
+                    ->whereIn('id', $lastHigJobIds)
+                    ->distinct()
+                    ->orderBy('origin')
+                    ->pluck('origin')
+                    ->values()
+                    ->all(),
+
+                'vendors' => Vendor::query()
+                    ->whereHas('contracts')
+                    ->orderBy('name')
+                    ->get(['id', 'name'])
+                    ->map(fn($v) => ['id' => $v->id, 'name' => $v->name])
+                    ->values()
+                    ->all(),
+            ];
+        });
+
+        return response()->json($payload);
     }
 
     public function show(Lead $lead)
