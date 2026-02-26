@@ -14,6 +14,24 @@ use Illuminate\Support\Facades\DB;
 
 class RollbackService
 {
+    private const LEAD_RESTORE_FIELDS = [
+        'cpf',
+        'nome',
+        'data_nascimento',
+        'fone1',
+        'classe_fone1',
+        'fone2',
+        'classe_fone2',
+        'fone3',
+        'classe_fone3',
+        'fone4',
+        'classe_fone4',
+        'consulta',
+        'data_atualizacao',
+        'saldo',
+        'libera',
+    ];
+
     /**
      * Roda o rollback do job fornecido.
      *
@@ -112,25 +130,7 @@ class RollbackService
                     ->where('import_job_id', $jobId)
                     ->where('was_new', true);
             })
-            ->select([
-                'id',
-                'lead_id',
-                'cpf',
-                'nome',
-                'data_nascimento',
-                'fone1',
-                'classe_fone1',
-                'fone2',
-                'classe_fone2',
-                'fone3',
-                'classe_fone3',
-                'fone4',
-                'classe_fone4',
-                'consulta',
-                'data_atualizacao',
-                'saldo',
-                'libera',
-            ])
+            ->select(array_merge(['id', 'lead_id'], self::LEAD_RESTORE_FIELDS))
             ->orderBy('id')
             ->chunkById($chunkSize, function ($rows): void {
                 if ($rows->isEmpty()) {
@@ -145,25 +145,14 @@ class RollbackService
                         continue;
                     }
 
-                    $payload[] = [
-                        'id'               => $bkp->lead_id,
-                        'cpf'              => $bkp->cpf,
-                        'nome'             => $bkp->nome,
-                        'data_nascimento'  => $bkp->data_nascimento,
-                        'fone1'            => $bkp->fone1,
-                        'classe_fone1'     => $bkp->classe_fone1,
-                        'fone2'            => $bkp->fone2,
-                        'classe_fone2'     => $bkp->classe_fone2,
-                        'fone3'            => $bkp->fone3,
-                        'classe_fone3'     => $bkp->classe_fone3,
-                        'fone4'            => $bkp->fone4,
-                        'classe_fone4'     => $bkp->classe_fone4,
-                        'consulta'         => $bkp->consulta,
-                        'data_atualizacao' => $bkp->data_atualizacao,
-                        'saldo'            => $bkp->saldo,
-                        'libera'           => $bkp->libera,
-                        'updated_at'       => $now,
+                    $row = [
+                        'id' => $bkp->lead_id,
+                        'updated_at' => $now,
                     ];
+                    foreach (self::LEAD_RESTORE_FIELDS as $field) {
+                        $row[$field] = $bkp->{$field};
+                    }
+                    $payload[] = $row;
                 }
 
                 if (empty($payload)) {
@@ -173,24 +162,7 @@ class RollbackService
                 DB::table('leads')->upsert(
                     $payload,
                     ['id'],
-                    [
-                        'cpf',
-                        'nome',
-                        'data_nascimento',
-                        'fone1',
-                        'classe_fone1',
-                        'fone2',
-                        'classe_fone2',
-                        'fone3',
-                        'classe_fone3',
-                        'fone4',
-                        'classe_fone4',
-                        'consulta',
-                        'data_atualizacao',
-                        'saldo',
-                        'libera',
-                        'updated_at',
-                    ]
+                    array_merge(self::LEAD_RESTORE_FIELDS, ['updated_at'])
                 );
             }, 'id');
     }

@@ -90,33 +90,11 @@ class LeadFilter
             }
 
             if (in_array('ultima_origem_cadastral', $columnsForExport, true)) {
-                $query->addSelect([
-                    'ultima_origem_cadastral' => function ($q) {
-                        $q->select('ij.origin')
-                            ->from('lead_imports as li')
-                            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                            ->whereColumn('li.lead_id', 'leads.id')
-                            ->where('ij.type', 'cadastral')
-                            ->orderByDesc('li.created_at')
-                            ->orderByDesc('li.import_job_id')
-                            ->limit(1);
-                    }
-                ]);
+                self::addLatestOriginSelect($query, 'ultima_origem_cadastral', 'cadastral');
             }
 
             if (in_array('ultima_origem_higienizacao', $columnsForExport, true)) {
-                $query->addSelect([
-                    'ultima_origem_higienizacao' => function ($q) {
-                        $q->select('ij.origin')
-                            ->from('lead_imports as li')
-                            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                            ->whereColumn('li.lead_id', 'leads.id')
-                            ->where('ij.type', 'higienizacao')
-                            ->orderByDesc('li.created_at')
-                            ->orderByDesc('li.import_job_id')
-                            ->limit(1);
-                    }
-                ]);
+                self::addLatestOriginSelect($query, 'ultima_origem_higienizacao', 'higienizacao');
             }
 
             if (in_array('contracts_count', $columnsForExport, true)) {
@@ -200,29 +178,11 @@ class LeadFilter
                 ]);
 
                 $query->addSelect([
-                    'ultima_origem_cadastral' => function ($q) {
-                        $q->select('ij.origin')
-                            ->from('lead_imports as li')
-                            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                            ->whereColumn('li.lead_id', 'leads.id')
-                            ->where('ij.type', 'cadastral')
-                            ->orderByDesc('li.created_at')
-                            ->orderByDesc('li.import_job_id')
-                            ->limit(1);
-                    }
+                    'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral')
                 ]);
 
                 $query->addSelect([
-                    'ultima_origem_higienizacao' => function ($q) {
-                        $q->select('ij.origin')
-                            ->from('lead_imports as li')
-                            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                            ->whereColumn('li.lead_id', 'leads.id')
-                            ->where('ij.type', 'higienizacao')
-                            ->orderByDesc('li.created_at')
-                            ->orderByDesc('li.import_job_id')
-                            ->limit(1);
-                    }
+                    'ultima_origem_higienizacao' => self::latestOriginSubquery('higienizacao')
                 ]);
 
                 if ($needFgtsAuthorizedCol) {
@@ -251,16 +211,7 @@ class LeadFilter
                     DB::raw('cs.consulted_at as clt_consultado_em'),
                     DB::raw('cs.updated_at as clt_dados_atualizados_em'),
 
-                    'ultima_origem_cadastral' => function ($q) {
-                        $q->select('ij.origin')
-                            ->from('lead_imports as li')
-                            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                            ->whereColumn('li.lead_id', 'leads.id')
-                            ->where('ij.type', 'cadastral')
-                            ->orderByDesc('li.created_at')
-                            ->orderByDesc('li.import_job_id')
-                            ->limit(1);
-                    },
+                    'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
                 ]);
             }
         }
@@ -291,27 +242,13 @@ class LeadFilter
 
         // ===== filtros FGTS (não se aplicam ao CLT) =====
         if ($mode === 'fgts') {
-            $motivos = $r->filled('motivos') ? (is_array($r->motivos) ? $r->motivos : explode(',', (string) $r->motivos)) : [];
+            $motivos = self::requestList($r, 'motivos');
             if ($motivos)
                 $query->whereIn('leads.consulta', $motivos);
 
-            $origHig = $r->filled('origens_hig') ? (is_array($r->origens_hig) ? $r->origens_hig : explode(',', (string) $r->origens_hig)) : [];
+            $origHig = self::requestList($r, 'origens_hig');
             if ($origHig) {
-                $query->whereIn('leads.id', function ($sq) use ($origHig) {
-                    $sq->select('li.lead_id')
-                        ->from('lead_imports as li')
-                        ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                        ->where('ij.type', 'higienizacao')
-                        ->whereIn('ij.origin', $origHig)
-                        ->whereRaw('li.import_job_id = (
-                            SELECT li2.import_job_id
-                            FROM lead_imports li2
-                            JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = \'higienizacao\'
-                            WHERE li2.lead_id = li.lead_id
-                            ORDER BY li2.created_at DESC, li2.import_job_id DESC
-                            LIMIT 1
-                       )');
-                });
+                self::applyLatestOriginFilter($query, 'higienizacao', $origHig);
             }
 
             if ($r->filled('contract_from') || $r->filled('contract_to')) {
@@ -320,7 +257,7 @@ class LeadFilter
                 $query->whereHas('contracts', fn(Builder $q) => $q->whereBetween('data_contrato', [$from, $to]));
             }
 
-            $vendors = $r->filled('vendors') ? (is_array($r->vendors) ? $r->vendors : explode(',', (string) $r->vendors)) : [];
+            $vendors = self::requestList($r, 'vendors');
             if ($vendors) {
                 $clean = array_map(fn($n) => Vendor::clean($n), $vendors);
                 $query->whereHas('contracts.vendor', fn(Builder $q) => $q->whereIn('name_clean', $clean));
@@ -328,23 +265,9 @@ class LeadFilter
         }
 
         // filtros de origem cadastral (válido para ambos)
-        $origensCad = $r->filled('origens') ? (is_array($r->origens) ? $r->origens : explode(',', (string) $r->origens)) : [];
+        $origensCad = self::requestList($r, 'origens');
         if ($origensCad) {
-            $query->whereIn('leads.id', function ($sq) use ($origensCad) {
-                $sq->select('li.lead_id')
-                    ->from('lead_imports as li')
-                    ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                    ->where('ij.type', 'cadastral')
-                    ->whereIn('ij.origin', $origensCad)
-                    ->whereRaw('li.import_job_id = (
-                        SELECT li2.import_job_id
-                        FROM lead_imports li2
-                        JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = \'cadastral\'
-                        WHERE li2.lead_id = li.lead_id
-                        ORDER BY li2.created_at DESC, li2.import_job_id DESC
-                        LIMIT 1
-                   )');
-            });
+            self::applyLatestOriginFilter($query, 'cadastral', $origensCad);
         }
 
         // datas gerais de atualização do LEAD
@@ -358,7 +281,7 @@ class LeadFilter
         self::applyMassFilter($query, $r, 'names', ['leads.nome']);
         self::applyMassFilter($query, $r, 'phones', ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4']);
 
-        $birth = $r->filled('birth_month') ? (is_array($r->birth_month) ? $r->birth_month : explode(',', (string) $r->birth_month)) : [];
+        $birth = self::requestList($r, 'birth_month');
         self::applyBirthMonthFilter($query, $birth);
 
         // ======== CLT – filtros específicos ========
@@ -698,6 +621,64 @@ class LeadFilter
             'phones' => max(1, (int) config('leads.filters.mass_filter.phones_max_terms', 5000)),
             default => max(1, (int) config('leads.filters.mass_filter.default_max_terms', 1000)),
         };
+    }
+
+    private static function addLatestOriginSelect(Builder $query, string $alias, string $type): void
+    {
+        $query->addSelect([
+            $alias => self::latestOriginSubquery($type),
+        ]);
+    }
+
+    private static function latestOriginSubquery(string $type): \Closure
+    {
+        return function ($q) use ($type) {
+            $q->select('ij.origin')
+                ->from('lead_imports as li')
+                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                ->whereColumn('li.lead_id', 'leads.id')
+                ->where('ij.type', $type)
+                ->orderByDesc('li.created_at')
+                ->orderByDesc('li.import_job_id')
+                ->limit(1);
+        };
+    }
+
+    private static function applyLatestOriginFilter(Builder $query, string $type, array $origins): void
+    {
+        $query->whereIn('leads.id', function ($sq) use ($type, $origins) {
+            $sq->select('li.lead_id')
+                ->from('lead_imports as li')
+                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+                ->where('ij.type', $type)
+                ->whereIn('ij.origin', $origins)
+                ->whereRaw(
+                    'li.import_job_id = (
+                        SELECT li2.import_job_id
+                        FROM lead_imports li2
+                        JOIN import_jobs ij2 ON ij2.id = li2.import_job_id AND ij2.type = ?
+                        WHERE li2.lead_id = li.lead_id
+                        ORDER BY li2.created_at DESC, li2.import_job_id DESC
+                        LIMIT 1
+                    )',
+                    [$type]
+                );
+        });
+    }
+
+    private static function requestList(Request $r, string $key): array
+    {
+        if (!$r->filled($key)) {
+            return [];
+        }
+
+        $value = $r->input($key);
+        $items = is_array($value) ? $value : explode(',', (string) $value);
+
+        return array_values(array_filter(
+            array_map(fn($item) => trim((string) $item), $items),
+            fn($item) => $item !== ''
+        ));
     }
 
     private static function range($sq, Request $r, string $minKey, string $maxKey, string $column): void

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\Modules\Leads\Jobs;
 
 use App\Modules\Leads\Filters\LeadFilter;
+use App\Modules\Leads\Support\LeadExportColumns;
+use App\Modules\Leads\Support\LeadsExportCacheState;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -35,7 +37,7 @@ class GenerateLeadsExportJob implements ShouldQueue
 
     public function handle(): void
     {
-        $key = $this->cacheKey($this->userId, $this->token);
+        $key = LeadsExportCacheState::key($this->userId, $this->token);
 
         if (function_exists('ini_set')) {
             @ini_set('memory_limit', (string) config('leads.export.memory_limit', '256M'));
@@ -81,11 +83,9 @@ class GenerateLeadsExportJob implements ShouldQueue
             $columns = (array) ($this->payload['columns'] ?? []);
             $eloquent = LeadFilter::apply($req, $columns); // export-mode
 
-            $table = $eloquent->getModel()->getTable();
             $pk = $eloquent->getModel()->getKeyName() ?: 'id';
-            $pkCol = "{$table}.{$pk}";
 
-            $base = $eloquent->toBase()->orderBy($pkCol, 'asc');
+            $base = $eloquent->toBase();
 
             $disk = Storage::disk($diskName);
             if (!$disk->exists($dir)) {
@@ -152,18 +152,11 @@ class GenerateLeadsExportJob implements ShouldQueue
             } catch (Throwable) {
             }
 
-            Cache::put($key, [
-                'status' => 'ready',
-                'message' => 'Export pronto para download.',
-                'created_at' => now()->toIso8601String(),
-                'updated_at' => now()->toIso8601String(),
-                'disk' => $diskName,
-                'path' => $path,
-                'filename' => $filename,
-                'size_bytes' => $size,
-                'error' => null,
-                'ttl_seconds' => $this->ttlSeconds,
-            ], $this->ttlSeconds);
+            Cache::put(
+                $key,
+                LeadsExportCacheState::ready($diskName, $path, $filename, $size, $this->ttlSeconds),
+                $this->ttlSeconds
+            );
 
             $grace = (int) config('leads.export.grace_seconds', 600);
             \App\Modules\Leads\Jobs\CleanupLeadsExportJob::dispatch($this->userId, $this->token)
@@ -180,126 +173,34 @@ class GenerateLeadsExportJob implements ShouldQueue
             } catch (\Throwable) {
             }
 
-            Cache::put($key, [
-                'status' => 'error',
-                'message' => 'Falha ao gerar export.',
-                'created_at' => now()->toIso8601String(),
-                'updated_at' => now()->toIso8601String(),
-                'disk' => null,
-                'path' => null,
-                'filename' => null,
-                'size_bytes' => 0,
-                'error' => mb_strimwidth($e->getMessage(), 0, 1000, '…', 'UTF-8'),
-                'ttl_seconds' => $this->ttlSeconds,
-            ], $this->ttlSeconds);
+            Cache::put(
+                $key,
+                LeadsExportCacheState::error(mb_strimwidth($e->getMessage(), 0, 1000, '...', 'UTF-8'), $this->ttlSeconds),
+                $this->ttlSeconds
+            );
         }
-    }
-
-    private function cacheKey(int $userId, string $token): string
-    {
-        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
-        return "{$prefix}:{$userId}:{$token}";
     }
 
     private function headings(array $columns): array
     {
-        $map = [
-            'id' => 'ID',
-            'cpf' => 'CPF',
-            'nome' => 'Nome',
-            'data_nascimento' => 'Data de Nascimento',
-            'fone1' => 'Telefone 1',
-            'fone2' => 'Telefone 2',
-            'fone3' => 'Telefone 3',
-            'fone4' => 'Telefone 4',
-            'classe_fone1' => 'Classe 1',
-            'classe_fone2' => 'Classe 2',
-            'classe_fone3' => 'Classe 3',
-            'classe_fone4' => 'Classe 4',
-            'consulta' => 'Motivo (Consulta)',
-            'saldo' => 'Saldo',
-            'libera' => 'Libera',
-            'ultima_origem_cadastral' => 'Última Origem (Cadastral)',
-            'ultima_origem_higienizacao' => 'Última Origem (Higienização)',
-            'data_atualizacao' => 'Data de Atualização',
-            'contracts_count' => 'Qtde de Contratos',
-            'vendedor' => 'Vendedor',
-            'data_contrato_recente' => 'Data de Contrato (mais recente)',
-            'fgts_off_authorized' => 'FGTS OFF Autorizado',
-            'fgts_off_consultado_em' => 'FGTS OFF Consultado em',
-            'elegivel' => 'CLT Elegível',
-            'idade' => 'CLT Idade',
-            'sexo' => 'CLT Sexo',
-            'data_admissao' => 'CLT Data de Admissão',
-            'meses_admissao' => 'CLT Tempo de Casa (meses)',
-            'valor_renda' => 'CLT Renda Total',
-            'valor_base_margem' => 'CLT Base de Margem',
-            'margem_disponivel' => 'CLT Margem Disponível',
-            'valor_max_prestacao' => 'CLT Valor Máx. Prestação',
-            'categoria_trabalhador_codigo' => 'CLT Categoria do Trabalhador',
-            'inicio_atividade_empregador' => 'CLT Início Atividade (Empregador)',
-            'qtd_emprestimos_ativos_suspensos' => 'CLT Qtde Empréstimos Ativos/Suspensos',
-            'emprestimos_legados' => 'CLT Empréstimos Legados',
-            'not_found' => 'CLT Não Encontrado',
-            'clt_consultado_em' => 'CLT Data consulta',
-            'clt_dados_atualizados_em' => 'CLT Data dados',
-        ];
-        return array_map(static fn($c) => $map[$c] ?? $c, $columns);
+        $labels = LeadExportColumns::labels();
+        return array_map(static fn($c) => $labels[$c] ?? $c, $columns);
     }
 
     private function mapRecord(object $lead, array $columns): array
     {
         $row = [];
         foreach ($columns as $col) {
-            switch ($col) {
-                case 'cpf':
-                    $row[] = $this->cpfDigits($lead->cpf ?? null);
-                    break;
-                case 'data_atualizacao':
-                case 'data_nascimento':
-                case 'data_contrato_recente':
-                    $row[] = $this->formatDate($lead->{$col} ?? null, in_array($col, ['data_nascimento', 'data_contrato_recente'], true));
-                    break;
-                case 'saldo':
-                case 'libera':
-                    $row[] = $this->toFloat($lead->{$col} ?? null);
-                    break;
-                case 'contracts_count':
-                    $row[] = isset($lead->contracts_count) ? (int) $lead->contracts_count : null;
-                    break;
-                case 'fgts_off_authorized':
-                    $v = $lead->fgts_off_authorized ?? null;
-                    $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
-                    break;
-                case 'fgts_off_consultado_em':
-                    $row[] = $this->formatDate($lead->fgts_off_consultado_em ?? null);
-                    break;
-                case 'elegivel':
-                case 'not_found':
-                case 'emprestimos_legados':
-                    $v = $lead->{$col} ?? null;
-                    $row[] = $v === null ? null : ($v ? 'Sim' : 'Não');
-                    break;
-                case 'data_admissao':
-                case 'inicio_atividade_empregador':
-                case 'clt_consultado_em':
-                case 'clt_dados_atualizados_em':
-                    $row[] = $this->formatDate($lead->{$col} ?? null, true);
-                    break;
-                case 'valor_renda':
-                case 'valor_base_margem':
-                case 'margem_disponivel':
-                case 'valor_max_prestacao':
-                    $row[] = $this->toFloat($lead->{$col} ?? null);
-                    break;
-                case 'meses_admissao':
-                case 'idade':
-                case 'qtd_emprestimos_ativos_suspensos':
-                    $row[] = isset($lead->{$col}) ? (int) $lead->{$col} : null;
-                    break;
-                default:
-                    $row[] = $lead->{$col} ?? null;
-            }
+            $value = $lead->{$col} ?? null;
+            $row[] = match (LeadExportColumns::formatterFor($col)) {
+                'cpf_digits' => $this->cpfDigits($value),
+                'date' => $this->formatDate($value),
+                'date_only' => $this->formatDate($value, true),
+                'float' => $this->toFloat($value),
+                'int' => isset($value) ? (int) $value : null,
+                'bool_ptbr' => $value === null ? null : ($value ? 'Sim' : 'Não'),
+                default => $value,
+            };
         }
         return $row;
     }

@@ -36,17 +36,8 @@ class LeadController extends Controller
         $cacheKey = (string) config('leads.filters.cache_key', 'leads:filters:v1');
 
         $payload = Cache::remember($cacheKey, now()->addSeconds($ttlSeconds), function () {
-            $lastCadJobIds = DB::table('lead_imports as li')
-                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                ->where('ij.type', 'cadastral')
-                ->selectRaw('MAX(li.import_job_id) as id')
-                ->groupBy('li.lead_id');
-
-            $lastHigJobIds = DB::table('lead_imports as li')
-                ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-                ->where('ij.type', 'higienizacao')
-                ->selectRaw('MAX(li.import_job_id) as id')
-                ->groupBy('li.lead_id');
+            $lastCadJobIds = $this->latestImportJobIdsSubquery('cadastral');
+            $lastHigJobIds = $this->latestImportJobIdsSubquery('higienizacao');
 
             return [
                 'motivos' => Lead::query()
@@ -120,23 +111,8 @@ class LeadController extends Controller
         }
 
         // últimas origens por tipo
-        $ultimaCad = DB::table('lead_imports as li')
-            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-            ->where('li.lead_id', $lead->id)
-            ->where('ij.type', 'cadastral')
-            ->orderByDesc('li.created_at')
-            ->orderByDesc('li.import_job_id')
-            ->limit(1)
-            ->value('ij.origin');
-
-        $ultimaHig = DB::table('lead_imports as li')
-            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
-            ->where('li.lead_id', $lead->id)
-            ->where('ij.type', 'higienizacao')
-            ->orderByDesc('li.created_at')
-            ->orderByDesc('li.import_job_id')
-            ->limit(1)
-            ->value('ij.origin');
+        $ultimaCad = $this->latestOriginForLead((int) $lead->id, 'cadastral');
+        $ultimaHig = $this->latestOriginForLead((int) $lead->id, 'higienizacao');
 
         $lead->setAttribute('ultima_origem_cadastral', $ultimaCad);
         $lead->setAttribute('ultima_origem_higienizacao', $ultimaHig);
@@ -145,5 +121,26 @@ class LeadController extends Controller
         $lead->unsetRelation('cltSnapshot');
 
         return response()->json($lead);
+    }
+
+    private function latestOriginForLead(int $leadId, string $type): ?string
+    {
+        return DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('li.lead_id', $leadId)
+            ->where('ij.type', $type)
+            ->orderByDesc('li.created_at')
+            ->orderByDesc('li.import_job_id')
+            ->limit(1)
+            ->value('ij.origin');
+    }
+
+    private function latestImportJobIdsSubquery(string $type)
+    {
+        return DB::table('lead_imports as li')
+            ->join('import_jobs as ij', 'ij.id', '=', 'li.import_job_id')
+            ->where('ij.type', $type)
+            ->selectRaw('MAX(li.import_job_id) as id')
+            ->groupBy('li.lead_id');
     }
 }

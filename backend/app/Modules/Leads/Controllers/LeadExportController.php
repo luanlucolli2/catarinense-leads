@@ -5,6 +5,7 @@ namespace App\Modules\Leads\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Leads\Requests\ExportLeadsRequest;
 use App\Modules\Leads\Jobs\GenerateLeadsExportJob;
+use App\Modules\Leads\Support\LeadsExportCacheState;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -23,19 +24,8 @@ class LeadExportController extends Controller
 
         $payload = $request->validated();
 
-        $key = $this->cacheKey($userId, $token);
-        Cache::put($key, [
-            'status'       => 'queued',
-            'message'      => 'Export enfileirado.',
-            'created_at'   => now()->toIso8601String(),
-            'updated_at'   => now()->toIso8601String(),
-            'disk'         => null,
-            'path'         => null,
-            'filename'     => null,
-            'size_bytes'   => 0,
-            'error'        => null,
-            'ttl_seconds'  => $ttlSeconds,
-        ], $ttlSeconds);
+        $key = LeadsExportCacheState::key($userId, $token);
+        Cache::put($key, LeadsExportCacheState::queued($ttlSeconds), $ttlSeconds);
 
         GenerateLeadsExportJob::dispatch($userId, $token, $payload, $ttlSeconds);
 
@@ -49,7 +39,7 @@ class LeadExportController extends Controller
     public function status(Request $request, string $token)
     {
         $userId = (int) $request->user()->id;
-        $data   = Cache::get($this->cacheKey($userId, $token));
+        $data   = Cache::get(LeadsExportCacheState::key($userId, $token));
 
         if (!$data) {
             return response()->json(['message' => 'Token inválido ou expirado.'], Response::HTTP_NOT_FOUND);
@@ -68,7 +58,7 @@ class LeadExportController extends Controller
     public function download(Request $request, string $token)
     {
         $userId   = (int) $request->user()->id;
-        $cacheKey = $this->cacheKey($userId, $token);
+        $cacheKey = LeadsExportCacheState::key($userId, $token);
         $data     = Cache::get($cacheKey);
 
         if (!$data) {
@@ -124,30 +114,18 @@ class LeadExportController extends Controller
                 }
                 // publica status=deleted para o poller
                 try {
-                    $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
-                    $cache = [
-                        'status'      => 'deleted',
-                        'message'     => 'Arquivo removido após download.',
-                        'created_at'  => $data['created_at'] ?? now()->toIso8601String(),
-                        'updated_at'  => now()->toIso8601String(),
-                        'disk'        => $diskName,
-                        'path'        => $path,
-                        'filename'    => $data['filename'] ?? null,
-                        'size_bytes'  => 0,
-                        'error'       => null,
-                        'ttl_seconds' => $ttl,
-                    ];
+                    $ttl = (int) ($data['ttl_seconds'] ?? 3600);
+                    $cache = LeadsExportCacheState::deleted(
+                        $data,
+                        $diskName,
+                        $path,
+                        'Arquivo removido após download.'
+                    );
                     Cache::put($cacheKey, $cache, min($ttl, $deletedStatusTtlCap));
                 } catch (\Throwable $e) {
                     // ignore
                 }
             }
         }, $name, $headers);
-    }
-
-    private function cacheKey(int $userId, string $token): string
-    {
-        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
-        return "{$prefix}:{$userId}:{$token}";
     }
 }

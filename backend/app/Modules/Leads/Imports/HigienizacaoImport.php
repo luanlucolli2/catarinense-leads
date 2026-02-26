@@ -2,6 +2,7 @@
 
 namespace App\Modules\Leads\Imports;
 
+use App\Modules\Leads\Imports\Concerns\ImportLifecycleSupport;
 use App\Models\Lead;
 use App\Models\ImportJob;
 use App\Services\BackupService;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
     use RemembersRowNumber;
+    use ImportLifecycleSupport;
 
     public const REQUIRED_HEADERS = [
         'cpfcliente',
@@ -70,16 +72,6 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         }
 
         return null;
-    }
-
-    private function dbBatchSize(): int
-    {
-        return max(50, (int) config('leads.import.db_batch_size', 500));
-    }
-
-    private function maxErrorsPerJob(): int
-    {
-        return max(1, (int) config('leads.import.max_errors_per_job', 5000));
     }
 
     private function flushRowBuffer(): void
@@ -210,41 +202,6 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         $this->pendingLeadImports = [];
     }
 
-    private function queueImportError(int $rowNumber, string $columnName, string $message): void
-    {
-        if ($this->maxErrorsPerJob > 0 && $this->errorCount >= $this->maxErrorsPerJob) {
-            return;
-        }
-
-        $now = now();
-        $this->pendingErrors[] = [
-            'import_job_id' => $this->importJob->id,
-            'row_number'    => $rowNumber,
-            'column_name'   => $columnName,
-            'error_message' => $message,
-            'created_at'    => $now,
-            'updated_at'    => $now,
-        ];
-        $this->errorCount++;
-
-        if (count($this->pendingErrors) >= $this->dbBatchSize()) {
-            $this->flushQueuedErrors();
-        }
-    }
-
-    private function flushQueuedErrors(): void
-    {
-        if (empty($this->pendingErrors)) {
-            return;
-        }
-
-        foreach (array_chunk($this->pendingErrors, $this->dbBatchSize()) as $chunk) {
-            DB::table('import_errors')->insert($chunk);
-        }
-
-        $this->pendingErrors = [];
-    }
-
     public function chunkSize(): int
     {
         return max(1, (int) config('leads.import.chunk_size', 1000));
@@ -271,55 +228,22 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
     {
         return [
             BeforeImport::class => function () {
-                $this->backup->purgeOldBackups();
-                $this->rowsInCurrentChunk = 0;
+                $this->bootImportLifecycleState();
                 $this->rowBuffer = [];
                 $this->pendingLeadUpdates = [];
                 $this->pendingLeadImports = [];
                 $this->pendingErrors = [];
                 $this->backedUpLeadIds = [];
-                $this->maxErrorsPerJob = $this->maxErrorsPerJob();
-                $this->errorCount = (int) DB::table('import_errors')
-                    ->where('import_job_id', $this->importJob->id)
-                    ->count();
             },
 
             AfterChunk::class => function () {
                 $this->flushRowBuffer();
-
-                if ($this->rowsInCurrentChunk <= 0) {
-                    return;
-                }
-                DB::table('import_jobs')
-                    ->where('id', $this->importJob->id)
-                    ->update([
-                        'processed_rows' => DB::raw(
-                            'CASE
-                                WHEN total_rows > 0
-                                    THEN LEAST(processed_rows + ' . (int) $this->rowsInCurrentChunk . ', total_rows)
-                                ELSE processed_rows + ' . (int) $this->rowsInCurrentChunk . '
-                             END'
-                        )
-                    ]);
-                $this->rowsInCurrentChunk = 0;
+                $this->updateProcessedRowsAfterChunk();
             },
 
             AfterImport::class => function () {
                 $this->flushRowBuffer();
-                $this->rowsInCurrentChunk = 0;
-                $snapshot = DB::table('import_jobs')
-                    ->where('id', $this->importJob->id)
-                    ->first(['processed_rows', 'total_rows']);
-
-                $processed = (int) ($snapshot->processed_rows ?? 0);
-                $total = max((int) ($snapshot->total_rows ?? 0), $processed);
-
-                $this->importJob->update([
-                    'total_rows'     => $total,
-                    'processed_rows' => $total,
-                    'status'         => 'concluido',
-                    'finished_at'    => now(),
-                ]);
+                $this->finalizeImportJobAsCompleted();
             },
         ];
     }
