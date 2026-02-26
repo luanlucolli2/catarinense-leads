@@ -115,8 +115,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
         $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 4));
         $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);
-        $this->pauseStart = (string) config('v8.job.pause_start', '16:27');
-        $this->pauseEnd = (string) config('v8.job.pause_end', '16:30');
+        $this->pauseStart = $this->normalizePauseTimeValue((string) config('v8.job.pause_start', '16:27'));
+        $this->pauseEnd = $this->normalizePauseTimeValue((string) config('v8.job.pause_end', '16:30'));
         $this->pauseTimezone = (string) config('v8.job.pause_timezone', 'America/Sao_Paulo');
         $this->pauseCheckIntervalSeconds = max(1, (int) config('v8.job.pause_check_interval_seconds', 15));
     }
@@ -2809,6 +2809,22 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return preg_match('/^\\d{2}:\\d{2}$/', $this->pauseStart) === 1
             && preg_match('/^\\d{2}:\\d{2}$/', $this->pauseEnd) === 1
             && $this->pauseStart !== $this->pauseEnd;
+    }
+
+    private function normalizePauseTimeValue(string $value): string
+    {
+        $value = trim($value);
+        if (preg_match('/^(\\d{1,2}):(\\d{1,2})$/', $value, $m) !== 1) {
+            return $value;
+        }
+
+        $hour = (int) $m[1];
+        $minute = (int) $m[2];
+        if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
+            return $value;
+        }
+
+        return sprintf('%02d:%02d', $hour, $minute);
     }
 
     private function pauseResumeAt(): ?Carbon

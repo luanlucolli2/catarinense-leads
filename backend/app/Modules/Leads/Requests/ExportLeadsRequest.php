@@ -2,63 +2,12 @@
 
 namespace App\Modules\Leads\Requests;
 
+use App\Modules\Leads\Support\LeadExportColumns;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class ExportLeadsRequest extends FormRequest
 {
-    /**
-     * Colunas permitidas para exportação (FGTS + CLT).
-     */
-    private const ALLOWED_COLUMNS = [
-        // básicos
-        'id',
-        'cpf',
-        'nome',
-        'data_nascimento',
-        'fone1',
-        'fone2',
-        'fone3',
-        'fone4',
-        'classe_fone1',
-        'classe_fone2',
-        'classe_fone3',
-        'classe_fone4',
-
-        // FGTS (cadastro/higienização)
-        'consulta',
-        'saldo',
-        'libera',
-        'ultima_origem_cadastral',
-        'ultima_origem_higienizacao',
-        'data_atualizacao',
-        'contracts_count',
-        'vendedor',
-        'data_contrato_recente',
-
-        // FGTS OFF snapshot
-        'fgts_off_authorized',
-        'fgts_off_consultado_em',
-
-        // ===== CLT snapshot =====
-        'elegivel',
-        'idade',
-        'sexo',
-        'data_admissao',
-        'meses_admissao',
-        'valor_renda',
-        'valor_base_margem',
-        'margem_disponivel',
-        'valor_max_prestacao',
-        'categoria_trabalhador_codigo',
-        'inicio_atividade_empregador',
-        'qtd_emprestimos_ativos_suspensos',
-        'emprestimos_legados',
-        'not_found',
-        'clt_consultado_em',
-        'clt_dados_atualizados_em',
-    ];
-
     public function authorize(): bool
     {
         return true;
@@ -70,7 +19,7 @@ class ExportLeadsRequest extends FormRequest
             'mode' => ['nullable', Rule::in(['fgts', 'clt'])],
 
             'columns' => ['required', 'array', 'min:1'],
-            'columns.*' => ['required', 'string', 'distinct', Rule::in(self::ALLOWED_COLUMNS)],
+            'columns.*' => ['required', 'string', 'distinct', Rule::in(LeadExportColumns::allowed())],
 
             // filtros gerais
             'search' => ['nullable', 'string'],

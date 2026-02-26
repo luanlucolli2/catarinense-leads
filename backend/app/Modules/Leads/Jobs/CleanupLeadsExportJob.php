@@ -2,6 +2,7 @@
 
 namespace App\Modules\Leads\Jobs;
 
+use App\Modules\Leads\Support\LeadsExportCacheState;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -26,7 +27,7 @@ class CleanupLeadsExportJob implements ShouldQueue
 
     public function handle(): void
     {
-        $key  = $this->cacheKey($this->userId, $this->token);
+        $key  = LeadsExportCacheState::key($this->userId, $this->token);
         $data = Cache::get($key);
         if (!$data) return;
 
@@ -53,26 +54,13 @@ class CleanupLeadsExportJob implements ShouldQueue
         try {
             $ttl   = (int) ($data['ttl_seconds'] ?? 3600);
             $deletedStatusTtlCap = max(1, (int) config('leads.export.cache.deleted_status_ttl_cap_seconds', 600));
-            Cache::put($key, [
-                'status'      => 'deleted',
-                'message'     => 'Arquivo removido por expiração.',
-                'created_at'  => $data['created_at'] ?? now()->toIso8601String(),
-                'updated_at'  => now()->toIso8601String(),
-                'disk'        => $diskName,
-                'path'        => $path,
-                'filename'    => $data['filename'] ?? null,
-                'size_bytes'  => 0,
-                'error'       => null,
-                'ttl_seconds' => $ttl,
-            ], min($ttl, $deletedStatusTtlCap));
+            Cache::put(
+                $key,
+                LeadsExportCacheState::deleted($data, $diskName, $path, 'Arquivo removido por expiração.'),
+                min($ttl, $deletedStatusTtlCap)
+            );
         } catch (\Throwable $e) {
             Cache::forget($key);
         }
-    }
-
-    private function cacheKey(int $userId, string $token): string
-    {
-        $prefix = (string) config('leads.export.cache.key_prefix', 'leads_export');
-        return "{$prefix}:{$userId}:{$token}";
     }
 }

@@ -2,7 +2,6 @@
 
 namespace App\Modules\Leads\Controllers;
 
-use App\Modules\Leads\Jobs\RollbackLastImportJob;
 use App\Models\ImportJob;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
