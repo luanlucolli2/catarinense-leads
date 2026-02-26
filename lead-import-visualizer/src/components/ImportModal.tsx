@@ -14,13 +14,15 @@ interface ImportModalProps {
   onImportSuccess: () => void
 }
 
+type ImportType = "cadastral" | "higienizacao" | "mercantil"
+
 export const ImportModal = ({
   isOpen,
   onClose,
   onImportSuccess,
 }: ImportModalProps) => {
   const [importType, setImportType] =
-    useState<"cadastral" | "higienizacao">("cadastral")
+    useState<ImportType>("cadastral")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [origin, setOrigin] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -152,7 +154,7 @@ export const ImportModal = ({
             <label className="mb-3 block text-sm font-medium text-gray-700">
               Tipo de Importação
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Button
                 onClick={() => setImportType("cadastral")}
                 className={cn(
@@ -174,6 +176,17 @@ export const ImportModal = ({
                 )}
               >
                 Dados de Higienização
+              </Button>
+              <Button
+                onClick={() => setImportType("mercantil")}
+                className={cn(
+                  "transition-colors duration-200",
+                  importType === "mercantil"
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                )}
+              >
+                Mercantil (CSV)
               </Button>
             </div>
           </div>
@@ -202,31 +215,39 @@ export const ImportModal = ({
                 <h4 className="mb-1 text-sm font-medium text-blue-800">
                   Planilha Modelo
                 </h4>
-                <p className="text-xs text-blue-600">
-                  Baixe o template do tipo selecionado.
-                </p>
+                {importType === "mercantil" ? (
+                  <p className="text-xs text-blue-600">
+                    Para Mercantil, envie o CSV no layout padrão com separador `;`.
+                  </p>
+                ) : (
+                  <p className="text-xs text-blue-600">
+                    Baixe o template do tipo selecionado.
+                  </p>
+                )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownloadTemplate(importType)}
-                className="border-blue-300 text-blue-700 hover:bg-blue-100"
-              >
-                <Download className="mr-1 h-4 w-4" /> Baixar
-              </Button>
+              {importType !== "mercantil" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadTemplate(importType)}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                >
+                  <Download className="mr-1 h-4 w-4" /> Baixar
+                </Button>
+              )}
             </div>
           </div>
 
           {/* File input */}
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
-              Selecione o arquivo (.xlsx)
+              Selecione o arquivo ({importType === "mercantil" ? ".csv" : ".xlsx/.xls"})
             </label>
             <div className="rounded-lg border-2 border-dashed border-gray-300 p-4 text-center transition-colors duration-200 hover:border-blue-400">
               <input
                 id="file-upload"
                 type="file"
-                accept=".xlsx,.xls"
+                accept={importType === "mercantil" ? ".csv" : ".xlsx,.xls"}
                 className="hidden"
                 onChange={handleFileChange}
               />

@@ -96,13 +96,24 @@ const HistoricoPage = () => {
   };
 
   const getTypeBadge = (type: ImportJob["type"]) => {
-    const colors = {
+    const colors: Record<string, string> = {
       cadastral: "bg-purple-100 text-purple-800",
       higienizacao: "bg-orange-100 text-orange-800",
-    } as const;
+      mercantil: "bg-cyan-100 text-cyan-800",
+    };
+
+    const labels: Record<string, string> = {
+      cadastral: "Cadastral",
+      higienizacao: "Higienização",
+      mercantil: "Mercantil",
+    };
+
     return (
-      <Badge variant="outline" className={cn("border-transparent", colors[type])}>
-        {type === "cadastral" ? "Cadastral" : "Higienização"}
+      <Badge
+        variant="outline"
+        className={cn("border-transparent", colors[type] ?? "bg-gray-100 text-gray-800")}
+      >
+        {labels[type] ?? type}
       </Badge>
     );
   };

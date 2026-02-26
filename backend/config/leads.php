@@ -16,8 +16,14 @@ return [
     |--------------------------------------------------------------------------
     */
     'import' => [
-        'mimes' => ['xlsx', 'xls'],
-        'types' => ['cadastral', 'higienizacao', 'clt'],
+        'mimes' => ['xlsx', 'xls', 'csv'],
+        'types' => ['cadastral', 'higienizacao', 'clt', 'mercantil'],
+        'allowed_extensions' => [
+            'cadastral' => ['xlsx', 'xls'],
+            'higienizacao' => ['xlsx', 'xls'],
+            'clt' => ['xlsx', 'xls'],
+            'mercantil' => ['csv'],
+        ],
         'default_origin' => 'Upload Padrão',
 
         'lock' => [
@@ -40,6 +46,32 @@ return [
         'max_errors_per_job' => (int) env('LEADS_IMPORT_MAX_ERRORS_PER_JOB', 5000),
         'vendor_cache_max' => (int) env('LEADS_IMPORT_VENDOR_CACHE_MAX', 5000),
         'pre_count_total_rows' => filter_var(env('LEADS_IMPORT_PRE_COUNT_TOTAL_ROWS', true), FILTER_VALIDATE_BOOL),
+        'mercantil' => [
+            'chunk_size' => (int) env('LEADS_IMPORT_MERCANTIL_CHUNK_SIZE', 500),
+            'csv' => [
+                'delimiter' => (string) env('LEADS_IMPORT_MERCANTIL_CSV_DELIMITER', ';'),
+                'enclosure' => (string) env('LEADS_IMPORT_MERCANTIL_CSV_ENCLOSURE', '"'),
+            ],
+            'ignored_statuses' => [
+                'CAMPO_CELULAR_TRAVADO',
+                'ERRO_AUTORIZACAO_DIGITAL',
+                'ERRO_AUTORIZACAO_DIGITAL_MAIN',
+                'ERRO_DESCONHECIDO',
+                'ERRO_EXTRACAO',
+                'ERRO_EXTRACAO_DOM',
+                'ERRO_FATAL',
+                'ERRO_LINK_NAO_APARECEU',
+                'ERRO_LINK_VAZIO',
+                'ERRO_SISTEMA_POS_AUTH',
+                'ERRO_TELA_GENERICA_FINAL',
+                'ERRO_TELA_SIMULACAO',
+                'SESSAO_EXPIRADA',
+                'TIMEOUT_CONSULTA',
+                'TIMEOUT_LISTA_PRODUTOS',
+                'TIMEOUT_RESULTADO_FINAL',
+                'TIMEOUT_SIMULACAO',
+            ],
+        ],
     ],
 
     /*

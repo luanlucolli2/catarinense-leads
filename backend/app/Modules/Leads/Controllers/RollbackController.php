@@ -33,6 +33,11 @@ class RollbackController extends Controller
                 'error' => 'Somente importações concluídas podem ser revertidas.'
             ], 422);
         }
+        if ($job->type === 'mercantil') {
+            return response()->json([
+                'error' => 'Importações Mercantil não participam de rollback.'
+            ], 422);
+        }
         // Verifica se é o último concluído
         // Tem que ser o registro mais novo na tabela:
         if ($job->id !== ImportJob::max('id')) {
