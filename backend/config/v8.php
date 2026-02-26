@@ -65,7 +65,7 @@ return [
         'reconsent_blocked_delay_seconds' => (int) env('V8_RECONSENT_BLOCKED_DELAY_SECONDS', 4),
         'pause_enabled'              => (bool) env('V8_PAUSE_ENABLED', true),
         'pause_start'                => env('V8_PAUSE_START', '20:00'),
-        'pause_end'                  => env('V8_PAUSE_END', '7:30'),
+        'pause_end'                  => env('V8_PAUSE_END', '07:30'),
         'pause_timezone'             => env('V8_PAUSE_TZ', 'America/Sao_Paulo'),
         'pause_check_interval_seconds' => (int) env('V8_PAUSE_CHECK_INTERVAL', 15),
     ],
