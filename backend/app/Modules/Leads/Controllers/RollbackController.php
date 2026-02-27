@@ -10,6 +10,11 @@ use App\Modules\Leads\Services\RollbackService;
 class RollbackController extends Controller
 {
     /**
+     * @var array<int, string>
+     */
+    private const ROLLBACK_ELIGIBLE_TYPES = ['cadastral', 'higienizacao'];
+
+    /**
      * Inicia rollback do último import.
      */
     public function store(Request $request, int $jobId): JsonResponse
@@ -33,11 +38,21 @@ class RollbackController extends Controller
                 'error' => 'Somente importações concluídas podem ser revertidas.'
             ], 422);
         }
-        // Verifica se é o último concluído
-        // Tem que ser o registro mais novo na tabela:
-        if ($job->id !== ImportJob::max('id')) {
+        if (!in_array((string) $job->type, self::ROLLBACK_ELIGIBLE_TYPES, true)) {
             return response()->json([
-                'error' => 'Somente a importação mais recente pode ser revertida.'
+                'error' => 'Somente importações cadastrais e de higienização participam de rollback.'
+            ], 422);
+        }
+
+        $lastEligibleId = ImportJob::query()
+            ->whereIn('type', self::ROLLBACK_ELIGIBLE_TYPES)
+            ->where('status', 'concluido')
+            ->whereNull('rolled_back_at')
+            ->max('id');
+
+        if ($lastEligibleId === null || (int) $job->id !== (int) $lastEligibleId) {
+            return response()->json([
+                'error' => 'Somente a importação cadastral/higienização concluída mais recente pode ser revertida.'
             ], 403);
         }
 

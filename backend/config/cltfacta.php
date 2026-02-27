@@ -21,6 +21,8 @@ return [
         'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
         // validade persistente no banco para evitar nova autorização em consultas futuras
         'pre_auth_persist_ttl_days' => (int) env('FACTA_PRE_AUTH_PERSIST_TTL_DAYS', 30),
+        // flush de persistência em lote para reduzir roundtrips no banco
+        'pre_auth_persist_batch_size' => (int) env('FACTA_PRE_AUTH_PERSIST_BATCH_SIZE', 100),
         // cooldown único entre a última pré-autorização do lote e o início das consultas
         'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 15000),
     ],
@@ -39,6 +41,14 @@ return [
         'rate_limit_max_retries'  => (int) env('CLT_HTTP_RATE_LIMIT_MAX_RETRIES', 1),
         'rate_limit_default_pause_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_DEFAULT_PAUSE_SECONDS', 3),
         'rate_limit_pause_cap_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_PAUSE_CAP_SECONDS', 30),
+        // Limite global para toda a base FACTA (200 rpm informado pelo provedor).
+        'global_rate_limit_enabled' => (bool) env('CLT_HTTP_GLOBAL_RATE_LIMIT_ENABLED', true),
+        'global_rate_limit_rps' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPS', 4),
+        'global_rate_limit_rpm' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPM', 180),
+        'global_rate_limit_sleep_ms' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_SLEEP_MS', 80),
+        // Janela máxima por pool para evitar burst acima do permitido.
+        'autoriza_pool_window' => (int) env('CLT_HTTP_AUTORIZA_POOL_WINDOW', 4),
+        'policy_pool_window' => (int) env('CLT_HTTP_POLICY_POOL_WINDOW', 4),
     ],
 
     // ===== CRÉDITO TRABALHADOR (continuação online) =====
@@ -50,7 +60,16 @@ return [
         'convenio'      => env('FACTA_CLT_CREDITO_CONVENIO', '3'),
         'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
         // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
-        'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 3),
+        'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 4),
+        // Rodadas máximas da fase 2 (varredura do CSV para política de crédito).
+        'phase2_max_attempts' => (int) env('CLT_CREDIT_PHASE2_MAX_ATTEMPTS', 3),
+        // Intervalo entre rodadas da fase 2 quando ainda há pendências retriables.
+        'phase2_retry_delay_seconds' => (int) env('CLT_CREDIT_PHASE2_RETRY_DELAY_SECONDS', 30),
+        // Retry imediato por linha retriable antes de delegar para a próxima rodada.
+        'phase2_immediate_retry_delay_ms' => (int) env('CLT_CREDIT_PHASE2_IMMEDIATE_RETRY_DELAY_MS', 3000),
+        // Checkpoint de progresso da fase 2 (máx. frequência de update no banco).
+        'phase2_progress_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_INTERVAL_MS', 20000),
+        'phase2_progress_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_EVERY_ROWS', 200),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
@@ -86,14 +105,16 @@ return [
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 259200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),
         'retry_delay_seconds' => (int) env('CLT_CONSULT_RETRY_DELAY_SECONDS', 60),
-        'chunk'               => (int) env('CLT_HTTP_CHUNK', 20),
-        'min_chunk'           => (int) env('CLT_HTTP_MIN_CHUNK', 5),
+        'chunk'               => (int) env('CLT_HTTP_CHUNK', 24),
+        'min_chunk'           => (int) env('CLT_HTTP_MIN_CHUNK', 8),
         'retry_after_max'     => (int) env('CLT_HTTP_RETRY_AFTER_MAX', 120),
-        'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 200),
-        'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 5),
-        'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 120),
+        'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 80),
+        'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 24),
+        'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 0),
         // intervalo mínimo para reconsultar status do job no banco (reduz polling excessivo)
         'status_check_interval_ms' => (int) env('CLT_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
+        // Checkpoint de progresso (fase 1) no banco; fase 2 respeita no mínimo este intervalo.
+        'progress_flush_interval_seconds' => (int) env('CLT_JOB_PROGRESS_FLUSH_INTERVAL_SECONDS', 20),
         // Flush incremental dos buffers internos do job para reduzir pico de RAM.
         'rows_buffer_flush'   => (int) env('CLT_JOB_ROWS_BUFFER_FLUSH', 300),
         'snap_buffer_flush'   => (int) env('CLT_JOB_SNAP_BUFFER_FLUSH', 300),

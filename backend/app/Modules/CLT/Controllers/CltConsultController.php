@@ -43,8 +43,14 @@ class CltConsultController extends Controller
             'title' => $job->title,
             'variant' => $job->variant,
             'status' => $job->status,
+            'phase' => $job->phase,
+            'phase2_total' => (int) ($job->phase2_total ?? 0),
+            'phase2_attempt' => (int) ($job->phase2_attempt ?? 0),
+            'phase2_aprovado_count' => (int) ($job->phase2_aprovado_count ?? 0),
+            'phase2_nao_aprovado_count' => (int) ($job->phase2_nao_aprovado_count ?? 0),
             'total_cpfs' => $job->total_cpfs,
-            'success_count' => $job->success_count,
+            'elegivel_count' => (int) ($job->elegivel_count ?? 0),
+            'inelegivel_count' => (int) ($job->inelegivel_count ?? 0),
             'not_found_count' => $job->not_found_count,
             'fail_count' => $job->fail_count,
             'has_file' => (bool) $job->has_file,
@@ -79,7 +85,10 @@ class CltConsultController extends Controller
             'status' => 'pendente',
             'variant' => $variant,
             'total_cpfs' => 0,
-            'success_count' => 0,
+            'phase2_aprovado_count' => 0,
+            'phase2_nao_aprovado_count' => 0,
+            'elegivel_count' => 0,
+            'inelegivel_count' => 0,
             'not_found_count' => 0,
             'fail_count' => 0,
         ]);
@@ -118,6 +127,7 @@ class CltConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -255,6 +265,7 @@ class CltConsultController extends Controller
 
         $job->update([
             'status' => 'cancelado',
+            'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
@@ -280,6 +291,7 @@ class CltConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);

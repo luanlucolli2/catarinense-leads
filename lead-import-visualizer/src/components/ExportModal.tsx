@@ -6,8 +6,8 @@ interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onExport: (columns: string[]) => void;
-  /** Define quais colunas exibir: FGTS | CLT */
-  mode: "FGTS" | "CLT";
+  /** Define quais colunas exibir: FGTS | CLT | MERCANTIL */
+  mode: "FGTS" | "CLT" | "MERCANTIL";
 }
 
 type Group = "Cadastral" | "Produto" | "Registro";
@@ -88,6 +88,39 @@ const COLUMNS_CLT: ColumnDef[] = [
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
 ];
 
+const COLUMNS_MERCANTIL: ColumnDef[] = [
+  // Cadastral
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
+  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastral" },
+  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastral" },
+  { id: "classe_fone1", label: "Classe do telefone 1", selected: true, group: "Cadastral" },
+  { id: "classe_fone2", label: "Classe do telefone 2", selected: true, group: "Cadastral" },
+  { id: "classe_fone3", label: "Classe do telefone 3", selected: true, group: "Cadastral" },
+  { id: "classe_fone4", label: "Classe do telefone 4", selected: true, group: "Cadastral" },
+
+  // Produto (Mercantil)
+  { id: "mercantil_status", label: "Status", selected: true, group: "Produto" },
+  { id: "mercantil_data_hora_origem", label: "Data/hora consulta", selected: true, group: "Produto" },
+  { id: "mercantil_mensagem_erro", label: "Mensagem", selected: true, group: "Produto" },
+  { id: "mercantil_valor_emprestimo", label: "Valor empréstimo", selected: true, group: "Produto" },
+  { id: "mercantil_valor_iof", label: "Valor IOF", selected: true, group: "Produto" },
+  { id: "mercantil_valor_financiado", label: "Valor financiado", selected: true, group: "Produto" },
+  { id: "mercantil_valor_liberado", label: "Valor liberado", selected: true, group: "Produto" },
+  { id: "mercantil_data_primeiro_vencimento", label: "Data 1º vencimento", selected: true, group: "Produto" },
+  { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", selected: true, group: "Produto" },
+  { id: "mercantil_valor_parcela", label: "Valor parcela", selected: true, group: "Produto" },
+  { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", selected: true, group: "Produto" },
+  { id: "mercantil_dados_atualizados_em", label: "Data importação (Merc.)", selected: true, group: "Produto" },
+
+  // Registro
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
+  { id: "ultima_origem_mercantil", label: "Origem mercantil", selected: true, group: "Registro" },
+];
+
 export const ExportModal = ({
   isOpen,
   onClose,
@@ -95,7 +128,7 @@ export const ExportModal = ({
   mode,
 }: ExportModalProps) => {
   const columnsSource = useMemo<ColumnDef[]>(
-    () => (mode === "FGTS" ? COLUMNS_FGTS : COLUMNS_CLT),
+    () => (mode === "FGTS" ? COLUMNS_FGTS : mode === "CLT" ? COLUMNS_CLT : COLUMNS_MERCANTIL),
     [mode]
   );
 

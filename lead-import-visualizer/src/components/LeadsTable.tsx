@@ -1206,3 +1206,501 @@ export const LeadsTableCLT = ({
     </>
   );
 };
+
+/* =========================================================
+ * MERCANTIL TABLE
+ * =======================================================*/
+export interface ProcessedLeadMercantil {
+  id: number;
+  cpf: string;
+  nome: string;
+  data_nascimento: string;
+  telefones: Telefone[];
+  ultima_origem_cadastral: string;
+  ultima_origem_mercantil: string;
+
+  mercantil_status: string;
+  mercantil_mensagem_erro: string;
+  mercantil_data_hora_origem: string;
+  mercantil_valor_financiado: string;
+  mercantil_valor_iof: string;
+  mercantil_data_primeiro_vencimento: string;
+  mercantil_valor_emprestimo: string;
+  mercantil_quantidade_parcelas: string | number;
+  mercantil_valor_liberado: string;
+  mercantil_taxa_juros_mes: string;
+  mercantil_valor_parcela: string;
+  mercantil_dados_atualizados_em: string;
+}
+
+type SortFieldMercantil =
+  | "cpf"
+  | "nome"
+  | "data_nascimento"
+  | "mercantil_status"
+  | "mercantil_mensagem_erro"
+  | "mercantil_data_hora_origem"
+  | "mercantil_data_primeiro_vencimento"
+  | "mercantil_valor_financiado"
+  | "mercantil_valor_iof"
+  | "mercantil_valor_emprestimo"
+  | "mercantil_quantidade_parcelas"
+  | "mercantil_valor_liberado"
+  | "mercantil_taxa_juros_mes"
+  | "mercantil_valor_parcela"
+  | "mercantil_dados_atualizados_em"
+  | "ultima_origem_cadastral"
+  | "ultima_origem_mercantil";
+
+interface LeadsTableMercantilProps {
+  leads: ProcessedLeadMercantil[];
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  isLoading: boolean;
+  visibleColumns: string[];
+}
+
+export const LeadsTableMercantil = ({
+  leads,
+  currentPage,
+  totalPages,
+  onPageChange,
+  isLoading,
+  visibleColumns,
+}: LeadsTableMercantilProps) => {
+  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [sortField, setSortField] = useState<SortFieldMercantil | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const { isVisible, hasAnyVisible } = useColVisibility(visibleColumns);
+
+  const handleViewLead = (lead: ProcessedLeadMercantil) => {
+    setSelectedLeadId(lead.id);
+    setIsModalOpen(true);
+  };
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedLeadId(null);
+  };
+
+  const handleSort = (field: SortFieldMercantil) => {
+    if (sortField === field) setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
+  };
+
+  const valueForSort = (x: ProcessedLeadMercantil, field: SortFieldMercantil) => {
+    switch (field) {
+      case "data_nascimento":
+      case "mercantil_data_hora_origem":
+      case "mercantil_data_primeiro_vencimento":
+      case "mercantil_dados_atualizados_em":
+        return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
+      case "mercantil_quantidade_parcelas":
+        return Number(x.mercantil_quantidade_parcelas) || -1;
+      default: {
+        const v = (x as any)[field];
+        if (typeof v === "string") return v.toLowerCase();
+        return v ?? "";
+      }
+    }
+  };
+
+  const sortedLeads = useMemo(() => {
+    if (!sortField) return leads;
+    const sorted = [...leads].sort((a, b) => {
+      const av = valueForSort(a, sortField);
+      const bv = valueForSort(b, sortField);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return 0;
+    });
+    return sortDirection === "asc" ? sorted : sorted.reverse();
+  }, [leads, sortField, sortDirection]);
+
+  const SortButton = ({
+    field,
+    children,
+    align = "left",
+  }: {
+    field: SortFieldMercantil;
+    children: React.ReactNode;
+    align?: "left" | "center" | "right";
+  }) => (
+    <button
+      onClick={() => handleSort(field)}
+      className={cn(
+        "flex items-center gap-1 hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-150 w-full",
+        align === "center" && "justify-center",
+        align === "right" && "justify-end"
+      )}
+    >
+      <span>{children}</span>
+      {sortField === field ? (sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <div className="w-3 h-3" />}
+    </button>
+  );
+
+  const Th = ({
+    children,
+    align = "left",
+  }: {
+    children: React.ReactNode;
+    align?: "left" | "center" | "right";
+  }) => (
+    <th
+      className={cn(
+        "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px]",
+        align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left"
+      )}
+    >
+      {children}
+    </th>
+  );
+
+  const phonePairCols = (idx: 1 | 2 | 3 | 4) =>
+    [
+      {
+        id: `telefone_${idx}`,
+        header: <Th>Fone {idx}</Th>,
+        cell: (lead: ProcessedLeadMercantil) => (
+          <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">
+            {lead.telefones[idx - 1]?.fone ? <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span> : EMPTY}
+          </td>
+        ),
+      },
+      {
+        id: `classe_${idx}`,
+        header: <Th align="center">Classe {idx}</Th>,
+        cell: (lead: ProcessedLeadMercantil) => {
+          const classeInfo = getClasseBadge(lead.telefones[idx - 1]?.classe);
+          return (
+            <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]">
+              <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", classeInfo.cls)}>
+                {classeInfo.label}
+              </span>
+            </td>
+          );
+        },
+      },
+    ] as const;
+
+  const cols = [
+    { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
+    { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
+
+    ...phonePairCols(1),
+    ...phonePairCols(2),
+    ...phonePairCols(3),
+    ...phonePairCols(4),
+
+    {
+      id: "mercantil_status",
+      header: <Th align="center"><SortButton field="mercantil_status" align="center">Status</SortButton></Th>,
+      cell: (lead: ProcessedLeadMercantil) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">
+          {lead.mercantil_status === "SUCESSO" ? (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Sucesso</span>
+          ) : lead.mercantil_status && lead.mercantil_status !== EMPTY ? (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-amber-500 text-white">{lead.mercantil_status}</span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>
+          )}
+        </td>
+      ),
+    },
+    {
+      id: "mercantil_data_hora_origem",
+      header: <Th align="center"><SortButton field="mercantil_data_hora_origem" align="center">Data/hora consulta</SortButton></Th>,
+      cell: (lead: ProcessedLeadMercantil) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">
+          {lead.mercantil_data_hora_origem ? (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+              {lead.mercantil_data_hora_origem}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Ainda não consultado</span>
+          )}
+        </td>
+      )
+    },
+    { id: "mercantil_mensagem_erro", header: <Th><SortButton field="mercantil_mensagem_erro">Mensagem</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 text-sm text-gray-900 text-left min-w-[220px] max-w-[320px] truncate">{display(lead.mercantil_mensagem_erro)}</td>) },
+    { id: "mercantil_valor_emprestimo", header: <Th align="right"><SortButton field="mercantil_valor_emprestimo" align="right">Empréstimo</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_emprestimo)}</td>) },
+    { id: "mercantil_valor_iof", header: <Th align="right"><SortButton field="mercantil_valor_iof" align="right">IOF</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.mercantil_valor_iof)}</td>) },
+    { id: "mercantil_valor_financiado", header: <Th align="right"><SortButton field="mercantil_valor_financiado" align="right">Financiado</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_financiado)}</td>) },
+    { id: "mercantil_valor_liberado", header: <Th align="right"><SortButton field="mercantil_valor_liberado" align="right">Liberado</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_liberado)}</td>) },
+    { id: "mercantil_data_primeiro_vencimento", header: <Th align="center"><SortButton field="mercantil_data_primeiro_vencimento" align="center">1º venc.</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.mercantil_data_primeiro_vencimento)}</td>) },
+    { id: "mercantil_quantidade_parcelas", header: <Th align="center"><SortButton field="mercantil_quantidade_parcelas" align="center">Parcelas</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">{display(lead.mercantil_quantidade_parcelas)}</td>) },
+    { id: "mercantil_valor_parcela", header: <Th align="right"><SortButton field="mercantil_valor_parcela" align="right">Valor parcela</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_parcela)}</td>) },
+    { id: "mercantil_taxa_juros_mes", header: <Th align="center"><SortButton field="mercantil_taxa_juros_mes" align="center">Taxa mês</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">{display(lead.mercantil_taxa_juros_mes)}</td>) },
+    { id: "mercantil_dados_atualizados_em", header: <Th align="center"><SortButton field="mercantil_dados_atualizados_em" align="center">Data importação (Merc.)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.mercantil_dados_atualizados_em)}</td>) },
+    {
+      id: "ultima_origem_cadastral",
+      header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>,
+      cell: (lead: ProcessedLeadMercantil) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">
+          {lead.ultima_origem_cadastral ? (
+            <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">
+              {lead.ultima_origem_cadastral}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+              {EMPTY}
+            </span>
+          )}
+        </td>
+      )
+    },
+    {
+      id: "ultima_origem_mercantil",
+      header: <Th align="center"><SortButton field="ultima_origem_mercantil" align="center">Última origem (Merc.)</SortButton></Th>,
+      cell: (lead: ProcessedLeadMercantil) => (
+        <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">
+          {lead.ultima_origem_mercantil ? (
+            <span className="inline-flex px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded-full max-w-[160px] truncate mx-auto">
+              {lead.ultima_origem_mercantil}
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+              {EMPTY}
+            </span>
+          )}
+        </td>
+      )
+    },
+  ] as const;
+
+  const visibleCols = cols.filter((c) => isVisible(c.id));
+  const headerColCount = visibleCols.length + 1;
+
+  const tableMinWidthMercantil = useMemo(() => {
+    const colsCount = headerColCount;
+    if (colsCount <= 3) return "min-w-[520px]";
+    if (colsCount <= 6) return "min-w-[960px]";
+    if (colsCount <= 10) return "min-w-[1250px]";
+    return "min-w-[1800px]";
+  }, [headerColCount]);
+
+  const renderSkeleton = (key: number) => (
+    <tr className="hover:bg-gray-50" key={key}>
+      {visibleCols.map((c, idx) => {
+        if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
+        if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
+        if (
+          [
+            "data_nascimento",
+            "mercantil_data_hora_origem",
+            "mercantil_data_primeiro_vencimento",
+            "mercantil_dados_atualizados_em",
+            "mercantil_status",
+            "mercantil_quantidade_parcelas",
+            "ultima_origem_cadastral",
+            "ultima_origem_mercantil",
+          ].includes(c.id)
+        ) return <SkeletonCell key={idx} w="w-24" align="center" />;
+
+        if (
+          [
+            "mercantil_valor_financiado",
+            "mercantil_valor_iof",
+            "mercantil_valor_emprestimo",
+            "mercantil_valor_liberado",
+            "mercantil_valor_parcela",
+          ].includes(c.id)
+        ) return <SkeletonCell key={idx} w="w-16" align="right" />;
+
+        return <SkeletonCell key={idx} w="w-32" align="left" />;
+      })}
+      <td className={cn("px-3 xl:px-6 py-4 text-center sticky right-0 z-20 bg-white border-l border-gray-200", ACTIONS_COL_WIDTH)}>
+        <Skeleton className="h-8 w-12 mx-auto" />
+      </td>
+    </tr>
+  );
+
+  const renderTableBody = () => {
+    if (isLoading) return Array.from({ length: 8 }).map((_, i) => renderSkeleton(i));
+    if (leads.length === 0) {
+      return (
+        <tr>
+          <td colSpan={headerColCount} className="text-center py-12 text-gray-500">
+            Nenhum lead encontrado com os filtros aplicados.
+          </td>
+        </tr>
+      );
+    }
+    return sortedLeads.map((lead) => (
+      <tr key={lead.id} className="group hover:bg-gray-50 transition-colors duration-150">
+        {visibleCols.map((c, idx) => (
+          <React.Fragment key={`${lead.id}-${c.id}-${idx}`}>{c.cell(lead)}</React.Fragment>
+        ))}
+        <td
+          className={cn(
+            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
+            ACTIONS_COL_WIDTH
+          )}
+        >
+          <div className="flex justify-center">
+            <Button onClick={() => handleViewLead(lead)} variant="outline" size="sm" className="flex items-center space-x-1">
+              <Eye className="w-4 h-4" />
+              <span className="hidden xl:inline">Ver</span>
+            </Button>
+          </div>
+        </td>
+      </tr>
+    ));
+  };
+
+  const MercantilCard = ({ lead }: { lead: ProcessedLeadMercantil }) => {
+    const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
+
+    const ShowIf: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) =>
+      isVisible(id) ? <>{children}</> : null;
+
+    const sectionTelefonesVisible = hasAnyVisible([
+      "telefone_1", "telefone_2", "telefone_3", "telefone_4",
+      "classe_1", "classe_2", "classe_3", "classe_4",
+    ]);
+    const sectionStatusVisible = hasAnyVisible([
+      "mercantil_status", "mercantil_mensagem_erro", "mercantil_data_hora_origem"
+    ]);
+    const sectionFinanceiroVisible = hasAnyVisible([
+      "mercantil_valor_emprestimo", "mercantil_valor_iof", "mercantil_valor_financiado",
+      "mercantil_data_primeiro_vencimento",
+      "mercantil_quantidade_parcelas", "mercantil_valor_liberado", "mercantil_taxa_juros_mes", "mercantil_valor_parcela"
+    ]);
+    const sectionRegistroVisible = hasAnyVisible([
+      "mercantil_dados_atualizados_em", "ultima_origem_cadastral", "ultima_origem_mercantil"
+    ]);
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3 max-w-full">
+        <div className="flex justify-between items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <ShowIf id="nome"><h3 className="font-semibold text-gray-900 truncate">{display(lead.nome)}</h3></ShowIf>
+            <ShowIf id="cpf"><p className="text-xs font-mono text-gray-600 truncate">{display(lead.cpf)}</p></ShowIf>
+            <ShowIf id="data_nascimento"><p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p></ShowIf>
+            <div className="mt-1 flex items-center gap-2">
+              <ShowIf id="telefone_1"><span className="text-xs font-mono text-gray-800">{display(lead.telefones[0]?.fone)}</span></ShowIf>
+              <ShowIf id="classe_1"><span className={cn("inline-flex px-2 py-1 text-[10px] font-semibold rounded-full", classeInfo.cls)}>{classeInfo.label}</span></ShowIf>
+            </div>
+          </div>
+          <Button
+            onClick={() => {
+              setSelectedLeadId(lead.id);
+              setIsModalOpen(true);
+            }}
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+          >
+            <Eye className="w-4 h-4 mr-1" /> Ver
+          </Button>
+        </div>
+
+        {sectionTelefonesVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Telefones" icon={Phone}>
+            <div className="grid grid-cols-1 gap-1.5">
+              {[1, 2, 3, 4].map((i) => {
+                const t = lead.telefones[i - 1];
+                if (!t?.fone) return null;
+                if (!hasAnyVisible([`telefone_${i}`, `classe_${i}`])) return null;
+                const b = getClasseBadge(t.classe);
+                return (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    {isVisible(`telefone_${i}`) && <span className="text-xs font-mono text-gray-900">{t.fone}</span>}
+                    {isVisible(`classe_${i}`) && <span className={cn("inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full", b.cls)}>{b.label}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+        </>}
+
+        {sectionStatusVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Status Mercantil" icon={Database}>
+            {isVisible("mercantil_status") && <DataRow label="Status" value={display(lead.mercantil_status)} />}
+            {isVisible("mercantil_data_hora_origem") && <DataRow label="Data/hora consulta" value={display(lead.mercantil_data_hora_origem)} />}
+            {isVisible("mercantil_mensagem_erro") && <DataRow label="Mensagem" value={display(lead.mercantil_mensagem_erro)} alignRight={false} />}
+          </Section>
+        </>}
+
+        {sectionFinanceiroVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Financeiro" icon={DollarSign}>
+            {isVisible("mercantil_valor_emprestimo") && <DataRow label="Empréstimo" value={display(lead.mercantil_valor_emprestimo)} />}
+            {isVisible("mercantil_valor_iof") && <DataRow label="IOF" value={display(lead.mercantil_valor_iof)} />}
+            {isVisible("mercantil_valor_financiado") && <DataRow label="Financiado" value={display(lead.mercantil_valor_financiado)} />}
+            {isVisible("mercantil_data_primeiro_vencimento") && <DataRow label="1º vencimento" value={display(lead.mercantil_data_primeiro_vencimento)} />}
+            {isVisible("mercantil_quantidade_parcelas") && <DataRow label="Parcelas" value={display(lead.mercantil_quantidade_parcelas)} />}
+            {isVisible("mercantil_valor_parcela") && <DataRow label="Valor parcela" value={display(lead.mercantil_valor_parcela)} />}
+            {isVisible("mercantil_taxa_juros_mes") && <DataRow label="Taxa mês" value={display(lead.mercantil_taxa_juros_mes)} />}
+            {isVisible("mercantil_valor_liberado") && <DataRow label="Liberado" value={display(lead.mercantil_valor_liberado)} />}
+          </Section>
+        </>}
+
+        {sectionRegistroVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Registro" icon={FileText}>
+            {isVisible("mercantil_dados_atualizados_em") && <DataRow label="Data importação (Merc.)" value={display(lead.mercantil_dados_atualizados_em)} />}
+            {isVisible("ultima_origem_cadastral") && <DataRow label="Origem cadastral" value={display(lead.ultima_origem_cadastral)} />}
+            {isVisible("ultima_origem_mercantil") && <DataRow label="Origem mercantil" value={display(lead.ultima_origem_mercantil)} />}
+          </Section>
+        </>}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full max-w-full">
+        <div className="hidden lg:block w-full max-w-full">
+          <div className="overflow-x-auto relative max-w-full">
+            <table className={cn("w-full", tableMinWidthMercantil)}>
+              <thead className="bg-gray-50 sticky top-0 z-30">
+                <tr>
+                  {visibleCols.map((c) => React.cloneElement(c.header as any, { key: c.id }))}
+                  <th
+                    className={cn(
+                      "px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider text-center sticky right-0 z-40 bg-gray-50 border-l border-gray-200",
+                      ACTIONS_COL_WIDTH
+                    )}
+                  >
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">{renderTableBody()}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="lg:hidden space-y-4 p-4 max-w-full">
+          {leads.map((lead) => (
+            <MercantilCard key={lead.id} lead={lead} />
+          ))}
+        </div>
+
+        <div className="bg-white px-4 lg:px-6 py-3 border-t border-gray-200 flex items-center justify-between">
+          <div className="text-sm text-gray-500">Página {currentPage} de {totalPages}</div>
+          <div className="flex items-center space-x-2">
+            <Button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1 || isLoading} variant="outline" size="sm">
+              <ChevronLeft className="w-4 h-4" />
+              <span className="sr-only">Anterior</span>
+            </Button>
+            <Button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages || isLoading} variant="outline" size="sm">
+              <ChevronRight className="w-4 h-4" />
+              <span className="sr-only">Próxima</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <LeadDetailsModal isOpen={isModalOpen} onClose={handleCloseModal} leadId={selectedLeadId} />
+    </>
+  );
+};

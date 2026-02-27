@@ -14,6 +14,50 @@ use Illuminate\Http\UploadedFile;
 
 class ImportController extends Controller
 {
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function extensionMapByType(): array
+    {
+        $configured = (array) config('leads.import.allowed_extensions', []);
+        if (!empty($configured)) {
+            return $configured;
+        }
+
+        return [
+            'cadastral' => ['xlsx', 'xls'],
+            'higienizacao' => ['xlsx', 'xls'],
+            'clt' => ['xlsx', 'xls'],
+            'mercantil' => ['csv'],
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function allowedExtensionsForType(string $type): array
+    {
+        $map = $this->extensionMapByType();
+        $typeAllowed = $map[$type] ?? [];
+
+        if (!empty($typeAllowed)) {
+            return array_values(array_unique(array_map('strtolower', $typeAllowed)));
+        }
+
+        $fallback = array_values(array_filter((array) config('leads.import.mimes', ['xlsx', 'xls'])));
+        return array_values(array_unique(array_map('strtolower', $fallback)));
+    }
+
+    private function fileExtension(UploadedFile $file): string
+    {
+        $ext = strtolower((string) $file->getClientOriginalExtension());
+        if ($ext !== '') {
+            return $ext;
+        }
+
+        return strtolower((string) $file->extension());
+    }
+
     private function canAccessImportJob(Request $request, ImportJob $importJob): bool
     {
         return (int) $importJob->user_id === (int) $request->user()->id;
@@ -21,18 +65,13 @@ class ImportController extends Controller
 
     public function store(Request $request)
     {
-        $mimes = array_values(array_filter((array) config('leads.import.mimes', ['xlsx', 'xls'])));
-        if (empty($mimes)) {
-            $mimes = ['xlsx', 'xls'];
-        }
-
-        $types = array_values(array_filter((array) config('leads.import.types', ['cadastral', 'higienizacao', 'clt'])));
+        $types = array_values(array_filter((array) config('leads.import.types', ['cadastral', 'higienizacao', 'clt', 'mercantil'])));
         if (empty($types)) {
-            $types = ['cadastral', 'higienizacao', 'clt'];
+            $types = ['cadastral', 'higienizacao', 'clt', 'mercantil'];
         }
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:' . implode(',', $mimes)],
+            'file' => ['required', 'file'],
             'type' => ['required', 'string', Rule::in($types)],
             'origin' => ['nullable', 'string', 'max:255'],
         ]);
@@ -40,6 +79,15 @@ class ImportController extends Controller
         /** @var UploadedFile $file */
         $file = $validated['file'];
         $type = $validated['type'];
+        $extension = $this->fileExtension($file);
+        $allowedExtensions = $this->allowedExtensionsForType($type);
+
+        if ($extension === '' || !in_array($extension, $allowedExtensions, true)) {
+            return response()->json([
+                'message' => 'Extensão de arquivo inválida para o tipo selecionado.',
+                'allowed_extensions' => $allowedExtensions,
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         $lockName = (string) config('leads.import.lock.name', 'imports_mutex');
         $lockWaitSeconds = (int) config('leads.import.lock.wait_seconds', 5);

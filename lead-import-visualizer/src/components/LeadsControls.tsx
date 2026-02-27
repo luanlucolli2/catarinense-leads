@@ -7,7 +7,7 @@ import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
 
 interface LeadsControlsProps {
-  mode: "FGTS" | "CLT";
+  mode: "FGTS" | "CLT" | "MERCANTIL";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -130,13 +130,44 @@ interface LeadsControlsProps {
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 
+  mercantilSituacao: "todos" | "consultado" | "sem_consulta";
+  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void;
+  mercantilStatusFilter: string[];
+  onMercantilStatusFilterChange: (values: string[]) => void;
+  mercantilConsultaFrom: string;
+  onMercantilConsultaFromChange: (v: string) => void;
+  mercantilConsultaTo: string;
+  onMercantilConsultaToChange: (v: string) => void;
+  mercantilImportFrom: string;
+  onMercantilImportFromChange: (v: string) => void;
+  mercantilImportTo: string;
+  onMercantilImportToChange: (v: string) => void;
+  mercantilParcelaMin: string;
+  onMercantilParcelaMinChange: (v: string) => void;
+  mercantilParcelaMax: string;
+  onMercantilParcelaMaxChange: (v: string) => void;
+  mercantilQtdParcelasMin: string;
+  onMercantilQtdParcelasMinChange: (v: string) => void;
+  mercantilQtdParcelasMax: string;
+  onMercantilQtdParcelasMaxChange: (v: string) => void;
+  mercantilOrigensFilter: string[];
+  onMercantilOrigensFilterChange: (values: string[]) => void;
+  availableMercantilOrigens: string[];
+  availableMercantilStatuses: string[];
+
   visibleColumnsFGTS: string[];
   onVisibleColumnsFGTSChange: (cols: string[]) => void;
   visibleColumnsCLT: string[];
   onVisibleColumnsCLTChange: (cols: string[]) => void;
+  visibleColumnsMERCANTIL: string[];
+  onVisibleColumnsMERCANTILChange: (cols: string[]) => void;
 
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
+  defaultVisibleColumnsMERCANTIL: string[];
+
+  disableFilters?: boolean;
+  disableExport?: boolean;
 }
 
 export const LeadsControls = ({
@@ -236,22 +267,62 @@ export const LeadsControls = ({
   onCltTemAtivosChange,
   cltTemLegados,
   onCltTemLegadosChange,
+  mercantilSituacao,
+  onMercantilSituacaoChange,
+  mercantilStatusFilter,
+  onMercantilStatusFilterChange,
+  mercantilConsultaFrom,
+  onMercantilConsultaFromChange,
+  mercantilConsultaTo,
+  onMercantilConsultaToChange,
+  mercantilImportFrom,
+  onMercantilImportFromChange,
+  mercantilImportTo,
+  onMercantilImportToChange,
+  mercantilParcelaMin,
+  onMercantilParcelaMinChange,
+  mercantilParcelaMax,
+  onMercantilParcelaMaxChange,
+  mercantilQtdParcelasMin,
+  onMercantilQtdParcelasMinChange,
+  mercantilQtdParcelasMax,
+  onMercantilQtdParcelasMaxChange,
+  mercantilOrigensFilter,
+  onMercantilOrigensFilterChange,
+  availableMercantilOrigens,
+  availableMercantilStatuses,
   visibleColumnsFGTS,
   onVisibleColumnsFGTSChange,
   visibleColumnsCLT,
   onVisibleColumnsCLTChange,
+  visibleColumnsMERCANTIL,
+  onVisibleColumnsMERCANTILChange,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
+  defaultVisibleColumnsMERCANTIL,
+  disableFilters = false,
+  disableExport = false,
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
   const [isColumnsModalOpen, setIsColumnsModalOpen] = useState(false);
 
-  const currentVisible = mode === "FGTS" ? visibleColumnsFGTS : visibleColumnsCLT;
-  const currentDefaults = mode === "FGTS" ? defaultVisibleColumnsFGTS : defaultVisibleColumnsCLT;
+  const currentVisible =
+    mode === "FGTS"
+      ? visibleColumnsFGTS
+      : mode === "CLT"
+        ? visibleColumnsCLT
+        : visibleColumnsMERCANTIL;
+  const currentDefaults =
+    mode === "FGTS"
+      ? defaultVisibleColumnsFGTS
+      : mode === "CLT"
+        ? defaultVisibleColumnsCLT
+        : defaultVisibleColumnsMERCANTIL;
 
   const onSaveVisible = (cols: string[]) => {
     if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
-    else onVisibleColumnsCLTChange(cols);
+    else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
+    else onVisibleColumnsMERCANTILChange(cols);
   };
 
   const hasCustomColumns = useMemo(() => {
@@ -302,17 +373,19 @@ export const LeadsControls = ({
               </Button>
 
               <Button
-                onClick={() => setIsFiltersModalOpen(true)}
+                onClick={() => !disableFilters && setIsFiltersModalOpen(true)}
                 variant="outline"
                 size="sm"
+                disabled={disableFilters}
                 className={cn(
                   "flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative w-full sm:w-auto",
-                  hasActiveFilters && "border-blue-500 bg-blue-50 text-blue-700"
+                  hasActiveFilters && !disableFilters && "border-blue-500 bg-blue-50 text-blue-700"
                 )}
+                title={disableFilters ? "Filtros indisponíveis para CLT (Mercantil)" : undefined}
               >
                 <Filter className="w-4 h-4" />
                 <span className="hidden xs:inline sm:inline">Filtros</span>
-                {hasActiveFilters && (
+                {hasActiveFilters && !disableFilters && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
                 )}
               </Button>
@@ -321,7 +394,9 @@ export const LeadsControls = ({
                 onClick={onExportClick}
                 variant="outline"
                 size="sm"
+                disabled={disableExport}
                 className="flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 w-full sm:w-auto"
+                title={disableExport ? "Exportação indisponível para CLT (Mercantil)" : undefined}
               >
                 <Download className="w-4 h-4" />
                 <span className="hidden xs:inline sm:inline">Exportar</span>
@@ -340,7 +415,7 @@ export const LeadsControls = ({
         </div>
 
         {/* Indicador de filtros ativos */}
-        {hasActiveFilters && (
+        {hasActiveFilters && !disableFilters && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-blue-600" />
@@ -454,6 +529,30 @@ export const LeadsControls = ({
         onCltTemAtivosChange={onCltTemAtivosChange}
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={onCltTemLegadosChange}
+        mercantilSituacao={mercantilSituacao}
+        onMercantilSituacaoChange={onMercantilSituacaoChange}
+        mercantilStatusFilter={mercantilStatusFilter}
+        onMercantilStatusFilterChange={onMercantilStatusFilterChange}
+        mercantilConsultaFrom={mercantilConsultaFrom}
+        onMercantilConsultaFromChange={onMercantilConsultaFromChange}
+        mercantilConsultaTo={mercantilConsultaTo}
+        onMercantilConsultaToChange={onMercantilConsultaToChange}
+        mercantilImportFrom={mercantilImportFrom}
+        onMercantilImportFromChange={onMercantilImportFromChange}
+        mercantilImportTo={mercantilImportTo}
+        onMercantilImportToChange={onMercantilImportToChange}
+        mercantilParcelaMin={mercantilParcelaMin}
+        onMercantilParcelaMinChange={onMercantilParcelaMinChange}
+        mercantilParcelaMax={mercantilParcelaMax}
+        onMercantilParcelaMaxChange={onMercantilParcelaMaxChange}
+        mercantilQtdParcelasMin={mercantilQtdParcelasMin}
+        onMercantilQtdParcelasMinChange={onMercantilQtdParcelasMinChange}
+        mercantilQtdParcelasMax={mercantilQtdParcelasMax}
+        onMercantilQtdParcelasMaxChange={onMercantilQtdParcelasMaxChange}
+        mercantilOrigensFilter={mercantilOrigensFilter}
+        onMercantilOrigensFilterChange={onMercantilOrigensFilterChange}
+        availableMercantilOrigens={availableMercantilOrigens}
+        availableMercantilStatuses={availableMercantilStatuses}
       />
 
       <ColumnsModal

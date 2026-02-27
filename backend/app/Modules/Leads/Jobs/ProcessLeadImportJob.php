@@ -7,6 +7,7 @@ use App\Models\ImportError;
 use App\Modules\Leads\Imports\CadastralImport;
 use App\Modules\Leads\Imports\HigienizacaoImport;
 use App\Modules\Leads\Imports\CltSnapshotImport;
+use App\Modules\Leads\Imports\MercantilCsvImport;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Excel as ExcelReaderType;
 use Illuminate\Bus\Queueable;
@@ -75,7 +76,34 @@ class ProcessLeadImportJob implements ShouldQueue
 
             $type = $this->importJob->type;
 
-            // pré-validação leve
+            if ($type === 'mercantil') {
+                [$missing, $totalRows] = $this->inspectMercantilCsv($fullPath);
+
+                if (!empty($missing)) {
+                    foreach ($missing as $h) {
+                        ImportError::create([
+                            'import_job_id' => $this->importJob->id,
+                            'row_number'    => 1,
+                            'column_name'   => $h,
+                            'error_message' => 'Cabeçalho ausente.',
+                        ]);
+                    }
+                    $this->importJob->update([
+                        'status'      => 'falhou',
+                        'finished_at' => now(),
+                    ]);
+                    return;
+                }
+
+                if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
+                    $this->importJob->update(['total_rows' => (int) $totalRows]);
+                }
+
+                (new MercantilCsvImport($this->importJob))->process($fullPath);
+                return;
+            }
+
+            // pré-validação leve (Excel)
             if ($type !== 'clt') {
                 $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
                 $headers = $this->readHeaders($fullPath);
@@ -194,6 +222,58 @@ class ProcessLeadImportJob implements ShouldQueue
             }
         }
         return $missing;
+    }
+
+    /**
+     * @return array{0: array<int, string>, 1: int}
+     */
+    private function inspectMercantilCsv(string $fullPath): array
+    {
+        $handle = fopen($fullPath, 'rb');
+        if (!$handle) {
+            throw new \RuntimeException("Não foi possível abrir o CSV Mercantil: {$fullPath}");
+        }
+
+        try {
+            $delimiter = (string) config('leads.import.mercantil.csv.delimiter', ';');
+            $enclosure = (string) config('leads.import.mercantil.csv.enclosure', '"');
+            $delimiter = $delimiter !== '' ? $delimiter[0] : ';';
+            $enclosure = $enclosure !== '' ? $enclosure[0] : '"';
+
+            $headers = fgetcsv($handle, 0, $delimiter, $enclosure);
+            if ($headers === false) {
+                return [MercantilCsvImport::requiredFieldLabels(), 0];
+            }
+
+            $missing = MercantilCsvImport::missingRequiredFields($headers);
+
+            $totalRows = 0;
+            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
+                if ($this->isCsvRowEmpty($row)) {
+                    continue;
+                }
+
+                $totalRows++;
+            }
+
+            return [$missing, $totalRows];
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /**
+     * @param array<int, string> $row
+     */
+    private function isCsvRowEmpty(array $row): bool
+    {
+        foreach ($row as $value) {
+            if (trim((string) $value) !== '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function deleteUploadedFile(?string $relativePath): void

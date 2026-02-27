@@ -5,14 +5,24 @@ const apiBaseUrl = rawBaseUrl && rawBaseUrl.length > 0
   ? rawBaseUrl.replace(/\/+$/, "")
   : "/api";
 
+function resolveTimeout(raw: unknown, fallback: number): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const API_TIMEOUT_MS = resolveTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
+const CSRF_TIMEOUT_MS = resolveTimeout(import.meta.env.VITE_CSRF_TIMEOUT_MS, 10000);
+
 const axiosClient = axios.create({
   baseURL: apiBaseUrl,
   withCredentials: true,
+  timeout: API_TIMEOUT_MS,
 });
 
 // Cliente sem baseURL para acessar rotas fora de /api (ex.: /sanctum/csrf-cookie).
 const csrfClient = axios.create({
   withCredentials: true,
+  timeout: CSRF_TIMEOUT_MS,
 });
 
 let csrfBootstrapped = false;

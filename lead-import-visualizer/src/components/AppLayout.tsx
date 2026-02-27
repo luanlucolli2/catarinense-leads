@@ -6,8 +6,12 @@ import { Button } from "@/components/ui/button";
 
 export const AppLayout = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    const saved = localStorage.getItem("sidebar-collapsed");
-    return saved ? JSON.parse(saved) : false;
+    try {
+      const saved = localStorage.getItem("sidebar-collapsed");
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
