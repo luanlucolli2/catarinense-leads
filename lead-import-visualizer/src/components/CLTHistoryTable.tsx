@@ -117,22 +117,278 @@ function getPhaseInfo(phase: CltConsultJobListItem["phase"]) {
 
 function calcSegments(i: CltConsultJobListItem) {
   const total = i.total_cpfs || 0;
-  if (!total) return { ok: 0, not: 0, err: 0, sum: 0, total: 0 };
-  const ok = (i.success_count / total) * 100;
-  const not = ((i.not_found_count ?? 0) / total) * 100;
-  const err = (i.fail_count / total) * 100;
-  const sum = ok + not + err;
-  return { ok, not, err, sum, total };
+  const eligible = Math.max(0, i.elegivel_count ?? 0);
+  const ineligible = Math.max(0, i.inelegivel_count ?? 0);
+  const notFound = Math.max(0, i.not_found_count ?? 0);
+  const fail = Math.max(0, i.fail_count ?? 0);
+
+  if (!total) {
+    return {
+      eligible,
+      ineligible,
+      notFound,
+      fail,
+      eligiblePct: 0,
+      ineligiblePct: 0,
+      notFoundPct: 0,
+      failPct: 0,
+      sum: 0,
+      total: 0,
+    };
+  }
+
+  const eligiblePct = (eligible / total) * 100;
+  const ineligiblePct = (ineligible / total) * 100;
+  const notFoundPct = (notFound / total) * 100;
+  const failPct = (fail / total) * 100;
+
+  return {
+    eligible,
+    ineligible,
+    notFound,
+    fail,
+    eligiblePct,
+    ineligiblePct,
+    notFoundPct,
+    failPct,
+    sum: eligiblePct + ineligiblePct + notFoundPct + failPct,
+    total,
+  };
+}
+
+type CltVariant = "online" | "offline" | undefined;
+type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Concluído" | "Falhou" | "Cancelada";
+
+function resolveVariant(item: CltConsultJobListItem): CltVariant {
+  if (item.variant === "online" || item.variant === "offline") {
+    return item.variant;
+  }
+
+  const legacyItem = item as CltConsultJobListItem & {
+    is_offline?: boolean;
+    mode?: string;
+    tipo?: string;
+    type?: string;
+  };
+
+  if (typeof legacyItem.is_offline === "boolean") {
+    return legacyItem.is_offline ? "offline" : "online";
+  }
+
+  const legacy = String(legacyItem.mode ?? legacyItem.tipo ?? legacyItem.type ?? "").toLowerCase();
+  if (legacy === "offline" || legacy === "off") return "offline";
+  if (legacy === "online" || legacy === "on") return "online";
+  return undefined;
+}
+
+function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {
+  switch (status) {
+    case "Concluído":
+      return <CheckCircle className="w-4 h-4 text-emerald-500" />;
+    case "Em andamento":
+      return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+    case "Falhou":
+      return <XCircle className="w-4 h-4 text-red-500" />;
+    case "Cancelada":
+      return <X className="w-4 h-4 text-gray-500" />;
+    case "Aguardando":
+    default:
+      return <Clock className="w-4 h-4 text-muted-foreground" />;
+  }
+}
+
+function resolveOnlinePhaseStatuses(
+  item: CltConsultJobListItem,
+  phase1Processed: number,
+  phase2Total: number,
+  phase2Resolved: number
+): { phase1: OnlinePhaseStatus; phase2: OnlinePhaseStatus } {
+  let phase1: OnlinePhaseStatus = "Aguardando";
+  if (item.phase === "fase_1" && (item.status === "pendente" || item.status === "em_progresso")) {
+    phase1 = "Em andamento";
+  } else if (item.phase === "fase_2" || item.status === "concluido" || (item.total_cpfs > 0 && phase1Processed >= item.total_cpfs)) {
+    phase1 = "Concluído";
+  } else if (item.status === "falhou") {
+    phase1 = (item.phase === "fase_1" || phase2Total <= 0) ? "Falhou" : "Concluído";
+  } else if (item.status === "cancelado") {
+    phase1 = (item.phase === "fase_1" || phase2Total <= 0) ? "Cancelada" : "Concluído";
+  }
+
+  let phase2: OnlinePhaseStatus = "Aguardando";
+  if (phase2Total <= 0) {
+    phase2 = "Aguardando";
+  } else if (phase2Resolved >= phase2Total || item.status === "concluido") {
+    phase2 = "Concluído";
+  } else if (item.status === "falhou" && (item.phase === "fase_2" || phase2Resolved > 0)) {
+    phase2 = "Falhou";
+  } else if (item.status === "cancelado" && (item.phase === "fase_2" || phase2Resolved > 0)) {
+    phase2 = "Cancelada";
+  } else if (item.phase === "fase_2" && (item.status === "pendente" || item.status === "em_progresso")) {
+    phase2 = "Em andamento";
+  }
+
+  return { phase1, phase2 };
+}
+
+function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
+  const totalCpfs = Math.max(0, item.total_cpfs || 0);
+  const phase1Eligible = Math.max(0, item.elegivel_count ?? 0);
+  const phase1Ineligible = Math.max(0, item.inelegivel_count ?? 0);
+  const phase1NotFound = Math.max(0, item.not_found_count ?? 0);
+  const phase1Fail = Math.max(0, item.fail_count ?? 0);
+  const phase1Processed = phase1Eligible + phase1Ineligible + phase1NotFound + phase1Fail;
+  const phase1Pending = totalCpfs > 0 ? Math.max(0, totalCpfs - Math.min(totalCpfs, phase1Processed)) : 0;
+
+  const phase1EligiblePct = totalCpfs > 0 ? (phase1Eligible / totalCpfs) * 100 : 0;
+  const phase1IneligiblePct = totalCpfs > 0 ? (phase1Ineligible / totalCpfs) * 100 : 0;
+  const phase1NotFoundPct = totalCpfs > 0 ? (phase1NotFound / totalCpfs) * 100 : 0;
+  const phase1FailPct = totalCpfs > 0 ? (phase1Fail / totalCpfs) * 100 : 0;
+  const phase1TotalPct = phase1EligiblePct + phase1IneligiblePct + phase1NotFoundPct + phase1FailPct;
+
+  const phase2Total = Math.max(0, item.phase2_total ?? 0);
+  const phase2Approved = Math.max(0, Math.min(phase2Total, item.phase2_aprovado_count ?? 0));
+  const phase2NotApproved = Math.max(
+    0,
+    Math.min(
+      Math.max(0, phase2Total - phase2Approved),
+      item.phase2_nao_aprovado_count ?? 0
+    )
+  );
+  const phase2Resolved = Math.max(0, Math.min(phase2Total, phase2Approved + phase2NotApproved));
+  const phase2Pending = Math.max(0, phase2Total - phase2Resolved);
+
+  const phase2ApprovedPct = phase2Total > 0 ? (phase2Approved / phase2Total) * 100 : 0;
+  const phase2NotApprovedPct = phase2Total > 0 ? (phase2NotApproved / phase2Total) * 100 : 0;
+  const phase2TotalPct = phase2ApprovedPct + phase2NotApprovedPct;
+
+  const statuses = resolveOnlinePhaseStatuses(item, phase1Processed, phase2Total, phase2Resolved);
+  const phase1Done = statuses.phase1 === "Concluído" || statuses.phase1 === "Falhou" || statuses.phase1 === "Cancelada";
+  const currentPhase = phase1Done ? 2 : 1;
+
+  return (
+    <div className="space-y-3">
+      <div
+        className={cn(
+          "rounded-xl border p-4 transition-all",
+          currentPhase === 1 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10"
+        )}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            {getOnlinePhaseStatusIcon(statuses.phase1)}
+            <span className="text-sm font-semibold">Consulta</span>
+          </div>
+          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+            {phase1Processed.toLocaleString()} / {totalCpfs.toLocaleString()} CPFs
+          </span>
+        </div>
+
+        <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+          {phase1EligiblePct > 0 && (
+            <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase1EligiblePct}%` }} />
+          )}
+          {phase1IneligiblePct > 0 && (
+            <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${phase1EligiblePct}%`, width: `${phase1IneligiblePct}%` }} />
+          )}
+          {phase1NotFoundPct > 0 && (
+            <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase1EligiblePct + phase1IneligiblePct}%`, width: `${phase1NotFoundPct}%` }} />
+          )}
+          {phase1FailPct > 0 && (
+            <div className="absolute top-0 h-full bg-destructive transition-all duration-500" style={{ left: `${phase1EligiblePct + phase1IneligiblePct + phase1NotFoundPct}%`, width: `${phase1FailPct}%` }} />
+          )}
+          {statuses.phase1 === "Em andamento" && phase1TotalPct < 100 && (
+            <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase1TotalPct}%`, width: `${Math.min(8, 100 - phase1TotalPct)}%` }} />
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="text-muted-foreground">Elegíveis</span>
+            <span className="font-semibold text-foreground">{phase1Eligible.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-slate-400" />
+            <span className="text-muted-foreground">Inelegíveis</span>
+            <span className="font-semibold text-foreground">{phase1Ineligible.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="text-muted-foreground">Não encontrados</span>
+            <span className="font-semibold text-foreground">{phase1NotFound.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-destructive" />
+            <span className="text-muted-foreground">Falhas</span>
+            <span className="font-semibold text-foreground">{phase1Fail.toLocaleString()}</span>
+          </div>
+          {phase1Pending > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3 h-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Pendentes</span>
+              <span className="font-semibold text-foreground">{phase1Pending.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          "rounded-xl border p-4 transition-all",
+          currentPhase === 2 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10"
+        )}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            {getOnlinePhaseStatusIcon(statuses.phase2)}
+            <span className="text-sm font-semibold">Validação de Política</span>
+          </div>
+          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+            {phase2Resolved.toLocaleString()} / {phase2Total.toLocaleString()} CPFs
+          </span>
+        </div>
+
+        <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+          {phase2ApprovedPct > 0 && (
+            <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase2ApprovedPct}%` }} />
+          )}
+          {phase2NotApprovedPct > 0 && (
+            <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${phase2ApprovedPct}%`, width: `${phase2NotApprovedPct}%` }} />
+          )}
+          {statuses.phase2 === "Em andamento" && phase2TotalPct < 100 && (
+            <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase2TotalPct}%`, width: `${Math.min(8, 100 - phase2TotalPct)}%` }} />
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="text-muted-foreground">Aprovados</span>
+            <span className="font-semibold text-foreground">{phase2Approved.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-slate-400" />
+            <span className="text-muted-foreground">Não aprovados</span>
+            <span className="font-semibold text-foreground">{phase2NotApproved.toLocaleString()}</span>
+          </div>
+          {phase2Pending > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3 h-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Pendentes</span>
+              <span className="font-semibold text-foreground">{phase2Pending.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
   const s = calcSegments(item);
   const total = item.total_cpfs || 0;
-  const processed = (
-    item.success_count +
-    (item.not_found_count ?? 0) +
-    item.fail_count
-  ).toLocaleString();
+  const processedConsult = s.eligible + s.ineligible + s.notFound + s.fail;
+  const processedConsultLabel = processedConsult.toLocaleString();
 
   const isCounting =
     total === 0 &&
@@ -143,40 +399,60 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
     Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8)
   );
 
+  let offlineMessage = "Aguardando início das consultas.";
+  if (item.status === "concluido") {
+    offlineMessage = "Consultas concluídas.";
+  } else if (item.status === "cancelado") {
+    offlineMessage = "Consultas canceladas.";
+  } else if (item.status === "falhou") {
+    offlineMessage = "Consultas finalizadas com falhas.";
+  } else if (item.status === "em_progresso" || item.status === "pendente") {
+    offlineMessage =
+      total > 0
+        ? `Consultas em andamento (${processedConsultLabel}/${total.toLocaleString()} CPFs).`
+        : "Consultas em andamento: preparando lote.";
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-xs sm:text-sm">
-        <span className="text-muted-foreground">Progresso</span>
+        <span className="text-muted-foreground">Progresso da consulta</span>
         <span className="font-medium text-card-foreground">
           {isCounting
-            ? "Preparando/contando CPFs…"
-            : `${processed} de ${total.toLocaleString()} CPFs`}
+            ? "Preparando/contando CPFs..."
+            : `${processedConsultLabel} de ${total.toLocaleString()} CPFs`}
         </span>
       </div>
 
       <div
         className="relative h-3 bg-muted rounded-full overflow-hidden"
-        aria-label="Barra de progresso segmentada"
+        aria-label="Barra de progresso de consultas"
       >
-        {s.ok > 0 && (
+        {s.eligiblePct > 0 && (
           <div
             className="absolute left-0 top-0 h-full bg-emerald-500 dark:bg-emerald-400"
-            style={{ width: `${s.ok}%` }}
+            style={{ width: `${s.eligiblePct}%` }}
           />
         )}
-        {s.not > 0 && (
+        {s.ineligiblePct > 0 && (
+          <div
+            className="absolute top-0 h-full bg-slate-400 dark:bg-slate-500"
+            style={{ left: `${s.eligiblePct}%`, width: `${s.ineligiblePct}%` }}
+          />
+        )}
+        {s.notFoundPct > 0 && (
           <div
             className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400"
-            style={{ left: `${s.ok}%`, width: `${s.not}%` }}
+            style={{ left: `${s.eligiblePct + s.ineligiblePct}%`, width: `${s.notFoundPct}%` }}
           />
         )}
-        {s.err > 0 && (
+        {s.failPct > 0 && (
           <div
             className="absolute top-0 h-full bg-red-500 dark:bg-red-400"
-            style={{ left: `${s.ok + s.not}%`, width: `${s.err}%` }}
+            style={{ left: `${s.eligiblePct + s.ineligiblePct + s.notFoundPct}%`, width: `${s.failPct}%` }}
           />
         )}
-        {(item.status === "em_progresso" || isCounting) && s.sum < 100 && (
+        {(item.status === "em_progresso" || item.status === "pendente" || isCounting) && s.sum < 100 && (
           <div
             className="absolute top-0 h-full bg-blue-300/60 dark:bg-blue-700/70 animate-pulse"
             style={{
@@ -188,28 +464,9 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs">
-        <div className="flex flex-wrap items-center gap-3">
-          {s.ok > 0 && (
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
-              <span className="text-muted-foreground">Sucesso</span>
-            </div>
-          )}
-          {s.not > 0 && (
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
-              <span className="text-muted-foreground">Não encontrados</span>
-            </div>
-          )}
-          {s.err > 0 && (
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
-              <span className="text-muted-foreground">Falhas</span>
-            </div>
-          )}
-        </div>
+        <span className="text-muted-foreground">{offlineMessage}</span>
         <span className="text-muted-foreground">
-          {isCounting ? "Preparando…" : `${s.sum.toFixed(1)}% completo`}
+          {isCounting ? "Preparando..." : `${s.sum.toFixed(1)}%`}
         </span>
       </div>
     </div>
@@ -309,20 +566,17 @@ export const CLTHistoryTable = ({
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
 
-          // Resolve a variante com tipagem, mantendo compatibilidade com payloads antigos
-          const variant: 'online' | 'offline' | undefined = ((): any => {
-            if (i.variant) return i.variant;
-            const anyI = i as any;
-            if (typeof anyI.is_offline === 'boolean') {
-              return anyI.is_offline ? 'offline' : 'online';
-            }
-            const legacy = String(anyI.mode ?? anyI.tipo ?? anyI.type ?? '').toLowerCase();
-            if (legacy === 'offline' || legacy === 'off') return 'offline';
-            if (legacy === 'online' || legacy === 'on') return 'online';
-            return undefined;
-          })();
+          const variant = resolveVariant(i);
 
           const type = variant === 'offline' ? 'OFF' : variant === 'online' ? 'ONLINE' : 'ONLINE';
+          const phaseAndStatusInfo =
+            type === "ONLINE" && phaseInfo
+              ? {
+                  icon: statusInfo.icon,
+                  className: statusInfo.className,
+                  label: `${phaseInfo.label} • ${statusInfo.label}`,
+                }
+              : statusInfo;
 
           const modeBadge = type === "OFF"
             ? {
@@ -410,20 +664,9 @@ export const CLTHistoryTable = ({
                         <span className="whitespace-nowrap">{modeBadge.label}</span>
                       </Badge>
 
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
-                        {statusInfo.icon}
-                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", phaseAndStatusInfo.className)}>
+                        {phaseAndStatusInfo.icon}
+                        <span className="whitespace-nowrap">{phaseAndStatusInfo.label}</span>
                       </Badge>
 
                       {i.status !== "cancelado" && (
@@ -498,20 +741,9 @@ export const CLTHistoryTable = ({
                         <span className="whitespace-nowrap">{modeBadge.label}</span>
                       </Badge>
 
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
-                        {statusInfo.icon}
-                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", phaseAndStatusInfo.className)}>
+                        {phaseAndStatusInfo.icon}
+                        <span className="whitespace-nowrap">{phaseAndStatusInfo.label}</span>
                       </Badge>
                     </div>
 
@@ -541,18 +773,30 @@ export const CLTHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  <SegmentedProgressBar item={i} />
+                  {type === "ONLINE" ? (
+                    <OnlineTwoPhaseProgress item={i} />
+                  ) : (
+                    <SegmentedProgressBar item={i} />
+                  )}
 
-                  {(i.status === "concluido" ||
+                  {type !== "ONLINE" && (i.status === "concluido" ||
                     i.status === "em_progresso" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
-                    <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-2 border-t border-border">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 pt-2 border-t border-border">
                       <div className="text-center">
                         <div className="text-base sm:text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                          {i.success_count.toLocaleString()}
+                          {(i.elegivel_count ?? 0).toLocaleString()}
                         </div>
-                        <div className="text-[11px] sm:text-xs text-muted-foreground">Sucesso</div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">Elegíveis</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-base sm:text-lg font-semibold text-slate-600 dark:text-slate-300">
+                          {(i.inelegivel_count ?? 0).toLocaleString()}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">
+                          Inelegíveis
+                        </div>
                       </div>
                       <div className="text-center">
                         <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">

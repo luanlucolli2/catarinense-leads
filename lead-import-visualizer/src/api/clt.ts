@@ -21,8 +21,13 @@ export interface CltConsultJobListItem {
   title: string
   status: CltJobStatus
   phase?: CltJobPhase
+  phase2_total?: number
+  phase2_attempt?: number
+  phase2_aprovado_count?: number
+  phase2_nao_aprovado_count?: number
   total_cpfs: number
-  success_count: number
+  elegivel_count: number
+  inelegivel_count: number
   fail_count: number
   not_found_count: number
 
@@ -57,8 +62,13 @@ export interface CltConsultJobShow {
   title: string
   status: CltJobStatus
   phase?: CltJobPhase
+  phase2_total?: number
+  phase2_attempt?: number
+  phase2_aprovado_count?: number
+  phase2_nao_aprovado_count?: number
   total_cpfs: number
-  success_count: number
+  elegivel_count: number
+  inelegivel_count: number
   fail_count: number
   not_found_count: number
   has_file: boolean
@@ -200,11 +210,11 @@ export async function deleteCltConsultJob(id: number): Promise<void> {
 }
 
 function parseContentDispositionFilename(contentDisposition: string): string | null {
-  const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(contentDisposition)
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(contentDisposition)
   if (!match) return null
   try {
-    return decodeURIComponent(match[1].replace(/\"/g, ''))
+    return decodeURIComponent(match[1].replace(/"/g, ''))
   } catch {
-    return match[1].replace(/\"/g, '')
+    return match[1].replace(/"/g, '')
   }
 }

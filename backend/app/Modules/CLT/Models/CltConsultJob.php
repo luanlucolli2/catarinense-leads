@@ -11,7 +11,9 @@ class CltConsultJob extends Model
     protected $fillable = [
         'user_id','title','status','variant',
         'phase',
-        'total_cpfs','success_count','not_found_count','fail_count',
+        'phase2_total','phase2_attempt',
+        'phase2_aprovado_count','phase2_nao_aprovado_count',
+        'total_cpfs','elegivel_count','inelegivel_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
         'started_at','finished_at','canceled_at','cancel_reason',
         // spool
@@ -22,6 +24,12 @@ class CltConsultJob extends Model
         'started_at' => 'datetime',
         'finished_at'=> 'datetime',
         'canceled_at'=> 'datetime',
+        'phase2_total' => 'integer',
+        'phase2_attempt' => 'integer',
+        'phase2_aprovado_count' => 'integer',
+        'phase2_nao_aprovado_count' => 'integer',
+        'elegivel_count' => 'integer',
+        'inelegivel_count' => 'integer',
         'spool_bytes'=> 'integer',
     ];
 

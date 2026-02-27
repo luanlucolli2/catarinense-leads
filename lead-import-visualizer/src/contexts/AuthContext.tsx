@@ -35,6 +35,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const parsedAuthTimeout = Number(import.meta.env.VITE_AUTH_READY_TIMEOUT_MS);
+    const authReadyTimeoutMs =
+      Number.isFinite(parsedAuthTimeout) && parsedAuthTimeout > 0
+        ? parsedAuthTimeout
+        : 12000;
+    const watchdog = window.setTimeout(() => {
+      if (!cancelled) {
+        setUser(null);
+        setIsAuthReady(true);
+      }
+    }, authReadyTimeoutMs);
 
     const hydrateFromBackend = async () => {
       try {
@@ -48,6 +59,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       } finally {
         if (!cancelled) {
+          window.clearTimeout(watchdog);
           setIsAuthReady(true);
         }
       }
@@ -57,6 +69,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(watchdog);
     };
   }, [setUser]);
 

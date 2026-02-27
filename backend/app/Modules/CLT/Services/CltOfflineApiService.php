@@ -82,21 +82,41 @@ class CltOfflineApiService
                 throw new \RuntimeException('CLT-OFF token error: credencial BASIC ausente (CLT_OFF_BASIC_AUTH)');
             }
 
-            $resp = Http::withHeaders([
-                'Authorization' => 'Basic ' . $this->basicAuth,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(max(1, $this->httpTimeout))
-                ->connectTimeout(max(1, $this->httpConnectTimeout))
-                ->retry(
-                    max(0, $this->httpRetry),
-                    max(0, $this->httpRetryDelayMs),
-                    fn($e, $request) =>
-                        $e instanceof ConnectionException
-                        || optional($request->response())->status() === 429
-                        || optional($request->response())->serverError()
-                )
-                ->get($this->baseUrl . '/gera-token');
+            $maxAttempts = max(1, $this->httpRetry + 1);
+            $resp = null;
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                try {
+                    $resp = Http::withHeaders([
+                        'Authorization' => 'Basic ' . $this->basicAuth,
+                        'Accept' => 'application/json',
+                    ])
+                        ->timeout(max(1, $this->httpTimeout))
+                        ->connectTimeout(max(1, $this->httpConnectTimeout))
+                        ->get($this->baseUrl . '/gera-token');
+                } catch (Throwable $e) {
+                    if (
+                        $attempt < $maxAttempts
+                        && ($e instanceof ConnectionException || $this->isTimeoutException($e))
+                    ) {
+                        $this->sleepTransientPauseMs();
+                        continue;
+                    }
+
+                    throw $e;
+                }
+
+                $retryAfter = $this->getRetryAfterSeconds($resp);
+                if ($this->isTransientHttpStatus($resp->status()) && $attempt < $maxAttempts) {
+                    $this->sleepTransientPauseMs($retryAfter);
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!$resp instanceof HttpResponse) {
+                throw new \RuntimeException('CLT-OFF token error: sem resposta do /gera-token');
+            }
 
             if ($resp->status() === 403) {
                 $this->logForbidden($resp, null);
@@ -182,42 +202,62 @@ class CltOfflineApiService
         $out = [];
 
         foreach ($cpfs as $cpf) {
-            // respeita intervalo mínimo global (entre requisições consecutivas)
-            $this->respectMinInterval();
+            $maxAttempts = max(1, $this->httpRetry + 1);
+            $resp = null;
+            $lastError = null;
 
-            try {
-                $resp = Http::withHeaders($headers)
-                    ->timeout($this->httpTimeout)
-                    ->connectTimeout($this->httpConnectTimeout)
-                    ->retry(
-                        max(0, $this->httpRetry),
-                        max(0, $this->httpRetryDelayMs),
-                        fn($e, $request) =>
-                            $e instanceof ConnectionException
-                            || optional($request->response())->status() === 429
-                            || optional($request->response())->serverError()
-                    )
-                    ->get($url, ['cpf' => $cpf]);
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                $this->respectMinInterval();
+                try {
+                    $resp = Http::withHeaders($headers)
+                        ->timeout($this->httpTimeout)
+                        ->connectTimeout($this->httpConnectTimeout)
+                        ->get($url, ['cpf' => $cpf]);
+                } catch (Throwable $e) {
+                    $lastError = $e;
+                    if (
+                        $attempt < $maxAttempts
+                        && ($e instanceof ConnectionException || $this->isTimeoutException($e))
+                    ) {
+                        $this->sleepTransientPauseMs();
+                        continue;
+                    }
+                    break;
+                } finally {
+                    // Atualiza o timer APÓS cada tentativa efetiva.
+                    $this->markRequestDone();
+                }
 
                 if ($resp->status() === 403) {
                     $this->logForbidden($resp, $cpf);
                 }
 
-                $out[$cpf] = $this->parseOffResponse($resp);
-            } catch (Throwable $e) {
+                if ($this->isTransientHttpStatus($resp->status()) && $attempt < $maxAttempts) {
+                    $this->sleepTransientPauseMs($this->getRetryAfterSeconds($resp));
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!$resp instanceof HttpResponse) {
+                $msg = 'Sem resposta do serviço OFF';
+                if ($lastError instanceof Throwable) {
+                    $msg .= ': ' . $lastError->getMessage();
+                }
                 $out[$cpf] = [
                     'ok' => false,
-                    'mensagem' => 'Sem resposta do serviço OFF',
+                    'mensagem' => $msg,
                     'vinculos' => null,
                     'retriable' => true,
                     'not_found' => false,
                     'http_status' => null,
                     'retry_after' => $retryAfterDefault,
                 ];
-            } finally {
-                // Atualiza o timer APÓS a requisição para garantir o intervalo entre o FIM de uma e o INÍCIO da próxima
-                $this->markRequestDone();
+                continue;
             }
+
+            $out[$cpf] = $this->parseOffResponse($resp);
         }
 
         return $out;
@@ -247,6 +287,40 @@ class CltOfflineApiService
         Cache::put($this->rateKey, $t, 300);
     }
 
+    private function isTransientHttpStatus(int $status): bool
+    {
+        return in_array($status, [408, 429], true) || $status >= 500;
+    }
+
+    private function sleepTransientPauseMs(?int $retryAfterSeconds = null): void
+    {
+        if ($retryAfterSeconds !== null && $retryAfterSeconds > 0) {
+            sleep($retryAfterSeconds);
+            return;
+        }
+
+        $pauseMs = max(3000, $this->httpRetryDelayMs);
+        usleep($pauseMs * 1000);
+    }
+
+    private function isTimeoutException(Throwable $e): bool
+    {
+        $current = $e;
+        while ($current !== null) {
+            $msg = strtolower($current->getMessage());
+            if (
+                str_contains($msg, 'timed out')
+                || str_contains($msg, 'timeout')
+                || str_contains($msg, 'curl error 28')
+            ) {
+                return true;
+            }
+            $current = $current->getPrevious();
+        }
+
+        return false;
+    }
+
     /** ------- Helpers de parsing e logging ------- */
 
     private function parseOffResponse(HttpResponse $resp): array
@@ -263,7 +337,10 @@ class CltOfflineApiService
             } catch (\Throwable) {
             }
 
-            $retriable = in_array($status, [401, 403, 408, 429], true) || $status >= 500 || $looksHtml;
+            $retriable = $status === 401
+                || $this->isTransientHttpStatus($status)
+                || $looksHtml
+                || ($status === 403 && $this->isRetryableForbiddenMessage($mensagem));
 
             if ($status === 404) {
                 return [
@@ -521,6 +598,23 @@ class CltOfflineApiService
             || str_contains($n, 'cpf inválido')
             || str_contains($n, 'formato invalido')
             || str_contains($n, 'formato inválido');
+    }
+
+    private function isRetryableForbiddenMessage(string $msg): bool
+    {
+        $n = $this->normalize($msg);
+        if ($n === '') {
+            return false;
+        }
+
+        return str_contains($n, 'temporar')
+            || str_contains($n, 'rate limit')
+            || str_contains($n, 'timeout')
+            || str_contains($n, 'gateway')
+            || str_contains($n, 'cloudflare')
+            || str_contains($n, 'waf')
+            || str_contains($n, 'tente novamente')
+            || str_contains($n, 'try again');
     }
 
     private function isFatalAuthError(string $msg): bool
