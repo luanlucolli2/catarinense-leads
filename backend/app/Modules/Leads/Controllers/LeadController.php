@@ -24,7 +24,8 @@ class LeadController extends Controller
     private function paginateLeads(Request $r)
     {
         $perPage = (int) $r->input('per_page', (int) config('leads.pagination.per_page_default', 10));
-        $perPage = max(1, $perPage);
+        $maxPerPage = max(1, (int) config('leads.pagination.per_page_max', 100));
+        $perPage = min(max(1, $perPage), $maxPerPage);
         $query = \App\Modules\Leads\Filters\LeadFilter::apply($r);
         $leads = $query->paginate($perPage);
         return response()->json($leads);
@@ -66,10 +67,15 @@ class LeadController extends Controller
                     ->values()
                     ->all(),
 
-                'origens_mercantil' => DB::table('mercantil_snapshots as ms')
-                    ->join('import_jobs as ij', 'ij.id', '=', 'ms.job_id')
+                'origens_mercantil' => DB::table('import_jobs as ij')
                     ->where('ij.type', 'mercantil')
                     ->whereNotNull('ij.origin')
+                    ->whereExists(function ($q) {
+                        $q->selectRaw('1')
+                            ->from('mercantil_snapshots as ms')
+                            ->whereColumn('ms.job_id', 'ij.id');
+                    })
+                    ->select('ij.origin')
                     ->distinct()
                     ->orderBy('ij.origin')
                     ->pluck('ij.origin')

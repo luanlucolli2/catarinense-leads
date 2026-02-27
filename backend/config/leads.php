@@ -8,6 +8,7 @@ return [
     */
     'pagination' => [
         'per_page_default' => 10,
+        'per_page_max' => (int) env('LEADS_PER_PAGE_MAX', 100),
     ],
 
     /*

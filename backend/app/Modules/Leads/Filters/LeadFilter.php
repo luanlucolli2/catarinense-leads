@@ -47,6 +47,7 @@ class LeadFilter
             'mercantil_taxa_juros_mes',
             'mercantil_valor_parcela',
             'mercantil_dados_atualizados_em',
+            'ultima_origem_mercantil',
         ];
 
         // ---- FGTS OFF: colunas projetadas (quando necessário) ----
@@ -122,6 +123,10 @@ class LeadFilter
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
+                $query->leftJoin('import_jobs as ijm', function ($join) {
+                    $join->on('ijm.id', '=', 'ms.job_id')
+                        ->where('ijm.type', '=', 'mercantil');
+                });
             }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
@@ -136,7 +141,11 @@ class LeadFilter
             }
 
             if (in_array('ultima_origem_mercantil', $columnsForExport, true)) {
-                self::addLatestOriginSelect($query, 'ultima_origem_mercantil', 'mercantil');
+                if ($needMercantilJoin) {
+                    $query->addSelect(DB::raw('ijm.origin as ultima_origem_mercantil'));
+                } else {
+                    self::addLatestOriginSelect($query, 'ultima_origem_mercantil', 'mercantil');
+                }
             }
 
             if (in_array('contracts_count', $columnsForExport, true)) {
@@ -235,6 +244,10 @@ class LeadFilter
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
+                $query->leftJoin('import_jobs as ijm', function ($join) {
+                    $join->on('ijm.id', '=', 'ms.job_id')
+                        ->where('ijm.type', '=', 'mercantil');
+                });
             }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
@@ -315,7 +328,7 @@ class LeadFilter
                     DB::raw('ms.updated_at as mercantil_dados_atualizados_em'),
 
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
-                    'ultima_origem_mercantil' => self::latestOriginSubquery('mercantil'),
+                    DB::raw('ijm.origin as ultima_origem_mercantil'),
                 ]);
             }
         }
@@ -533,7 +546,7 @@ class LeadFilter
             $origensMercantil = self::requestList($r, 'mercantil_origens');
 
             if ($origensMercantil) {
-                self::applyLatestOriginFilter($query, 'mercantil', $origensMercantil);
+                $query->whereIn('ijm.origin', $origensMercantil);
             }
 
             $hasSnapshotScopedFilters =
@@ -714,65 +727,8 @@ class LeadFilter
         if (empty($months) || count($months) === 12)
             return;
 
-        $monthRanges = self::buildMonthRanges($months);
-        [$yearStart, $yearEnd] = self::birthMonthYearBounds();
-        if ($yearStart > $yearEnd) {
-            [$yearStart, $yearEnd] = [$yearEnd, $yearStart];
-        }
-
-        $query->where(function (Builder $outer) use ($monthRanges, $yearStart, $yearEnd) {
-            for ($year = $yearStart; $year <= $yearEnd; $year++) {
-                foreach ($monthRanges as [$monthStart, $monthEnd]) {
-                    $rangeStart = sprintf('%04d-%02d-01', $year, $monthStart);
-                    $rangeEnd = $monthEnd === 12
-                        ? sprintf('%04d-01-01', $year + 1)
-                        : sprintf('%04d-%02d-01', $year, $monthEnd + 1);
-
-                    $outer->orWhere(function (Builder $rangeQuery) use ($rangeStart, $rangeEnd) {
-                        $rangeQuery->where('leads.data_nascimento', '>=', $rangeStart)
-                            ->where('leads.data_nascimento', '<', $rangeEnd);
-                    });
-                }
-            }
-        });
-    }
-
-    private static function buildMonthRanges(array $months): array
-    {
-        if (empty($months))
-            return [];
-
-        $ranges = [];
-        $start = $months[0];
-        $end = $months[0];
-
-        foreach (array_slice($months, 1) as $month) {
-            if ($month === $end + 1) {
-                $end = $month;
-                continue;
-            }
-
-            $ranges[] = [$start, $end];
-            $start = $month;
-            $end = $month;
-        }
-
-        $ranges[] = [$start, $end];
-        return $ranges;
-    }
-
-    private static function birthMonthYearBounds(): array
-    {
-        $currentYear = (int) now()->format('Y');
-        $yearStart = (int) config('leads.filters.birth_month.year_start', 1900);
-        $yearEnd = (int) config('leads.filters.birth_month.year_end', $currentYear);
-
-        if ($yearStart < 1)
-            $yearStart = 1;
-        if ($yearEnd < 1)
-            $yearEnd = $currentYear;
-
-        return [$yearStart, $yearEnd];
+        $query->whereNotNull('leads.data_nascimento')
+            ->whereIn(DB::raw('MONTH(leads.data_nascimento)'), $months);
     }
 
     private static function maxMassFilterTerms(string $key): int

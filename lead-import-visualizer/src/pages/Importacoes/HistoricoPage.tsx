@@ -41,7 +41,13 @@ const HistoricoPage = () => {
   });
 
   /* ---------------- helpers ---------------- */
-  const lastJobId = Math.max(...jobs.map(j => j.id), 0);
+  const rollbackEligibleTypes = new Set(["cadastral", "higienizacao"]);
+  const lastRollbackEligibleJobId = jobs.find(
+    (job) =>
+      rollbackEligibleTypes.has(job.type) &&
+      job.status === "concluido" &&
+      job.rolledBackAt === null
+  )?.id;
 
   const handleViewReport = async (job: ImportJob) => {
     if (job.status === "pendente" || job.status === "em_progresso") return;
@@ -154,8 +160,8 @@ const HistoricoPage = () => {
 
             <TableBody>
               {jobs.map(job => {
-                const isLast = job.id === lastJobId;
-                const rollbackDisabled = job.status !== "concluido" || job.rolledBackAt !== null;
+                const isRollbackTarget = job.id === lastRollbackEligibleJobId;
+                const rollbackDisabled = !isRollbackTarget;
 
                 return (
                   <TableRow key={job.id} className="hover:bg-gray-50">
@@ -176,7 +182,7 @@ const HistoricoPage = () => {
                         <Eye className="w-4 h-4" />
                         <span className="hidden xl:inline ml-1">Ver</span>
                       </Button>
-                      {isLast && (
+                      {isRollbackTarget && (
                         <Button
                           variant="destructive" size="sm"
                           disabled={rollbackDisabled || loadingRollback === job.id}
@@ -197,8 +203,8 @@ const HistoricoPage = () => {
         {/* mobile */}
         <div className="lg:hidden space-y-4 p-4">
           {jobs.map(job => {
-            const isLast = job.id === lastJobId;
-            const rollbackDisabled = job.status !== "concluido" || job.rolledBackAt !== null;
+            const isRollbackTarget = job.id === lastRollbackEligibleJobId;
+            const rollbackDisabled = !isRollbackTarget;
 
             return (
               <div key={job.id} className="bg-white border rounded-lg p-4 space-y-3">
@@ -208,7 +214,7 @@ const HistoricoPage = () => {
                     <Button size="sm" variant="outline" onClick={() => handleViewReport(job)} disabled={job.errorsCount === 0 || loadingErrors}>
                       <Eye className="w-4 h-4" />
                     </Button>
-                    {isLast && (
+                    {isRollbackTarget && (
                       <Button size="sm" variant="destructive" disabled={rollbackDisabled || loadingRollback === job.id} onClick={() => setConfirmJob(job)}>
                         <RotateCcw className="w-4 h-4" />
                       </Button>

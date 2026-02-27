@@ -119,7 +119,10 @@ class MercantilCsvImport
         }
 
         try {
-            $headers = fgetcsv($handle, 0, $this->delimiter(), $this->enclosure());
+            $delimiter = $this->delimiter();
+            $enclosure = $this->enclosure();
+
+            $headers = fgetcsv($handle, 0, $delimiter, $enclosure);
             if ($headers === false) {
                 throw new \RuntimeException('CSV Mercantil vazio ou sem cabeçalho.');
             }
@@ -131,7 +134,7 @@ class MercantilCsvImport
             }
 
             $lineNumber = 1;
-            while (($row = fgetcsv($handle, 0, $this->delimiter(), $this->enclosure())) !== false) {
+            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
                 $lineNumber++;
 
                 if ($this->isCsvRowEmpty($row)) {
@@ -147,10 +150,6 @@ class MercantilCsvImport
                 }
 
                 $status = (string) ($parsed['status'] ?? '');
-                if (isset($this->ignoredStatuses[$status])) {
-                    $this->flushIfNeeded();
-                    continue;
-                }
 
                 $cpf = (string) $parsed['cpf'];
                 $current = $this->pendingSnapshots[$cpf] ?? null;
