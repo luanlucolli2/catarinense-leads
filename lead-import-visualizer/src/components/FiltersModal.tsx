@@ -14,7 +14,7 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
 
 interface FiltersModalProps {
-  mode: "FGTS" | "CLT"
+  mode: "FGTS" | "CLT" | "MERCANTIL"
 
   isOpen: boolean
   onClose: () => void
@@ -131,6 +131,32 @@ interface FiltersModalProps {
   /** Somente booleano de legados */
   cltTemLegados: "todos" | "sim" | "nao"
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
+
+  /** ➕ MERCANTIL */
+  mercantilSituacao: "todos" | "consultado" | "sem_consulta"
+  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void
+  mercantilStatusFilter: string[]
+  onMercantilStatusFilterChange: (values: string[]) => void
+  mercantilConsultaFrom: string
+  onMercantilConsultaFromChange: (v: string) => void
+  mercantilConsultaTo: string
+  onMercantilConsultaToChange: (v: string) => void
+  mercantilImportFrom: string
+  onMercantilImportFromChange: (v: string) => void
+  mercantilImportTo: string
+  onMercantilImportToChange: (v: string) => void
+  mercantilParcelaMin: string
+  onMercantilParcelaMinChange: (v: string) => void
+  mercantilParcelaMax: string
+  onMercantilParcelaMaxChange: (v: string) => void
+  mercantilQtdParcelasMin: string
+  onMercantilQtdParcelasMinChange: (v: string) => void
+  mercantilQtdParcelasMax: string
+  onMercantilQtdParcelasMaxChange: (v: string) => void
+  mercantilOrigensFilter: string[]
+  onMercantilOrigensFilterChange: (values: string[]) => void
+  availableMercantilOrigens: string[]
+  availableMercantilStatuses: string[]
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -336,6 +362,30 @@ export const FiltersModal = ({
   onCltTemAtivosChange,
   cltTemLegados,
   onCltTemLegadosChange,
+  mercantilSituacao,
+  onMercantilSituacaoChange,
+  mercantilStatusFilter,
+  onMercantilStatusFilterChange,
+  mercantilConsultaFrom,
+  onMercantilConsultaFromChange,
+  mercantilConsultaTo,
+  onMercantilConsultaToChange,
+  mercantilImportFrom,
+  onMercantilImportFromChange,
+  mercantilImportTo,
+  onMercantilImportToChange,
+  mercantilParcelaMin,
+  onMercantilParcelaMinChange,
+  mercantilParcelaMax,
+  onMercantilParcelaMaxChange,
+  mercantilQtdParcelasMin,
+  onMercantilQtdParcelasMinChange,
+  mercantilQtdParcelasMax,
+  onMercantilQtdParcelasMaxChange,
+  mercantilOrigensFilter,
+  onMercantilOrigensFilterChange,
+  availableMercantilOrigens,
+  availableMercantilStatuses,
 }: FiltersModalProps) => {
   const [localSearch, setLocalSearch] = useState(searchValue)
   const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
@@ -383,6 +433,19 @@ export const FiltersModal = ({
   const [lCltTemAtivos, setLCltTemAtivos] = useState<"todos" | "sim" | "nao">(cltTemAtivos)
   const [lCltTemLegados, setLCltTemLegados] = useState<"todos" | "sim" | "nao">(cltTemLegados)
 
+  // —— MERCANTIL locals ——
+  const [lMercantilSituacao, setLMercantilSituacao] = useState<"todos" | "consultado" | "sem_consulta">(mercantilSituacao)
+  const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
+  const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
+  const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)
+  const [lMercantilImportFrom, setLMercantilImportFrom] = useState(mercantilImportFrom)
+  const [lMercantilImportTo, setLMercantilImportTo] = useState(mercantilImportTo)
+  const [lMercantilParcelaMin, setLMercantilParcelaMin] = useState(mercantilParcelaMin)
+  const [lMercantilParcelaMax, setLMercantilParcelaMax] = useState(mercantilParcelaMax)
+  const [lMercantilQtdParcelasMin, setLMercantilQtdParcelasMin] = useState(mercantilQtdParcelasMin)
+  const [lMercantilQtdParcelasMax, setLMercantilQtdParcelasMax] = useState(mercantilQtdParcelasMax)
+  const [lMercantilOrigens, setLMercantilOrigens] = useState<string[]>(mercantilOrigensFilter)
+
   useEffect(() => {
     if (!isOpen) return
     setLocalSearch(searchValue)
@@ -429,6 +492,19 @@ export const FiltersModal = ({
     setLCltAtivosMax(cltAtivosMax)
     setLCltTemAtivos(cltTemAtivos)
     setLCltTemLegados(cltTemLegados)
+
+    // MERCANTIL locals
+    setLMercantilSituacao(mercantilSituacao)
+    setLMercantilStatus(mercantilStatusFilter)
+    setLMercantilConsultaFrom(mercantilConsultaFrom)
+    setLMercantilConsultaTo(mercantilConsultaTo)
+    setLMercantilImportFrom(mercantilImportFrom)
+    setLMercantilImportTo(mercantilImportTo)
+    setLMercantilParcelaMin(mercantilParcelaMin)
+    setLMercantilParcelaMax(mercantilParcelaMax)
+    setLMercantilQtdParcelasMin(mercantilQtdParcelasMin)
+    setLMercantilQtdParcelasMax(mercantilQtdParcelasMax)
+    setLMercantilOrigens(mercantilOrigensFilter)
   }, [
     isOpen,
     searchValue,
@@ -456,6 +532,13 @@ export const FiltersModal = ({
     cltMargemMin, cltMargemMax, cltPrestacaoMin, cltPrestacaoMax,
     cltAtivosMin, cltAtivosMax, cltTemAtivos,
     cltTemLegados,
+    // MERCANTIL deps
+    mercantilSituacao, mercantilStatusFilter,
+    mercantilConsultaFrom, mercantilConsultaTo,
+    mercantilImportFrom, mercantilImportTo,
+    mercantilParcelaMin, mercantilParcelaMax,
+    mercantilQtdParcelasMin, mercantilQtdParcelasMax,
+    mercantilOrigensFilter,
   ])
 
   useEffect(() => {
@@ -516,6 +599,20 @@ export const FiltersModal = ({
       onCltTemLegadosChange(lCltTemLegados)
     }
 
+    if (mode === "MERCANTIL") {
+      onMercantilSituacaoChange(lMercantilSituacao)
+      onMercantilStatusFilterChange(lMercantilSituacao === "sem_consulta" ? [] : lMercantilStatus)
+      onMercantilConsultaFromChange(lMercantilConsultaFrom)
+      onMercantilConsultaToChange(lMercantilConsultaTo)
+      onMercantilImportFromChange(lMercantilImportFrom)
+      onMercantilImportToChange(lMercantilImportTo)
+      onMercantilParcelaMinChange(lMercantilParcelaMin)
+      onMercantilParcelaMaxChange(lMercantilParcelaMax)
+      onMercantilQtdParcelasMinChange(lMercantilQtdParcelasMin)
+      onMercantilQtdParcelasMaxChange(lMercantilQtdParcelasMax)
+      onMercantilOrigensFilterChange(lMercantilOrigens)
+    }
+
     onApplyFilters()
     onClose()
   }
@@ -560,6 +657,16 @@ export const FiltersModal = ({
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
     lCltTemLegados !== "todos"
 
+  const actMercantilSituacao =
+    lMercantilSituacao !== "todos" ||
+    (lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0) ||
+    any([lMercantilConsultaFrom, lMercantilConsultaTo]) ||
+    any([lMercantilImportFrom, lMercantilImportTo]) ||
+    lMercantilOrigens.length > 0
+
+  const actMercantilFinanceiro =
+    any([lMercantilParcelaMin, lMercantilParcelaMax, lMercantilQtdParcelasMin, lMercantilQtdParcelasMax])
+
   const chips: string[] = []
   if (isSearchActive) chips.push("Pesquisa")
   if (isOrigensActive) chips.push(`Origem (${localOrigens.length})`)
@@ -572,16 +679,26 @@ export const FiltersModal = ({
     if (isFgtsStatusActive) chips.push("FGTS OFF status")
     if (isFgtsPeriodActive) chips.push("FGTS OFF período")
   } else {
-    if (actCltSituacao) chips.push("CLT · Situação")
-    if (actCltVinculo) chips.push("CLT · Vínculo")
-    if (actCltPerfil) chips.push("CLT · Perfil")
-    if (actCltRenda) chips.push("CLT · Renda/Margem")
-    if (actCltHistorico) chips.push("CLT · Histórico")
+    if (mode === "CLT") {
+      if (actCltSituacao) chips.push("CLT · Situação")
+      if (actCltVinculo) chips.push("CLT · Vínculo")
+      if (actCltPerfil) chips.push("CLT · Perfil")
+      if (actCltRenda) chips.push("CLT · Renda/Margem")
+      if (actCltHistorico) chips.push("CLT · Histórico")
+    } else {
+      if (actMercantilSituacao) chips.push("Mercantil · Situação")
+      if (actMercantilFinanceiro) chips.push("Mercantil · Financeiro")
+    }
   }
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
   if (isMassActive) chips.push("Filtros em massa")
 
-  const modeLabel = mode === "FGTS" ? "FGTS (Facta FGTS Base offline)" : "CLT (Facta Crédito do Trabalhador)"
+  const modeLabel =
+    mode === "FGTS"
+      ? "FGTS (Facta FGTS Base offline)"
+      : mode === "CLT"
+        ? "CLT (Facta Crédito do Trabalhador)"
+        : "CLT (Mercantil)"
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
@@ -1029,6 +1146,143 @@ export const FiltersModal = ({
                         <SelectItem value="nao">Não</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </Section>
+              </div>
+            </Group>
+          )}
+
+          {/* ======= Grupo: MERCANTIL específico ======= */}
+          {mode === "MERCANTIL" && (
+            <Group title="Mercantil">
+              <div>
+                <Section
+                  title="Situação e Status"
+                  description="Situação agregada, status de retorno e origem do job Mercantil."
+                  active={actMercantilSituacao}
+                >
+                  <div>
+                    <Label text="Situação" active={lMercantilSituacao !== "todos"} />
+                    <Select value={lMercantilSituacao} onValueChange={(v) => setLMercantilSituacao(v as any)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent className="shadow-lg">
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="consultado">Consultado</SelectItem>
+                        <SelectItem value="sem_consulta">Sem consulta</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label
+                      text="Status Mercantil"
+                      active={lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0}
+                    />
+                    <MultiSelect
+                      options={availableMercantilStatuses}
+                      selected={lMercantilStatus}
+                      onChange={setLMercantilStatus}
+                      placeholder="Selecionar status…"
+                      disabled={lMercantilSituacao === "sem_consulta"}
+                    />
+                    {lMercantilSituacao === "sem_consulta" && (
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        Status bloqueado quando Situação = Sem consulta.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label text="Origem da importação Mercantil" active={lMercantilOrigens.length > 0} />
+                    <MultiSelect
+                      options={availableMercantilOrigens}
+                      selected={lMercantilOrigens}
+                      onChange={setLMercantilOrigens}
+                      placeholder="Selecionar origens…"
+                    />
+                  </div>
+
+                  <div>
+                    <Label text="Período da consulta" active={any([lMercantilConsultaFrom, lMercantilConsultaTo])} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input
+                        type="date"
+                        value={lMercantilConsultaFrom}
+                        onChange={(e) => setLMercantilConsultaFrom(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                      <Input
+                        type="date"
+                        value={lMercantilConsultaTo}
+                        onChange={(e) => setLMercantilConsultaTo(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label text="Período da importação Mercantil" active={any([lMercantilImportFrom, lMercantilImportTo])} />
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <Input
+                        type="date"
+                        value={lMercantilImportFrom}
+                        onChange={(e) => setLMercantilImportFrom(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                      <Input
+                        type="date"
+                        value={lMercantilImportTo}
+                        onChange={(e) => setLMercantilImportTo(e.target.value)}
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              <div>
+                <Section
+                  title="Financeiro"
+                  description="Faixas para valor da parcela e quantidade de parcelas."
+                  active={actMercantilFinanceiro}
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Valor parcela mín." active={!!lMercantilParcelaMin} />
+                      <Input
+                        value={lMercantilParcelaMin}
+                        onChange={(e) => setLMercantilParcelaMin(e.target.value)}
+                        placeholder="ex.: 150,00"
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
+                    <div>
+                      <Label text="Valor parcela máx." active={!!lMercantilParcelaMax} />
+                      <Input
+                        value={lMercantilParcelaMax}
+                        onChange={(e) => setLMercantilParcelaMax(e.target.value)}
+                        placeholder="ex.: 1200,00"
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
+                    <div>
+                      <Label text="Qtd. parcelas mín." active={!!lMercantilQtdParcelasMin} />
+                      <Input
+                        value={lMercantilQtdParcelasMin}
+                        onChange={(e) => setLMercantilQtdParcelasMin(e.target.value)}
+                        placeholder="ex.: 12"
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
+                    <div>
+                      <Label text="Qtd. parcelas máx." active={!!lMercantilQtdParcelasMax} />
+                      <Input
+                        value={lMercantilQtdParcelasMax}
+                        onChange={(e) => setLMercantilQtdParcelasMax(e.target.value)}
+                        placeholder="ex.: 84"
+                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                      />
+                    </div>
                   </div>
                 </Section>
               </div>

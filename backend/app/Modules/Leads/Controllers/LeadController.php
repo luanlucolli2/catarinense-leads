@@ -66,6 +66,25 @@ class LeadController extends Controller
                     ->values()
                     ->all(),
 
+                'origens_mercantil' => DB::table('mercantil_snapshots as ms')
+                    ->join('import_jobs as ij', 'ij.id', '=', 'ms.job_id')
+                    ->where('ij.type', 'mercantil')
+                    ->whereNotNull('ij.origin')
+                    ->distinct()
+                    ->orderBy('ij.origin')
+                    ->pluck('ij.origin')
+                    ->values()
+                    ->all(),
+
+                'mercantil_status' => DB::table('mercantil_snapshots')
+                    ->whereNotNull('status')
+                    ->distinct()
+                    ->orderByRaw("CASE WHEN status = 'SUCESSO' THEN 0 ELSE 1 END")
+                    ->orderBy('status')
+                    ->pluck('status')
+                    ->values()
+                    ->all(),
+
                 'vendors' => Vendor::query()
                     ->whereHas('contracts')
                     ->orderBy('name')

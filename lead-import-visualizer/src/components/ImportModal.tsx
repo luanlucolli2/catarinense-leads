@@ -154,11 +154,11 @@ export const ImportModal = ({
             <label className="mb-3 block text-sm font-medium text-gray-700">
               Tipo de Importação
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Button
                 onClick={() => setImportType("cadastral")}
                 className={cn(
-                  "transition-colors duration-200",
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
                   importType === "cadastral"
                     ? "bg-blue-600 text-white hover:bg-blue-700"
                     : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
@@ -169,7 +169,7 @@ export const ImportModal = ({
               <Button
                 onClick={() => setImportType("higienizacao")}
                 className={cn(
-                  "transition-colors duration-200",
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
                   importType === "higienizacao"
                     ? "bg-blue-600 text-white hover:bg-blue-700"
                     : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
@@ -180,7 +180,7 @@ export const ImportModal = ({
               <Button
                 onClick={() => setImportType("mercantil")}
                 className={cn(
-                  "transition-colors duration-200",
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
                   importType === "mercantil"
                     ? "bg-blue-600 text-white hover:bg-blue-700"
                     : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
@@ -213,11 +213,11 @@ export const ImportModal = ({
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="mb-1 text-sm font-medium text-blue-800">
-                  Planilha Modelo
+                  Template
                 </h4>
                 {importType === "mercantil" ? (
                   <p className="text-xs text-blue-600">
-                    Para Mercantil, envie o CSV no layout padrão com separador `;`.
+                    Este tipo de importação não possui template.
                   </p>
                 ) : (
                   <p className="text-xs text-blue-600">
@@ -232,7 +232,7 @@ export const ImportModal = ({
                   onClick={() => handleDownloadTemplate(importType)}
                   className="border-blue-300 text-blue-700 hover:bg-blue-100"
                 >
-                  <Download className="mr-1 h-4 w-4" /> Baixar
+                  <Download className="mr-1 h-4 w-4" /> Baixar template
                 </Button>
               )}
             </div>

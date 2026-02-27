@@ -2,7 +2,7 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export type Mode = "fgts" | "clt"
+export type Mode = "fgts" | "clt" | "mercantil"
 
 /** FGTS (lista) */
 export interface LeadFromApiFGTS {
@@ -74,6 +74,37 @@ export interface LeadFromApiCLT {
   emprestimos_legados: number | null
 }
 
+/** CLT Mercantil (lista) – join por CPF */
+export interface LeadFromApiMercantil {
+  id: number
+  cpf: string
+  nome: string | null
+  data_nascimento: string | null
+  fone1: string | null
+  classe_fone1: string | null
+  fone2: string | null
+  classe_fone2: string | null
+  fone3: string | null
+  classe_fone3: string | null
+  fone4: string | null
+  classe_fone4: string | null
+  ultima_origem_cadastral: string | null
+  ultima_origem_mercantil: string | null
+
+  mercantil_status: string | null
+  mercantil_mensagem_erro: string | null
+  mercantil_data_hora_origem: string | null
+  mercantil_valor_financiado: string | number | null
+  mercantil_valor_iof: string | number | null
+  mercantil_data_primeiro_vencimento: string | null
+  mercantil_valor_emprestimo: string | number | null
+  mercantil_quantidade_parcelas: number | string | null
+  mercantil_valor_liberado: string | number | null
+  mercantil_taxa_juros_mes: string | number | null
+  mercantil_valor_parcela: string | number | null
+  mercantil_dados_atualizados_em: string | null
+}
+
 /** Detalhe (carrega FGTS e CLT) */
 export interface LeadDetailFromApi {
   id: number
@@ -136,6 +167,7 @@ export interface PaginatedResponse<T> {
 
 export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
 export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
+export type PaginatedLeadsResponseMercantil = PaginatedResponse<LeadFromApiMercantil>
 
 export interface LeadFilters {
   page?: number
@@ -189,6 +221,19 @@ export interface LeadFilters {
   clt_tem_ativos?: "sim" | "nao"
   /** 🔁 apenas boolean */
   clt_tem_legados?: "sim" | "nao"
+
+  /** ➕ MERCANTIL — filtros específicos */
+  mercantil_situacao?: "consultado" | "sem_consulta"
+  mercantil_status?: string[]
+  mercantil_consulta_from?: string
+  mercantil_consulta_to?: string
+  mercantil_import_from?: string
+  mercantil_import_to?: string
+  mercantil_parcela_min?: string
+  mercantil_parcela_max?: string
+  mercantil_qtd_parcelas_min?: string | number
+  mercantil_qtd_parcelas_max?: string | number
+  mercantil_origens?: string[]
 }
 
 /* ---------- Helpers ---------- */
@@ -269,6 +314,23 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.clt_tem_ativos) p.set("clt_tem_ativos", f.clt_tem_ativos)
 
     if (f.clt_tem_legados) p.set("clt_tem_legados", f.clt_tem_legados)
+  }
+
+  // ➕ MERCANTIL – somente quando mode = "mercantil"
+  if (mode === "mercantil") {
+    if (f.mercantil_situacao) p.set("mercantil_situacao", f.mercantil_situacao)
+    if (f.mercantil_status?.length) p.set("mercantil_status", f.mercantil_status.join(","))
+    if (f.mercantil_consulta_from) p.set("mercantil_consulta_from", f.mercantil_consulta_from)
+    if (f.mercantil_consulta_to) p.set("mercantil_consulta_to", f.mercantil_consulta_to)
+    if (f.mercantil_import_from) p.set("mercantil_import_from", f.mercantil_import_from)
+    if (f.mercantil_import_to) p.set("mercantil_import_to", f.mercantil_import_to)
+    if (f.mercantil_parcela_min) p.set("mercantil_parcela_min", f.mercantil_parcela_min)
+    if (f.mercantil_parcela_max) p.set("mercantil_parcela_max", f.mercantil_parcela_max)
+    if (f.mercantil_qtd_parcelas_min !== undefined && f.mercantil_qtd_parcelas_min !== "")
+      p.set("mercantil_qtd_parcelas_min", String(f.mercantil_qtd_parcelas_min))
+    if (f.mercantil_qtd_parcelas_max !== undefined && f.mercantil_qtd_parcelas_max !== "")
+      p.set("mercantil_qtd_parcelas_max", String(f.mercantil_qtd_parcelas_max))
+    if (f.mercantil_origens?.length) p.set("mercantil_origens", f.mercantil_origens.join(","))
   }
 
   // filtros em massa (GET -> CSV)
@@ -402,6 +464,46 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
   return data
 }
 
+export async function fetchLeadsMercantil(filters: LeadFilters) {
+  const mode: Mode = "mercantil"
+  if (shouldUsePost(filters, mode)) {
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      mode,
+      search: filters.search?.trim() || undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      birth_month: months.length ? months : undefined,
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+
+      mercantil_situacao: filters.mercantil_situacao || undefined,
+      mercantil_status: filters.mercantil_status?.length ? filters.mercantil_status : undefined,
+      mercantil_consulta_from: filters.mercantil_consulta_from || undefined,
+      mercantil_consulta_to: filters.mercantil_consulta_to || undefined,
+      mercantil_import_from: filters.mercantil_import_from || undefined,
+      mercantil_import_to: filters.mercantil_import_to || undefined,
+      mercantil_parcela_min: filters.mercantil_parcela_min || undefined,
+      mercantil_parcela_max: filters.mercantil_parcela_max || undefined,
+      mercantil_qtd_parcelas_min: filters.mercantil_qtd_parcelas_min ?? undefined,
+      mercantil_qtd_parcelas_max: filters.mercantil_qtd_parcelas_max ?? undefined,
+      mercantil_origens: filters.mercantil_origens?.length ? filters.mercantil_origens : undefined,
+    }
+    const { data } = await axiosClient.post<PaginatedLeadsResponseMercantil>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined }
+    )
+    return data
+  }
+
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponseMercantil>("/leads", {
+    params,
+  })
+  return data
+}
+
 export async function fetchLeadDetail(id: number) {
   const { data } = await axiosClient.get<LeadDetailFromApi>(`/leads/${id}`)
   return data
@@ -411,6 +513,8 @@ export interface FiltersOptionsDTO {
   motivos: string[]
   origens: string[]       // últimas cadastrais
   origens_hig: string[]   // últimas higienização
+  origens_mercantil: string[]
+  mercantil_status: string[]
   vendors: { id: number; name: string }[]
 }
 
@@ -448,7 +552,7 @@ export interface LeadsExportStatusDTO {
 export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
-  mode: Mode
+  mode: "fgts" | "clt" | "mercantil"
 ): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
   const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)

@@ -6,8 +6,10 @@ import { usePersistedState } from "@/hooks/usePersistedState"
 import {
   LeadsTableFGTS,
   LeadsTableCLT,
+  LeadsTableMercantil,
   ProcessedLeadFGTS,
   ProcessedLeadCLT,
+  ProcessedLeadMercantil,
 } from "@/components/LeadsTable"
 import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
@@ -15,16 +17,18 @@ import { ExportModal } from "@/components/ExportModal"
 import {
   fetchLeadsFGTS,
   fetchLeadsCLT,
+  fetchLeadsMercantil,
   fetchLeadsFilters,
   // export async + poller
   startLeadsExport,
   downloadLeadsExport,
-  getLeadsExportStatus,
   leadsExportPoller,
   LeadFromApiFGTS,
   LeadFromApiCLT,
+  LeadFromApiMercantil,
   PaginatedLeadsResponseFGTS,
   PaginatedLeadsResponseCLT,
+  PaginatedLeadsResponseMercantil,
   LeadsExportStatusDTO,
 } from "@/api/leads"
 import {
@@ -40,7 +44,7 @@ type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
-type ActiveTab = "FGTS" | "CLT"
+type ActiveTab = "FGTS" | "CLT" | "MERCANTIL"
 
 // SUBSTITUA a constante FGTS_COLUMNS_DEFAULT por:
 export const FGTS_COLUMNS_DEFAULT: string[] = [
@@ -74,6 +78,28 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "qtd_emprestimos_ativos_suspensos", "emprestimos_legados", "ultima_origem_cadastral",
 ];
 
+export const MERCANTIL_COLUMNS_DEFAULT: string[] = [
+  "cpf",
+  "nome",
+  "data_nascimento",
+  "telefone_1",
+  "classe_1",
+  "mercantil_status",
+  "mercantil_data_hora_origem",
+  "mercantil_mensagem_erro",
+  "mercantil_valor_emprestimo",
+  "mercantil_valor_iof",
+  "mercantil_valor_financiado",
+  "mercantil_valor_liberado",
+  "mercantil_data_primeiro_vencimento",
+  "mercantil_quantidade_parcelas",
+  "mercantil_valor_parcela",
+  "mercantil_taxa_juros_mes",
+  "mercantil_dados_atualizados_em",
+  "ultima_origem_cadastral",
+  "ultima_origem_mercantil",
+]
+
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
   const [currentPage, setCurrentPage] = useState(1)
@@ -85,6 +111,10 @@ const Dashboard = () => {
   const [cltVisibleColumns, setCltVisibleColumns] = usePersistedState<string[]>(
     "leadstable:clt:visibleColumns:v1",
     CLT_COLUMNS_DEFAULT
+  )
+  const [mercantilVisibleColumns, setMercantilVisibleColumns] = usePersistedState<string[]>(
+    "leadstable:mercantil:visibleColumns:v1",
+    MERCANTIL_COLUMNS_DEFAULT
   )
 
   /* =========================  FGTS (persistido)  ========================= */
@@ -154,6 +184,31 @@ const Dashboard = () => {
   const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-clt:temAtivos", "todos")
   const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-clt:temLegados", "todos")
 
+  const [mercantilSearchValue, setMercantilSearchValue] = usePersistedState<string>("dashboard-mercantil:searchValue", "")
+  const [mercantilOrigemFilter, setMercantilOrigemFilter] = usePersistedState<string[]>("dashboard-mercantil:origemFilter", [])
+  const [mercantilCpfMassFilter, setMercantilCpfMassFilter] = usePersistedState<string>("dashboard-mercantil:cpfMassFilter", "")
+  const [mercantilNamesMassFilter, setMercantilNamesMassFilter] = usePersistedState<string>("dashboard-mercantil:namesMassFilter", "")
+  const [mercantilPhonesMassFilter, setMercantilPhonesMassFilter] = usePersistedState<string>("dashboard-mercantil:phonesMassFilter", "")
+  const [mercantilBirthMonthFilter, setMercantilBirthMonthFilter] = usePersistedState<string[]>("dashboard-mercantil:birthMonthFilter", [])
+  const [mercantilSituacao, setMercantilSituacao] = usePersistedState<"todos" | "consultado" | "sem_consulta">(
+    "dashboard-mercantil:situacao",
+    "todos"
+  )
+  const [mercantilStatusFilter, setMercantilStatusFilter] = usePersistedState<string[]>("dashboard-mercantil:statusFilter", [])
+  const [mercantilConsultaFrom, setMercantilConsultaFrom] = usePersistedState<string>("dashboard-mercantil:consultaFrom", "")
+  const [mercantilConsultaTo, setMercantilConsultaTo] = usePersistedState<string>("dashboard-mercantil:consultaTo", "")
+  const [mercantilImportFrom, setMercantilImportFrom] = usePersistedState<string>("dashboard-mercantil:importFrom", "")
+  const [mercantilImportTo, setMercantilImportTo] = usePersistedState<string>("dashboard-mercantil:importTo", "")
+  const [mercantilParcelaMin, setMercantilParcelaMin] = usePersistedState<string>("dashboard-mercantil:parcelaMin", "")
+  const [mercantilParcelaMax, setMercantilParcelaMax] = usePersistedState<string>("dashboard-mercantil:parcelaMax", "")
+  const [mercantilQtdParcelasMin, setMercantilQtdParcelasMin] = usePersistedState<string>("dashboard-mercantil:qtdParcelasMin", "")
+  const [mercantilQtdParcelasMax, setMercantilQtdParcelasMax] = usePersistedState<string>("dashboard-mercantil:qtdParcelasMax", "")
+  const [mercantilOrigensMercantilFilter, setMercantilOrigensMercantilFilter] = usePersistedState<string[]>(
+    "dashboard-mercantil:origensMercantilFilter",
+    []
+  )
+  const mercantilStatusEffective = mercantilSituacao === "sem_consulta" ? [] : mercantilStatusFilter
+
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
@@ -172,7 +227,7 @@ const Dashboard = () => {
     isFetching,
     isError,
     refetch,
-  } = useQuery<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT>({
+  } = useQuery<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil>({
     queryKey: [
       "leads",
       activeTab,
@@ -191,8 +246,19 @@ const Dashboard = () => {
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
       cltSexo, cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax, cltMargemMin, cltMargemMax,
       cltPrestacaoMin, cltPrestacaoMax, cltAtivosMin, cltAtivosMax, cltTemAtivos, cltTemLegados,
+      // MERCANTIL
+      mercantilSearchValue,
+      mercantilOrigemFilter,
+      mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter,
+      mercantilBirthMonthFilter,
+      mercantilSituacao, mercantilStatusEffective,
+      mercantilConsultaFrom, mercantilConsultaTo,
+      mercantilImportFrom, mercantilImportTo,
+      mercantilParcelaMin, mercantilParcelaMax,
+      mercantilQtdParcelasMin, mercantilQtdParcelasMax,
+      mercantilOrigensMercantilFilter,
     ],
-    queryFn: async (): Promise<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT> => {
+    queryFn: async (): Promise<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil> => {
       if (activeTab === "FGTS") {
         return fetchLeadsFGTS({
           page: currentPage,
@@ -216,44 +282,70 @@ const Dashboard = () => {
         })
       }
 
-      const catCodes = cltCategoriaCodigos
-        ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
-        : undefined
-      return fetchLeadsCLT({
+      if (activeTab === "CLT") {
+        const catCodes = cltCategoriaCodigos
+          ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+          : undefined
+        return fetchLeadsCLT({
+          page: currentPage,
+          search: cltSearchValue,
+          status: cltStatusFilter,
+          origens: cltOrigemFilter,
+          cpf: cltCpfMassFilter,
+          names: cltNamesMassFilter,
+          phones: cltPhonesMassFilter,
+          birth_month: cltBirthMonthFilter,
+          clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
+          clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
+          clt_consulta_from: cltConsultaFrom || undefined,
+          clt_consulta_to: cltConsultaTo || undefined,
+          clt_admissao_from: cltAdmissaoFrom || undefined,
+          clt_admissao_to: cltAdmissaoTo || undefined,
+          clt_meses_min: cltMesesMin || undefined,
+          clt_meses_max: cltMesesMax || undefined,
+          clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+          clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+          clt_categoria_codigos: catCodes,
+          clt_idade_min: cltIdadeMin || undefined,
+          clt_idade_max: cltIdadeMax || undefined,
+          clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
+          clt_renda_min: cltRendaMin || undefined,
+          clt_renda_max: cltRendaMax || undefined,
+          clt_base_min: cltBaseMin || undefined,
+          clt_base_max: cltBaseMax || undefined,
+          clt_margem_min: cltMargemMin || undefined,
+          clt_margem_max: cltMargemMax || undefined,
+          clt_prestacao_min: cltPrestacaoMin || undefined,
+          clt_prestacao_max: cltPrestacaoMax || undefined,
+          clt_ativos_min: cltAtivosMin || undefined,
+          clt_ativos_max: cltAtivosMax || undefined,
+          clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+          clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+        })
+      }
+
+      return fetchLeadsMercantil({
         page: currentPage,
-        search: cltSearchValue,
-        status: cltStatusFilter,
-        origens: cltOrigemFilter,
-        cpf: cltCpfMassFilter,
-        names: cltNamesMassFilter,
-        phones: cltPhonesMassFilter,
-        birth_month: cltBirthMonthFilter,
-        clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
-        clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
-        clt_consulta_from: cltConsultaFrom || undefined,
-        clt_consulta_to: cltConsultaTo || undefined,
-        clt_admissao_from: cltAdmissaoFrom || undefined,
-        clt_admissao_to: cltAdmissaoTo || undefined,
-        clt_meses_min: cltMesesMin || undefined,
-        clt_meses_max: cltMesesMax || undefined,
-        clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
-        clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
-        clt_categoria_codigos: catCodes,
-        clt_idade_min: cltIdadeMin || undefined,
-        clt_idade_max: cltIdadeMax || undefined,
-        clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
-        clt_renda_min: cltRendaMin || undefined,
-        clt_renda_max: cltRendaMax || undefined,
-        clt_base_min: cltBaseMin || undefined,
-        clt_base_max: cltBaseMax || undefined,
-        clt_margem_min: cltMargemMin || undefined,
-        clt_margem_max: cltMargemMax || undefined,
-        clt_prestacao_min: cltPrestacaoMin || undefined,
-        clt_prestacao_max: cltPrestacaoMax || undefined,
-        clt_ativos_min: cltAtivosMin || undefined,
-        clt_ativos_max: cltAtivosMax || undefined,
-        clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
-        clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+        search: mercantilSearchValue,
+        origens: mercantilOrigemFilter,
+        cpf: mercantilCpfMassFilter,
+        names: mercantilNamesMassFilter,
+        phones: mercantilPhonesMassFilter,
+        birth_month: mercantilBirthMonthFilter,
+        mercantil_situacao:
+          mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
+            ? mercantilSituacao
+            : undefined,
+        mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
+        mercantil_consulta_from: mercantilConsultaFrom || undefined,
+        mercantil_consulta_to: mercantilConsultaTo || undefined,
+        mercantil_import_from: mercantilImportFrom || undefined,
+        mercantil_import_to: mercantilImportTo || undefined,
+        mercantil_parcela_min: mercantilParcelaMin || undefined,
+        mercantil_parcela_max: mercantilParcelaMax || undefined,
+        mercantil_qtd_parcelas_min: mercantilQtdParcelasMin || undefined,
+        mercantil_qtd_parcelas_max: mercantilQtdParcelasMax || undefined,
+        mercantil_origens: mercantilOrigensMercantilFilter.length ? mercantilOrigensMercantilFilter : undefined,
       })
     },
     placeholderData: keepPreviousData,
@@ -349,6 +441,47 @@ const Dashboard = () => {
           : "",
         qtd_emprestimos_ativos_suspensos: lead.qtd_emprestimos_ativos_suspensos ?? null,
         emprestimos_legados: lead.emprestimos_legados ?? null,
+      }
+    })
+  }, [paginatedData, activeTab])
+
+  const processedLeadsMercantil: ProcessedLeadMercantil[] = useMemo(() => {
+    if (activeTab !== "MERCANTIL") return []
+    const resp = paginatedData as PaginatedLeadsResponseMercantil | undefined
+    if (!resp?.data) return []
+    return resp.data.map((lead: LeadFromApiMercantil) => {
+      const telefones = [
+        { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
+        { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
+        { fone: formatPhone(lead.fone3), classe: lead.classe_fone3 },
+        { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
+      ].filter((f) => f.fone && f.fone !== "--")
+
+      const taxaJuros = lead.mercantil_taxa_juros_mes
+      const taxaFmt = taxaJuros === null || taxaJuros === undefined || taxaJuros === ""
+        ? ""
+        : `${String(taxaJuros)}%`
+
+      return {
+        id: lead.id,
+        cpf: formatCPF(lead.cpf),
+        nome: lead.nome || "--",
+        data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
+        telefones,
+        ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        ultima_origem_mercantil: lead.ultima_origem_mercantil || "",
+        mercantil_status: lead.mercantil_status || "",
+        mercantil_mensagem_erro: lead.mercantil_mensagem_erro || "",
+        mercantil_data_hora_origem: lead.mercantil_data_hora_origem ? formatDate(lead.mercantil_data_hora_origem) : "",
+        mercantil_valor_financiado: formatCurrency(lead.mercantil_valor_financiado as any),
+        mercantil_valor_iof: formatCurrency(lead.mercantil_valor_iof as any),
+        mercantil_data_primeiro_vencimento: lead.mercantil_data_primeiro_vencimento ? formatDateOnly(lead.mercantil_data_primeiro_vencimento) : "",
+        mercantil_valor_emprestimo: formatCurrency(lead.mercantil_valor_emprestimo as any),
+        mercantil_quantidade_parcelas: lead.mercantil_quantidade_parcelas ?? "",
+        mercantil_valor_liberado: formatCurrency(lead.mercantil_valor_liberado as any),
+        mercantil_taxa_juros_mes: taxaFmt,
+        mercantil_valor_parcela: formatCurrency(lead.mercantil_valor_parcela as any),
+        mercantil_dados_atualizados_em: lead.mercantil_dados_atualizados_em ? formatDate(lead.mercantil_dados_atualizados_em) : "",
       }
     })
   }, [paginatedData, activeTab])
@@ -453,9 +586,30 @@ const Dashboard = () => {
     setCltTemLegados("todos")
   }
 
+  const clearMercantil = () => {
+    setMercantilSearchValue("")
+    setMercantilOrigemFilter([])
+    setMercantilCpfMassFilter("")
+    setMercantilNamesMassFilter("")
+    setMercantilPhonesMassFilter("")
+    setMercantilBirthMonthFilter([])
+    setMercantilSituacao("todos")
+    setMercantilStatusFilter([])
+    setMercantilConsultaFrom("")
+    setMercantilConsultaTo("")
+    setMercantilImportFrom("")
+    setMercantilImportTo("")
+    setMercantilParcelaMin("")
+    setMercantilParcelaMax("")
+    setMercantilQtdParcelasMin("")
+    setMercantilQtdParcelasMax("")
+    setMercantilOrigensMercantilFilter([])
+  }
+
   const handleClearFilters = () => {
     if (activeTab === "FGTS") clearFgts()
-    else clearClt()
+    else if (activeTab === "CLT") clearClt()
+    else clearMercantil()
     setCurrentPage(1)
     setAwaitingFetch("clear")
     if (pendingToastId) toast.dismiss(pendingToastId)
@@ -511,7 +665,31 @@ const Dashboard = () => {
     cltAtivosMin || cltAtivosMax || cltTemAtivos !== "todos" ||
     cltTemLegados !== "todos"
 
-  const hasActiveFilters = activeTab === "FGTS" ? hasActiveFiltersFGTS : hasActiveFiltersCLT
+  const hasActiveFiltersMercantil =
+    mercantilSearchValue ||
+    mercantilOrigemFilter.length ||
+    mercantilCpfMassFilter ||
+    mercantilNamesMassFilter ||
+    mercantilPhonesMassFilter ||
+    mercantilBirthMonthFilter.length ||
+    mercantilSituacao !== "todos" ||
+    mercantilStatusEffective.length ||
+    mercantilConsultaFrom ||
+    mercantilConsultaTo ||
+    mercantilImportFrom ||
+    mercantilImportTo ||
+    mercantilParcelaMin ||
+    mercantilParcelaMax ||
+    mercantilQtdParcelasMin ||
+    mercantilQtdParcelasMax ||
+    mercantilOrigensMercantilFilter.length
+
+  const hasActiveFilters =
+    activeTab === "FGTS"
+      ? hasActiveFiltersFGTS
+      : activeTab === "CLT"
+        ? hasActiveFiltersCLT
+        : hasActiveFiltersMercantil
 
   const collectFilters = () => {
     if (activeTab === "FGTS") {
@@ -540,40 +718,65 @@ const Dashboard = () => {
       ? cltCategoriaCodigos.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
       : undefined
 
+    if (activeTab === "CLT") {
+      return {
+        search: cltSearchValue || undefined,
+        status: cltStatusFilter !== "todos" ? cltStatusFilter : undefined,
+        origens: cltOrigemFilter.length ? cltOrigemFilter : undefined,
+        cpf: cltCpfMassFilter || undefined,
+        names: cltNamesMassFilter || undefined,
+        phones: cltPhonesMassFilter || undefined,
+        birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
+        clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
+        clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
+        clt_consulta_from: cltConsultaFrom || undefined,
+        clt_consulta_to: cltConsultaTo || undefined,
+        clt_admissao_from: cltAdmissaoFrom || undefined,
+        clt_admissao_to: cltAdmissaoTo || undefined,
+        clt_meses_min: cltMesesMin || undefined,
+        clt_meses_max: cltMesesMax || undefined,
+        clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+        clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+        clt_categoria_codigos: catCodes,
+        clt_idade_min: cltIdadeMin || undefined,
+        clt_idade_max: cltIdadeMax || undefined,
+        clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
+        clt_renda_min: cltRendaMin || undefined,
+        clt_renda_max: cltRendaMax || undefined,
+        clt_base_min: cltBaseMin || undefined,
+        clt_base_max: cltBaseMax || undefined,
+        clt_margem_min: cltMargemMin || undefined,
+        clt_margem_max: cltMargemMax || undefined,
+        clt_prestacao_min: cltPrestacaoMin || undefined,
+        clt_prestacao_max: cltPrestacaoMax || undefined,
+        clt_ativos_min: cltAtivosMin || undefined,
+        clt_ativos_max: cltAtivosMax || undefined,
+        clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+        clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+      }
+    }
+
     return {
-      search: cltSearchValue || undefined,
-      status: cltStatusFilter !== "todos" ? cltStatusFilter : undefined,
-      origens: cltOrigemFilter.length ? cltOrigemFilter : undefined,
-      cpf: cltCpfMassFilter || undefined,
-      names: cltNamesMassFilter || undefined,
-      phones: cltPhonesMassFilter || undefined,
-      birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
-      clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
-      clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
-      clt_consulta_from: cltConsultaFrom || undefined,
-      clt_consulta_to: cltConsultaTo || undefined,
-      clt_admissao_from: cltAdmissaoFrom || undefined,
-      clt_admissao_to: cltAdmissaoTo || undefined,
-      clt_meses_min: cltMesesMin || undefined,
-      clt_meses_max: cltMesesMax || undefined,
-      clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
-      clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
-      clt_categoria_codigos: catCodes,
-      clt_idade_min: cltIdadeMin || undefined,
-      clt_idade_max: cltIdadeMax || undefined,
-      clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
-      clt_renda_min: cltRendaMin || undefined,
-      clt_renda_max: cltRendaMax || undefined,
-      clt_base_min: cltBaseMin || undefined,
-      clt_base_max: cltBaseMax || undefined,
-      clt_margem_min: cltMargemMin || undefined,
-      clt_margem_max: cltMargemMax || undefined,
-      clt_prestacao_min: cltPrestacaoMin || undefined,
-      clt_prestacao_max: cltPrestacaoMax || undefined,
-      clt_ativos_min: cltAtivosMin || undefined,
-      clt_ativos_max: cltAtivosMax || undefined,
-      clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
-      clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+      search: mercantilSearchValue || undefined,
+      origens: mercantilOrigemFilter.length ? mercantilOrigemFilter : undefined,
+      cpf: mercantilCpfMassFilter || undefined,
+      names: mercantilNamesMassFilter || undefined,
+      phones: mercantilPhonesMassFilter || undefined,
+      birth_month: mercantilBirthMonthFilter.length ? mercantilBirthMonthFilter : undefined,
+      mercantil_situacao:
+        mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
+          ? mercantilSituacao
+          : undefined,
+      mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
+      mercantil_consulta_from: mercantilConsultaFrom || undefined,
+      mercantil_consulta_to: mercantilConsultaTo || undefined,
+      mercantil_import_from: mercantilImportFrom || undefined,
+      mercantil_import_to: mercantilImportTo || undefined,
+      mercantil_parcela_min: mercantilParcelaMin || undefined,
+      mercantil_parcela_max: mercantilParcelaMax || undefined,
+      mercantil_qtd_parcelas_min: mercantilQtdParcelasMin || undefined,
+      mercantil_qtd_parcelas_max: mercantilQtdParcelasMax || undefined,
+      mercantil_origens: mercantilOrigensMercantilFilter.length ? mercantilOrigensMercantilFilter : undefined,
     }
   }
 
@@ -619,7 +822,8 @@ const Dashboard = () => {
 
   // Inicia export e delega o polling ao singleton
   const handleExport = async (columns: string[]) => {
-    const mode = activeTab === "FGTS" ? "fgts" : "clt" as const
+    const mode: "fgts" | "clt" | "mercantil" =
+      activeTab === "FGTS" ? "fgts" : activeTab === "CLT" ? "clt" : "mercantil"
     const preId = toast.loading("Exportando leads", { duration: Infinity })
     try {
       const { token } = await startLeadsExport(collectFilters(), columns, mode)
@@ -658,26 +862,47 @@ const Dashboard = () => {
       fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
       fgtsConsultaToFilter, setFgtsConsultaToFilter,
     }
-    : {
-      mode: "CLT" as const,
-      searchValue: cltSearchValue, setSearchValue: setCltSearchValue,
-      statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
-      motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
-      origemFilter: cltOrigemFilter, setOrigemFilter: setCltOrigemFilter,
-      higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
-      dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
-      dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
-      contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
-      contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
-      cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
-      namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
-      phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
-      vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
-      birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
-      fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
-      fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
-      fgtsConsultaToFilter, setFgtsConsultaToFilter,
-    }
+    : activeTab === "CLT"
+      ? {
+        mode: "CLT" as const,
+        searchValue: cltSearchValue, setSearchValue: setCltSearchValue,
+        statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
+        motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
+        origemFilter: cltOrigemFilter, setOrigemFilter: setCltOrigemFilter,
+        higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
+        dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
+        dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
+        contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
+        contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
+        cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
+        namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
+        phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
+        vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
+        birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
+        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+        fgtsConsultaToFilter, setFgtsConsultaToFilter,
+      }
+      : {
+        mode: "MERCANTIL" as const,
+        searchValue: mercantilSearchValue, setSearchValue: setMercantilSearchValue,
+        statusFilter: cltStatusFilter, setStatusFilter: setCltStatusFilter,
+        motivosFilter: cltMotivosFilter, setMotivosFilter: setCltMotivosFilter,
+        origemFilter: mercantilOrigemFilter, setOrigemFilter: setMercantilOrigemFilter,
+        higienizacaoFilter: cltHigienizacaoFilter, setHigienizacaoFilter: setCltHigienizacaoFilter,
+        dateFromFilter: cltDateFromFilter, setDateFromFilter: setCltDateFromFilter,
+        dateToFilter: cltDateToFilter, setDateToFilter: setCltDateToFilter,
+        contractDateFromFilter: cltContractFromFilter, setContractDateFromFilter: setCltContractFromFilter,
+        contractDateToFilter: cltContractToFilter, setContractDateToFilter: setCltContractToFilter,
+        cpfMassFilter: mercantilCpfMassFilter, setCpfMassFilter: setMercantilCpfMassFilter,
+        namesMassFilter: mercantilNamesMassFilter, setNamesMassFilter: setMercantilNamesMassFilter,
+        phonesMassFilter: mercantilPhonesMassFilter, setPhonesMassFilter: setMercantilPhonesMassFilter,
+        vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
+        birthMonthFilter: mercantilBirthMonthFilter, setBirthMonthFilter: setMercantilBirthMonthFilter,
+        fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
+        fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
+        fgtsConsultaToFilter, setFgtsConsultaToFilter,
+      }
 
   return (
     <div className="max-w-full p-4 lg:p-6">
@@ -686,7 +911,13 @@ const Dashboard = () => {
           Dashboard
         </h1>
         <p className="text-sm text-gray-600 lg:text-base">
-          {activeTab === "FGTS" ? "FGTS (Facta FGTS Base offline)" : "CLT (Facta Crédito do Trabalhador)"} — {total} registros
+          {
+            activeTab === "FGTS"
+              ? "FGTS (Facta FGTS Base offline)"
+              : activeTab === "CLT"
+                ? "CLT (Facta Crédito do Trabalhador)"
+                : "CLT (Mercantil)"
+          } — {total} registros
         </p>
       </div>
 
@@ -719,6 +950,21 @@ const Dashboard = () => {
           )}
         >
           CLT (Facta)
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab("MERCANTIL")
+            setCurrentPage(1)
+          }}
+          className={cn(
+            "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200",
+            activeTab === "MERCANTIL"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          )}
+        >
+          CLT (Mercantil)
         </button>
       </div>
 
@@ -820,12 +1066,39 @@ const Dashboard = () => {
         onCltTemAtivosChange={setCltTemAtivos}
         cltTemLegados={cltTemLegados}
         onCltTemLegadosChange={setCltTemLegados}
+        mercantilSituacao={mercantilSituacao}
+        onMercantilSituacaoChange={setMercantilSituacao}
+        mercantilStatusFilter={mercantilStatusFilter}
+        onMercantilStatusFilterChange={setMercantilStatusFilter}
+        mercantilConsultaFrom={mercantilConsultaFrom}
+        onMercantilConsultaFromChange={setMercantilConsultaFrom}
+        mercantilConsultaTo={mercantilConsultaTo}
+        onMercantilConsultaToChange={setMercantilConsultaTo}
+        mercantilImportFrom={mercantilImportFrom}
+        onMercantilImportFromChange={setMercantilImportFrom}
+        mercantilImportTo={mercantilImportTo}
+        onMercantilImportToChange={setMercantilImportTo}
+        mercantilParcelaMin={mercantilParcelaMin}
+        onMercantilParcelaMinChange={setMercantilParcelaMin}
+        mercantilParcelaMax={mercantilParcelaMax}
+        onMercantilParcelaMaxChange={setMercantilParcelaMax}
+        mercantilQtdParcelasMin={mercantilQtdParcelasMin}
+        onMercantilQtdParcelasMinChange={setMercantilQtdParcelasMin}
+        mercantilQtdParcelasMax={mercantilQtdParcelasMax}
+        onMercantilQtdParcelasMaxChange={setMercantilQtdParcelasMax}
+        mercantilOrigensFilter={mercantilOrigensMercantilFilter}
+        onMercantilOrigensFilterChange={setMercantilOrigensMercantilFilter}
+        availableMercantilOrigens={filterOptions?.origens_mercantil ?? []}
+        availableMercantilStatuses={filterOptions?.mercantil_status ?? []}
         visibleColumnsFGTS={fgtsVisibleColumns}
         onVisibleColumnsFGTSChange={setFgtsVisibleColumns}
         visibleColumnsCLT={cltVisibleColumns}
         onVisibleColumnsCLTChange={setCltVisibleColumns}
+        visibleColumnsMERCANTIL={mercantilVisibleColumns}
+        onVisibleColumnsMERCANTILChange={setMercantilVisibleColumns}
         defaultVisibleColumnsFGTS={FGTS_COLUMNS_DEFAULT}
         defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
+        defaultVisibleColumnsMERCANTIL={MERCANTIL_COLUMNS_DEFAULT}
       />
 
       {activeTab === "FGTS" ? (
@@ -837,7 +1110,7 @@ const Dashboard = () => {
           isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={fgtsVisibleColumns}
         />
-      ) : (
+      ) : activeTab === "CLT" ? (
         <LeadsTableCLT
           leads={processedLeadsCLT}
           currentPage={current_page}
@@ -845,6 +1118,15 @@ const Dashboard = () => {
           onPageChange={setCurrentPage}
           isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={cltVisibleColumns}
+        />
+      ) : (
+        <LeadsTableMercantil
+          leads={processedLeadsMercantil}
+          currentPage={current_page}
+          totalPages={last_page}
+          onPageChange={setCurrentPage}
+          isLoading={isLoading || isFetching || loadingOptions}
+          visibleColumns={mercantilVisibleColumns}
         />
       )}
 

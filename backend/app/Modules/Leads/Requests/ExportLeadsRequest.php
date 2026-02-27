@@ -16,7 +16,7 @@ class ExportLeadsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mode' => ['nullable', Rule::in(['fgts', 'clt'])],
+            'mode' => ['nullable', Rule::in(['fgts', 'clt', 'mercantil'])],
 
             'columns' => ['required', 'array', 'min:1'],
             'columns.*' => ['required', 'string', 'distinct', Rule::in(LeadExportColumns::allowed())],
@@ -79,6 +79,19 @@ class ExportLeadsRequest extends FormRequest
             'clt_ativos_max' => ['nullable', 'integer', 'min:0'],
             'clt_tem_ativos' => ['nullable', 'in:sim,nao'],
             'clt_tem_legados' => ['nullable', 'in:sim,nao'],
+
+            // ===== MERCANTIL: filtros =====
+            'mercantil_situacao' => ['nullable', 'in:consultado,sem_consulta'],
+            'mercantil_status' => ['nullable'],
+            'mercantil_consulta_from' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_consulta_to' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_import_from' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_import_to' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_parcela_min' => ['nullable'],
+            'mercantil_parcela_max' => ['nullable'],
+            'mercantil_qtd_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'mercantil_qtd_parcelas_max' => ['nullable', 'integer', 'min:0'],
+            'mercantil_origens' => ['nullable'],
         ];
     }
 
@@ -95,7 +108,9 @@ class ExportLeadsRequest extends FormRequest
             'phones',
             'birth_month',
             'clt_categoria_codigos',
-            'clt_sexo'
+            'clt_sexo',
+            'mercantil_status',
+            'mercantil_origens',
         ] as $key) {
             if ($this->filled($key)) {
                 $val = $this->input($key);

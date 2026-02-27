@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Mode = "FGTS" | "CLT";
+type Mode = "FGTS" | "CLT" | "MERCANTIL";
 
 interface ColumnsModalProps {
   isOpen: boolean;
@@ -97,6 +97,41 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
 
     // Registro
     { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
+  ],
+
+  MERCANTIL: [
+    // Cadastral
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+
+    // Telefones (pares fone/classe)
+    { id: "telefone_1", label: "Fone 1", group: "Cadastral" },
+    { id: "classe_1", label: "Classe 1", group: "Cadastral" },
+    { id: "telefone_2", label: "Fone 2", group: "Cadastral" },
+    { id: "classe_2", label: "Classe 2", group: "Cadastral" },
+    { id: "telefone_3", label: "Fone 3", group: "Cadastral" },
+    { id: "classe_3", label: "Classe 3", group: "Cadastral" },
+    { id: "telefone_4", label: "Fone 4", group: "Cadastral" },
+    { id: "classe_4", label: "Classe 4", group: "Cadastral" },
+
+    // Produto (Mercantil)
+    { id: "mercantil_status", label: "Status", group: "Produto" },
+    { id: "mercantil_data_hora_origem", label: "Data/hora consulta", group: "Produto" },
+    { id: "mercantil_mensagem_erro", label: "Mensagem de erro", group: "Produto" },
+    { id: "mercantil_valor_emprestimo", label: "Valor empréstimo", group: "Produto" },
+    { id: "mercantil_valor_iof", label: "Valor IOF", group: "Produto" },
+    { id: "mercantil_valor_financiado", label: "Valor financiado", group: "Produto" },
+    { id: "mercantil_valor_liberado", label: "Valor liberado", group: "Produto" },
+    { id: "mercantil_data_primeiro_vencimento", label: "Data 1º vencimento", group: "Produto" },
+    { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", group: "Produto" },
+    { id: "mercantil_valor_parcela", label: "Valor parcela", group: "Produto" },
+    { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", group: "Produto" },
+    { id: "mercantil_dados_atualizados_em", label: "Data importação (Merc.)", group: "Produto" },
+
+    // Registro
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
+    { id: "ultima_origem_mercantil", label: "Origem mercantil", group: "Registro" },
   ],
 };
 

@@ -15,7 +15,7 @@ class LeadFilter
     {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
-        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt'
+        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt' | 'mercantil'
 
         $cltFields = [
             'elegivel',
@@ -34,6 +34,21 @@ class LeadFilter
             'not_found'
         ];
 
+        $mercantilFields = [
+            'mercantil_status',
+            'mercantil_mensagem_erro',
+            'mercantil_data_hora_origem',
+            'mercantil_valor_financiado',
+            'mercantil_valor_iof',
+            'mercantil_data_primeiro_vencimento',
+            'mercantil_valor_emprestimo',
+            'mercantil_quantidade_parcelas',
+            'mercantil_valor_liberado',
+            'mercantil_taxa_juros_mes',
+            'mercantil_valor_parcela',
+            'mercantil_dados_atualizados_em',
+        ];
+
         // ---- FGTS OFF: colunas projetadas (quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
             ? in_array('fgts_off_authorized', $columnsForExport, true)
@@ -47,7 +62,27 @@ class LeadFilter
             ? (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em', 'clt_dados_atualizados_em']))
             : ($mode === 'clt');
 
+        $needAnyMercantil = $exportMode
+            ? (bool) array_intersect($columnsForExport, $mercantilFields)
+            : ($mode === 'mercantil');
+
+        $hasMercantilScopedFilters =
+            $r->filled('mercantil_situacao')
+            || $r->filled('mercantil_status')
+            || $r->filled('mercantil_origens')
+            || $r->filled('mercantil_consulta_from')
+            || $r->filled('mercantil_consulta_to')
+            || $r->filled('mercantil_import_from')
+            || $r->filled('mercantil_import_to')
+            || $r->filled('mercantil_parcela_min')
+            || $r->filled('mercantil_parcela_max')
+            || $r->filled('mercantil_qtd_parcelas_min')
+            || $r->filled('mercantil_qtd_parcelas_max');
+
         $needCltJoin = $mode === 'clt' || $needAnyClt;
+        $needMercantilJoin = (!$exportMode && $mode === 'mercantil')
+            || $needAnyMercantil
+            || $hasMercantilScopedFilters;
         $needFgtsJoin = $mode === 'fgts'
             || $needFgtsAuthorizedCol
             || $needFgtsConsultadoCol
@@ -85,6 +120,9 @@ class LeadFilter
             if ($needCltJoin) {
                 $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
             }
+            if ($needMercantilJoin) {
+                $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
+            }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
             }
@@ -95,6 +133,10 @@ class LeadFilter
 
             if (in_array('ultima_origem_higienizacao', $columnsForExport, true)) {
                 self::addLatestOriginSelect($query, 'ultima_origem_higienizacao', 'higienizacao');
+            }
+
+            if (in_array('ultima_origem_mercantil', $columnsForExport, true)) {
+                self::addLatestOriginSelect($query, 'ultima_origem_mercantil', 'mercantil');
             }
 
             if (in_array('contracts_count', $columnsForExport, true)) {
@@ -144,12 +186,55 @@ class LeadFilter
                     $query->addSelect(DB::raw('cs.updated_at as clt_dados_atualizados_em'));
                 }
             }
+
+            // MERCANTIL no export (se pedido explicitamente)
+            if ($needAnyMercantil) {
+                if (in_array('mercantil_status', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.status as mercantil_status'));
+                }
+                if (in_array('mercantil_mensagem_erro', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.mensagem_erro as mercantil_mensagem_erro'));
+                }
+                if (in_array('mercantil_data_hora_origem', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.data_hora_origem as mercantil_data_hora_origem'));
+                }
+                if (in_array('mercantil_valor_financiado', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.valor_financiado as mercantil_valor_financiado'));
+                }
+                if (in_array('mercantil_valor_iof', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.valor_iof as mercantil_valor_iof'));
+                }
+                if (in_array('mercantil_data_primeiro_vencimento', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.data_primeiro_vencimento as mercantil_data_primeiro_vencimento'));
+                }
+                if (in_array('mercantil_valor_emprestimo', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.valor_emprestimo as mercantil_valor_emprestimo'));
+                }
+                if (in_array('mercantil_quantidade_parcelas', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.quantidade_parcelas as mercantil_quantidade_parcelas'));
+                }
+                if (in_array('mercantil_valor_liberado', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.valor_liberado as mercantil_valor_liberado'));
+                }
+                if (in_array('mercantil_taxa_juros_mes', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.taxa_juros_mes as mercantil_taxa_juros_mes'));
+                }
+                if (in_array('mercantil_valor_parcela', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.valor_parcela as mercantil_valor_parcela'));
+                }
+                if (in_array('mercantil_dados_atualizados_em', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('ms.updated_at as mercantil_dados_atualizados_em'));
+                }
+            }
         } else {
             // ====== LISTA (API) ======
             $query = Lead::query()->select('leads.*');
 
             if ($needCltJoin) {
                 $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
+            }
+            if ($needMercantilJoin) {
+                $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
             }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
@@ -191,7 +276,7 @@ class LeadFilter
                 if ($needFgtsConsultadoCol) {
                     $query->addSelect(DB::raw('fos.updated_at as fgts_off_consultado_em'));
                 }
-            } else {
+            } elseif ($mode === 'clt') {
                 // ===== MODO CLT
                 $query->addSelect([
                     DB::raw('cs.elegivel as elegivel'),
@@ -212,6 +297,25 @@ class LeadFilter
                     DB::raw('cs.updated_at as clt_dados_atualizados_em'),
 
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
+                ]);
+            } elseif ($mode === 'mercantil') {
+                // ===== MODO CLT (MERCANTIL)
+                $query->addSelect([
+                    DB::raw('ms.status as mercantil_status'),
+                    DB::raw('ms.mensagem_erro as mercantil_mensagem_erro'),
+                    DB::raw('ms.data_hora_origem as mercantil_data_hora_origem'),
+                    DB::raw('ms.valor_financiado as mercantil_valor_financiado'),
+                    DB::raw('ms.valor_iof as mercantil_valor_iof'),
+                    DB::raw('ms.data_primeiro_vencimento as mercantil_data_primeiro_vencimento'),
+                    DB::raw('ms.valor_emprestimo as mercantil_valor_emprestimo'),
+                    DB::raw('ms.quantidade_parcelas as mercantil_quantidade_parcelas'),
+                    DB::raw('ms.valor_liberado as mercantil_valor_liberado'),
+                    DB::raw('ms.taxa_juros_mes as mercantil_taxa_juros_mes'),
+                    DB::raw('ms.valor_parcela as mercantil_valor_parcela'),
+                    DB::raw('ms.updated_at as mercantil_dados_atualizados_em'),
+
+                    'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
+                    'ultima_origem_mercantil' => self::latestOriginSubquery('mercantil'),
                 ]);
             }
         }
@@ -422,6 +526,56 @@ class LeadFilter
             }
         }
 
+        // ======== MERCANTIL – filtros específicos ========
+        if ($mode === 'mercantil') {
+            $situacao = self::normalizeMercantilSituacao($r->input('mercantil_situacao', null));
+            $statuses = self::requestList($r, 'mercantil_status');
+            $origensMercantil = self::requestList($r, 'mercantil_origens');
+
+            if ($origensMercantil) {
+                self::applyLatestOriginFilter($query, 'mercantil', $origensMercantil);
+            }
+
+            $hasSnapshotScopedFilters =
+                !empty($statuses) ||
+                $r->filled('mercantil_consulta_from') || $r->filled('mercantil_consulta_to') ||
+                $r->filled('mercantil_import_from') || $r->filled('mercantil_import_to') ||
+                $r->filled('mercantil_parcela_min') || $r->filled('mercantil_parcela_max') ||
+                $r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max');
+
+            if ($situacao === 'sem_consulta') {
+                $query->whereNull('ms.cpf');
+            } else {
+                if ($situacao === 'consultado' || $hasSnapshotScopedFilters) {
+                    $query->whereNotNull('ms.cpf');
+                }
+
+                if (!empty($statuses)) {
+                    $query->whereIn('ms.status', $statuses);
+                }
+
+                if ($r->filled('mercantil_consulta_from') || $r->filled('mercantil_consulta_to')) {
+                    $from = $r->input('mercantil_consulta_from', '1900-01-01');
+                    $to = $r->input('mercantil_consulta_to', now()->toDateString());
+                    $query->whereBetween('ms.data_hora_origem', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                }
+
+                if ($r->filled('mercantil_import_from') || $r->filled('mercantil_import_to')) {
+                    $from = $r->input('mercantil_import_from', '1900-01-01');
+                    $to = $r->input('mercantil_import_to', now()->toDateString());
+                    $query->whereBetween('ms.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                }
+
+                self::range($query, $r, 'mercantil_parcela_min', 'mercantil_parcela_max', 'ms.valor_parcela');
+
+                if ($r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max')) {
+                    $min = (int) $r->input('mercantil_qtd_parcelas_min', 0);
+                    $max = (int) $r->input('mercantil_qtd_parcelas_max', PHP_INT_MAX);
+                    $query->whereBetween('ms.quantidade_parcelas', [$min, $max]);
+                }
+            }
+        }
+
         // ======== FGTS OFF – filtros específicos ========
         if ($mode === 'fgts') {
             $fgtsStatus = self::normalizeFgtsStatus($r->input('fgts_status', null));
@@ -443,9 +597,17 @@ class LeadFilter
         }
 
         // ordem final
-        return $exportMode
-            ? $query->orderBy('leads.id', 'asc')
-            : $query->orderByDesc('leads.updated_at');
+        if ($exportMode) {
+            return $query->orderBy('leads.id', 'asc');
+        }
+
+        if ($mode === 'mercantil') {
+            return $query
+                ->orderByDesc('ms.updated_at')
+                ->orderByDesc('leads.updated_at');
+        }
+
+        return $query->orderByDesc('leads.updated_at');
     }
 
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void
@@ -632,6 +794,19 @@ class LeadFilter
 
     private static function latestOriginSubquery(string $type): \Closure
     {
+        if ($type === 'mercantil') {
+            return function ($q) {
+                $q->select('ij.origin')
+                    ->from('mercantil_snapshots as ms')
+                    ->join('import_jobs as ij', 'ij.id', '=', 'ms.job_id')
+                    ->whereColumn('ms.cpf', 'leads.cpf')
+                    ->where('ij.type', 'mercantil')
+                    ->orderByDesc('ms.updated_at')
+                    ->orderByDesc('ms.job_id')
+                    ->limit(1);
+            };
+        }
+
         return function ($q) use ($type) {
             $q->select('ij.origin')
                 ->from('lead_imports as li')
@@ -646,6 +821,18 @@ class LeadFilter
 
     private static function applyLatestOriginFilter(Builder $query, string $type, array $origins): void
     {
+        if ($type === 'mercantil') {
+            $query->whereExists(function ($sq) use ($origins) {
+                $sq->selectRaw('1')
+                    ->from('mercantil_snapshots as ms')
+                    ->join('import_jobs as ij', 'ij.id', '=', 'ms.job_id')
+                    ->whereColumn('ms.cpf', 'leads.cpf')
+                    ->where('ij.type', 'mercantil')
+                    ->whereIn('ij.origin', $origins);
+            });
+            return;
+        }
+
         $query->whereIn('leads.id', function ($sq) use ($type, $origins) {
             $sq->select('li.lead_id')
                 ->from('lead_imports as li')
@@ -746,6 +933,30 @@ class LeadFilter
             'elegivel' => 'elegivel',
             'nao_elegivel' => 'nao_elegivel',
             'nao_encontrado' => 'nao_encontrado',
+        ];
+
+        return $map[$s] ?? null;
+    }
+
+    private static function normalizeMercantilSituacao($v): ?string
+    {
+        if ($v === null || $v === '')
+            return null;
+        if (!is_string($v))
+            return null;
+
+        $s = trim(mb_strtolower($v));
+        $s = str_replace(['ã', 'â', 'á', 'à', 'ä'], 'a', $s);
+        $s = str_replace(['ê', 'é', 'è', 'ë'], 'e', $s);
+        $s = preg_replace('/[\s\-]+/u', '_', $s);
+
+        $map = [
+            'consultado' => 'consultado',
+            'sem_consulta' => 'sem_consulta',
+            // compatibilidade com valores antigos do front:
+            'sucesso' => 'consultado',
+            'com_erro' => 'consultado',
+            'erro' => 'consultado',
         ];
 
         return $map[$s] ?? null;
