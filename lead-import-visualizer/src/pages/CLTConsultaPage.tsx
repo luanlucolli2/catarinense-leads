@@ -156,6 +156,7 @@ const CLTConsultaPage = () => {
       return {
         ...i,
         status: watchedJob.status,
+        phase: watchedJob.phase,
         total_cpfs: watchedJob.total_cpfs,
         success_count: watchedJob.success_count,
         not_found_count: watchedJob.not_found_count,

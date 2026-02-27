@@ -140,14 +140,14 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
         $this->cleanupSpool($job);
 
-        $job->update(['status' => $this->targetStatus, 'finished_at' => Carbon::now()]);
+        $job->update(['status' => $this->targetStatus, 'phase' => null, 'finished_at' => Carbon::now()]);
         CltLog::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
     }
 
     private function finishWithoutFinal(CltConsultJob $job, string $status): void
     {
         $this->cleanupSpool($job);
-        $job->update(['status' => $status, 'finished_at' => Carbon::now()]);
+        $job->update(['status' => $status, 'phase' => null, 'finished_at' => Carbon::now()]);
     }
 
     private function cleanupSpool(CltConsultJob $job): void
@@ -164,7 +164,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                 }
             }
         } finally {
-            $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0]);
+            $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0, 'phase' => null]);
         }
     }
 }

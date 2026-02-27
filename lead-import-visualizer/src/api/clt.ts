@@ -10,6 +10,8 @@ export type CltJobStatus =
   | 'falhou'
   | 'cancelado'
 
+export type CltJobPhase = 'fase_1' | 'fase_2' | null
+
 /** Estados da PRÉVIA (alinhado ao backend) */
 export type PreviewStatus = 'none' | 'queued' | 'running' | 'ready' | 'error'
 
@@ -18,6 +20,7 @@ export interface CltConsultJobListItem {
   id: number
   title: string
   status: CltJobStatus
+  phase?: CltJobPhase
   total_cpfs: number
   success_count: number
   fail_count: number
@@ -53,6 +56,7 @@ export interface CltConsultJobShow {
   id: number
   title: string
   status: CltJobStatus
+  phase?: CltJobPhase
   total_cpfs: number
   success_count: number
   fail_count: number
@@ -113,7 +117,7 @@ export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsult
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
 export async function createCltConsultJob(input: CreateCltConsultInput) {
-  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus }>(
+  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus; phase?: CltJobPhase }>(
     BASE,
     input
   )
@@ -183,6 +187,7 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
   const { data } = await axiosClient.post<{
     id: number
     status: CltJobStatus
+    phase?: CltJobPhase
     canceled_at?: string | null
     cancel_reason?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})

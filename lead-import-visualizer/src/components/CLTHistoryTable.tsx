@@ -97,6 +97,24 @@ function getStatusInfo(status: CltJobStatus) {
   }
 }
 
+function getPhaseInfo(phase: CltConsultJobListItem["phase"]) {
+  if (phase === "fase_1") {
+    return {
+      className:
+        "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
+      label: "Fase 1 • Consulta",
+    };
+  }
+  if (phase === "fase_2") {
+    return {
+      className:
+        "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800",
+      label: "Fase 2 • Política de crédito",
+    };
+  }
+  return null;
+}
+
 function calcSegments(i: CltConsultJobListItem) {
   const total = i.total_cpfs || 0;
   if (!total) return { ok: 0, not: 0, err: 0, sum: 0, total: 0 };
@@ -283,6 +301,10 @@ export const CLTHistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as CltJobStatus);
+          const phaseInfo =
+            i.phase && (i.status === "pendente" || i.status === "em_progresso")
+              ? getPhaseInfo(i.phase)
+              : null;
           const finalReady = canDownloadFinal(i);
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
@@ -388,9 +410,20 @@ export const CLTHistoryTable = ({
                         <span className="whitespace-nowrap">{modeBadge.label}</span>
                       </Badge>
 
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", getStatusInfo(i.status as CltJobStatus).className)}>
-                        {getStatusInfo(i.status as CltJobStatus).icon}
-                        <span className="whitespace-nowrap">{getStatusInfo(i.status as CltJobStatus).label}</span>
+                      {phaseInfo && (
+                        <Badge
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none",
+                            phaseInfo.className
+                          )}
+                        >
+                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
+                        </Badge>
+                      )}
+
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
+                        {statusInfo.icon}
+                        <span className="whitespace-nowrap">{statusInfo.label}</span>
                       </Badge>
 
                       {i.status !== "cancelado" && (
@@ -465,9 +498,20 @@ export const CLTHistoryTable = ({
                         <span className="whitespace-nowrap">{modeBadge.label}</span>
                       </Badge>
 
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", getStatusInfo(i.status as CltJobStatus).className)}>
-                        {getStatusInfo(i.status as CltJobStatus).icon}
-                        <span className="whitespace-nowrap">{getStatusInfo(i.status as CltJobStatus).label}</span>
+                      {phaseInfo && (
+                        <Badge
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none",
+                            phaseInfo.className
+                          )}
+                        >
+                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
+                        </Badge>
+                      )}
+
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
+                        {statusInfo.icon}
+                        <span className="whitespace-nowrap">{statusInfo.label}</span>
                       </Badge>
                     </div>
 

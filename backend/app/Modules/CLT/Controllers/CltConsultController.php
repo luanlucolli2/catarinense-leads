@@ -43,6 +43,7 @@ class CltConsultController extends Controller
             'title' => $job->title,
             'variant' => $job->variant,
             'status' => $job->status,
+            'phase' => $job->phase,
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
             'not_found_count' => $job->not_found_count,
@@ -118,6 +119,7 @@ class CltConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -255,6 +257,7 @@ class CltConsultController extends Controller
 
         $job->update([
             'status' => 'cancelado',
+            'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
         ]);
@@ -280,6 +283,7 @@ class CltConsultController extends Controller
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
+            'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);

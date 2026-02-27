@@ -51,6 +51,12 @@ return [
         'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
         // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
         'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 3),
+        // Rodadas máximas da fase 2 (varredura do CSV para política de crédito).
+        'phase2_max_attempts' => (int) env('CLT_CREDIT_PHASE2_MAX_ATTEMPTS', 3),
+        // Intervalo entre rodadas da fase 2 quando ainda há pendências retriables.
+        'phase2_retry_delay_seconds' => (int) env('CLT_CREDIT_PHASE2_RETRY_DELAY_SECONDS', 30),
+        // Retry imediato por linha retriable antes de delegar para a próxima rodada.
+        'phase2_immediate_retry_delay_ms' => (int) env('CLT_CREDIT_PHASE2_IMMEDIATE_RETRY_DELAY_MS', 3000),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====

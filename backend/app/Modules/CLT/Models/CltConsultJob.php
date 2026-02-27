@@ -10,6 +10,7 @@ class CltConsultJob extends Model
 
     protected $fillable = [
         'user_id','title','status','variant',
+        'phase',
         'total_cpfs','success_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
         'started_at','finished_at','canceled_at','cancel_reason',
