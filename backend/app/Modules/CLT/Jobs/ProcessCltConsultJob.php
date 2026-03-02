@@ -419,6 +419,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             } catch (Throwable) {
             }
         } finally {
+            if ($api instanceof \App\Modules\CLT\Services\FactaApiService) {
+                try {
+                    $api->flushRuntimeHttpCounters();
+                } catch (Throwable $e) {
+                    CltLog::warning('[CLT] Falha ao flush final dos contadores HTTP FACTA por job.', [
+                        'job_id' => $this->jobId,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);
                 @fclose($this->spoolFp);
@@ -1235,9 +1245,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($phase2Total === 0) {
             $this->flushPhaseTwoProgress($job, 0, 0, 0, 0, true);
-            CltLog::warning('[CLT] Fase 2 concluída sem linhas elegíveis.', [
-                'job_id' => $this->jobId,
-            ]);
             return true;
         }
 
@@ -1264,7 +1271,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $phase2NotApprovedCount += (int) ($result['resolved_not_approved'] ?? 0);
             $pendingLines = is_array($result['pending_lines'] ?? null) ? $result['pending_lines'] : [];
             $pendingCount = count($pendingLines);
-            $doneCount = max(0, $phase2Total - $pendingCount);
             $this->flushPhaseTwoProgress(
                 $job,
                 $attempt,
@@ -1274,16 +1280,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 true
             );
 
-            CltLog::warning('[CLT] Fase 2 rodada concluída', [
-                'job_id' => $this->jobId,
-                'attempt' => $attempt,
-                'processed_rows' => (int) ($result['processed_rows'] ?? 0),
-                'skipped_rows' => (int) ($result['skipped_rows'] ?? 0),
-                'done_rows' => $doneCount,
-                'pending_rows' => $pendingCount,
-                'aprovados' => $phase2ApprovedCount,
-                'nao_aprovados' => $phase2NotApprovedCount,
-            ]);
             $this->updateTotalsThrottled($job, $job->spool_path, [], true);
 
             if ($pendingCount === 0) {
@@ -1291,10 +1287,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($attempt >= $this->phase2MaxAttempts) {
-                CltLog::warning('[CLT] Fase 2 finalizada com pendências retriables esgotadas.', [
-                    'job_id' => $this->jobId,
-                    'pending_rows' => $pendingCount,
-                ]);
                 return true;
             }
 
@@ -1596,15 +1588,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if (!empty($credit['retriable'])) {
             if ($this->phase2ImmediateRetryDelayMs > 0) {
-                CltLog::warning('[CLT] Fase 2 retry imediato para linha retriable', [
-                    'job_id' => $this->jobId,
-                    'attempt' => $attempt,
-                    'line' => $lineNo,
-                    'cpf' => $cpf,
-                    'sleep_ms' => $this->phase2ImmediateRetryDelayMs,
-                    'mensagem' => (string) ($credit['mensagem'] ?? ''),
-                    'http_status' => $credit['http_status'] ?? null,
-                ]);
                 if ($this->microSleepCoop($this->phase2ImmediateRetryDelayMs, $job)) {
                     return ['row' => $row, 'pending' => true, 'aborted' => true];
                 }

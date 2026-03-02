@@ -144,6 +144,10 @@ return [
         // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
         // Mantemos por padrão apenas respostas com erro (>=400).
         'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        // Contadores HTTP por job (auditoria por endpoint sem depender de parse de logs).
+        'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', true),
+        'facta_job_http_counters_flush_every' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
+        'facta_job_http_counters_flush_interval_ms' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
         // Log de performance por chunk do job (verbose).
         'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
         // Log periódico de flush de spool (verbose).
