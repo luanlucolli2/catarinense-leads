@@ -10,6 +10,8 @@ import { V8Controls } from "@/components/V8Controls";
 import { V8HistoryTable } from "@/components/V8HistoryTable";
 import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import factaLogo from "@/assets/factalogo.png";
 import v8Logo from "@/assets/v8logo.png";
@@ -24,6 +26,8 @@ import {
   CltConsultJobListItem,
   CltConsultJobShow,
   getCltConsultJob,
+  getCltJobHttpCounters,
+  CltJobHttpCountersResponse,
   requestCltPreview,
 } from "@/api/clt";
 import {
@@ -74,6 +78,9 @@ const CLTConsultaPage = () => {
     "v8:watchJobId",
     null
   );
+  const [httpCountersModalJob, setHttpCountersModalJob] = useState<{ id: number; title: string } | null>(null);
+  const [httpCountersRefreshCooldownUntil, setHttpCountersRefreshCooldownUntil] = useState<number>(0);
+  const [httpCountersNowMs, setHttpCountersNowMs] = useState<number>(Date.now());
 
   const inFlight = useRef<Set<number>>(new Set());
   const waitingPreview = useRef<Set<number>>(new Set());
@@ -148,6 +155,32 @@ const CLTConsultaPage = () => {
       return open ? 5000 : false;
     },
   });
+
+  const { data: httpCountersData, isLoading: httpCountersLoading, isFetching: httpCountersFetching, error: httpCountersError, refetch: refetchHttpCounters } =
+    useQuery<CltJobHttpCountersResponse>({
+      queryKey: ["clt:http-counters", httpCountersModalJob?.id ?? null],
+      queryFn: () => getCltJobHttpCounters(httpCountersModalJob!.id),
+      enabled: !!httpCountersModalJob?.id,
+      refetchOnWindowFocus: true,
+      refetchInterval: (query) => {
+        const data = query.state.data as CltJobHttpCountersResponse | undefined;
+        if (!httpCountersModalJob?.id) return false;
+        if (!data) return 15000;
+        return data.status === "pendente" || data.status === "em_progresso" ? 15000 : false;
+      },
+    });
+
+  useEffect(() => {
+    if (httpCountersRefreshCooldownUntil <= Date.now()) return;
+
+    const timer = window.setInterval(() => {
+      setHttpCountersNowMs(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [httpCountersRefreshCooldownUntil]);
 
   const itemsWithOverlay: CltConsultJobListItem[] = useMemo(() => {
     if (!watchedJob) return items;
@@ -462,6 +495,39 @@ const CLTConsultaPage = () => {
     await deleteMutation.mutateAsync(id);
   };
 
+  const handleViewHttpCounters = (id: number) => {
+    const item = itemsWithOverlay.find((j) => j.id === id);
+    if (item?.variant === "offline") {
+      toast.info("Contadores HTTP disponíveis apenas para consultas online.");
+      return;
+    }
+
+    setHttpCountersModalJob({
+      id,
+      title: item?.title ?? titleOf(id),
+    });
+  };
+
+  const handleManualRefreshHttpCounters = () => {
+    if (httpCountersLoading || httpCountersFetching) {
+      return;
+    }
+
+    const now = Date.now();
+    if (httpCountersRefreshCooldownUntil > now) {
+      return;
+    }
+
+    setHttpCountersNowMs(now);
+    setHttpCountersRefreshCooldownUntil(now + 3000);
+    void refetchHttpCounters();
+  };
+
+  const httpCountersRefreshCooldownActive = httpCountersRefreshCooldownUntil > httpCountersNowMs;
+  const httpCountersRefreshCooldownSeconds = httpCountersRefreshCooldownActive
+    ? Math.max(1, Math.ceil((httpCountersRefreshCooldownUntil - httpCountersNowMs) / 1000))
+    : 0;
+
   const handleDownloadV8 = async (id: number, opts?: { preview?: boolean }) => {
     if (v8InFlight.current.has(id)) {
       toast.warning("Já estamos gerando/baixando para este job.");
@@ -575,6 +641,7 @@ const CLTConsultaPage = () => {
             onDownload={handleDownload}
             onCancel={handleCancel}
             onDelete={handleDelete}
+            onViewHttpCounters={handleViewHttpCounters}
             onRefresh={() => refetchList()}
             page={page}
             lastPage={lastPage}
@@ -610,6 +677,142 @@ const CLTConsultaPage = () => {
         onClose={() => setIsNewConsultModalOpen(false)}
         onSubmit={handleNewConsult}
       />
+
+      <Dialog
+        open={!!httpCountersModalJob}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHttpCountersModalJob(null);
+            setHttpCountersRefreshCooldownUntil(0);
+            setHttpCountersNowMs(Date.now());
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              Chamadas da API por job
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div>
+                <p className="font-medium text-foreground">
+                  {httpCountersModalJob?.title ?? "-"} (#{httpCountersModalJob?.id ?? "-"})
+                </p>
+                <p className="text-muted-foreground">
+                  {httpCountersData?.updated_at
+                    ? `Atualizado em ${formatDateTimeBR(httpCountersData.updated_at)}`
+                    : "Sem atualização ainda"}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleManualRefreshHttpCounters}
+                disabled={httpCountersLoading || httpCountersFetching || httpCountersRefreshCooldownActive}
+              >
+                {httpCountersFetching
+                  ? "Atualizando..."
+                  : httpCountersRefreshCooldownActive
+                    ? `Aguardar ${httpCountersRefreshCooldownSeconds}s`
+                    : "Atualizar"}
+              </Button>
+            </div>
+
+            {httpCountersLoading ? (
+              <div className="flex items-center justify-center py-10 text-muted-foreground">
+                Carregando contagens...
+              </div>
+            ) : httpCountersError ? (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                Falha ao carregar contagens da API para este job.
+              </div>
+            ) : !httpCountersData || httpCountersData.available === false ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Contadores HTTP não disponíveis neste ambiente.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                  <div className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">Requests</p>
+                    <p className="text-lg font-semibold">{(httpCountersData.summary.request_count ?? 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">Respostas</p>
+                    <p className="text-lg font-semibold">{(httpCountersData.summary.response_count ?? 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">Sem resposta</p>
+                    <p className="text-lg font-semibold">{(httpCountersData.summary.no_response_count ?? 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">Timeouts</p>
+                    <p className="text-lg font-semibold">{(httpCountersData.summary.timeout_count ?? 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">Conexão</p>
+                    <p className="text-lg font-semibold">{(httpCountersData.summary.connection_exception_count ?? 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  <span className={httpCountersData.checks.request_balance_ok ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>
+                    request = response + no_response: {httpCountersData.checks.request_balance_ok ? "OK" : "INCONSISTENTE"}
+                  </span>
+                  {" • "}
+                  <span className={httpCountersData.checks.status_balance_ok ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>
+                    response = 2xx+4xx+5xx+other: {httpCountersData.checks.status_balance_ok ? "OK" : "INCONSISTENTE"}
+                  </span>
+                </div>
+
+                <div className="max-h-[48vh] overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-3 py-2">Endpoint</th>
+                        <th className="px-3 py-2">Req</th>
+                        <th className="px-3 py-2">Resp</th>
+                        <th className="px-3 py-2">2xx</th>
+                        <th className="px-3 py-2">4xx</th>
+                        <th className="px-3 py-2">5xx</th>
+                        <th className="px-3 py-2">Sem Resp</th>
+                        <th className="px-3 py-2">Timeout</th>
+                        <th className="px-3 py-2">Conexão</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {httpCountersData.endpoints.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                            Sem chamadas contabilizadas neste job.
+                          </td>
+                        </tr>
+                      ) : (
+                        httpCountersData.endpoints.map((row) => (
+                          <tr key={row.endpoint} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">{row.endpoint}</td>
+                            <td className="px-3 py-2">{row.request_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.response_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.status_2xx_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.status_4xx_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.status_5xx_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.no_response_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.timeout_count.toLocaleString("pt-BR")}</td>
+                            <td className="px-3 py-2">{row.connection_exception_count.toLocaleString("pt-BR")}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <NewV8ConsultModal
         isOpen={isNewV8ModalOpen}

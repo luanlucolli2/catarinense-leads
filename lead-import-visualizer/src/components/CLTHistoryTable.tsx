@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Wifi,
   Database,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,7 @@ type Props = {
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  onViewHttpCounters?: (id: number) => void;
   onRefresh?: () => void;
 
   // paginação
@@ -479,6 +481,7 @@ export const CLTHistoryTable = ({
   onDownload,
   onCancel,
   onDelete,
+  onViewHttpCounters,
   page,
   lastPage,
   onPageChange,
@@ -570,6 +573,7 @@ export const CLTHistoryTable = ({
           const variant = resolveVariant(i);
 
           const type = variant === 'offline' ? 'OFF' : variant === 'online' ? 'ONLINE' : 'ONLINE';
+          const canViewHttpCounters = type === "ONLINE" && typeof onViewHttpCounters === "function";
           const phaseAndStatusInfo =
             type === "ONLINE" && phaseInfo
               ? {
@@ -627,6 +631,12 @@ export const CLTHistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                          {canViewHttpCounters && (
+                            <DropdownMenuItem onClick={() => onViewHttpCounters?.(i.id)}>
+                              <BarChart3 className="w-4 h-4 mr-2" />
+                              Ver chamadas API
+                            </DropdownMenuItem>
+                          )}
                           {(i.status === "pendente" || i.status === "em_progresso") && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
@@ -700,6 +710,12 @@ export const CLTHistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                          {canViewHttpCounters && (
+                            <DropdownMenuItem onClick={() => onViewHttpCounters?.(i.id)}>
+                              <BarChart3 className="w-4 h-4 mr-2" />
+                              Ver chamadas API
+                            </DropdownMenuItem>
+                          )}
                           {(i.status === "pendente" || i.status === "em_progresso") && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}

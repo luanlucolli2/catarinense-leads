@@ -71,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clt/consult-jobs', [CltConsultController::class, 'index']);
     Route::post('/clt/consult-jobs', [CltConsultController::class, 'store']);
     Route::get('/clt/consult-jobs/{id}', [CltConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/clt/consult-jobs/{id}/http-counters', [CltConsultController::class, 'httpCounters'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/preview/generate', [CltConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
