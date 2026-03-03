@@ -30,13 +30,11 @@ class FactaApiService
     private int $httpTimeout;
     private int $httpConnectTimeout;
     private int $httpRetry;
-    private int $httpRetryDelayMs;
 
     /** HTTP (2ª rodada opcional em pool) */
     private bool $httpSecondTry;
     private int $httpSecondTimeout;
     private int $httpSecondConnectTimeout;
-    private int $httpTransientRetryDelayMs;
     private int $httpTransientPauseSeconds;
     private bool $httpRateLimitImmediateRetry;
     private int $httpRateLimitMaxRetries;
@@ -155,13 +153,11 @@ class FactaApiService
         $this->httpTimeout = (int) ($http['timeout'] ?? 15);
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
-        $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
 
         // HTTP (2ª)
         $this->httpSecondTry = (bool) ($http['second_try'] ?? true);
         $this->httpSecondTimeout = (int) ($http['second_timeout'] ?? 10);
         $this->httpSecondConnectTimeout = (int) ($http['second_connect_timeout'] ?? 5);
-        $this->httpTransientRetryDelayMs = max(0, (int) ($http['transient_retry_delay_ms'] ?? 3000));
         $this->httpTransientPauseSeconds = max(1, (int) ($http['transient_pause_seconds'] ?? 3));
         $this->httpRateLimitImmediateRetry = (bool) ($http['rate_limit_immediate_retry'] ?? true);
         $this->httpRateLimitMaxRetries = max(0, (int) ($http['rate_limit_max_retries'] ?? 1));
@@ -260,7 +256,7 @@ class FactaApiService
             $this->jobHttpCounters[$key] = $this->newJobHttpCounterRow();
         }
 
-        $inc = 0;
+        $hasIncrement = false;
         foreach (self::JOB_HTTP_COUNTER_FIELDS as $field) {
             $value = (int) ($delta[$field] ?? 0);
             if ($value <= 0) {
@@ -268,14 +264,16 @@ class FactaApiService
             }
 
             $this->jobHttpCounters[$key][$field] += $value;
-            $inc += $value;
+            $hasIncrement = true;
         }
 
-        if ($inc <= 0) {
+        if (!$hasIncrement) {
             return;
         }
 
-        $this->jobHttpCountersBuffered += $inc;
+        // Buffer por evento (request/response/exception), não por quantidade de colunas incrementadas.
+        // Isso evita flush prematuro em alto volume.
+        $this->jobHttpCountersBuffered++;
         $this->flushJobHttpCounters(false);
     }
 
@@ -458,7 +456,6 @@ class FactaApiService
                 }
 
                 unset($this->jobHttpCounters[$endpoint]);
-                $this->jobHttpCountersBuffered -= $sum;
             } catch (Throwable $e) {
                 CltLog::warning('[FACTA] Falha ao persistir contador HTTP por job.', [
                     'job_id' => $jobId,
@@ -469,11 +466,12 @@ class FactaApiService
             }
         }
 
-        if ($this->jobHttpCountersBuffered < 0) {
-            $this->jobHttpCountersBuffered = 0;
-        }
         if (empty($this->jobHttpCounters)) {
+            $this->jobHttpCountersBuffered = 0;
             $this->jobHttpCountersLastFlushMs = $nowMs;
+        } else {
+            // Em caso de falha parcial de flush, garante próximo flush por tempo sem inflar o contador.
+            $this->jobHttpCountersBuffered = max(1, count($this->jobHttpCounters));
         }
     }
 

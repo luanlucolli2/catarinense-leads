@@ -495,7 +495,8 @@ export const CLTHistoryTable = ({
     Boolean((i.has_file ?? null) || (i.file_path ?? null));
 
   const canDownloadPreview = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    (i.status === "pendente" || i.status === "em_progresso" || i.status === "cancelado")
+    && Number(i.spool_bytes ?? 0) > 0;
 
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -669,29 +670,27 @@ export const CLTHistoryTable = ({
                         <span className="whitespace-nowrap">{phaseAndStatusInfo.label}</span>
                       </Badge>
 
-                      {i.status !== "cancelado" && (
-                        <Button
-                          onClick={() =>
-                            onDownload(i.id, { preview: !finalReady && previewReady })
-                          }
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Baixar prévia"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && (
-                            <span className="ml-1 hidden sm:inline">Prévia</span>
-                          )}
-                        </Button>
-                      )}
+                      <Button
+                        onClick={() =>
+                          onDownload(i.id, { preview: !finalReady && previewReady })
+                        }
+                        disabled={downloadDisabled}
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        title={
+                          finalReady
+                            ? "Baixar planilha final"
+                            : previewReady
+                              ? "Baixar prévia"
+                              : "Baixar indisponível"
+                        }
+                      >
+                        <Download className="w-4 h-4" />
+                        {!finalReady && previewReady && (
+                          <span className="ml-1 hidden sm:inline">Prévia</span>
+                        )}
+                      </Button>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -747,26 +746,24 @@ export const CLTHistoryTable = ({
                       </Badge>
                     </div>
 
-                    {i.status !== "cancelado" && (
-                      <Button
-                        onClick={() =>
-                          onDownload(i.id, { preview: !finalReady && previewReady })
-                        }
-                        disabled={downloadDisabled}
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        title={
-                          finalReady
-                            ? "Baixar planilha final"
-                            : previewReady
-                              ? "Baixar prévia"
-                              : "Baixar indisponível"
-                        }
-                      >
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <Button
+                      onClick={() =>
+                        onDownload(i.id, { preview: !finalReady && previewReady })
+                      }
+                      disabled={downloadDisabled}
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      title={
+                        finalReady
+                          ? "Baixar planilha final"
+                          : previewReady
+                            ? "Baixar prévia"
+                            : "Baixar indisponível"
+                      }
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>

@@ -70,6 +70,9 @@ return [
         // Checkpoint de progresso da fase 2 (máx. frequência de update no banco).
         'phase2_progress_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_INTERVAL_MS', 20000),
         'phase2_progress_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_EVERY_ROWS', 200),
+        // Persistência incremental da fase 2 para prévia (arquivo delta, sem reescrever spool completo).
+        'phase2_delta_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_INTERVAL_MS', 2000),
+        'phase2_delta_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_EVERY_ROWS', 20),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
