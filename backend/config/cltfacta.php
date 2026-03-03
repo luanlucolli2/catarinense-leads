@@ -154,7 +154,7 @@ return [
         'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
         // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
         // Mantemos por padrão apenas respostas com erro (>=400).
-        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', true),
         // Contadores HTTP por job (auditoria por endpoint sem depender de parse de logs).
         'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', true),
         'facta_job_http_counters_flush_every' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
