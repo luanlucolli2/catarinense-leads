@@ -325,10 +325,12 @@ class FactaApiService
             'exception_count' => 1,
         ];
 
-        if ($this->isTimeoutException($e)) {
+        $isTimeout = $this->isTimeoutException($e);
+        $isConnection = $this->isConnectionException($e);
+
+        if ($isTimeout) {
             $delta['timeout_count'] = 1;
-        }
-        if ($this->isConnectionException($e)) {
+        } elseif ($isConnection) {
             $delta['connection_exception_count'] = 1;
         }
 
@@ -555,8 +557,8 @@ class FactaApiService
         $resp = null;
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                $this->trackHttpRequest('/gera-token');
                 $this->waitForFactaRateLimit();
+                $this->trackHttpRequest('/gera-token');
                 $resp = Http::withHeaders([
                         'Authorization' => 'Basic ' . $this->basicAuth,
                         'Accept' => 'application/json',
@@ -762,20 +764,26 @@ class FactaApiService
             $this->sleepPreAuthCooldown($latestPreAuthAt);
 
             $doRequest = function () use ($cpf, &$token) {
-                $this->trackHttpRequest('/consignado-trabalhador/autoriza-consulta');
                 $this->waitForFactaRateLimit();
-                $resp = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $token,
-                    'Accept' => 'application/json',
-                ])
-                    ->timeout($this->httpTimeout)
-                    ->connectTimeout($this->httpConnectTimeout)
-                    ->get($this->baseUrl . '/consignado-trabalhador/autoriza-consulta', [
-                        'cpf' => $cpf,
-                    ]);
-                $this->trackHttpResponse('/consignado-trabalhador/autoriza-consulta', $resp);
+                $this->trackHttpRequest('/consignado-trabalhador/autoriza-consulta');
+                try {
+                    $resp = Http::withHeaders([
+                        'Authorization' => 'Bearer ' . $token,
+                        'Accept' => 'application/json',
+                    ])
+                        ->timeout($this->httpTimeout)
+                        ->connectTimeout($this->httpConnectTimeout)
+                        ->get($this->baseUrl . '/consignado-trabalhador/autoriza-consulta', [
+                            'cpf' => $cpf,
+                        ]);
+                    $this->trackHttpResponse('/consignado-trabalhador/autoriza-consulta', $resp);
 
-                return $resp;
+                    return $resp;
+                } catch (Throwable $e) {
+                    $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
+                    $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', 1);
+                    throw $e;
+                }
             };
 
             $resp = $doRequest();
@@ -955,8 +963,6 @@ class FactaApiService
                 1
             );
         } catch (Throwable $e) {
-            $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
-            $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', count($authorizedCpfs));
             $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
                 'stage' => 'initial_pool',
                 'attempt' => 1,
@@ -1027,8 +1033,6 @@ class FactaApiService
                         $responses[$cpf] = $resp;
                     }
                 } catch (Throwable $e) {
-                    $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
-                    $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', count($needRetry401));
                     $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
                         'stage' => 'retry_401_pool',
                         'attempt' => 1,
@@ -1070,8 +1074,6 @@ class FactaApiService
                     $responses[$cpf] = $resp;
                 }
             } catch (Throwable $e) {
-                $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
-                $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', count($missing));
                 $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
                     'stage' => 'missing_pool_retry2',
                     'attempt' => 1,
@@ -1127,8 +1129,6 @@ class FactaApiService
                         $transientAttempt + 1
                     );
                 } catch (Throwable $e) {
-                    $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
-                    $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', count($retryCpfs));
                     $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
                         'stage' => 'retry_transient_pool',
                         'attempt' => $transientAttempt + 1,
@@ -1472,18 +1472,24 @@ class FactaApiService
         ];
 
         $doRequest = function () use (&$token, $params) {
-            $this->trackHttpRequest('/proposta/operacoes-disponiveis');
             $this->waitForFactaRateLimit();
-            $resp = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $token,
-                'Accept' => 'application/json',
-            ])
-                ->timeout($this->httpTimeout)
-                ->connectTimeout($this->httpConnectTimeout)
-                ->get($this->baseUrl . '/proposta/operacoes-disponiveis', $params);
-            $this->trackHttpResponse('/proposta/operacoes-disponiveis', $resp);
+            $this->trackHttpRequest('/proposta/operacoes-disponiveis');
+            try {
+                $resp = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $token,
+                    'Accept' => 'application/json',
+                ])
+                    ->timeout($this->httpTimeout)
+                    ->connectTimeout($this->httpConnectTimeout)
+                    ->get($this->baseUrl . '/proposta/operacoes-disponiveis', $params);
+                $this->trackHttpResponse('/proposta/operacoes-disponiveis', $resp);
 
-            return $resp;
+                return $resp;
+            } catch (Throwable $e) {
+                $this->trackHttpException('/proposta/operacoes-disponiveis', $e);
+                $this->trackNoResponse('/proposta/operacoes-disponiveis', 1);
+                throw $e;
+            }
         };
 
         try {
@@ -1529,8 +1535,6 @@ class FactaApiService
 
             return $this->parseOperacoesDisponiveisResponse($resp);
         } catch (Throwable $e) {
-            $this->trackHttpException('/proposta/operacoes-disponiveis', $e);
-            $this->trackNoResponse('/proposta/operacoes-disponiveis', 1);
             $this->logRequestException('/proposta/operacoes-disponiveis', $e, [
                 'cpf' => $cpf,
                 'stage' => 'request_exception',
@@ -1568,18 +1572,24 @@ class FactaApiService
         ];
 
         $doRequest = function () use (&$token, $params) {
-            $this->trackHttpRequest('/consignado-trabalhador/analise-politica-credito');
             $this->waitForFactaRateLimit();
-            $resp = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $token,
-                'Accept' => 'application/json',
-            ])
-                ->timeout($this->httpTimeout)
-                ->connectTimeout($this->httpConnectTimeout)
-                ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', $params);
-            $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
+            $this->trackHttpRequest('/consignado-trabalhador/analise-politica-credito');
+            try {
+                $resp = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $token,
+                    'Accept' => 'application/json',
+                ])
+                    ->timeout($this->httpTimeout)
+                    ->connectTimeout($this->httpConnectTimeout)
+                    ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', $params);
+                $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
 
-            return $resp;
+                return $resp;
+            } catch (Throwable $e) {
+                $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $e);
+                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', 1);
+                throw $e;
+            }
         };
 
         try {
@@ -1639,8 +1649,6 @@ class FactaApiService
 
             return $this->parseAnalisePoliticaCreditoResponse($resp);
         } catch (Throwable $e) {
-            $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $e);
-            $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', 1);
             $this->logRequestException('/consignado-trabalhador/analise-politica-credito', $e, [
                 'cpf' => $cpf,
                 'stage' => 'request_exception',
@@ -1702,8 +1710,6 @@ class FactaApiService
                     $attempt
                 );
             } catch (Throwable $e) {
-                $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $e);
-                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', count($pending));
                 $this->logRequestException('/consignado-trabalhador/analise-politica-credito', $e, [
                     'cpf' => $cpf,
                     'stage' => $stage,
@@ -1865,71 +1871,92 @@ class FactaApiService
 
         foreach ($aliasWindows as $windowAliases) {
             $windowSizeCount = count($windowAliases);
-            $this->trackHttpRequest('/consignado-trabalhador/analise-politica-credito', $windowSizeCount);
             $this->waitForFactaRateLimit(count($windowAliases));
+            $this->trackHttpRequest('/consignado-trabalhador/analise-politica-credito', $windowSizeCount);
+            try {
+                $responses = Http::pool(function (Pool $pool) use (
+                    $windowAliases,
+                    $entries,
+                    $token,
+                    $timeout,
+                    $connectTimeout,
+                    $cpf,
+                    $matricula,
+                    $dataNascimento,
+                    $dataAdmissao
+                ) {
+                    $reqs = [];
+                    foreach ($windowAliases as $alias) {
+                        $entry = $entries[$alias] ?? null;
+                        if (!is_array($entry)) {
+                            continue;
+                        }
 
-            $responses = Http::pool(function (Pool $pool) use (
-                $windowAliases,
-                $entries,
-                $token,
-                $timeout,
-                $connectTimeout,
-                $cpf,
-                $matricula,
-                $dataNascimento,
-                $dataAdmissao
-            ) {
-                $reqs = [];
-                foreach ($windowAliases as $alias) {
-                    $entry = $entries[$alias] ?? null;
-                    if (!is_array($entry)) {
-                        continue;
+                        $reqs[] = $pool->as($alias)
+                            ->withHeaders([
+                                'Authorization' => 'Bearer ' . $token,
+                                'Accept' => 'application/json',
+                            ])
+                            ->timeout($timeout)
+                            ->connectTimeout($connectTimeout)
+                            ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', [
+                                'cpf' => $cpf,
+                                'matricula' => $matricula,
+                                'dataNascimento' => $dataNascimento,
+                                'dataAdmissao' => $dataAdmissao,
+                                'prazo' => $entry['prazo'],
+                                'valorEmprestimo' => $entry['valorEmprestimo'],
+                            ]);
                     }
 
-                    $reqs[] = $pool->as($alias)
-                        ->withHeaders([
-                            'Authorization' => 'Bearer ' . $token,
-                            'Accept' => 'application/json',
-                        ])
-                        ->timeout($timeout)
-                        ->connectTimeout($connectTimeout)
-                        ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', [
-                            'cpf' => $cpf,
-                            'matricula' => $matricula,
-                            'dataNascimento' => $dataNascimento,
-                            'dataAdmissao' => $dataAdmissao,
-                            'prazo' => $entry['prazo'],
-                            'valorEmprestimo' => $entry['valorEmprestimo'],
-                        ]);
-                }
-
-                return $reqs;
-            });
-
-            $received = 0;
-            foreach ($responses as $alias => $resp) {
-                $entry = $entries[$alias] ?? null;
-                if (!is_array($entry) || !$resp instanceof HttpResponse) {
-                    continue;
-                }
-                $received++;
-                $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
-
-                $this->logAnalisePoliticaCreditoResponse(
-                    $resp,
-                    $cpf,
-                    $stage,
-                    $attempt,
-                    (int) $entry['prazo'],
-                    (string) $entry['valorEmprestimo']
-                );
-
-                $out[(int) $entry['idx']] = $resp;
+                    return $reqs;
+                });
+            } catch (Throwable $e) {
+                $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $e);
+                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', $windowSizeCount);
+                $this->logRequestException('/consignado-trabalhador/analise-politica-credito', $e, [
+                    'cpf' => $cpf,
+                    'stage' => $stage,
+                    'attempt' => $attempt,
+                    'batch_size' => $windowSizeCount,
+                    'scope' => 'pool_window',
+                ]);
+                continue;
             }
 
-            $missing = $windowSizeCount - $received;
-            if ($missing > 0) {
-                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', $missing);
+            foreach ($windowAliases as $alias) {
+                $entry = $entries[$alias] ?? null;
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                if (!array_key_exists($alias, $responses)) {
+                    $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', 1);
+                    continue;
+                }
+
+                $resp = $responses[$alias];
+                if ($resp instanceof HttpResponse) {
+                    $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
+
+                    $this->logAnalisePoliticaCreditoResponse(
+                        $resp,
+                        $cpf,
+                        $stage,
+                        $attempt,
+                        (int) $entry['prazo'],
+                        (string) $entry['valorEmprestimo']
+                    );
+
+                    $out[(int) $entry['idx']] = $resp;
+                    continue;
+                }
+
+                if ($resp instanceof Throwable) {
+                    $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $resp);
+                }
+
+                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', 1);
             }
         }
 
@@ -2159,39 +2186,55 @@ class FactaApiService
 
         foreach ($cpfWindows as $windowCpfs) {
             $windowSizeCount = count($windowCpfs);
-            $this->trackHttpRequest('/consignado-trabalhador/autoriza-consulta', $windowSizeCount);
             $this->waitForFactaRateLimit(count($windowCpfs));
+            $this->trackHttpRequest('/consignado-trabalhador/autoriza-consulta', $windowSizeCount);
             $poolStartedAtMs = (int) round(microtime(true) * 1000);
+            try {
+                $windowResponses = Http::pool(function (Pool $pool) use ($windowCpfs, $headers, $url, $timeout, $connectTimeout) {
+                    $reqs = [];
+                    foreach ($windowCpfs as $cpf) {
+                        $reqs[] = $pool->as($cpf)
+                            ->withHeaders($headers)
+                            ->timeout($timeout)
+                            ->connectTimeout($connectTimeout)
+                            ->get($url, ['cpf' => $cpf]);
+                    }
+                    return $reqs;
+                });
+            } catch (Throwable $e) {
+                $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $e);
+                $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', $windowSizeCount);
+                $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                    'stage' => $stage,
+                    'attempt' => $attempt,
+                    'batch_size' => $windowSizeCount,
+                    'scope' => 'pool_window',
+                ]);
+                continue;
+            }
 
-            $windowResponses = Http::pool(function (Pool $pool) use ($windowCpfs, $headers, $url, $timeout, $connectTimeout) {
-                $reqs = [];
-                foreach ($windowCpfs as $cpf) {
-                    $reqs[] = $pool->as($cpf)
-                        ->withHeaders($headers)
-                        ->timeout($timeout)
-                        ->connectTimeout($connectTimeout)
-                        ->get($url, ['cpf' => $cpf]);
-                }
-                return $reqs;
-            });
-
-            $received = 0;
-            foreach ($windowResponses as $cpf => $resp) {
-                if (!$resp instanceof HttpResponse) {
+            foreach ($windowCpfs as $windowCpf) {
+                $key = (string) $windowCpf;
+                if (!array_key_exists($key, $windowResponses)) {
+                    $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', 1);
                     continue;
                 }
 
-                $received++;
-                $responses[(string) $cpf] = $resp;
-                $this->trackHttpResponse('/consignado-trabalhador/autoriza-consulta', $resp);
-                if ($this->logFactaResponses) {
-                    $this->logAutorizaConsultaResponse($resp, (string) $cpf, $stage, $attempt, $poolStartedAtMs);
+                $resp = $windowResponses[$key];
+                if ($resp instanceof HttpResponse) {
+                    $responses[$key] = $resp;
+                    $this->trackHttpResponse('/consignado-trabalhador/autoriza-consulta', $resp);
+                    if ($this->logFactaResponses) {
+                        $this->logAutorizaConsultaResponse($resp, $key, $stage, $attempt, $poolStartedAtMs);
+                    }
+                    continue;
                 }
-            }
 
-            $missing = $windowSizeCount - $received;
-            if ($missing > 0) {
-                $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', $missing);
+                if ($resp instanceof Throwable) {
+                    $this->trackHttpException('/consignado-trabalhador/autoriza-consulta', $resp);
+                }
+
+                $this->trackNoResponse('/consignado-trabalhador/autoriza-consulta', 1);
             }
         }
 
@@ -2646,8 +2689,6 @@ class FactaApiService
                         }
                     }
                 } catch (Throwable $e) {
-                    $this->trackHttpException('/solicita-autorizacao-consulta', $e);
-                    $this->trackNoResponse('/solicita-autorizacao-consulta', 1);
                     if (
                         $transientRetryAttempt < $maxTransientRetries
                         && ($this->isTimeoutException($e) || $this->isConnectionException($e))
@@ -3076,25 +3117,31 @@ class FactaApiService
 
     private function postSolicitaAutorizacaoConsulta(string $cpf, string $token, string $celular): HttpResponse
     {
-        $this->trackHttpRequest('/solicita-autorizacao-consulta');
         $this->waitForFactaRateLimit();
-        $resp = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $token,
-            'Accept' => 'application/json',
-        ])
-            ->asForm()
-            ->timeout($this->httpTimeout)
-            ->connectTimeout($this->httpConnectTimeout)
-            ->post($this->baseUrl . '/solicita-autorizacao-consulta', [
-                'averbador' => $this->preAuthAverbador,
-                'nome' => $this->preAuthNome,
-                'cpf' => $cpf,
-                'celular' => $celular,
-                'tipo_envio' => $this->preAuthTipoEnvio,
-            ]);
-        $this->trackHttpResponse('/solicita-autorizacao-consulta', $resp);
+        $this->trackHttpRequest('/solicita-autorizacao-consulta');
+        try {
+            $resp = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+            ])
+                ->asForm()
+                ->timeout($this->httpTimeout)
+                ->connectTimeout($this->httpConnectTimeout)
+                ->post($this->baseUrl . '/solicita-autorizacao-consulta', [
+                    'averbador' => $this->preAuthAverbador,
+                    'nome' => $this->preAuthNome,
+                    'cpf' => $cpf,
+                    'celular' => $celular,
+                    'tipo_envio' => $this->preAuthTipoEnvio,
+                ]);
+            $this->trackHttpResponse('/solicita-autorizacao-consulta', $resp);
 
-        return $resp;
+            return $resp;
+        } catch (Throwable $e) {
+            $this->trackHttpException('/solicita-autorizacao-consulta', $e);
+            $this->trackNoResponse('/solicita-autorizacao-consulta', 1);
+            throw $e;
+        }
     }
 
     private function generateRandomCellular(): string

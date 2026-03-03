@@ -10,6 +10,8 @@ use App\Support\Cpf;
 use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
@@ -335,6 +337,123 @@ class CltConsultController extends Controller
         $job->delete();
 
         return response()->noContent();
+    }
+
+    public function httpCounters(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if (($job->variant ?? 'online') !== 'online') {
+            return response()->json([
+                'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $counterFields = [
+            'request_count',
+            'response_count',
+            'status_2xx_count',
+            'status_4xx_count',
+            'status_5xx_count',
+            'status_other_count',
+            'exception_count',
+            'timeout_count',
+            'connection_exception_count',
+            'no_response_count',
+        ];
+
+        $summary = array_fill_keys($counterFields, 0);
+
+        if (!Schema::hasTable('clt_job_http_counters')) {
+            return response()->json([
+                'id' => $job->id,
+                'title' => $job->title,
+                'variant' => $job->variant,
+                'status' => $job->status,
+                'available' => false,
+                'summary' => $summary,
+                'checks' => [
+                    'request_balance_ok' => true,
+                    'status_balance_ok' => true,
+                ],
+                'endpoints' => [],
+                'updated_at' => now()->toIso8601String(),
+            ]);
+        }
+
+        $rows = DB::table('clt_job_http_counters')
+            ->where('job_id', $job->id)
+            ->orderByDesc('request_count')
+            ->orderBy('endpoint')
+            ->get([
+                'endpoint',
+                'request_count',
+                'response_count',
+                'status_2xx_count',
+                'status_4xx_count',
+                'status_5xx_count',
+                'status_other_count',
+                'exception_count',
+                'timeout_count',
+                'connection_exception_count',
+                'no_response_count',
+                'updated_at',
+            ]);
+
+        $endpoints = [];
+        $lastUpdatedAt = null;
+
+        foreach ($rows as $row) {
+            $entry = [
+                'endpoint' => (string) ($row->endpoint ?? ''),
+                'request_count' => max(0, (int) ($row->request_count ?? 0)),
+                'response_count' => max(0, (int) ($row->response_count ?? 0)),
+                'status_2xx_count' => max(0, (int) ($row->status_2xx_count ?? 0)),
+                'status_4xx_count' => max(0, (int) ($row->status_4xx_count ?? 0)),
+                'status_5xx_count' => max(0, (int) ($row->status_5xx_count ?? 0)),
+                'status_other_count' => max(0, (int) ($row->status_other_count ?? 0)),
+                'exception_count' => max(0, (int) ($row->exception_count ?? 0)),
+                'timeout_count' => max(0, (int) ($row->timeout_count ?? 0)),
+                'connection_exception_count' => max(0, (int) ($row->connection_exception_count ?? 0)),
+                'no_response_count' => max(0, (int) ($row->no_response_count ?? 0)),
+            ];
+
+            foreach ($counterFields as $field) {
+                $summary[$field] += (int) $entry[$field];
+            }
+
+            $rowUpdatedAt = isset($row->updated_at) ? strtotime((string) $row->updated_at) : false;
+            if ($rowUpdatedAt !== false && ($lastUpdatedAt === null || $rowUpdatedAt > $lastUpdatedAt)) {
+                $lastUpdatedAt = $rowUpdatedAt;
+            }
+
+            $endpoints[] = $entry;
+        }
+
+        $requestBalanceOk = $summary['request_count'] === ($summary['response_count'] + $summary['no_response_count']);
+        $statusBalanceOk = $summary['response_count'] === (
+            $summary['status_2xx_count']
+            + $summary['status_4xx_count']
+            + $summary['status_5xx_count']
+            + $summary['status_other_count']
+        );
+
+        return response()->json([
+            'id' => $job->id,
+            'title' => $job->title,
+            'variant' => $job->variant,
+            'status' => $job->status,
+            'available' => true,
+            'summary' => $summary,
+            'checks' => [
+                'request_balance_ok' => $requestBalanceOk,
+                'status_balance_ok' => $statusBalanceOk,
+            ],
+            'endpoints' => $endpoints,
+            'updated_at' => $lastUpdatedAt !== null ? gmdate('c', $lastUpdatedAt) : now()->toIso8601String(),
+        ]);
     }
 
     private function finalPrefix(): string

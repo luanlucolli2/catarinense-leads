@@ -98,6 +98,35 @@ export interface CltConsultJobShow {
   created_at: string
 }
 
+export interface CltJobHttpCounterRow {
+  endpoint: string
+  request_count: number
+  response_count: number
+  status_2xx_count: number
+  status_4xx_count: number
+  status_5xx_count: number
+  status_other_count: number
+  exception_count: number
+  timeout_count: number
+  connection_exception_count: number
+  no_response_count: number
+}
+
+export interface CltJobHttpCountersResponse {
+  id: number
+  title: string
+  variant: 'online' | 'offline' | null
+  status: CltJobStatus
+  available: boolean
+  summary: Omit<CltJobHttpCounterRow, 'endpoint'>
+  checks: {
+    request_balance_ok: boolean
+    status_balance_ok: boolean
+  }
+  endpoints: CltJobHttpCounterRow[]
+  updated_at?: string | null
+}
+
 /** Payload de criação alinhado ao backend */
 export interface CreateCltConsultInput {
   title: string
@@ -137,6 +166,11 @@ export async function createCltConsultJob(input: CreateCltConsultInput) {
 /** Busca um job específico (para checar status) */
 export async function getCltConsultJob(id: number): Promise<CltConsultJobShow> {
   const { data } = await axiosClient.get<CltConsultJobShow>(`${BASE}/${id}`)
+  return data
+}
+
+export async function getCltJobHttpCounters(id: number): Promise<CltJobHttpCountersResponse> {
+  const { data } = await axiosClient.get<CltJobHttpCountersResponse>(`${BASE}/${id}/http-counters`)
   return data
 }
 
