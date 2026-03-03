@@ -70,6 +70,9 @@ return [
         // Checkpoint de progresso da fase 2 (máx. frequência de update no banco).
         'phase2_progress_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_INTERVAL_MS', 20000),
         'phase2_progress_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_EVERY_ROWS', 200),
+        // Persistência incremental da fase 2 para prévia (arquivo delta, sem reescrever spool completo).
+        'phase2_delta_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_INTERVAL_MS', 2000),
+        'phase2_delta_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_EVERY_ROWS', 20),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
@@ -151,7 +154,11 @@ return [
         'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
         // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
         // Mantemos por padrão apenas respostas com erro (>=400).
-        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', true),
+        'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        // Contadores HTTP por job (auditoria por endpoint sem depender de parse de logs).
+        'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', true),
+        'facta_job_http_counters_flush_every' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
+        'facta_job_http_counters_flush_interval_ms' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
         // Log de performance por chunk do job (verbose).
         'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
         // Log periódico de flush de spool (verbose).

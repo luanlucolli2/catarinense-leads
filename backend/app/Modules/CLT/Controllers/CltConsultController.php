@@ -4,13 +4,11 @@ namespace App\Modules\CLT\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\CLT\Jobs\ProcessCltConsultJob;
-use App\Modules\CLT\Jobs\FinalizeCltConsultReportJob;
 use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
 use App\Support\Cpf;
 use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -144,7 +142,7 @@ class CltConsultController extends Controller
         return response()->json([
             'queued' => false,
             'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
-            'message' => 'Prévia espelha o spool no momento da leitura.',
+            'message' => 'Prévia espelha o spool e aplica progresso incremental da fase 2.',
         ], Response::HTTP_OK);
     }
 
@@ -175,8 +173,11 @@ class CltConsultController extends Controller
 
         $withBOM = (bool) config('cltfacta.csv.embed_bom', true);
         $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+        $deltaMap = $this->loadPhase2DeltaMapForPreview($disk, $job->spool_path);
+        $phase2Indexes = !empty($deltaMap) ? $this->phase2PreviewColumnIndexes() : [];
 
-        return response()->streamDownload(function () use ($fh, $withBOM, $finalEol) {
+        return response()->streamDownload(function () use ($fh, $withBOM, $finalEol, $deltaMap, $phase2Indexes) {
+            $out = @fopen('php://output', 'wb');
             try {
                 if ($withBOM) echo "\xEF\xBB\xBF";
 
@@ -190,7 +191,25 @@ class CltConsultController extends Controller
                 fgets($fh);
 
                 // escreve cabeçalho normalizado
-                echo \App\Modules\CLT\Support\CltSchema::headerCsvLine(';') . $finalEol;
+                $canWriteCsv = is_resource($out);
+                if ($canWriteCsv) {
+                    fwrite($out, CltSchema::headerCsvLine(';') . $finalEol);
+                } else {
+                    echo CltSchema::headerCsvLine(';') . $finalEol;
+                }
+
+                if (!empty($deltaMap) && $canWriteCsv) {
+                    $lineNo = 0;
+                    while (($csvRow = fgetcsv($fh, 0, ';')) !== false) {
+                        $lineNo++;
+                        if (isset($deltaMap[$lineNo]) && is_array($deltaMap[$lineNo])) {
+                            $csvRow = $this->applyPhase2PatchToCsvRow($csvRow, $deltaMap[$lineNo], $phase2Indexes);
+                        }
+
+                        fputcsv($out, $csvRow, ';', '"', '\\', $finalEol);
+                    }
+                    return;
+                }
 
                 // Não segura lock aqui para não bloquear o writer do job.
                 while (!feof($fh)) {
@@ -201,6 +220,7 @@ class CltConsultController extends Controller
                     echo $chunk;
                 }
             } finally {
+                if (is_resource($out)) fclose($out);
                 if (is_resource($fh)) fclose($fh);
             }
         }, $filename, $headers);
@@ -268,24 +288,7 @@ class CltConsultController extends Controller
             'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
-        ]);
-
-        try {
-            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
-                $p = $job->{$field};
-                if ($p && $disk->exists($p)) {
-                    $disk->delete($p);
-                }
-            }
-        } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
-        }
-
-        $job->update([
-            'spool_path' => null,
-            'spool_cpfs_path' => null,
-            'spool_bytes' => 0,
+            'finished_at' => now(),
         ]);
 
         return response()->json([
@@ -324,12 +327,7 @@ class CltConsultController extends Controller
         try {
             $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
             $disk = Storage::disk($diskName);
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
-                $p = $job->{$field};
-                if ($p && $disk->exists($p)) {
-                    $disk->delete($p);
-                }
-            }
+            $this->deleteSpoolArtifacts($disk, $job->spool_path, $job->spool_cpfs_path);
         } catch (\Throwable $e) {
             CltLog::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
         }
@@ -434,7 +432,13 @@ class CltConsultController extends Controller
             $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
             $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
             $finalPref = $this->finalPrefix();
-            foreach (["{$dirSpool}/{$finalPref}_{$jobId}.spool.csv", "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt"] as $p) {
+            $spoolPath = "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv";
+            foreach ([
+                $spoolPath,
+                "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt",
+                "{$spoolPath}.phase2.tmp",
+                "{$spoolPath}.phase2.delta.ndjson",
+            ] as $p) {
                 if ($disk->exists($p))
                     $disk->delete($p);
             }
@@ -453,6 +457,127 @@ class CltConsultController extends Controller
             }
         } catch (\Throwable $e) {
             CltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function loadPhase2DeltaMapForPreview($disk, string $spoolPath): array
+    {
+        $deltaPath = "{$spoolPath}.phase2.delta.ndjson";
+        if (!$disk->exists($deltaPath)) {
+            return [];
+        }
+
+        $deltaReal = $disk->path($deltaPath);
+        $fh = @fopen($deltaReal, 'rb');
+        if ($fh === false) {
+            return [];
+        }
+
+        $map = [];
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
+                }
+
+                $decoded = json_decode($line, true);
+                if (!is_array($decoded)) {
+                    continue;
+                }
+
+                $lineNo = (int) ($decoded['l'] ?? 0);
+                if ($lineNo <= 0) {
+                    continue;
+                }
+
+                $map[$lineNo] = [
+                    'ap' => array_key_exists('ap', $decoded) ? $decoded['ap'] : null,
+                    'mg' => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
+                    'vm' => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
+                    'pm' => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
+                ];
+            }
+        } finally {
+            @fclose($fh);
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return array<string,int>
+     */
+    private function phase2PreviewColumnIndexes(): array
+    {
+        static $indexes = null;
+        if (is_array($indexes)) {
+            return $indexes;
+        }
+
+        $lookup = array_flip(CltSchema::COLS);
+        $indexes = [];
+        foreach (
+            [
+                'politicaCreditoAprovado',
+                'politicaCreditoMensagem',
+                'politicaCreditoValorMaximoDisponivel',
+                'politicaCreditoPrazoMaximoDisponivel',
+            ] as $col
+        ) {
+            if (array_key_exists($col, $lookup)) {
+                $indexes[$col] = (int) $lookup[$col];
+            }
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * @param array<int,mixed> $csvRow
+     * @param array<string,mixed> $patch
+     * @param array<string,int> $indexes
+     * @return array<int,mixed>
+     */
+    private function applyPhase2PatchToCsvRow(array $csvRow, array $patch, array $indexes): array
+    {
+        $colsCount = count(CltSchema::COLS);
+        if (count($csvRow) < $colsCount) {
+            $csvRow = array_pad($csvRow, $colsCount, null);
+        }
+
+        if (isset($indexes['politicaCreditoAprovado'])) {
+            $csvRow[$indexes['politicaCreditoAprovado']] = $patch['ap'] ?? null;
+        }
+        if (isset($indexes['politicaCreditoMensagem'])) {
+            $csvRow[$indexes['politicaCreditoMensagem']] = $patch['mg'] ?? null;
+        }
+        if (isset($indexes['politicaCreditoValorMaximoDisponivel'])) {
+            $csvRow[$indexes['politicaCreditoValorMaximoDisponivel']] = $patch['vm'] ?? null;
+        }
+        if (isset($indexes['politicaCreditoPrazoMaximoDisponivel'])) {
+            $csvRow[$indexes['politicaCreditoPrazoMaximoDisponivel']] = $patch['pm'] ?? null;
+        }
+
+        return $csvRow;
+    }
+
+    private function deleteSpoolArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
+    {
+        $targets = [
+            $spoolPath,
+            $cpfsPath,
+            $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
+            $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
+        ];
+
+        foreach ($targets as $target) {
+            if ($target && $disk->exists($target)) {
+                $disk->delete($target);
+            }
         }
     }
 }

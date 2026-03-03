@@ -154,8 +154,14 @@ class FinalizeCltConsultReportJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_cpfs_path'] as $f) {
-                $p = $job->{$f} ?? null;
+            $spoolPath = $job->spool_path ?? null;
+            $targets = [
+                $spoolPath,
+                $job->spool_cpfs_path ?? null,
+                $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
+                $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
+            ];
+            foreach ($targets as $p) {
                 if ($p && $disk->exists($p)) {
                     try {
                         $disk->delete($p);
