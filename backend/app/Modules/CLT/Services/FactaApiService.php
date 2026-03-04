@@ -1345,6 +1345,7 @@ class FactaApiService
         }
 
         $policyCandidates = [];
+        $policyCandidatesByPrazo = [];
         $seenPolicyCandidates = [];
         foreach ($tabelas as $tb) {
             if (!is_array($tb)) {
@@ -1367,10 +1368,18 @@ class FactaApiService
                 'prazo' => $prazo,
                 'valorEmprestimo' => $valorEmprestimo,
             ];
+            $policyCandidatesByPrazo[$prazo][] = [
+                'prazo' => $prazo,
+                'valorEmprestimo' => $valorEmprestimo,
+            ];
         }
 
+        $policyQueue = $policyCandidates;
+        $testedPolicyCandidates = [];
+        $lockedPrazoFromMessage = null;
         $lastMensagem = 'Operação fora da política de crédito.';
-        foreach (array_chunk($policyCandidates, max(1, $this->creditPolicyBatchSize)) as $policyChunk) {
+        while (!empty($policyQueue)) {
+            $policyChunk = array_splice($policyQueue, 0, max(1, $this->creditPolicyBatchSize));
             $policies = $this->consultaAnalisePoliticaCreditoLote(
                 $cpf,
                 $matricula,
@@ -1383,6 +1392,12 @@ class FactaApiService
             foreach ($policyChunk as $idx => $candidate) {
                 $prazo = (int) ($candidate['prazo'] ?? 0);
                 $valorEmprestimo = (string) ($candidate['valorEmprestimo'] ?? '');
+                $candidateKey = $prazo . '|' . $valorEmprestimo;
+                $testedPolicyCandidates[$candidateKey] = true;
+
+                if ($lockedPrazoFromMessage !== null && $prazo !== $lockedPrazoFromMessage) {
+                    continue;
+                }
 
                 $policy = $policies[$idx] ?? $this->policyErrorResult('Sem resposta na análise de política de crédito.', true);
                 if (!($policy['ok'] ?? false)) {
@@ -1401,10 +1416,7 @@ class FactaApiService
                 $policyMensagem = (string) ($policy['mensagem'] ?? '');
                 if (
                     empty($policy['aprovado'])
-                    && (
-                        $this->isPrazoMinimoPolicyApprovalMessage($policyMensagem)
-                        || $this->isValorMaiorPermitido4000PolicyApprovalMessage($policyMensagem)
-                    )
+                    && $this->isValorMaiorPermitido4000PolicyApprovalMessage($policyMensagem)
                 ) {
                     $mensagemAprovadaInternamente = $policyMensagem !== '' ? $policyMensagem : 'Aprovado pela política de crédito.';
                     if (!str_contains($this->normalize($mensagemAprovadaInternamente), 'aprovado internamente')) {
@@ -1434,6 +1446,22 @@ class FactaApiService
                         'http_status' => 200,
                         'retry_after' => null,
                     ];
+                }
+
+                if ($lockedPrazoFromMessage === null && empty($policy['aprovado'])) {
+                    $hintPrazo = $this->extractPrazoFromPolicyMessage($policyMensagem);
+                    if ($hintPrazo !== null) {
+                        $lockedPrazoFromMessage = $hintPrazo;
+                        $filteredQueue = [];
+                        foreach (($policyCandidatesByPrazo[$hintPrazo] ?? []) as $hintCandidate) {
+                            $hintKey = (int) ($hintCandidate['prazo'] ?? 0) . '|' . (string) ($hintCandidate['valorEmprestimo'] ?? '');
+                            if (isset($testedPolicyCandidates[$hintKey])) {
+                                continue;
+                            }
+                            $filteredQueue[] = $hintCandidate;
+                        }
+                        $policyQueue = $filteredQueue;
+                    }
                 }
 
                 $lastMensagem = (string) ($policy['mensagem'] ?? $lastMensagem);
@@ -3681,14 +3709,19 @@ class FactaApiService
             || str_contains($norm, 'não encontrado na base');
     }
 
-    private function isPrazoMinimoPolicyApprovalMessage(string $mensagem): bool
+    private function extractPrazoFromPolicyMessage(string $mensagem): ?int
     {
         $norm = $this->normalize($mensagem);
         if ($norm === '' || !str_contains($norm, 'politica de credito')) {
-            return false;
+            return null;
         }
 
-        return preg_match('/prazo minimo\D*\d+\s*parcelas?/i', $norm) === 1;
+        if (!preg_match('/prazo\s+(?:maximo|minimo)\D*(\d+)\s*parcelas?/i', $norm, $matches)) {
+            return null;
+        }
+
+        $prazo = (int) ($matches[1] ?? 0);
+        return $prazo > 0 ? $prazo : null;
     }
 
     private function isValorMaiorPermitido4000PolicyApprovalMessage(string $mensagem): bool
