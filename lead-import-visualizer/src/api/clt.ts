@@ -194,7 +194,7 @@ export async function downloadCltReport(id: number) {
   })
 
   const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.xlsx`
+  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.csv`
 
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')
@@ -214,7 +214,7 @@ export async function downloadCltPreview(id: number) {
   })
 
   const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}-preview.xlsx`
+  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}-preview.csv`
 
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')

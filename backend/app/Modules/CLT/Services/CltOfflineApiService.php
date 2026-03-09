@@ -25,11 +25,6 @@ class CltOfflineApiService
     private int $httpRetry;
     private int $httpRetryDelayMs;
 
-    /** Segunda rodada opcional (desligada por padrão no OFF) */
-    private bool $httpSecondTry;
-    private int $httpSecondTimeout;
-    private int $httpSecondConnectTimeout;
-
     /** Intervalo mínimo entre requests (ms) exigido pela doc */
     private int $minIntervalMs;
 
@@ -53,10 +48,6 @@ class CltOfflineApiService
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 5);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
-
-        $this->httpSecondTry = (bool) ($http['second_try'] ?? false);
-        $this->httpSecondTimeout = (int) ($http['second_timeout'] ?? 8);
-        $this->httpSecondConnectTimeout = (int) ($http['second_connect_timeout'] ?? 4);
 
         $this->minIntervalMs = (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200);
     }
