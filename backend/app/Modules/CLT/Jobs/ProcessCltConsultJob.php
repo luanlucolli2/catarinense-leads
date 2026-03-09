@@ -30,9 +30,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $jobId;
 
     private string $disk;
-    private string $dirReports;
     private string $dirSpool;
     private string $finalPrefix;
+    private bool $finalizationTriggered = false;
 
     private array $pendFiles = [];
     private $spoolFp = null;
@@ -59,6 +59,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private bool $backoffLog;
     private bool $chunkPerfDebug;
     private bool $flushProgressLog;
+    private float $semResponseChunkThreshold;
+    private int $semResponseChunkCooldownSeconds;
 
     /** Guarda a variante (online|offline) para a regra de snapshot */
     private string $variant = 'online';
@@ -84,7 +86,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
         $this->uniqueFor = max(3600, $this->timeout + 3600);
         $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
-        $this->dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
         $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
         $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
 
@@ -99,6 +100,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->backoffLog = (bool) config('cltfacta.logging.backoff_log', false);
         $this->chunkPerfDebug = (bool) config('cltfacta.logging.chunk_perf_debug', false);
         $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
+        $this->semResponseChunkThreshold = max(0.05, min(1.0, (float) config('cltfacta.job.sem_response_chunk_threshold', 0.5)));
+        $this->semResponseChunkCooldownSeconds = max(0, (int) config('cltfacta.job.sem_response_chunk_cooldown_seconds', 10));
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
         $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
@@ -185,7 +188,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $this->dispatchFinalize('falhou');
                 return;
             }
-            $this->updateTotalsThrottled($job, $job->spool_path, ['total_cpfs' => $uniqueCount], true);
+            $this->updateTotalsThrottled($job, ['total_cpfs' => $uniqueCount], true);
 
             // 1) Classificação inicial
             $pend1Rel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a1.txt";
@@ -249,15 +252,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             if ($invCount > 0) {
                 $this->accFail += $invCount;
-                $this->updateTotalsThrottled($job, $job->spool_path);
+                $this->updateTotalsThrottled($job);
             }
 
             // 2) Teimosinha
             $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
             $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
-            $chunkSize = (int) config('cltfacta.job.chunk', 24);
+            $baseChunkSize = max(1, (int) config('cltfacta.job.chunk', 24));
             $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 8));
             $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
+            $adaptiveChunkSize = $baseChunkSize;
 
             $currPendRel = $pend1Rel;
 
@@ -267,6 +271,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                 if (!$disk->exists($currPendRel) || ((int) $disk->size($currPendRel)) === 0)
                     break;
+
+                $chunkSize = max($minChunk, min($baseChunkSize, $adaptiveChunkSize));
+                $healthyChunkStreak = 0;
+                $chunkRecoverySemRespThreshold = max(0.0, min($this->semResponseChunkThreshold, 0.15));
+                $chunkRecoveryStep = max(1, (int) ceil($baseChunkSize * 0.10));
+                $chunkRecoveryHealthyStreakTarget = 2;
 
                 $nextPendRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pend.a" . ($attempt + 1) . ".txt";
                 $this->pendFiles[] = $nextPendRel;
@@ -280,9 +290,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
                 ftruncate($nf, 0);
 
-                $seen429 = 0;
                 $retryAfterMaxSeen = 0;
-                $successThisAttempt = 0;
                 $semRespTotal = 0;
                 $totalInAttempt = 0;
 
@@ -305,14 +313,120 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                         $buf[] = $cpf;
                         if (count($buf) >= max(1, $chunkSize)) {
-                            $this->processChunk($api, $job, $buf, $nf, $seen429, $retryAfterMaxSeen, $semRespTotal, $totalInAttempt, $successThisAttempt);
+                            $chunkSemResp = 0;
+                            $chunkProcessed = 0;
+                            $this->processChunk(
+                                $api,
+                                $job,
+                                $buf,
+                                $nf,
+                                $retryAfterMaxSeen,
+                                $semRespTotal,
+                                $totalInAttempt,
+                                $chunkSemResp,
+                                $chunkProcessed
+                            );
+
+                            $chunkSemRespRatio = $chunkProcessed > 0 ? ($chunkSemResp / $chunkProcessed) : 0.0;
+                            if ($chunkProcessed > 0 && $chunkSemRespRatio >= $this->semResponseChunkThreshold) {
+                                $previousChunkSize = $chunkSize;
+                                $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
+                                $healthyChunkStreak = 0;
+                                CltLog::warning("[CLT] Job {$this->jobId} – chunk problemático por sem_resposta.", [
+                                    'attempt' => $attempt,
+                                    'chunk_size_before' => $previousChunkSize,
+                                    'chunk_size_after' => $chunkSize,
+                                    'chunk_sem_resposta' => $chunkSemResp,
+                                    'chunk_total' => $chunkProcessed,
+                                    'chunk_sem_resposta_ratio' => round($chunkSemRespRatio, 4),
+                                    'cooldown_seconds' => $this->semResponseChunkCooldownSeconds,
+                                ]);
+
+                                if ($this->semResponseChunkCooldownSeconds > 0) {
+                                    if ($this->cooperativeSleep($this->semResponseChunkCooldownSeconds, $job)) {
+                                        return;
+                                    }
+                                }
+                            } elseif (
+                                $chunkProcessed > 0
+                                && $chunkSize < $baseChunkSize
+                                && $chunkSemRespRatio <= $chunkRecoverySemRespThreshold
+                            ) {
+                                $healthyChunkStreak++;
+                                if ($healthyChunkStreak >= $chunkRecoveryHealthyStreakTarget) {
+                                    $previousChunkSize = $chunkSize;
+                                    $chunkSize = min($baseChunkSize, $chunkSize + $chunkRecoveryStep);
+                                    $healthyChunkStreak = 0;
+
+                                    CltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk.", [
+                                        'attempt' => $attempt,
+                                        'chunk_size_before' => $previousChunkSize,
+                                        'chunk_size_after' => $chunkSize,
+                                        'chunk_sem_resposta_ratio' => round($chunkSemRespRatio, 4),
+                                        'healthy_streak_target' => $chunkRecoveryHealthyStreakTarget,
+                                    ]);
+                                }
+                            } else {
+                                $healthyChunkStreak = 0;
+                            }
+
                             $buf = [];
                             if ($this->chunkDelayMs > 0 && $this->microSleepCoop($this->chunkDelayMs, $job))
                                 return;
                         }
                     }
                     if (!empty($buf)) {
-                        $this->processChunk($api, $job, $buf, $nf, $seen429, $retryAfterMaxSeen, $semRespTotal, $totalInAttempt, $successThisAttempt);
+                        $chunkSemResp = 0;
+                        $chunkProcessed = 0;
+                        $this->processChunk(
+                            $api,
+                            $job,
+                            $buf,
+                            $nf,
+                            $retryAfterMaxSeen,
+                            $semRespTotal,
+                            $totalInAttempt,
+                            $chunkSemResp,
+                            $chunkProcessed
+                        );
+
+                        $chunkSemRespRatio = $chunkProcessed > 0 ? ($chunkSemResp / $chunkProcessed) : 0.0;
+                        if ($chunkProcessed > 0 && $chunkSemRespRatio >= $this->semResponseChunkThreshold) {
+                            $previousChunkSize = $chunkSize;
+                            $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
+                            $healthyChunkStreak = 0;
+                            CltLog::warning("[CLT] Job {$this->jobId} – chunk final problemático por sem_resposta.", [
+                                'attempt' => $attempt,
+                                'chunk_size_before' => $previousChunkSize,
+                                'chunk_size_after' => $chunkSize,
+                                'chunk_sem_resposta' => $chunkSemResp,
+                                'chunk_total' => $chunkProcessed,
+                                'chunk_sem_resposta_ratio' => round($chunkSemRespRatio, 4),
+                                'cooldown_applied' => false,
+                            ]);
+                        } elseif (
+                            $chunkProcessed > 0
+                            && $chunkSize < $baseChunkSize
+                            && $chunkSemRespRatio <= $chunkRecoverySemRespThreshold
+                        ) {
+                            $healthyChunkStreak++;
+                            if ($healthyChunkStreak >= $chunkRecoveryHealthyStreakTarget) {
+                                $previousChunkSize = $chunkSize;
+                                $chunkSize = min($baseChunkSize, $chunkSize + $chunkRecoveryStep);
+                                $healthyChunkStreak = 0;
+
+                                CltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk (final).", [
+                                    'attempt' => $attempt,
+                                    'chunk_size_before' => $previousChunkSize,
+                                    'chunk_size_after' => $chunkSize,
+                                    'chunk_sem_resposta_ratio' => round($chunkSemRespRatio, 4),
+                                    'healthy_streak_target' => $chunkRecoveryHealthyStreakTarget,
+                                ]);
+                            }
+                        } else {
+                            $healthyChunkStreak = 0;
+                        }
+
                         $buf = [];
                         if ($this->chunkDelayMs > 0 && $this->microSleepCoop($this->chunkDelayMs, $job))
                             return;
@@ -324,14 +438,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 $semRespRatio = $totalInAttempt > 0 ? ($semRespTotal / $totalInAttempt) : 0.0;
-                if ($semRespRatio >= 0.50 && $chunkSize > $minChunk) {
-                    $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    CltLog::warning("[CLT] Job {$this->jobId} – degradado por sem_resposta, chunk={$chunkSize}.");
-                }
-                if ($seen429 > 0 && $chunkSize > $minChunk) {
-                    $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
-                    CltLog::warning("[CLT] Job {$this->jobId} – 429 vistos, chunk={$chunkSize}.");
-                }
+                $adaptiveChunkSize = max($minChunk, min($baseChunkSize, $chunkSize));
 
                 if ($attempt < $maxAttempts && $disk->exists($nextPendRel) && ((int) $disk->size($nextPendRel)) > 0) {
                     $baseRetryAfter = $retryAfterMaxSeen > 0 ? min($retryAfterMaxSeen, $retryAfterCap) : 0;
@@ -405,9 +512,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
             }
 
-            $this->updateTotalsThrottled($job, $job->spool_path, [], true);
+            $this->updateTotalsThrottled($job, [], true);
 
-            // A fase 2 reescreve o spool por rodada; fecha o append writer antes.
+            // A fase 2 trabalha com delta incremental e consolida no spool ao final.
+            // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
             if (
                 $this->variant === 'online'
@@ -437,7 +545,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     ]);
                 }
             }
-            $this->flushPhase2DeltaBuffer(true);
+            if (!$this->finalizationTriggered) {
+                $this->flushPhase2DeltaBuffer(true);
+            } else {
+                $this->phase2DeltaBuffer = [];
+            }
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);
                 @fclose($this->spoolFp);
@@ -451,14 +563,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         CltConsultJob $job,
         array $chunkCpfs,
         $nextPendHandle,
-        int &$seen429InAttempt,
         int &$retryAfterMaxSeen,
         int &$semRespTotal,
         int &$totalInAttempt,
-        int &$successThisAttempt
+        int &$semRespInChunkOut,
+        int &$chunkProcessedOut
     ): void {
         $t0 = microtime(true);
         $chunkCount = count($chunkCpfs);
+        $semRespInChunkOut = 0;
+        $chunkProcessedOut = $chunkCount;
 
         $micro = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
@@ -470,9 +584,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $ineligibleInChunk = 0;
         $notFoundInChunk = 0;
         $failTermInChunk = 0;
-        $retriableInChunk = 0;
         $semRespInChunk = 0;
-        $http429InChunk = 0;
 
         // CORREÇÃO: Força o timezone BR (America/Sao_Paulo) explicitamente.
         // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
@@ -491,9 +603,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     fwrite($nextPendHandle, $cpf . "\n");
                 }
                 $semRespTotal += count($slice);
-                $totalInAttempt += count($slice);
                 $semRespInChunk += count($slice);
-                $retriableInChunk += count($slice);
                 if ($this->subchunkDelayMs > 0 && $this->microSleepCoop($this->subchunkDelayMs, $job))
                     return;
                 continue;
@@ -511,10 +621,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ];
 
                 $http = $res['http_status'] ?? null;
-                if ($http === 429) {
-                    $http429InChunk++;
-                    $seen429InAttempt++;
-                }
                 if ($http === null) {
                     $semRespInChunk++;
                     $semRespTotal++;
@@ -634,7 +740,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     } else {
                         $ineligibleInChunk++;
                     }
-                    $successThisAttempt++;
                 } else {
                     $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
 
@@ -661,7 +766,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $failTermInChunk++;
                     } else {
                         fwrite($nextPendHandle, $cpf . "\n");
-                        $retriableInChunk++;
                     }
                 }
 
@@ -700,8 +804,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->accFail += $failTermInChunk;
 
         // Fase 1: persistir progresso no fim de cada chunk (sem depender da janela temporal).
-        $this->updateTotalsThrottled($job, $job->spool_path, [], true);
+        $this->updateTotalsThrottled($job, [], true);
         $totalInAttempt += $chunkCount;
+        $semRespInChunkOut = $semRespInChunk;
 
         if ($this->chunkPerfDebug) {
             $elapsed = microtime(true) - $t0;
@@ -774,10 +879,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         // apenas flush por tempo/force (nenhum contador de linhas)
-        $this->updateTotalsThrottled($job, $job->spool_path);
+        $this->updateTotalsThrottled($job);
     }
 
-    private function updateTotalsThrottled(CltConsultJob $job, string $spoolRel, array $extra = [], bool $force = false): void
+    private function updateTotalsThrottled(CltConsultJob $job, array $extra = [], bool $force = false): void
     {
         $now = microtime(true);
 
@@ -1055,66 +1160,69 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
             unset($row);
 
-            $existing = DB::table('clt_snapshots')
-                ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->select('cpf', 'updated_at', 'not_found')
-                ->get()
-                ->keyBy('cpf');
-
-            $toUpsert = [];
             $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
             $isOnline = ($this->variant === 'online');
 
-            foreach ($payload as $row) {
-                $cpf = $row['cpf'];
-                $srcUpdated = $row['_src_updated_at'] ?? null;
-                $rowExists = $existing->has($cpf);
-                $existingRow = $rowExists ? $existing[$cpf] : null;
-
-                $existingUpdated = null;
-                if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
-                    $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
-                }
-
-                $incomingNotFound = (bool) ($row['not_found'] ?? false);
-
-                unset($row['_src_updated_at']);
-
-                if ($isOnline) {
+            $toUpsert = [];
+            if ($isOnline) {
+                foreach ($payload as $row) {
+                    $srcUpdated = $row['_src_updated_at'] ?? null;
+                    unset($row['_src_updated_at']);
                     $row['job_id'] = $this->jobId;
                     $row['updated_at'] = $srcUpdated ?? $nowUtc;
                     $row['consulted_at'] = $nowUtc;
                     $toUpsert[] = $row;
-                    continue;
                 }
+            } else {
+                $existing = DB::table('clt_snapshots')
+                    ->whereIn('cpf', array_values(array_unique($cpfs)))
+                    ->select('cpf', 'updated_at', 'not_found')
+                    ->get()
+                    ->keyBy('cpf');
 
-                if ($incomingNotFound) {
-                    if ($rowExists) {
+                foreach ($payload as $row) {
+                    $cpf = $row['cpf'];
+                    $srcUpdated = $row['_src_updated_at'] ?? null;
+                    $rowExists = $existing->has($cpf);
+                    $existingRow = $rowExists ? $existing[$cpf] : null;
+
+                    $existingUpdated = null;
+                    if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
+                        $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
+                    }
+
+                    $incomingNotFound = (bool) ($row['not_found'] ?? false);
+
+                    unset($row['_src_updated_at']);
+
+                    if ($incomingNotFound) {
+                        if ($rowExists) {
+                            continue;
+                        }
+                        $row['job_id'] = $this->jobId;
+                        $row['updated_at'] = $nowUtc;
+                        $row['consulted_at'] = $nowUtc;
+                        $toUpsert[] = $row;
                         continue;
                     }
-                    $row['job_id'] = $this->jobId;
-                    $row['updated_at'] = $nowUtc;
-                    $row['consulted_at'] = $nowUtc;
-                    $toUpsert[] = $row;
-                    continue;
-                }
 
-                if (!$rowExists) {
-                    $row['job_id'] = $this->jobId;
-                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
-                    $row['consulted_at'] = $nowUtc;
-                    $toUpsert[] = $row;
-                    continue;
-                }
+                    if (!$rowExists) {
+                        $row['job_id'] = $this->jobId;
+                        $row['updated_at'] = $srcUpdated ?? $nowUtc;
+                        $row['consulted_at'] = $nowUtc;
+                        $toUpsert[] = $row;
+                        continue;
+                    }
 
-                if ($srcUpdated === null) {
-                    continue;
-                }
-                if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
-                    $row['job_id'] = $this->jobId;
-                    $row['updated_at'] = $srcUpdated;
-                    $row['consulted_at'] = $nowUtc;
-                    $toUpsert[] = $row;
+                    if ($srcUpdated === null) {
+                        continue;
+                    }
+                    if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
+                        $row['job_id'] = $this->jobId;
+                        $row['updated_at'] = $srcUpdated;
+                        $row['consulted_at'] = $nowUtc;
+                        $toUpsert[] = $row;
+                    }
                 }
             }
 
@@ -1286,14 +1394,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             );
             $this->flushPhase2DeltaBuffer(true);
 
-            $this->updateTotalsThrottled($job, $job->spool_path, [], true);
+            $this->updateTotalsThrottled($job, [], true);
 
             if ($pendingCount === 0) {
+                if (!$this->applyPhase2DeltaToSpool($job)) {
+                    return false;
+                }
                 $this->removePhaseTwoDeltaFile();
                 return true;
             }
 
             if ($attempt >= $this->phase2MaxAttempts) {
+                if (!$this->applyPhase2DeltaToSpool($job)) {
+                    return false;
+                }
                 $this->removePhaseTwoDeltaFile();
                 return true;
             }
@@ -1324,8 +1438,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         int $baseNotApprovedCount
     ): array {
         $sourceReal = $this->spoolReal;
-        $tmpReal = $sourceReal . '.phase2.tmp';
-        $cleanupTmp = true;
         $pendingLines = [];
         $processedRows = 0;
         $skippedRows = 0;
@@ -1357,29 +1469,51 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
+        $in = @fopen($sourceReal, 'rb');
+        if (!is_resource($in)) {
+            throw new \RuntimeException("Falha ao abrir spool da fase 2 (job {$this->jobId}).");
+        }
+
         try {
-            $in = @fopen($sourceReal, 'rb');
-            $out = @fopen($tmpReal, 'wb');
-            if (!is_resource($in) || !is_resource($out)) {
-                if (is_resource($in)) {
-                    @fclose($in);
+            // Descarta cabeçalho.
+            fgetcsv($in, 0, ';');
+
+            $lineNo = 0;
+            while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
+                $lineNo++;
+
+                if ($this->finishIfStopped($job)) {
+                    return [
+                        'aborted' => true,
+                        'pending_lines' => [],
+                        'processed_rows' => $processedRows,
+                        'skipped_rows' => $skippedRows,
+                        'resolved_approved' => $resolvedApprovedRows,
+                        'resolved_not_approved' => $resolvedNotApprovedRows,
+                    ];
                 }
-                if (is_resource($out)) {
-                    @fclose($out);
+
+                $row = $this->csvToAssocRow($csvRow);
+                $lineSelected = true;
+                if (is_array($targetLineNumbers)) {
+                    while ($targetIdx < $targetCount && $targetLineNumbers[$targetIdx] < $lineNo) {
+                        $targetIdx++;
+                    }
+                    $lineSelected = $targetIdx < $targetCount && $targetLineNumbers[$targetIdx] === $lineNo;
                 }
-                throw new \RuntimeException("Falha ao preparar streams da fase 2 (job {$this->jobId}).");
-            }
 
-            try {
-                // Descarta cabeçalho anterior e escreve cabeçalho canônico.
-                fgetcsv($in, 0, ';');
-                fputcsv($out, CltSchema::TITLES, ';');
+                $shouldProcess = $this->shouldProcessCreditPhaseRow($row) && $lineSelected;
+                if (is_array($targetLineNumbers) && $lineSelected) {
+                    $targetIdx++;
+                }
 
-                $lineNo = 0;
-                while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
-                    $lineNo++;
+                if ($shouldProcess) {
+                    $processedRows++;
+                    $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
+                    $row = $creditOutcome['row'];
+                    $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
-                    if ($this->finishIfStopped($job)) {
+                    if (($creditOutcome['aborted'] ?? false) === true) {
                         return [
                             'aborted' => true,
                             'pending_lines' => [],
@@ -1390,84 +1524,41 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         ];
                     }
 
-                    $row = $this->csvToAssocRow($csvRow);
-                    $lineSelected = true;
-                    if (is_array($targetLineNumbers)) {
-                        while ($targetIdx < $targetCount && $targetLineNumbers[$targetIdx] < $lineNo) {
-                            $targetIdx++;
-                        }
-                        $lineSelected = $targetIdx < $targetCount && $targetLineNumbers[$targetIdx] === $lineNo;
-                    }
-
-                    $shouldProcess = $this->shouldProcessCreditPhaseRow($row) && $lineSelected;
-                    if (is_array($targetLineNumbers) && $lineSelected) {
-                        $targetIdx++;
-                    }
-
-                    if ($shouldProcess) {
-                        $processedRows++;
-                        $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
-                        $row = $creditOutcome['row'];
-                        $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
-
-                        if (($creditOutcome['aborted'] ?? false) === true) {
-                            return [
-                                'aborted' => true,
-                                'pending_lines' => [],
-                                'processed_rows' => $processedRows,
-                                'skipped_rows' => $skippedRows,
-                                'resolved_approved' => $resolvedApprovedRows,
-                                'resolved_not_approved' => $resolvedNotApprovedRows,
-                            ];
-                        }
-
-                        if (!empty($creditOutcome['pending'])) {
-                            $pendingLines[] = $lineNo;
-                        } else {
-                            if ($this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)) {
-                                $resolvedApprovedRows++;
-                            } else {
-                                $resolvedNotApprovedRows++;
-                            }
-                        }
+                    if (!empty($creditOutcome['pending'])) {
+                        $pendingLines[] = $lineNo;
                     } else {
-                        $skippedRows++;
-                    }
-
-                    fputcsv($out, $this->assocToCsvRow($row), ';');
-
-                    if ($shouldProcess) {
-                        $approvedEstimate = max(0, $baseApprovedCount + $resolvedApprovedRows);
-                        $notApprovedEstimate = max(0, $baseNotApprovedCount + $resolvedNotApprovedRows);
-                        $elapsedSinceFlushMs = $this->lastPhase2ProgressFlushAt > 0
-                            ? (int) ((microtime(true) - $this->lastPhase2ProgressFlushAt) * 1000)
-                            : PHP_INT_MAX;
-                        $shouldCheckpoint =
-                            ($processedRows % $this->phase2ProgressFlushEveryRows === 0)
-                            || $elapsedSinceFlushMs >= $this->phase2ProgressFlushIntervalMs;
-
-                        if ($shouldCheckpoint) {
-                            $this->flushPhaseTwoProgress(
-                                $job,
-                                $attempt,
-                                $phase2Total,
-                                $approvedEstimate,
-                                $notApprovedEstimate,
-                                false
-                            );
+                        if ($this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)) {
+                            $resolvedApprovedRows++;
+                        } else {
+                            $resolvedNotApprovedRows++;
                         }
+                    }
+                } else {
+                    $skippedRows++;
+                }
+
+                if ($shouldProcess) {
+                    $approvedEstimate = max(0, $baseApprovedCount + $resolvedApprovedRows);
+                    $notApprovedEstimate = max(0, $baseNotApprovedCount + $resolvedNotApprovedRows);
+                    $elapsedSinceFlushMs = $this->lastPhase2ProgressFlushAt > 0
+                        ? (int) ((microtime(true) - $this->lastPhase2ProgressFlushAt) * 1000)
+                        : PHP_INT_MAX;
+                    $shouldCheckpoint =
+                        ($processedRows % $this->phase2ProgressFlushEveryRows === 0)
+                        || $elapsedSinceFlushMs >= $this->phase2ProgressFlushIntervalMs;
+
+                    if ($shouldCheckpoint) {
+                        $this->flushPhaseTwoProgress(
+                            $job,
+                            $attempt,
+                            $phase2Total,
+                            $approvedEstimate,
+                            $notApprovedEstimate,
+                            false
+                        );
                     }
                 }
-            } finally {
-                @fflush($out);
-                @fclose($in);
-                @fclose($out);
             }
-
-            if (!@rename($tmpReal, $sourceReal)) {
-                throw new \RuntimeException("Falha ao promover spool da fase 2 (job {$this->jobId}).");
-            }
-            $cleanupTmp = false;
 
             return [
                 'aborted' => false,
@@ -1478,11 +1569,125 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'resolved_not_approved' => $resolvedNotApprovedRows,
             ];
         } finally {
+            @fclose($in);
             $this->flushPhase2DeltaBuffer(true);
+        }
+    }
+
+    /**
+     * Consolida os patches incrementais da fase 2 no spool em uma única passada.
+     * Isso evita rewrite completo do spool a cada tentativa.
+     */
+    private function applyPhase2DeltaToSpool(CltConsultJob $job): bool
+    {
+        $this->flushPhase2DeltaBuffer(true);
+        if ($this->phase2DeltaReal === '' || !is_file($this->phase2DeltaReal)) {
+            return true;
+        }
+
+        $patches = $this->loadPhase2DeltaMapFromFile($this->phase2DeltaReal);
+        if (empty($patches)) {
+            return true;
+        }
+
+        $sourceReal = $this->spoolReal;
+        $tmpReal = $sourceReal . '.phase2.tmp';
+        $cleanupTmp = true;
+
+        try {
+            $in = @fopen($sourceReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if (!is_resource($in) || !is_resource($out)) {
+                if (is_resource($in)) {
+                    @fclose($in);
+                }
+                if (is_resource($out)) {
+                    @fclose($out);
+                }
+                throw new \RuntimeException("Falha ao preparar streams para consolidar fase 2 (job {$this->jobId}).");
+            }
+
+            try {
+                fgetcsv($in, 0, ';');
+                fputcsv($out, CltSchema::TITLES, ';');
+
+                $lineNo = 0;
+                while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
+                    $lineNo++;
+                    if ($this->finishIfStopped($job)) {
+                        return false;
+                    }
+
+                    $row = $this->csvToAssocRow($csvRow);
+                    if (isset($patches[$lineNo]) && is_array($patches[$lineNo])) {
+                        $patch = $patches[$lineNo];
+                        $row['politicaCreditoAprovado'] = $patch['ap'] ?? null;
+                        $row['politicaCreditoMensagem'] = $patch['mg'] ?? null;
+                        $row['politicaCreditoValorMaximoDisponivel'] = $patch['vm'] ?? null;
+                        $row['politicaCreditoPrazoMaximoDisponivel'] = $patch['pm'] ?? null;
+                    }
+
+                    fputcsv($out, $this->assocToCsvRow($row), ';');
+                }
+            } finally {
+                @fflush($out);
+                @fclose($in);
+                @fclose($out);
+            }
+
+            if (!@rename($tmpReal, $sourceReal)) {
+                throw new \RuntimeException("Falha ao promover spool consolidado da fase 2 (job {$this->jobId}).");
+            }
+
+            $cleanupTmp = false;
+            return true;
+        } finally {
             if ($cleanupTmp && is_file($tmpReal)) {
                 @unlink($tmpReal);
             }
         }
+    }
+
+    /**
+     * @return array<int,array{ap:mixed,mg:mixed,vm:mixed,pm:mixed}>
+     */
+    private function loadPhase2DeltaMapFromFile(string $deltaReal): array
+    {
+        $fh = @fopen($deltaReal, 'rb');
+        if (!is_resource($fh)) {
+            return [];
+        }
+
+        $map = [];
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
+                }
+
+                $decoded = json_decode($line, true);
+                if (!is_array($decoded)) {
+                    continue;
+                }
+
+                $lineNo = (int) ($decoded['l'] ?? 0);
+                if ($lineNo <= 0) {
+                    continue;
+                }
+
+                $map[$lineNo] = [
+                    'ap' => array_key_exists('ap', $decoded) ? $decoded['ap'] : null,
+                    'mg' => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
+                    'vm' => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
+                    'pm' => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
+                ];
+            }
+        } finally {
+            @fclose($fh);
+        }
+
+        return $map;
     }
 
     private function countPhaseTwoEligibleRows(CltConsultJob $job): int
@@ -1776,15 +1981,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true;
         }
 
-        if ($status !== 'em_progresso') {
-            DB::table('clt_consult_jobs')
-                ->where('id', $job->id)
-                ->whereNotIn('status', ['cancelado', 'concluido', 'falhou'])
-                ->update(['status' => 'em_progresso']);
-            $this->cachedStatus = 'em_progresso';
-            $this->lastStatusCheckAt = microtime(true);
-        }
-
         return false;
     }
 
@@ -1882,7 +2078,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($cpf === '' || strlen($cpf) !== 11)
                     continue;
                 $block[$cpf] = true;
-                if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
+                if (count($block) >= $blockSize || $this->shouldSpill()) {
                     $chunks[] = $this->writeSortedChunk($block); // retorna caminho REAL
                     $block = [];
                 }
@@ -1999,10 +2195,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $real; // sempre REAL
     }
 
-    private function shouldSpill(int $currentCount): bool
+    private function shouldSpill(): bool
     {
-        if ($currentCount <= 0)
-            return false;
         $limit = $this->memoryLimitBytes();
         if ($limit <= 0)
             return false;
@@ -2123,6 +2317,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function dispatchFinalize(string $targetStatus): void
     {
+        $this->finalizationTriggered = true;
+        // Garante persistir deltas pendentes antes da limpeza final e evita recriação no finally.
+        $this->flushPhase2DeltaBuffer(true);
+
         $queue = (string) config('cltfacta.preview.queue', 'reports');
         $inline = (bool) config('cltfacta.preview.inline', true);
 

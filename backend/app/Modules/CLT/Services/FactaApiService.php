@@ -1522,7 +1522,6 @@ class FactaApiService
 
         try {
             $resp = $doRequest();
-            $this->logOperacoesDisponiveisResponse($resp, $cpf, 'initial', 1);
 
             if ($resp->status() === 401) {
                 Cache::forget('facta_token');
@@ -1530,7 +1529,6 @@ class FactaApiService
                 $token = $this->getTokenWithBackoff('operacoes-disponiveis:refresh_401');
 
                 $resp = $doRequest();
-                $this->logOperacoesDisponiveisResponse($resp, $cpf, 'after_401_refresh', 1);
             }
 
             if ($this->httpRateLimitImmediateRetry && $this->httpRateLimitMaxRetries > 0) {
@@ -1548,7 +1546,6 @@ class FactaApiService
                     );
 
                     $resp = $doRequest();
-                    $this->logOperacoesDisponiveisResponse($resp, $cpf, 'after_429_backoff', $rlAttempt);
 
                     if ($resp->status() === 401) {
                         Cache::forget('facta_token');
@@ -1556,7 +1553,6 @@ class FactaApiService
                         $token = $this->getTokenWithBackoff('operacoes-disponiveis:refresh_401_after_429');
 
                         $resp = $doRequest();
-                        $this->logOperacoesDisponiveisResponse($resp, $cpf, 'after_429_backoff_401_refresh', $rlAttempt);
                     }
                 }
             }
@@ -1578,122 +1574,6 @@ class FactaApiService
             ];
         } finally {
             $this->flushPreAuthGrantPersistQueue();
-        }
-    }
-
-    private function consultaAnalisePoliticaCredito(
-        string $cpf,
-        string $matricula,
-        string $dataNascimento,
-        string $dataAdmissao,
-        int $prazo,
-        string $valorEmprestimo,
-        string &$token
-    ): array {
-        $params = [
-            'cpf' => $cpf,
-            'matricula' => $matricula,
-            'dataNascimento' => $dataNascimento,
-            'dataAdmissao' => $dataAdmissao,
-            'prazo' => $prazo,
-            'valorEmprestimo' => $valorEmprestimo,
-        ];
-
-        $doRequest = function () use (&$token, $params) {
-            $this->waitForFactaRateLimit();
-            $this->trackHttpRequest('/consignado-trabalhador/analise-politica-credito');
-            try {
-                $resp = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $token,
-                    'Accept' => 'application/json',
-                ])
-                    ->timeout($this->httpTimeout)
-                    ->connectTimeout($this->httpConnectTimeout)
-                    ->get($this->baseUrl . '/consignado-trabalhador/analise-politica-credito', $params);
-                $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
-
-                return $resp;
-            } catch (Throwable $e) {
-                $this->trackHttpException('/consignado-trabalhador/analise-politica-credito', $e);
-                $this->trackNoResponse('/consignado-trabalhador/analise-politica-credito', 1);
-                throw $e;
-            }
-        };
-
-        try {
-            $resp = $doRequest();
-            $this->logAnalisePoliticaCreditoResponse($resp, $cpf, 'initial', 1, $prazo, $valorEmprestimo);
-
-            if ($resp->status() === 401) {
-                Cache::forget('facta_token');
-                $this->clearPreAuthGrantCache();
-                $token = $this->getTokenWithBackoff('analise-politica-credito:refresh_401');
-
-                $resp = $doRequest();
-                $this->logAnalisePoliticaCreditoResponse($resp, $cpf, 'after_401_refresh', 1, $prazo, $valorEmprestimo);
-            }
-
-            if ($this->httpRateLimitImmediateRetry && $this->httpRateLimitMaxRetries > 0) {
-                for ($rlAttempt = 1; $resp->status() === 429 && $rlAttempt <= $this->httpRateLimitMaxRetries; $rlAttempt++) {
-                    $retryAfter = $this->getRetryAfterSeconds($resp);
-                    if (!$this->shouldRetry429Immediately($retryAfter)) {
-                        break;
-                    }
-
-                    $this->sleepBeforeImmediate429Retry(
-                        'consignado-trabalhador/analise-politica-credito',
-                        $retryAfter,
-                        $cpf,
-                        $rlAttempt
-                    );
-
-                    $resp = $doRequest();
-                    $this->logAnalisePoliticaCreditoResponse(
-                        $resp,
-                        $cpf,
-                        'after_429_backoff',
-                        $rlAttempt,
-                        $prazo,
-                        $valorEmprestimo
-                    );
-
-                    if ($resp->status() === 401) {
-                        Cache::forget('facta_token');
-                        $this->clearPreAuthGrantCache();
-                        $token = $this->getTokenWithBackoff('analise-politica-credito:refresh_401_after_429');
-
-                        $resp = $doRequest();
-                        $this->logAnalisePoliticaCreditoResponse(
-                            $resp,
-                            $cpf,
-                            'after_429_backoff_401_refresh',
-                            $rlAttempt,
-                            $prazo,
-                            $valorEmprestimo
-                        );
-                    }
-                }
-            }
-
-            return $this->parseAnalisePoliticaCreditoResponse($resp);
-        } catch (Throwable $e) {
-            $this->logRequestException('/consignado-trabalhador/analise-politica-credito', $e, [
-                'cpf' => $cpf,
-                'stage' => 'request_exception',
-                'attempt' => 1,
-                'prazo' => $prazo,
-                'valor_emprestimo' => $valorEmprestimo,
-            ]);
-            return [
-                'ok' => false,
-                'aprovado' => false,
-                'mensagem' => 'Exceção na análise de política de crédito: ' . $e->getMessage(),
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => true,
-                'http_status' => null,
-                'retry_after' => null,
-            ];
         }
     }
 
@@ -1967,15 +1847,6 @@ class FactaApiService
                 if ($resp instanceof HttpResponse) {
                     $this->trackHttpResponse('/consignado-trabalhador/analise-politica-credito', $resp);
 
-                    $this->logAnalisePoliticaCreditoResponse(
-                        $resp,
-                        $cpf,
-                        $stage,
-                        $attempt,
-                        (int) $entry['prazo'],
-                        (string) $entry['valorEmprestimo']
-                    );
-
                     $out[(int) $entry['idx']] = $resp;
                     continue;
                 }
@@ -2171,23 +2042,6 @@ class FactaApiService
         ];
     }
 
-    private function logOperacoesDisponiveisResponse(HttpResponse $resp, string $cpf, string $stage, int $attempt): void
-    {
-        return;
-    }
-
-    private function logAnalisePoliticaCreditoResponse(
-        HttpResponse $resp,
-        string $cpf,
-        string $stage,
-        int $attempt,
-        int $prazo,
-        string $valorEmprestimo
-    ): void {
-        return;
-    }
-
-
     /** --------- Helpers --------- */
 
     /**
@@ -2361,6 +2215,9 @@ class FactaApiService
         string $reason = 'transient'
     ): void {
         $baseSeconds = max(1, $this->httpTransientPauseSeconds);
+        if ($endpoint === 'autoriza-consulta' && $reason === 'missing_pool') {
+            $baseSeconds = max($baseSeconds, 10);
+        }
         $pauseSeconds = $baseSeconds;
 
         if ($retryAfterSeconds !== null && $retryAfterSeconds > 0) {

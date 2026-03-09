@@ -32,7 +32,6 @@ return [
         'connect_timeout'         => (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10),
         'retry'                   => (int) env('CLT_HTTP_RETRY', 1),
         'retry_delay_ms'          => (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
-        'transient_retry_delay_ms' => (int) env('CLT_HTTP_TRANSIENT_RETRY_DELAY_MS', 3000),
         'transient_pause_seconds' => (int) env('CLT_HTTP_TRANSIENT_PAUSE_SECONDS', 3),
         'second_try'              => (bool) env('CLT_HTTP_SECOND_TRY', true),
         'second_timeout'          => (int) env('CLT_HTTP_TIMEOUT_SECOND', 10),
@@ -105,6 +104,9 @@ return [
         'chunk'               => (int) env('CLT_HTTP_CHUNK', 24),
         'min_chunk'           => (int) env('CLT_HTTP_MIN_CHUNK', 8),
         'retry_after_max'     => (int) env('CLT_HTTP_RETRY_AFTER_MAX', 120),
+        // Degradação imediata por chunk quando sem resposta ficar alto (fase 1).
+        'sem_response_chunk_threshold' => (float) env('CLT_JOB_SEM_RESPONSE_CHUNK_THRESHOLD', 0.50),
+        'sem_response_chunk_cooldown_seconds' => (int) env('CLT_JOB_SEM_RESPONSE_CHUNK_COOLDOWN_SECONDS', 10),
         'chunk_delay_ms'      => (int) env('CLT_JOB_CHUNK_DELAY_MS', 80),
         'subchunk'            => (int) env('CLT_JOB_SUBCHUNK', 24),
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 0),
@@ -122,6 +124,9 @@ return [
         'queue' => env('CLT_PREVIEW_QUEUE', 'reports'),
         // Evita depender de outro worker para promover o CSV final quando o spool está em disco local.
         'inline' => (bool) env('CLT_PREVIEW_INLINE', true),
+        // Proteção de memória/CPU na prévia da fase 2 (overlay delta em memória).
+        'phase2_delta_preview_max_bytes' => (int) env('CLT_PREVIEW_PHASE2_DELTA_MAX_BYTES', 8388608),
+        'phase2_delta_preview_max_rows' => (int) env('CLT_PREVIEW_PHASE2_DELTA_MAX_ROWS', 60000),
     ],
 
     // ===== STORAGE =====

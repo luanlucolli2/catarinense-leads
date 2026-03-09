@@ -175,7 +175,9 @@ class CltConsultController extends Controller
 
         $withBOM = (bool) config('cltfacta.csv.embed_bom', true);
         $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
-        $deltaMap = $this->loadPhase2DeltaMapForPreview($disk, $job->spool_path);
+        $deltaMap = $this->shouldApplyPhase2DeltaForPreview($job)
+            ? $this->loadPhase2DeltaMapForPreview($disk, $job->spool_path)
+            : [];
         $phase2Indexes = !empty($deltaMap) ? $this->phase2PreviewColumnIndexes() : [];
 
         return response()->streamDownload(function () use ($fh, $withBOM, $finalEol, $deltaMap, $phase2Indexes) {
@@ -579,8 +581,15 @@ class CltConsultController extends Controller
         }
     }
 
+    private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
+    {
+        return $job->variant === 'online'
+            && in_array($job->status, ['pendente', 'em_progresso', 'cancelado', 'falhou'], true)
+            && !empty($job->spool_path);
+    }
+
     /**
-     * @return array<int,array<string,mixed>>
+     * @return array<int,array<int,mixed>>
      */
     private function loadPhase2DeltaMapForPreview($disk, string $spoolPath): array
     {
@@ -590,12 +599,22 @@ class CltConsultController extends Controller
         }
 
         $deltaReal = $disk->path($deltaPath);
+        $maxBytes = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_bytes', 6291456));
+        if ($maxBytes > 0) {
+            $deltaBytes = @filesize($deltaReal);
+            if (is_int($deltaBytes) && $deltaBytes > $maxBytes) {
+                return [];
+            }
+        }
+
         $fh = @fopen($deltaReal, 'rb');
         if ($fh === false) {
             return [];
         }
 
+        $maxRows = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_rows', 50000));
         $map = [];
+        $mapRows = 0;
         try {
             while (($line = fgets($fh)) !== false) {
                 $line = trim($line);
@@ -613,12 +632,20 @@ class CltConsultController extends Controller
                     continue;
                 }
 
+                $isNewLinePatch = !isset($map[$lineNo]);
                 $map[$lineNo] = [
-                    'ap' => array_key_exists('ap', $decoded) ? $decoded['ap'] : null,
-                    'mg' => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
-                    'vm' => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
-                    'pm' => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
+                    0 => array_key_exists('ap', $decoded) ? $decoded['ap'] : null,
+                    1 => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
+                    2 => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
+                    3 => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
                 ];
+                if ($isNewLinePatch) {
+                    $mapRows++;
+                }
+
+                if ($maxRows > 0 && $mapRows > $maxRows) {
+                    return [];
+                }
             }
         } finally {
             @fclose($fh);
@@ -657,7 +684,7 @@ class CltConsultController extends Controller
 
     /**
      * @param array<int,mixed> $csvRow
-     * @param array<string,mixed> $patch
+     * @param array<int,mixed> $patch
      * @param array<string,int> $indexes
      * @return array<int,mixed>
      */
@@ -669,16 +696,16 @@ class CltConsultController extends Controller
         }
 
         if (isset($indexes['politicaCreditoAprovado'])) {
-            $csvRow[$indexes['politicaCreditoAprovado']] = $patch['ap'] ?? null;
+            $csvRow[$indexes['politicaCreditoAprovado']] = $patch[0] ?? null;
         }
         if (isset($indexes['politicaCreditoMensagem'])) {
-            $csvRow[$indexes['politicaCreditoMensagem']] = $patch['mg'] ?? null;
+            $csvRow[$indexes['politicaCreditoMensagem']] = $patch[1] ?? null;
         }
         if (isset($indexes['politicaCreditoValorMaximoDisponivel'])) {
-            $csvRow[$indexes['politicaCreditoValorMaximoDisponivel']] = $patch['vm'] ?? null;
+            $csvRow[$indexes['politicaCreditoValorMaximoDisponivel']] = $patch[2] ?? null;
         }
         if (isset($indexes['politicaCreditoPrazoMaximoDisponivel'])) {
-            $csvRow[$indexes['politicaCreditoPrazoMaximoDisponivel']] = $patch['pm'] ?? null;
+            $csvRow[$indexes['politicaCreditoPrazoMaximoDisponivel']] = $patch[3] ?? null;
         }
 
         return $csvRow;
