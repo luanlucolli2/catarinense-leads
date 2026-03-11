@@ -28,7 +28,7 @@ return [
     ],
 
     'http' => [
-        'timeout'                 => (int) env('CLT_HTTP_TIMEOUT', 15),
+        'timeout'                 => (int) env('CLT_HTTP_TIMEOUT', 30),
         'connect_timeout'         => (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10),
         'retry'                   => (int) env('CLT_HTTP_RETRY', 1),
         'retry_delay_ms'          => (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),

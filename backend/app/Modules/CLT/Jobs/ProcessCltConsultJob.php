@@ -3,6 +3,7 @@
 namespace App\Modules\CLT\Jobs;
 
 use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
@@ -431,6 +432,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         if ($this->chunkDelayMs > 0 && $this->microSleepCoop($this->chunkDelayMs, $job))
                             return;
                     }
+                } catch (FactaFatalAuthException $e) {
+                    $this->abortPhaseOneDueToFatalTokenAuth(
+                        $job,
+                        $e->pendingCpfs(),
+                        $e->abortCsvMessage(),
+                        $r2,
+                        $nf,
+                        $nextPendReal
+                    );
+                    return;
                 } finally {
                     fclose($r2);
                     fflush($nf);
@@ -558,6 +569,99 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
+    /**
+     * Aborta o job imediatamente quando o /gera-token entra em estado terminal.
+     * Escreve em streaming os CPFs ainda pendentes no CSV com mensagem de aborto.
+     *
+     * @param array<int,string> $chunkPendingCpfs
+     * @param resource|null $currentPendReader
+     * @param resource|null $nextPendHandle
+     */
+    private function abortPhaseOneDueToFatalTokenAuth(
+        CltConsultJob $job,
+        array $chunkPendingCpfs,
+        string $abortMessage,
+        $currentPendReader,
+        $nextPendHandle,
+        string $nextPendReal
+    ): void {
+        $batchSize = 500;
+        $rows = [];
+        $abortedCount = 0;
+        $nowBr = date('d/m/Y H:i:s');
+
+        CltLog::warning('[FACTA] /gera-token aborto de processamento; finalizando job e pendências.', [
+            'job_id' => $this->jobId,
+            'stage' => 'token_abort',
+            'mensagem' => $abortMessage,
+        ]);
+
+        if (is_resource($nextPendHandle)) {
+            @fflush($nextPendHandle);
+        }
+
+        $appendCpf = function (string $rawCpf) use (&$rows, &$abortedCount, &$nowBr, $batchSize, $abortMessage, $job): void {
+            $cpf = preg_replace('/\D+/', '', $rawCpf);
+            if (!is_string($cpf) || strlen($cpf) !== 11) {
+                return;
+            }
+
+            $row = $this->baseRow($cpf);
+            $row['numeroVinculos'] = 0;
+            $row['mensagem'] = $abortMessage;
+            $row['consulted_at'] = $nowBr;
+            $rows[] = $row;
+            $abortedCount++;
+
+            if (count($rows) >= $batchSize) {
+                $this->spoolAppendManyPersist($job, $rows);
+                $rows = [];
+                $nowBr = date('d/m/Y H:i:s');
+            }
+        };
+
+        foreach ($chunkPendingCpfs as $chunkPendingCpf) {
+            $appendCpf((string) $chunkPendingCpf);
+        }
+
+        if (is_resource($currentPendReader)) {
+            while (($line = fgets($currentPendReader)) !== false) {
+                $appendCpf((string) $line);
+            }
+        }
+
+        if ($nextPendReal !== '' && is_file($nextPendReal)) {
+            $nextReader = @fopen($nextPendReal, 'r');
+            if (is_resource($nextReader)) {
+                try {
+                    while (($line = fgets($nextReader)) !== false) {
+                        $appendCpf((string) $line);
+                    }
+                } finally {
+                    @fclose($nextReader);
+                }
+            }
+        }
+
+        if (!empty($rows)) {
+            $this->spoolAppendManyPersist($job, $rows);
+            $rows = [];
+        }
+
+        if ($abortedCount > 0) {
+            $this->accFail += $abortedCount;
+        }
+        $this->updateTotalsThrottled($job, [], true);
+
+        CltLog::error('[CLT] Job encerrado com abort no /gera-token (status concluido).', [
+            'job_id' => $this->jobId,
+            'remaining_failed_count' => $abortedCount,
+            'abort_message' => $abortMessage,
+        ]);
+
+        $this->dispatchFinalize('concluido');
+    }
+
     private function processChunk(
         $api,
         CltConsultJob $job,
@@ -597,6 +701,27 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             try {
                 $batchResults = $api->autorizaConsultaLote($slice);
+            } catch (FactaFatalAuthException $e) {
+                $pendingCpfs = [];
+                for ($pendingSliceIdx = $idx; $pendingSliceIdx < $sliceTotal; $pendingSliceIdx++) {
+                    $pendingSlice = $slices[$pendingSliceIdx] ?? [];
+                    if (!is_array($pendingSlice)) {
+                        continue;
+                    }
+                    foreach ($pendingSlice as $pendingCpf) {
+                        $digits = preg_replace('/\D+/', '', (string) $pendingCpf);
+                        if (is_string($digits) && strlen($digits) === 11) {
+                            $pendingCpfs[] = $digits;
+                        }
+                    }
+                }
+
+                throw new FactaFatalAuthException(
+                    $e->getMessage(),
+                    $pendingCpfs,
+                    $e,
+                    $e->abortCsvMessage()
+                );
             } catch (\Throwable $e) {
                 CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($slice as $cpf) {
@@ -1352,7 +1477,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'phase2_total' => $phase2Total,
             'max_attempts' => $this->phase2MaxAttempts,
             'retry_delay_seconds' => $this->phase2RetryDelaySeconds,
-            'immediate_retry_delay_ms' => $this->phase2ImmediateRetryDelayMs,
         ]);
 
         if ($phase2Total === 0) {
@@ -1898,20 +2022,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         ];
 
         $credit = $api->continuarCreditoTrabalhadorElegivel($ctx);
-
-        if (!empty($credit['retriable'])) {
-            if ($this->phase2ImmediateRetryDelayMs > 0) {
-                if ($this->microSleepCoop($this->phase2ImmediateRetryDelayMs, $job)) {
-                    return ['row' => $row, 'pending' => true, 'aborted' => true];
-                }
-            }
-
-            if ($this->finishIfStopped($job)) {
-                return ['row' => $row, 'pending' => true, 'aborted' => true];
-            }
-
-            $credit = $api->continuarCreditoTrabalhadorElegivel($ctx);
-        }
 
         $row = $this->applyCreditResultToRow($row, $credit);
         $pending = !empty($credit['retriable']);
