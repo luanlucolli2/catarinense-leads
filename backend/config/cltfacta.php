@@ -156,6 +156,8 @@ return [
         'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', true),
         'facta_job_http_counters_flush_every' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
         'facta_job_http_counters_flush_interval_ms' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
+        // Auditoria opcional da fase 2 (1 linha por CPF validado com total de requests usadas).
+        'phase2_cpf_validation_audit_log_enabled' => (bool) env('CLT_PHASE2_CPF_VALIDATION_AUDIT_LOG_ENABLED', false),
         // Log de performance por chunk do job (verbose).
         'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
         // Log periódico de flush de spool (verbose).

@@ -72,6 +72,7 @@ class FactaApiService
     private string $creditConvenio;
     private string $creditOpcaoValor;
     private int $creditPolicyBatchSize;
+    private bool $phase2CpfValidationAuditLogEnabled;
     private bool $jobHttpCountersEnabled;
     private int $jobHttpCountersFlushEvery;
     private int $jobHttpCountersFlushIntervalMs;
@@ -194,6 +195,7 @@ class FactaApiService
         $this->creditConvenio = (string) ($credit['convenio'] ?? '3');
         $this->creditOpcaoValor = (string) ($credit['opcao_valor'] ?? '2');
         $this->creditPolicyBatchSize = max(1, (int) ($credit['policy_batch_size'] ?? 3));
+        $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
         $this->jobHttpCountersEnabled = (bool) config('cltfacta.logging.facta_job_http_counters_enabled', true);
         $this->jobHttpCountersFlushEvery = max(1, (int) config('cltfacta.logging.facta_job_http_counters_flush_every', 120));
         $this->jobHttpCountersFlushIntervalMs = max(500, (int) config('cltfacta.logging.facta_job_http_counters_flush_interval_ms', 10000));
@@ -997,9 +999,24 @@ class FactaApiService
         $dataAdmissao = $this->toFactaDate($ctx['dataAdmissao'] ?? null);
         $valorParcela = $this->toMoneyString($ctx['valorParcela'] ?? null);
         $valorRenda = $this->toMoneyString($ctx['valorRenda'] ?? null);
+        $operacoesReqCount = 0;
+        $politicaReqCount = 0;
+        $attachCreditReqMeta = function (array $result, int $opReqs, int $policyReqs, ?array $approvedTable = null): array {
+            $opSafe = max(0, $opReqs);
+            $policySafe = max(0, $policyReqs);
+            $result['phase2_operacoes_request_count'] = $opSafe;
+            $result['phase2_politica_request_count'] = $policySafe;
+            $result['phase2_request_count'] = $opSafe + $policySafe;
+
+            if ($this->phase2CpfValidationAuditLogEnabled) {
+                $result['phase2_approved_table'] = is_array($approvedTable) ? $approvedTable : null;
+            }
+
+            return $result;
+        };
 
         if (strlen($cpf) !== 11) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => 'CPF inválido para continuação da análise de crédito.',
@@ -1008,11 +1025,11 @@ class FactaApiService
                 'retriable' => false,
                 'http_status' => null,
                 'retry_after' => null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         if ($matricula === '' || $dataNascimento === null || $dataAdmissao === null || $valorParcela === null || $valorRenda === null) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => 'Dados insuficientes para continuação da análise de crédito.',
@@ -1021,7 +1038,7 @@ class FactaApiService
                 'retriable' => false,
                 'http_status' => null,
                 'retry_after' => null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $valorParcelaNum = (float) $valorParcela;
@@ -1041,7 +1058,7 @@ class FactaApiService
         }
 
         if (!empty($validationMessages)) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => implode(' ', $validationMessages),
@@ -1050,7 +1067,7 @@ class FactaApiService
                 'retriable' => false,
                 'http_status' => null,
                 'retry_after' => null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $token = null;
@@ -1059,7 +1076,7 @@ class FactaApiService
         } catch (FactaFatalAuthException $e) {
             throw $e;
         } catch (Throwable $e) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => 'Falha ao gerar token: ' . $e->getMessage(),
@@ -1068,12 +1085,13 @@ class FactaApiService
                 'retriable' => true,
                 'http_status' => null,
                 'retry_after' => null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
+        $operacoesReqCount++;
         $op = $this->consultaOperacoesDisponiveis($cpf, $dataNascimento, $valorRenda, $valorParcela, $token);
         if (!($op['ok'] ?? false)) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => (string) ($op['mensagem'] ?? 'Falha na consulta de operações disponíveis.'),
@@ -1082,12 +1100,12 @@ class FactaApiService
                 'retriable' => (bool) ($op['retriable'] ?? true),
                 'http_status' => $op['http_status'] ?? null,
                 'retry_after' => $op['retry_after'] ?? null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $tabelas = is_array($op['tabelas'] ?? null) ? $op['tabelas'] : [];
         if (empty($tabelas)) {
-            return [
+            return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
                 'mensagem' => (string) ($op['mensagem'] ?? 'Nenhuma tabela disponível.'),
@@ -1096,7 +1114,7 @@ class FactaApiService
                 'retriable' => false,
                 'http_status' => 200,
                 'retry_after' => null,
-            ];
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $policyCandidates = [];
@@ -1104,6 +1122,11 @@ class FactaApiService
         $seenPolicyCandidates = [];
         foreach ($tabelas as $tb) {
             if (!is_array($tb)) {
+                continue;
+            }
+
+            $tableName = (string) ($tb['tabela'] ?? '');
+            if (!$this->isAllowedCreditPolicyTableName($tableName)) {
                 continue;
             }
 
@@ -1122,11 +1145,26 @@ class FactaApiService
             $policyCandidates[] = [
                 'prazo' => $prazo,
                 'valorEmprestimo' => $valorEmprestimo,
+                'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
             ];
             $policyCandidatesByPrazo[$prazo][] = [
                 'prazo' => $prazo,
                 'valorEmprestimo' => $valorEmprestimo,
+                'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
             ];
+        }
+
+        if (empty($policyCandidates)) {
+            return $attachCreditReqMeta([
+                'attempted' => true,
+                'aprovado' => false,
+                'mensagem' => 'Nenhuma tabela elegível para política (CLT NOVO GOLD 2PMT SB/3PMT SB).',
+                'valor_maximo_disponivel' => null,
+                'prazo_maximo_disponivel' => null,
+                'retriable' => false,
+                'http_status' => 200,
+                'retry_after' => null,
+            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $policyQueue = $policyCandidates;
@@ -1135,6 +1173,7 @@ class FactaApiService
         $lastMensagem = 'Operação fora da política de crédito.';
         while (!empty($policyQueue)) {
             $policyChunk = array_splice($policyQueue, 0, max(1, $this->creditPolicyBatchSize));
+            $politicaReqCount += count($policyChunk);
             $policies = $this->consultaAnalisePoliticaCreditoLote(
                 $cpf,
                 $matricula,
@@ -1156,7 +1195,7 @@ class FactaApiService
 
                 $policy = $policies[$idx] ?? $this->policyErrorResult('Sem resposta na análise de política de crédito.', true);
                 if (!($policy['ok'] ?? false)) {
-                    return [
+                    return $attachCreditReqMeta([
                         'attempted' => true,
                         'aprovado' => false,
                         'mensagem' => (string) ($policy['mensagem'] ?? 'Falha na análise de política de crédito.'),
@@ -1165,7 +1204,7 @@ class FactaApiService
                         'retriable' => (bool) ($policy['retriable'] ?? true),
                         'http_status' => $policy['http_status'] ?? null,
                         'retry_after' => $policy['retry_after'] ?? null,
-                    ];
+                    ], $operacoesReqCount, $politicaReqCount);
                 }
 
                 $policyMensagem = (string) ($policy['mensagem'] ?? '');
@@ -1178,7 +1217,7 @@ class FactaApiService
                         $mensagemAprovadaInternamente .= ' (aprovado internamente)';
                     }
 
-                    return [
+                    return $attachCreditReqMeta([
                         'attempted' => true,
                         'aprovado' => true,
                         'mensagem' => $mensagemAprovadaInternamente,
@@ -1187,11 +1226,11 @@ class FactaApiService
                         'retriable' => false,
                         'http_status' => 200,
                         'retry_after' => null,
-                    ];
+                    ], $operacoesReqCount, $politicaReqCount, is_array($candidate['sourceTable'] ?? null) ? $candidate['sourceTable'] : null);
                 }
 
                 if (!empty($policy['aprovado'])) {
-                    return [
+                    return $attachCreditReqMeta([
                         'attempted' => true,
                         'aprovado' => true,
                         'mensagem' => (string) ($policy['mensagem'] ?? 'Aprovado pela política de crédito.'),
@@ -1200,7 +1239,7 @@ class FactaApiService
                         'retriable' => false,
                         'http_status' => 200,
                         'retry_after' => null,
-                    ];
+                    ], $operacoesReqCount, $politicaReqCount, is_array($candidate['sourceTable'] ?? null) ? $candidate['sourceTable'] : null);
                 }
 
                 if ($lockedPrazoFromMessage === null && empty($policy['aprovado'])) {
@@ -1223,7 +1262,7 @@ class FactaApiService
             }
         }
 
-        return [
+        return $attachCreditReqMeta([
             'attempted' => true,
             'aprovado' => false,
             'mensagem' => $lastMensagem,
@@ -1232,7 +1271,7 @@ class FactaApiService
             'retriable' => false,
             'http_status' => 200,
             'retry_after' => null,
-        ];
+        ], $operacoesReqCount, $politicaReqCount);
     }
 
     private function consultaOperacoesDisponiveis(
@@ -3185,6 +3224,17 @@ class FactaApiService
         }
 
         return abs($valor - 4000.0) < 0.00001;
+    }
+
+    private function isAllowedCreditPolicyTableName(string $tableName): bool
+    {
+        $normalizedTableName = $this->normalize($tableName);
+        if ($normalizedTableName === '') {
+            return false;
+        }
+
+        return str_ends_with($normalizedTableName, 'clt novo gold 2pmt sb')
+            || str_ends_with($normalizedTableName, 'clt novo gold 3pmt sb');
     }
 
     private function normalize(string $s): string
