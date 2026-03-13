@@ -49,7 +49,7 @@ class CltOfflineApiService
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
 
-        $this->minIntervalMs = (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200);
+        $this->minIntervalMs = (int) ($http['min_interval_ms'] ?? 3200);
     }
 
     /** GET {BASE}/gera-token */

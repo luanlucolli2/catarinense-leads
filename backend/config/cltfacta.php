@@ -10,13 +10,11 @@ return [
         'token_lock_ttl'  => (int) env('FACTA_TOKEN_LOCK_TTL', 10),
         'token_lock_wait' => (int) env('FACTA_TOKEN_LOCK_WAIT', 5),
         'token_ttl_skew'  => (int) env('FACTA_TOKEN_TTL_SKEW', 30),
-        'token_retry_max_attempts' => (int) env('FACTA_TOKEN_RETRY_MAX_ATTEMPTS', 8),
         'token_retry_base_delay_ms' => (int) env('FACTA_TOKEN_RETRY_BASE_DELAY_MS', 1000),
         'token_retry_max_delay_ms' => (int) env('FACTA_TOKEN_RETRY_MAX_DELAY_MS', 30000),
         'pre_auth_averbador' => env('FACTA_PRE_AUTH_AVERBADOR', '10010'),
         'pre_auth_nome' => env('FACTA_PRE_AUTH_NOME', 'slkjhdsjkha asdkjhd iou'),
         'pre_auth_tipo_envio' => env('FACTA_PRE_AUTH_TIPO_ENVIO', 'WHATSAPP'),
-        'pre_auth_phone_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_ATTEMPTS', 8),
         // cache da pré-autorização por CPF para reduzir chamadas repetidas entre tentativas
         'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
         // validade persistente no banco para evitar nova autorização em consultas futuras
@@ -30,14 +28,7 @@ return [
     'http' => [
         'timeout'                 => (int) env('CLT_HTTP_TIMEOUT', 30),
         'connect_timeout'         => (int) env('CLT_HTTP_CONNECT_TIMEOUT', 10),
-        'retry'                   => (int) env('CLT_HTTP_RETRY', 1),
-        'retry_delay_ms'          => (int) env('CLT_HTTP_RETRY_DELAY_MS', 200),
         'transient_pause_seconds' => (int) env('CLT_HTTP_TRANSIENT_PAUSE_SECONDS', 3),
-        'second_try'              => (bool) env('CLT_HTTP_SECOND_TRY', true),
-        'second_timeout'          => (int) env('CLT_HTTP_TIMEOUT_SECOND', 10),
-        'second_connect_timeout'  => (int) env('CLT_HTTP_CONNECT_TIMEOUT_SECOND', 5),
-        'rate_limit_immediate_retry' => (bool) env('CLT_HTTP_RATE_LIMIT_IMMEDIATE_RETRY', true),
-        'rate_limit_max_retries'  => (int) env('CLT_HTTP_RATE_LIMIT_MAX_RETRIES', 1),
         'rate_limit_default_pause_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_DEFAULT_PAUSE_SECONDS', 3),
         'rate_limit_pause_cap_seconds' => (int) env('CLT_HTTP_RATE_LIMIT_PAUSE_CAP_SECONDS', 30),
         // Limite global para toda a base FACTA (200 rpm informado pelo provedor).
@@ -64,8 +55,6 @@ return [
         'phase2_max_attempts' => (int) env('CLT_CREDIT_PHASE2_MAX_ATTEMPTS', 3),
         // Intervalo entre rodadas da fase 2 quando ainda há pendências retriables.
         'phase2_retry_delay_seconds' => (int) env('CLT_CREDIT_PHASE2_RETRY_DELAY_SECONDS', 30),
-        // Retry imediato por linha retriable antes de delegar para a próxima rodada.
-        'phase2_immediate_retry_delay_ms' => (int) env('CLT_CREDIT_PHASE2_IMMEDIATE_RETRY_DELAY_MS', 3000),
         // Checkpoint de progresso da fase 2 (máx. frequência de update no banco).
         'phase2_progress_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_INTERVAL_MS', 20000),
         'phase2_progress_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_PROGRESS_FLUSH_EVERY_ROWS', 200),
@@ -89,6 +78,7 @@ return [
             'connect_timeout' => (int) env('CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
             'retry'           => (int) env('CLT_OFF_HTTP_RETRY', 1),
             'retry_delay_ms'  => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
+            'min_interval_ms' => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200),
         ],
     ],
 
@@ -158,6 +148,8 @@ return [
         'facta_job_http_counters_flush_interval_ms' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
         // Auditoria opcional da fase 2 (1 linha por CPF validado com total de requests usadas).
         'phase2_cpf_validation_audit_log_enabled' => (bool) env('CLT_PHASE2_CPF_VALIDATION_AUDIT_LOG_ENABLED', false),
+        // Auditoria opcional de requests da fase 2 em /proposta/operacoes-disponiveis (inclui params enviados).
+        'phase2_operacoes_request_log_enabled' => (bool) env('CLT_PHASE2_OPERACOES_REQUEST_LOG_ENABLED', false),
         // Log de performance por chunk do job (verbose).
         'chunk_perf_debug' => (bool) env('CLT_CHUNK_PERF_DEBUG', false),
         // Log periódico de flush de spool (verbose).

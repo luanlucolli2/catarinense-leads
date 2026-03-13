@@ -68,7 +68,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private array $baseRowTemplate = [];
     private int $phase2MaxAttempts;
     private int $phase2RetryDelaySeconds;
-    private int $phase2ImmediateRetryDelayMs;
     private int $phase2ProgressFlushIntervalMs;
     private int $phase2ProgressFlushEveryRows;
     private float $lastPhase2ProgressFlushAt = 0.0;
@@ -113,7 +112,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
         $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
-        $this->phase2ImmediateRetryDelayMs = max(0, (int) config('cltfacta.credit_worker.phase2_immediate_retry_delay_ms', 3000));
         $phase2ConfiguredIntervalMs = (int) config('cltfacta.credit_worker.phase2_progress_flush_interval_ms', 20000);
         $this->phase2ProgressFlushIntervalMs = max(
             $this->flushEverySecs * 1000,
@@ -1910,12 +1908,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function isPhaseTwoRowPending(array $row): bool
     {
         $approved = $this->simNaoToBool($row['politicaCreditoAprovado'] ?? null);
-        if ($approved !== null) {
-            return false;
-        }
-
-        $message = trim((string) ($row['politicaCreditoMensagem'] ?? ''));
-        return $message === '';
+        return $approved === null;
     }
 
     /**
@@ -2278,7 +2271,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return $row;
         }
 
-        $row['politicaCreditoAprovado'] = !empty($credit['aprovado']) ? 'SIM' : 'NÃO';
+        // Quando o resultado é retriable, mantemos a linha como pendente lógica da fase 2
+        // (aprovado=null) para permitir marcação correta em aborto/finalização.
+        if (!empty($credit['retriable'])) {
+            $row['politicaCreditoAprovado'] = null;
+        } else {
+            $row['politicaCreditoAprovado'] = !empty($credit['aprovado']) ? 'SIM' : 'NÃO';
+        }
         $row['politicaCreditoMensagem'] = $credit['mensagem'] ?? null;
         $row['politicaCreditoValorMaximoDisponivel'] = $credit['valor_maximo_disponivel'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $credit['prazo_maximo_disponivel'] ?? null;
