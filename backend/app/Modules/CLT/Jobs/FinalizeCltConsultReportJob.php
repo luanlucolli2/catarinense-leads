@@ -34,7 +34,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         $job = CltConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job)
             return;
-        if ($job->status === 'cancelado' || $job->status === 'pausado') {
+        if ($job->status === 'cancelado') {
             $this->finishWithoutFinal($job, $job->status);
             return;
         }

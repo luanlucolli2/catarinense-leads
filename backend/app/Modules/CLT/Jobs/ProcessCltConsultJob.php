@@ -3,6 +3,7 @@
 namespace App\Modules\CLT\Jobs;
 
 use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
@@ -69,7 +70,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private array $baseRowTemplate = [];
     private int $phase2MaxAttempts;
     private int $phase2RetryDelaySeconds;
-    private int $phase2ImmediateRetryDelayMs;
     private int $phase2ProgressFlushIntervalMs;
     private int $phase2ProgressFlushEveryRows;
     private float $lastPhase2ProgressFlushAt = 0.0;
@@ -79,6 +79,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private string $phase2DeltaReal = '';
     /** @var array<int,string> */
     private array $phase2DeltaBuffer = [];
+    private bool $phase2CpfValidationAuditLogEnabled;
+    /**
+     * Acumulador de requests por linha da fase 2.
+     *
+     * @var array<int,array{total:int,operacoes:int,politica:int}>
+     */
+    private array $phase2CpfValidationAuditReqByLine = [];
 
     public function __construct(int $jobId)
     {
@@ -107,7 +114,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
         $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
-        $this->phase2ImmediateRetryDelayMs = max(0, (int) config('cltfacta.credit_worker.phase2_immediate_retry_delay_ms', 3000));
         $phase2ConfiguredIntervalMs = (int) config('cltfacta.credit_worker.phase2_progress_flush_interval_ms', 20000);
         $this->phase2ProgressFlushIntervalMs = max(
             $this->flushEverySecs * 1000,
@@ -116,6 +122,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2ProgressFlushEveryRows = max(20, (int) config('cltfacta.credit_worker.phase2_progress_flush_every_rows', 200));
         $this->phase2DeltaFlushIntervalMs = max(500, (int) config('cltfacta.credit_worker.phase2_delta_flush_interval_ms', 2000));
         $this->phase2DeltaFlushEveryRows = max(10, (int) config('cltfacta.credit_worker.phase2_delta_flush_every_rows', 20));
+        $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
     }
 
     public function handle(): void
@@ -433,6 +440,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         if ($this->chunkDelayMs > 0 && $this->microSleepCoop($this->chunkDelayMs, $job))
                             return;
                     }
+                } catch (FactaFatalAuthException $e) {
+                    $this->abortPhaseOneDueToFatalTokenAuth(
+                        $job,
+                        $e->pendingCpfs(),
+                        $e->abortCsvMessage(),
+                        $r2,
+                        $nf,
+                        $nextPendReal
+                    );
+                    return;
                 } finally {
                     fclose($r2);
                     fflush($nf);
@@ -560,6 +577,99 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
+    /**
+     * Aborta o job imediatamente quando o /gera-token entra em estado terminal.
+     * Escreve em streaming os CPFs ainda pendentes no CSV com mensagem de aborto.
+     *
+     * @param array<int,string> $chunkPendingCpfs
+     * @param resource|null $currentPendReader
+     * @param resource|null $nextPendHandle
+     */
+    private function abortPhaseOneDueToFatalTokenAuth(
+        CltConsultJob $job,
+        array $chunkPendingCpfs,
+        string $abortMessage,
+        $currentPendReader,
+        $nextPendHandle,
+        string $nextPendReal
+    ): void {
+        $batchSize = 500;
+        $rows = [];
+        $abortedCount = 0;
+        $nowBr = date('d/m/Y H:i:s');
+
+        CltLog::warning('[FACTA] /gera-token aborto de processamento; finalizando job e pendências.', [
+            'job_id' => $this->jobId,
+            'stage' => 'token_abort',
+            'mensagem' => $abortMessage,
+        ]);
+
+        if (is_resource($nextPendHandle)) {
+            @fflush($nextPendHandle);
+        }
+
+        $appendCpf = function (string $rawCpf) use (&$rows, &$abortedCount, &$nowBr, $batchSize, $abortMessage, $job): void {
+            $cpf = preg_replace('/\D+/', '', $rawCpf);
+            if (!is_string($cpf) || strlen($cpf) !== 11) {
+                return;
+            }
+
+            $row = $this->baseRow($cpf);
+            $row['numeroVinculos'] = 0;
+            $row['mensagem'] = $abortMessage;
+            $row['consulted_at'] = $nowBr;
+            $rows[] = $row;
+            $abortedCount++;
+
+            if (count($rows) >= $batchSize) {
+                $this->spoolAppendManyPersist($job, $rows);
+                $rows = [];
+                $nowBr = date('d/m/Y H:i:s');
+            }
+        };
+
+        foreach ($chunkPendingCpfs as $chunkPendingCpf) {
+            $appendCpf((string) $chunkPendingCpf);
+        }
+
+        if (is_resource($currentPendReader)) {
+            while (($line = fgets($currentPendReader)) !== false) {
+                $appendCpf((string) $line);
+            }
+        }
+
+        if ($nextPendReal !== '' && is_file($nextPendReal)) {
+            $nextReader = @fopen($nextPendReal, 'r');
+            if (is_resource($nextReader)) {
+                try {
+                    while (($line = fgets($nextReader)) !== false) {
+                        $appendCpf((string) $line);
+                    }
+                } finally {
+                    @fclose($nextReader);
+                }
+            }
+        }
+
+        if (!empty($rows)) {
+            $this->spoolAppendManyPersist($job, $rows);
+            $rows = [];
+        }
+
+        if ($abortedCount > 0) {
+            $this->accFail += $abortedCount;
+        }
+        $this->updateTotalsThrottled($job, [], true);
+
+        CltLog::error('[CLT] Job encerrado com abort no /gera-token (status concluido).', [
+            'job_id' => $this->jobId,
+            'remaining_failed_count' => $abortedCount,
+            'abort_message' => $abortMessage,
+        ]);
+
+        $this->dispatchFinalize('concluido');
+    }
+
     private function processChunk(
         $api,
         CltConsultJob $job,
@@ -599,6 +709,27 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             try {
                 $batchResults = $api->autorizaConsultaLote($slice);
+            } catch (FactaFatalAuthException $e) {
+                $pendingCpfs = [];
+                for ($pendingSliceIdx = $idx; $pendingSliceIdx < $sliceTotal; $pendingSliceIdx++) {
+                    $pendingSlice = $slices[$pendingSliceIdx] ?? [];
+                    if (!is_array($pendingSlice)) {
+                        continue;
+                    }
+                    foreach ($pendingSlice as $pendingCpf) {
+                        $digits = preg_replace('/\D+/', '', (string) $pendingCpf);
+                        if (is_string($digits) && strlen($digits) === 11) {
+                            $pendingCpfs[] = $digits;
+                        }
+                    }
+                }
+
+                throw new FactaFatalAuthException(
+                    $e->getMessage(),
+                    $pendingCpfs,
+                    $e,
+                    $e->abortCsvMessage()
+                );
             } catch (\Throwable $e) {
                 CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($slice as $cpf) {
@@ -1346,6 +1477,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastPhase2DeltaFlushAt = microtime(true);
         $this->phase2DeltaBuffer = [];
         $this->resetPhaseTwoDeltaFile();
+        $this->phase2CpfValidationAuditReqByLine = [];
         $phase2ApprovedCount = 0;
         $phase2NotApprovedCount = 0;
 
@@ -1354,7 +1486,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'phase2_total' => $phase2Total,
             'max_attempts' => $this->phase2MaxAttempts,
             'retry_delay_seconds' => $this->phase2RetryDelaySeconds,
-            'immediate_retry_delay_ms' => $this->phase2ImmediateRetryDelayMs,
         ]);
 
         if ($phase2Total === 0) {
@@ -1384,6 +1515,43 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $phase2ApprovedCount += (int) ($result['resolved_approved'] ?? 0);
             $phase2NotApprovedCount += (int) ($result['resolved_not_approved'] ?? 0);
+            if (($result['token_abort'] ?? false) === true) {
+                $abortMessage = trim((string) ($result['token_abort_message'] ?? ''));
+                if ($abortMessage === '') {
+                    $abortMessage = 'Processamento abortado: Não foi possível concluir a validação da política de crédito.';
+                }
+
+                CltLog::warning('[CLT] Fase 2 abortada por falha de token; consolidando parcial e encerrando.', [
+                    'job_id' => $this->jobId,
+                    'attempt' => $attempt,
+                    'phase2_total' => $phase2Total,
+                    'abort_message' => $abortMessage,
+                ]);
+
+                $this->flushPhase2DeltaBuffer(true);
+                if (!$this->applyPhase2DeltaToSpool($job)) {
+                    return false;
+                }
+
+                $markedAsAborted = $this->markRemainingPhaseTwoRowsAsAbortedInSpool($job, $abortMessage);
+                if ($markedAsAborted < 0) {
+                    return false;
+                }
+                if ($markedAsAborted > 0) {
+                    $phase2NotApprovedCount += $markedAsAborted;
+                }
+
+                $this->flushPhaseTwoProgress(
+                    $job,
+                    $attempt,
+                    $phase2Total,
+                    $phase2ApprovedCount,
+                    $phase2NotApprovedCount,
+                    true
+                );
+                $this->removePhaseTwoDeltaFile();
+                return true;
+            }
             $pendingLines = is_array($result['pending_lines'] ?? null) ? $result['pending_lines'] : [];
             $pendingCount = count($pendingLines);
             $this->flushPhaseTwoProgress(
@@ -1428,7 +1596,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @param array<int,int|bool>|null $targetLines
      * @param int $baseApprovedCount quantidade já consolidada em rodadas anteriores
      * @param int $baseNotApprovedCount quantidade já consolidada em rodadas anteriores
-     * @return array{aborted:bool,pending_lines:array<int,int>,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
+     * @return array{aborted:bool,token_abort:bool,token_abort_message:?string,pending_lines:array<int,int>,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
      */
     private function processCreditPhaseTwoAttempt(
         \App\Modules\CLT\Services\FactaApiService $api,
@@ -1487,6 +1655,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($this->finishIfStopped($job)) {
                     return [
                         'aborted' => true,
+                        'token_abort' => false,
+                        'token_abort_message' => null,
                         'pending_lines' => [],
                         'processed_rows' => $processedRows,
                         'skipped_rows' => $skippedRows,
@@ -1511,13 +1681,29 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                 if ($shouldProcess) {
                     $processedRows++;
-                    $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
+                    try {
+                        $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
+                    } catch (FactaFatalAuthException $e) {
+                        return [
+                            'aborted' => false,
+                            'token_abort' => true,
+                            'token_abort_message' => $e->abortCsvMessage(),
+                            'pending_lines' => $pendingLines,
+                            'processed_rows' => $processedRows,
+                            'skipped_rows' => $skippedRows,
+                            'resolved_approved' => $resolvedApprovedRows,
+                            'resolved_not_approved' => $resolvedNotApprovedRows,
+                        ];
+                    }
                     $row = $creditOutcome['row'];
+                    $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
                     if (($creditOutcome['aborted'] ?? false) === true) {
                         return [
                             'aborted' => true,
+                            'token_abort' => false,
+                            'token_abort_message' => null,
                             'pending_lines' => [],
                             'processed_rows' => $processedRows,
                             'skipped_rows' => $skippedRows,
@@ -1529,6 +1715,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     if (!empty($creditOutcome['pending'])) {
                         $pendingLines[] = $lineNo;
                     } else {
+                        $this->logPhase2CpfValidationAudit($lineNo, $row, $attempt, $creditOutcome);
                         if ($this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)) {
                             $resolvedApprovedRows++;
                         } else {
@@ -1564,6 +1751,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             return [
                 'aborted' => false,
+                'token_abort' => false,
+                'token_abort_message' => null,
                 'pending_lines' => $pendingLines,
                 'processed_rows' => $processedRows,
                 'skipped_rows' => $skippedRows,
@@ -1648,6 +1837,80 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 @unlink($tmpReal);
             }
         }
+    }
+
+    /**
+     * Marca como NÃO APROVADO os elegíveis da fase 2 que ainda estavam pendentes
+     * e grava mensagem de aborto em "Política de Crédito Mensagem".
+     *
+     * @return int quantidade de linhas marcadas; -1 se job foi interrompido/cancelado.
+     */
+    private function markRemainingPhaseTwoRowsAsAbortedInSpool(CltConsultJob $job, string $abortMessage): int
+    {
+        $sourceReal = $this->spoolReal;
+        $tmpReal = $sourceReal . '.phase2.abort.tmp';
+        $cleanupTmp = true;
+        $markedCount = 0;
+
+        try {
+            $in = @fopen($sourceReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if (!is_resource($in) || !is_resource($out)) {
+                if (is_resource($in)) {
+                    @fclose($in);
+                }
+                if (is_resource($out)) {
+                    @fclose($out);
+                }
+                throw new \RuntimeException("Falha ao preparar streams para marcar pendentes da fase 2 (job {$this->jobId}).");
+            }
+
+            try {
+                fgetcsv($in, 0, ';');
+                fputcsv($out, CltSchema::TITLES, ';');
+
+                while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
+                    if ($this->finishIfStopped($job)) {
+                        return -1;
+                    }
+
+                    $row = $this->csvToAssocRow($csvRow);
+                    if (
+                        $this->shouldProcessCreditPhaseRow($row)
+                        && $this->isPhaseTwoRowPending($row)
+                    ) {
+                        $row['politicaCreditoAprovado'] = 'NÃO';
+                        $row['politicaCreditoMensagem'] = $abortMessage;
+                        $row['politicaCreditoValorMaximoDisponivel'] = null;
+                        $row['politicaCreditoPrazoMaximoDisponivel'] = null;
+                        $markedCount++;
+                    }
+
+                    fputcsv($out, $this->assocToCsvRow($row), ';');
+                }
+            } finally {
+                @fflush($out);
+                @fclose($in);
+                @fclose($out);
+            }
+
+            if (!@rename($tmpReal, $sourceReal)) {
+                throw new \RuntimeException("Falha ao promover spool marcado com abort da fase 2 (job {$this->jobId}).");
+            }
+
+            $cleanupTmp = false;
+            return $markedCount;
+        } finally {
+            if ($cleanupTmp && is_file($tmpReal)) {
+                @unlink($tmpReal);
+            }
+        }
+    }
+
+    private function isPhaseTwoRowPending(array $row): bool
+    {
+        $approved = $this->simNaoToBool($row['politicaCreditoAprovado'] ?? null);
+        return $approved === null;
     }
 
     /**
@@ -1857,7 +2120,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     /**
-     * @return array{row:array<string,mixed>,pending:bool,aborted:bool}
+     * @return array{row:array<string,mixed>,pending:bool,aborted:bool,phase2_request_count:int,phase2_operacoes_request_count:int,phase2_politica_request_count:int,phase2_approved_table:?array}
      */
     private function applyCreditPhaseToRow(
         \App\Modules\CLT\Services\FactaApiService $api,
@@ -1887,7 +2150,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $row['politicaCreditoValorMaximoDisponivel'] = null;
             $row['politicaCreditoPrazoMaximoDisponivel'] = null;
 
-            return ['row' => $row, 'pending' => false, 'aborted' => false];
+            return [
+                'row' => $row,
+                'pending' => false,
+                'aborted' => false,
+                'phase2_request_count' => 0,
+                'phase2_operacoes_request_count' => 0,
+                'phase2_politica_request_count' => 0,
+                'phase2_approved_table' => null,
+            ];
         }
 
         $ctx = [
@@ -1901,24 +2172,94 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $credit = $api->continuarCreditoTrabalhadorElegivel($ctx);
 
-        if (!empty($credit['retriable'])) {
-            if ($this->phase2ImmediateRetryDelayMs > 0) {
-                if ($this->microSleepCoop($this->phase2ImmediateRetryDelayMs, $job)) {
-                    return ['row' => $row, 'pending' => true, 'aborted' => true];
-                }
-            }
-
-            if ($this->finishIfStopped($job)) {
-                return ['row' => $row, 'pending' => true, 'aborted' => true];
-            }
-
-            $credit = $api->continuarCreditoTrabalhadorElegivel($ctx);
-        }
-
         $row = $this->applyCreditResultToRow($row, $credit);
         $pending = !empty($credit['retriable']);
 
-        return ['row' => $row, 'pending' => $pending, 'aborted' => false];
+        return [
+            'row' => $row,
+            'pending' => $pending,
+            'aborted' => false,
+            'phase2_request_count' => max(0, (int) ($credit['phase2_request_count'] ?? 0)),
+            'phase2_operacoes_request_count' => max(0, (int) ($credit['phase2_operacoes_request_count'] ?? 0)),
+            'phase2_politica_request_count' => max(0, (int) ($credit['phase2_politica_request_count'] ?? 0)),
+            'phase2_approved_table' => is_array($credit['phase2_approved_table'] ?? null) ? $credit['phase2_approved_table'] : null,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $creditOutcome
+     */
+    private function accumulatePhase2CpfValidationAuditCounts(int $lineNo, array $creditOutcome): void
+    {
+        if (!$this->phase2CpfValidationAuditLogEnabled || $lineNo <= 0) {
+            return;
+        }
+
+        $total = max(0, (int) ($creditOutcome['phase2_request_count'] ?? 0));
+        $operacoes = max(0, (int) ($creditOutcome['phase2_operacoes_request_count'] ?? 0));
+        $politica = max(0, (int) ($creditOutcome['phase2_politica_request_count'] ?? 0));
+
+        if ($total === 0 && $operacoes === 0 && $politica === 0) {
+            return;
+        }
+
+        if (!isset($this->phase2CpfValidationAuditReqByLine[$lineNo])) {
+            $this->phase2CpfValidationAuditReqByLine[$lineNo] = [
+                'total' => 0,
+                'operacoes' => 0,
+                'politica' => 0,
+            ];
+        }
+
+        $this->phase2CpfValidationAuditReqByLine[$lineNo]['total'] += $total;
+        $this->phase2CpfValidationAuditReqByLine[$lineNo]['operacoes'] += $operacoes;
+        $this->phase2CpfValidationAuditReqByLine[$lineNo]['politica'] += $politica;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function logPhase2CpfValidationAudit(int $lineNo, array $row, int $attempt, array $creditOutcome): void
+    {
+        if (!$this->phase2CpfValidationAuditLogEnabled) {
+            return;
+        }
+
+        $reqCounts = $this->phase2CpfValidationAuditReqByLine[$lineNo] ?? [
+            'total' => 0,
+            'operacoes' => 0,
+            'politica' => 0,
+        ];
+        unset($this->phase2CpfValidationAuditReqByLine[$lineNo]);
+
+        if ($reqCounts['total'] <= 0 && ($reqCounts['operacoes'] > 0 || $reqCounts['politica'] > 0)) {
+            $reqCounts['total'] = $reqCounts['operacoes'] + $reqCounts['politica'];
+        }
+
+        $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
+        $resultado = $this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)
+            ? 'aprovado'
+            : 'nao_aprovado';
+
+        $context = [
+            'job_id' => $this->jobId,
+            'line' => $lineNo,
+            'attempt_final' => max(1, $attempt),
+            'cpf' => $cpf !== '' ? $cpf : null,
+            'resultado' => $resultado,
+            'req_total' => max(0, (int) ($reqCounts['total'] ?? 0)),
+            'req_operacoes' => max(0, (int) ($reqCounts['operacoes'] ?? 0)),
+            'req_politica' => max(0, (int) ($reqCounts['politica'] ?? 0)),
+        ];
+
+        if ($resultado === 'aprovado') {
+            $approvedTable = $creditOutcome['phase2_approved_table'] ?? null;
+            if (is_array($approvedTable) && !empty($approvedTable)) {
+                $context['tabela_aprovada'] = $approvedTable;
+            }
+        }
+
+        CltLog::warning('[CLT] Fase 2 CPF validado', $context);
     }
 
     /**
@@ -1932,7 +2273,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return $row;
         }
 
-        $row['politicaCreditoAprovado'] = !empty($credit['aprovado']) ? 'SIM' : 'NÃO';
+        // Quando o resultado é retriable, mantemos a linha como pendente lógica da fase 2
+        // (aprovado=null) para permitir marcação correta em aborto/finalização.
+        if (!empty($credit['retriable'])) {
+            $row['politicaCreditoAprovado'] = null;
+        } else {
+            $row['politicaCreditoAprovado'] = !empty($credit['aprovado']) ? 'SIM' : 'NÃO';
+        }
         $row['politicaCreditoMensagem'] = $credit['mensagem'] ?? null;
         $row['politicaCreditoValorMaximoDisponivel'] = $credit['valor_maximo_disponivel'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $credit['prazo_maximo_disponivel'] ?? null;

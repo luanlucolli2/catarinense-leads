@@ -599,7 +599,7 @@ class CltConsultController extends Controller
         }
 
         $deltaReal = $disk->path($deltaPath);
-        $maxBytes = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_bytes', 6291456));
+        $maxBytes = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_bytes', 8388608));
         if ($maxBytes > 0) {
             $deltaBytes = @filesize($deltaReal);
             if (is_int($deltaBytes) && $deltaBytes > $maxBytes) {
@@ -612,7 +612,7 @@ class CltConsultController extends Controller
             return [];
         }
 
-        $maxRows = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_rows', 50000));
+        $maxRows = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_rows', 60000));
         $map = [];
         $mapRows = 0;
         try {
