@@ -11,12 +11,14 @@ import {
   PiggyBank,
   Link2,
   Loader2,
+  Handshake,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
 import catarinenselogo from "../../public/catainenseLogo.png";
+import logoUy3 from "@/assets/logouy3png.png";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
@@ -42,6 +44,7 @@ interface SidebarProps {
 type MenuItem = {
   name: string;
   icon: LucideIcon;
+  imageSrc?: string;
   path: string | null;
   active: boolean;
 };
@@ -145,6 +148,20 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             icon: Briefcase,
             path: "/clt/consulta",
             active: isActive("/clt/consulta"),
+          },
+        ],
+      },
+      {
+        name: "Parceiros",
+        icon: Handshake,
+        key: "parceiros",
+        items: [
+          {
+            name: "UY3",
+            icon: Handshake,
+            imageSrc: logoUy3,
+            path: "/parceiros/uy3",
+            active: location.pathname === "/parceiros/uy3",
           },
         ],
       },
@@ -365,12 +382,20 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                             : "text-gray-300 hover:bg-gray-700 hover:text-white"
                         )}
                       >
-                        <item.icon
-                          className={cn(
-                            "w-4 h-4 flex-shrink-0",
-                            item.active ? "text-white" : "text-gray-400"
-                          )}
-                        />
+                        {item.imageSrc ? (
+                          <img
+                            src={item.imageSrc}
+                            alt={`Logo ${item.name}`}
+                            className="h-4 w-auto max-w-[22px] object-contain flex-shrink-0"
+                          />
+                        ) : (
+                          <item.icon
+                            className={cn(
+                              "w-4 h-4 flex-shrink-0",
+                              item.active ? "text-white" : "text-gray-400"
+                            )}
+                          />
+                        )}
                         <span className="font-medium text-sm">{item.name}</span>
                       </button>
                     ))}

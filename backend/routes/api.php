@@ -17,6 +17,9 @@ use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 // ✅ NOVO: URA
 use App\Http\Controllers\Api\UraSendOfficialTemplateController;
 use App\Http\Middleware\VerifyUraWebhook;
+use App\Modules\Uy3\Controllers\Uy3PostListController;
+use App\Modules\Uy3\Controllers\Uy3WebhookPostController;
+use App\Modules\Uy3\Middleware\VerifyUy3Webhook;
 
 /**
  * Endpoints públicos de autenticação.
@@ -34,12 +37,24 @@ Route::post('/ura/messages/send-official-template', UraSendOfficialTemplateContr
     ->middleware([VerifyUraWebhook::class, 'throttle:60,1']);
 
 /**
+ * ✅ UY3 → sua API (webhook público de posts)
+ * Autenticado via shared secret (Secret-Key / X-Secret-Key / X-UY3-Secret-Key).
+ * O payload JSON é persistido de forma síncrona antes de responder.
+ */
+Route::post('/webhooks/uy3/posts', Uy3WebhookPostController::class)
+    ->middleware([VerifyUy3Webhook::class, 'throttle:120,1']);
+
+/**
  * Endpoints autenticados via Sanctum (SPA / API interna).
  */
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+
+    /* Parceiros */
+    Route::get('/uy3/posts', Uy3PostListController::class)
+        ->middleware('throttle:120,1');
 
     /* C6 */
     Route::post('/c6/authorization-link', C6AuthorizationLinkController::class)
