@@ -42,7 +42,7 @@ Route::post('/ura/messages/send-official-template', UraSendOfficialTemplateContr
  * O payload JSON é persistido de forma síncrona antes de responder.
  */
 Route::post('/webhooks/uy3/posts', Uy3WebhookPostController::class)
-    ->middleware([VerifyUy3Webhook::class, 'throttle:120,1']);
+    ->middleware([VerifyUy3Webhook::class]);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).
