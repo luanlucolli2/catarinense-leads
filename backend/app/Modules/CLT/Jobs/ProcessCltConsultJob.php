@@ -21,14 +21,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    private const STAGE_PHASE1 = 'phase1';
+    private const STAGE_PHASE2 = 'phase2';
+
     public int $uniqueFor = 115260;
     public function uniqueId(): string
     {
-        return (string) $this->jobId;
+        return $this->jobId . ':' . $this->stage;
     }
 
     public int $timeout;
     private int $jobId;
+    private string $stage = self::STAGE_PHASE1;
 
     private string $disk;
     private string $dirSpool;
@@ -85,9 +89,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      */
     private array $phase2CpfValidationAuditReqByLine = [];
 
-    public function __construct(int $jobId)
+    public function __construct(int $jobId, string $stage = self::STAGE_PHASE1)
     {
         $this->jobId = $jobId;
+        $this->stage = in_array($stage, [self::STAGE_PHASE1, self::STAGE_PHASE2], true)
+            ? $stage
+            : self::STAGE_PHASE1;
 
         // Nota: a fila é definida no dispatch (controller) por variante.
         $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
@@ -149,10 +156,49 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $disk = Storage::disk($this->disk);
-        if (empty($job->spool_path) || empty($job->spool_cpfs_path) || !$disk->exists($job->spool_path) || !$disk->exists($job->spool_cpfs_path)) {
+        $hasSpool = !empty($job->spool_path) && $disk->exists($job->spool_path);
+        $hasCpfsSpool = !empty($job->spool_cpfs_path) && $disk->exists($job->spool_cpfs_path);
+        if (!$hasSpool || ($this->stage === self::STAGE_PHASE1 && !$hasCpfsSpool)) {
             CltLog::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
             $this->dispatchFinalize('falhou');
             $this->deletePendFiles();
+            return;
+        }
+
+        $this->spoolReal = $disk->path($job->spool_path);
+        $this->phase2DeltaReal = $this->spoolReal . '.phase2.delta.ndjson';
+
+        if ($this->stage === self::STAGE_PHASE2) {
+            if ($this->variant !== 'online' || !$api instanceof \App\Modules\CLT\Services\FactaApiService) {
+                CltLog::warning('[CLT] Job recebido na fila da fase 2 com variante não suportada.', [
+                    'job_id' => $this->jobId,
+                    'variant' => $this->variant,
+                    'stage' => $this->stage,
+                ]);
+                $this->dispatchFinalize('concluido');
+                return;
+            }
+
+            if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
+                CltLog::info('[CLT] Job da fase 2 ignorado por estado final.', [
+                    'job_id' => $this->jobId,
+                    'status' => $job->status,
+                ]);
+                return;
+            }
+
+            $job->update([
+                'status' => 'em_progresso',
+                'phase' => 'fase_2',
+                'started_at' => $job->started_at ?? Carbon::now(),
+                'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
+            ]);
+
+            if (!$this->runCreditPhaseTwo($api, $job)) {
+                return;
+            }
+
+            $this->dispatchFinalize('concluido');
             return;
         }
 
@@ -173,8 +219,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'variant' => $this->variant,
         ]);
 
-        $this->spoolReal = $disk->path($job->spool_path);
-        $this->phase2DeltaReal = $this->spoolReal . '.phase2.delta.ndjson';
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
             $this->dispatchFinalize('falhou');
@@ -534,11 +578,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if (
-                $this->variant === 'online'
-                && $api instanceof \App\Modules\CLT\Services\FactaApiService
-                && !$this->runCreditPhaseTwo($api, $job)
-            ) {
+            if ($this->variant === 'online' && $api instanceof \App\Modules\CLT\Services\FactaApiService) {
+                $this->dispatchPhaseTwo($job);
                 return;
             }
 
@@ -2660,6 +2701,34 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $this->dispatchFinalize('falhou');
         $this->deletePendFiles();
+    }
+
+    private function dispatchPhaseTwo(CltConsultJob $job): void
+    {
+        if ($this->finishIfStopped($job)) {
+            return;
+        }
+
+        DB::table('clt_consult_jobs')
+            ->where('id', $job->id)
+            ->whereIn('status', ['pendente', 'em_progresso'])
+            ->update([
+                'status' => 'em_progresso',
+                'phase' => 'fase_2',
+                'phase2_total' => 0,
+                'phase2_attempt' => 0,
+                'phase2_aprovado_count' => 0,
+                'phase2_nao_aprovado_count' => 0,
+                'updated_at' => Carbon::now(),
+            ]);
+
+        $queue = (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred');
+        self::dispatch($this->jobId, self::STAGE_PHASE2)->onQueue($queue);
+
+        CltLog::warning('[CLT] Fase 2 enfileirada em worker dedicado.', [
+            'job_id' => $this->jobId,
+            'queue' => $queue,
+        ]);
     }
 
     private function dispatchFinalize(string $targetStatus): void

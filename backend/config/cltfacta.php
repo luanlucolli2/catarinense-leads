@@ -85,8 +85,9 @@ return [
     // ===== JOB =====
     'job' => [
         // novas filas distintas
-        'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-on'),
+        'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-consulta-online'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
+        'queue_phase2'        => env('CLT_PHASE2_JOB_QUEUE', 'clt-valida-politica-cred'),
 
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
         'max_attempts'        => (int) env('CLT_CONSULT_MAX_ATTEMPTS', 5),

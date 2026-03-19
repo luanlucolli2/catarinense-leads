@@ -120,9 +120,9 @@ class CltConsultController extends Controller
         // ===== DISPATCH POR FILA SEPARADA =====
         $queue = $variant === 'offline'
             ? (string) config('cltfacta.job.queue_offline', 'clt-off')
-            : (string) config('cltfacta.job.queue_online', 'clt-on');
+            : (string) config('cltfacta.job.queue_online', 'clt-consulta-online');
 
-        ProcessCltConsultJob::dispatch($job->id)->onQueue($queue);
+        ProcessCltConsultJob::dispatch($job->id, 'phase1')->onQueue($queue);
 
         return response()->json([
             'id' => $job->id,
