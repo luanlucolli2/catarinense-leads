@@ -624,14 +624,17 @@ export const CLTHistoryTable = ({
                 label: "Online",
               };
 
+          // Destaque visual para os items em andamento
+          const isActive = i.status === "em_progresso" || i.status === "pendente";
+
           return (
             <Card
               key={i.id}
               className={cn(
-                "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
-                "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
-                "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
-                "transition-shadow"
+                "relative rounded-xl border transition-all duration-500",
+                isActive 
+                  ? "border-blue-400/60 dark:border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] dark:shadow-[0_0_15px_rgba(59,130,246,0.1)] bg-blue-50/40 dark:bg-blue-900/10 ring-1 ring-blue-400/20"
+                  : "border-slate-200/80 dark:border-neutral-700/80 bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80 shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10"
               )}
             >
               <CardHeader className="pb-3">
