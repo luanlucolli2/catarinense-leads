@@ -23,6 +23,9 @@ return [
         'pre_auth_persist_batch_size' => (int) env('FACTA_PRE_AUTH_PERSIST_BATCH_SIZE', 100),
         // cooldown único entre a última pré-autorização do lote e o início das consultas
         'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 15000),
+        // Tentativas extras com novo celular quando a FACTA devolver
+        // "telefone já informado para outro cpf".
+        'pre_auth_phone_retry_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_RETRY_ATTEMPTS', 3),
     ],
 
     'http' => [
@@ -61,6 +64,8 @@ return [
         // Persistência incremental da fase 2 para prévia (arquivo delta, sem reescrever spool completo).
         'phase2_delta_flush_interval_ms' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_INTERVAL_MS', 2000),
         'phase2_delta_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_DELTA_FLUSH_EVERY_ROWS', 20),
+        // Flush do arquivo intermediário de pendências da fase 2 (tentativas > 1).
+        'phase2_pending_flush_every_rows' => (int) env('CLT_CREDIT_PHASE2_PENDING_FLUSH_EVERY_ROWS', 50),
     ],
 
     // ===== OFFLINE (CLT-OFF) =====
@@ -108,6 +113,10 @@ return [
         // Flush incremental dos buffers internos do job para reduzir pico de RAM.
         'rows_buffer_flush'   => (int) env('CLT_JOB_ROWS_BUFFER_FLUSH', 300),
         'snap_buffer_flush'   => (int) env('CLT_JOB_SNAP_BUFFER_FLUSH', 300),
+        // Limite "soft" opcional para spill de memória (MB). 0 = desabilitado.
+        'memory_soft_limit_mb' => (int) env('CLT_JOB_MEMORY_SOFT_LIMIT_MB', 0),
+        // Percentual do limite efetivo de memória para iniciar spill do dedup.
+        'memory_spill_threshold_percent' => (int) env('CLT_JOB_MEMORY_SPILL_THRESHOLD_PERCENT', 70),
     ],
 
     // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====

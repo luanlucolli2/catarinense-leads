@@ -46,6 +46,7 @@ class FactaApiService
     private int $preAuthPersistTtlDays;
     private int $preAuthPersistBatchSize;
     private int $preAuthPostCooldownMs;
+    private int $preAuthPhoneRetryAttempts;
     private array $preAuthApprovedLocal = [];
     private array $preAuthLookupCheckedLocal = [];
     /** @var array<string,bool> */
@@ -163,6 +164,7 @@ class FactaApiService
         $this->preAuthPersistTtlDays = max(0, (int) ($api['pre_auth_persist_ttl_days'] ?? 30));
         $this->preAuthPersistBatchSize = max(1, (int) ($api['pre_auth_persist_batch_size'] ?? 100));
         $this->preAuthPostCooldownMs = max(0, (int) ($api['pre_auth_post_cooldown_ms'] ?? 3000));
+        $this->preAuthPhoneRetryAttempts = max(1, (int) ($api['pre_auth_phone_retry_attempts'] ?? 3));
 
         // Continuação (crédito trabalhador) - somente online
         $this->creditProduto = (string) ($credit['produto'] ?? 'D');
@@ -1995,11 +1997,17 @@ class FactaApiService
 
     private function solicitaAutorizacaoConsulta(string $cpf, string &$token): array
     {
-        // CLT ON: sem retry imediato no mesmo ciclo. Falhas seguem para teimosinha do job.
-        $maxAttempts = 1;
+        $maxAttempts = $this->preAuthPhoneRetryAttempts;
+        $usedCellulars = [];
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $celular = $this->generateRandomCellular();
+            $tryGuard = 0;
+            while (isset($usedCellulars[$celular]) && $tryGuard < 5) {
+                $celular = $this->generateRandomCellular();
+                $tryGuard++;
+            }
+            $usedCellulars[$celular] = true;
 
             try {
                 $resp = $this->postSolicitaAutorizacaoConsulta($cpf, $token, $celular);
@@ -2084,6 +2092,9 @@ class FactaApiService
             }
 
             if ($this->isTelefoneJaInformadoMessage($mensagem)) {
+                if ($attempt < $maxAttempts) {
+                    continue;
+                }
                 return [
                     'ok' => false,
                     'mensagem' => 'Pré-autorização: Telefone já informado para outro cpf!',

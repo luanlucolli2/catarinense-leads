@@ -192,7 +192,7 @@ class CltConsultController extends Controller
                 }
 
                 // descarta a 1ª linha do spool (cabeçalho original)
-                fgets($fh);
+                $this->readCsvRowWithSharedLock($fh);
 
                 // escreve cabeçalho normalizado
                 $canWriteCsv = is_resource($out);
@@ -202,26 +202,18 @@ class CltConsultController extends Controller
                     echo CltSchema::headerCsvLine(';') . $finalEol;
                 }
 
-                if (!empty($deltaMap) && $canWriteCsv) {
-                    $lineNo = 0;
-                    while (($csvRow = fgetcsv($fh, 0, ';')) !== false) {
-                        $lineNo++;
-                        if (isset($deltaMap[$lineNo]) && is_array($deltaMap[$lineNo])) {
-                            $csvRow = $this->applyPhase2PatchToCsvRow($csvRow, $deltaMap[$lineNo], $phase2Indexes);
-                        }
-
-                        fputcsv($out, $csvRow, ';', '"', '\\', $finalEol);
-                    }
+                if (!$canWriteCsv) {
                     return;
                 }
 
-                // Não segura lock aqui para não bloquear o writer do job.
-                while (!feof($fh)) {
-                    $chunk = fread($fh, 1024 * 256);
-                    if ($chunk === false) {
-                        break;
+                $lineNo = 0;
+                while (($csvRow = $this->readCsvRowWithSharedLock($fh)) !== false) {
+                    $lineNo++;
+                    if (!empty($deltaMap) && isset($deltaMap[$lineNo]) && is_array($deltaMap[$lineNo])) {
+                        $csvRow = $this->applyPhase2PatchToCsvRow($csvRow, $deltaMap[$lineNo], $phase2Indexes);
                     }
-                    echo $chunk;
+
+                    fputcsv($out, $csvRow, ';', '"', '\\', $finalEol);
                 }
             } finally {
                 if (is_resource($out)) fclose($out);
@@ -559,6 +551,8 @@ class CltConsultController extends Controller
                 "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt",
                 "{$spoolPath}.phase2.tmp",
                 "{$spoolPath}.phase2.delta.ndjson",
+                "{$spoolPath}.phase2.pending.ndjson",
+                "{$spoolPath}.phase2.pending.ndjson.next",
             ] as $p) {
                 if ($disk->exists($p))
                     $disk->delete($p);
@@ -718,12 +712,35 @@ class CltConsultController extends Controller
             $cpfsPath,
             $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
             $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
+            $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
+            $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
         ];
 
         foreach ($targets as $target) {
             if ($target && $disk->exists($target)) {
                 $disk->delete($target);
             }
+        }
+    }
+
+    /**
+     * @param resource $fh
+     * @return array<int,mixed>|false
+     */
+    private function readCsvRowWithSharedLock($fh)
+    {
+        if (!is_resource($fh)) {
+            return false;
+        }
+
+        if (!@flock($fh, LOCK_SH)) {
+            return fgetcsv($fh, 0, ';');
+        }
+
+        try {
+            return fgetcsv($fh, 0, ';');
+        } finally {
+            @flock($fh, LOCK_UN);
         }
     }
 }

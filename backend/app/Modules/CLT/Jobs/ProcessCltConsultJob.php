@@ -61,6 +61,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $subchunkDelayMs;
     private int $rowsBufferFlush;
     private int $snapBufferFlush;
+    private int $memorySpillThresholdPercent;
+    private ?int $runtimeWorkerMemoryLimitBytes = null;
     private bool $backoffLog;
     private bool $chunkPerfDebug;
     private bool $flushProgressLog;
@@ -81,6 +83,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private string $phase2DeltaReal = '';
     /** @var array<int,string> */
     private array $phase2DeltaBuffer = [];
+    private string $phase2PendingReal = '';
+    private string $phase2PendingNextReal = '';
+    private int $phase2PendingFlushEveryRows;
+    /** @var array<int,string> */
+    private array $phase2PendingBuffer = [];
     private bool $phase2CpfValidationAuditLogEnabled;
     /**
      * Acumulador de requests por linha da fase 2.
@@ -109,6 +116,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
         $this->rowsBufferFlush = max(1, (int) config('cltfacta.job.rows_buffer_flush', 300));
         $this->snapBufferFlush = max(1, (int) config('cltfacta.job.snap_buffer_flush', 300));
+        $this->memorySpillThresholdPercent = max(40, min(90, (int) config('cltfacta.job.memory_spill_threshold_percent', 70)));
+        $this->runtimeWorkerMemoryLimitBytes = $this->detectRuntimeWorkerMemoryLimitBytes();
         $this->statusCheckIntervalMs = max(100, (int) config('cltfacta.job.status_check_interval_ms', 1000));
         $this->flushEverySecs = max(1, (int) config('cltfacta.job.progress_flush_interval_seconds', 20));
         $this->backoffLog = (bool) config('cltfacta.logging.backoff_log', false);
@@ -127,6 +136,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2ProgressFlushEveryRows = max(20, (int) config('cltfacta.credit_worker.phase2_progress_flush_every_rows', 200));
         $this->phase2DeltaFlushIntervalMs = max(500, (int) config('cltfacta.credit_worker.phase2_delta_flush_interval_ms', 2000));
         $this->phase2DeltaFlushEveryRows = max(10, (int) config('cltfacta.credit_worker.phase2_delta_flush_every_rows', 20));
+        $this->phase2PendingFlushEveryRows = max(10, (int) config('cltfacta.credit_worker.phase2_pending_flush_every_rows', 50));
         $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
     }
 
@@ -152,6 +162,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($this->isCancelled($job)) {
+            if ($this->cachedStatus === 'cancelado') {
+                $this->cleanupSpool($job);
+                DB::table('clt_consult_jobs')
+                    ->where('id', $job->id)
+                    ->whereNull('finished_at')
+                    ->update([
+                        'phase' => null,
+                        'finished_at' => Carbon::now(),
+                    ]);
+            }
             return;
         }
 
@@ -167,6 +187,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->spoolReal = $disk->path($job->spool_path);
         $this->phase2DeltaReal = $this->spoolReal . '.phase2.delta.ndjson';
+        $this->phase2PendingReal = $this->spoolReal . '.phase2.pending.ndjson';
+        $this->phase2PendingNextReal = $this->phase2PendingReal . '.next';
 
         if ($this->stage === self::STAGE_PHASE2) {
             if ($this->variant !== 'online' || !$api instanceof \App\Modules\CLT\Services\FactaApiService) {
@@ -608,6 +630,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             } else {
                 $this->phase2DeltaBuffer = [];
             }
+            $this->flushPhase2PendingBuffer(true);
             if (is_resource($this->spoolFp)) {
                 @fflush($this->spoolFp);
                 @fclose($this->spoolFp);
@@ -1244,11 +1267,35 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($t === '')
             return null;
 
-        if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $t))
-            return Carbon::createFromFormat('d/m/Y', $t);
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $t))
-            return Carbon::createFromFormat('Y-m-d', $t);
-        return null;
+        try {
+            if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $t)) {
+                return Carbon::createFromFormat('d/m/Y', $t);
+            }
+
+            if (preg_match('/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(:\d{2})?$/', $t)) {
+                if (strlen($t) === 16) {
+                    return Carbon::createFromFormat('d/m/Y H:i', $t);
+                }
+                return Carbon::createFromFormat('d/m/Y H:i:s', $t);
+            }
+
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $t)) {
+                return Carbon::createFromFormat('Y-m-d', $t);
+            }
+
+            if (preg_match('/^\d{4}-\d{2}-\d{2}[ T].+$/', $t)) {
+                return Carbon::parse($t);
+            }
+
+            // Evita interpretações ambíguas de datas com barra em locale diferente.
+            if (str_contains($t, '/')) {
+                return null;
+            }
+
+            return Carbon::parse($t);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function parseDateTimeFlexible(?string $s): ?string
@@ -1516,6 +1563,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastPhase2DeltaFlushAt = microtime(true);
         $this->phase2DeltaBuffer = [];
         $this->resetPhaseTwoDeltaFile();
+        $this->resetPhaseTwoPendingFiles();
         $this->phase2CpfValidationAuditReqByLine = [];
         $phase2ApprovedCount = 0;
         $phase2NotApprovedCount = 0;
@@ -1530,20 +1578,22 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($phase2Total === 0) {
             $this->flushPhaseTwoProgress($job, 0, 0, 0, 0, true);
             $this->removePhaseTwoDeltaFile();
+            $this->removePhaseTwoPendingFiles();
             return true;
         }
 
-        $targetLines = null;
+        $usePendingSource = false;
         for ($attempt = 1; $attempt <= $this->phase2MaxAttempts; $attempt++) {
             if ($this->finishIfStopped($job)) {
                 return false;
             }
+            $this->preparePhase2PendingOutput();
 
             $result = $this->processCreditPhaseTwoAttempt(
                 $api,
                 $job,
                 $attempt,
-                $targetLines,
+                $usePendingSource,
                 $phase2Total,
                 $phase2ApprovedCount,
                 $phase2NotApprovedCount
@@ -1589,10 +1639,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     true
                 );
                 $this->removePhaseTwoDeltaFile();
+                $this->removePhaseTwoPendingFiles();
                 return true;
             }
-            $pendingLines = is_array($result['pending_lines'] ?? null) ? $result['pending_lines'] : [];
-            $pendingCount = count($pendingLines);
+
+            if (!$this->promotePhase2PendingOutput()) {
+                return false;
+            }
+
+            $pendingCount = max(0, (int) ($result['pending_count'] ?? 0));
             $this->flushPhaseTwoProgress(
                 $job,
                 $attempt,
@@ -1610,6 +1665,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     return false;
                 }
                 $this->removePhaseTwoDeltaFile();
+                $this->removePhaseTwoPendingFiles();
                 return true;
             }
 
@@ -1618,107 +1674,87 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     return false;
                 }
                 $this->removePhaseTwoDeltaFile();
+                $this->removePhaseTwoPendingFiles();
                 return true;
             }
 
             if ($this->cooperativeSleep($this->phase2RetryDelaySeconds, $job)) {
                 return false;
             }
-            $targetLines = $pendingLines;
+            $usePendingSource = true;
         }
 
         $this->removePhaseTwoDeltaFile();
+        $this->removePhaseTwoPendingFiles();
         return true;
     }
 
     /**
-     * @param array<int,int|bool>|null $targetLines
      * @param int $baseApprovedCount quantidade já consolidada em rodadas anteriores
      * @param int $baseNotApprovedCount quantidade já consolidada em rodadas anteriores
-     * @return array{aborted:bool,token_abort:bool,token_abort_message:?string,pending_lines:array<int,int>,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
+     * @return array{aborted:bool,token_abort:bool,token_abort_message:?string,pending_count:int,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
      */
     private function processCreditPhaseTwoAttempt(
         \App\Modules\CLT\Services\FactaApiService $api,
         CltConsultJob $job,
         int $attempt,
-        ?array $targetLines,
+        bool $usePendingSource,
         int $phase2Total,
         int $baseApprovedCount,
         int $baseNotApprovedCount
     ): array {
-        $sourceReal = $this->spoolReal;
-        $pendingLines = [];
+        $sourceReal = $usePendingSource ? $this->phase2PendingReal : $this->spoolReal;
+        $pendingCount = 0;
         $processedRows = 0;
         $skippedRows = 0;
         $resolvedApprovedRows = 0;
         $resolvedNotApprovedRows = 0;
-        $targetLineNumbers = null;
-        $targetIdx = 0;
-        $targetCount = 0;
-
-        if (is_array($targetLines) && !empty($targetLines)) {
-            $normalizedTargetLines = [];
-            foreach ($targetLines as $k => $v) {
-                if (is_int($k) && $v === true) {
-                    $line = $k;
-                } elseif (is_numeric($v)) {
-                    $line = (int) $v;
-                } else {
-                    continue;
-                }
-                if ($line > 0) {
-                    $normalizedTargetLines[] = $line;
-                }
-            }
-            if (!empty($normalizedTargetLines)) {
-                $normalizedTargetLines = array_values(array_unique($normalizedTargetLines));
-                sort($normalizedTargetLines, SORT_NUMERIC);
-                $targetLineNumbers = $normalizedTargetLines;
-                $targetCount = count($targetLineNumbers);
-            }
-        }
 
         $in = @fopen($sourceReal, 'rb');
         if (!is_resource($in)) {
+            if ($usePendingSource) {
+                return [
+                    'aborted' => false,
+                    'token_abort' => false,
+                    'token_abort_message' => null,
+                    'pending_count' => 0,
+                    'processed_rows' => 0,
+                    'skipped_rows' => 0,
+                    'resolved_approved' => 0,
+                    'resolved_not_approved' => 0,
+                ];
+            }
             throw new \RuntimeException("Falha ao abrir spool da fase 2 (job {$this->jobId}).");
         }
 
         try {
-            // Descarta cabeçalho.
-            fgetcsv($in, 0, ';');
+            if (!$usePendingSource) {
+                // Descarta cabeçalho.
+                fgetcsv($in, 0, ';');
 
-            $lineNo = 0;
-            while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
-                $lineNo++;
+                $lineNo = 0;
+                while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
+                    $lineNo++;
 
-                if ($this->finishIfStopped($job)) {
-                    return [
-                        'aborted' => true,
-                        'token_abort' => false,
-                        'token_abort_message' => null,
-                        'pending_lines' => [],
-                        'processed_rows' => $processedRows,
-                        'skipped_rows' => $skippedRows,
-                        'resolved_approved' => $resolvedApprovedRows,
-                        'resolved_not_approved' => $resolvedNotApprovedRows,
-                    ];
-                }
-
-                $row = $this->csvToAssocRow($csvRow);
-                $lineSelected = true;
-                if (is_array($targetLineNumbers)) {
-                    while ($targetIdx < $targetCount && $targetLineNumbers[$targetIdx] < $lineNo) {
-                        $targetIdx++;
+                    if ($this->finishIfStopped($job)) {
+                        return [
+                            'aborted' => true,
+                            'token_abort' => false,
+                            'token_abort_message' => null,
+                            'pending_count' => $pendingCount,
+                            'processed_rows' => $processedRows,
+                            'skipped_rows' => $skippedRows,
+                            'resolved_approved' => $resolvedApprovedRows,
+                            'resolved_not_approved' => $resolvedNotApprovedRows,
+                        ];
                     }
-                    $lineSelected = $targetIdx < $targetCount && $targetLineNumbers[$targetIdx] === $lineNo;
-                }
 
-                $shouldProcess = $this->shouldProcessCreditPhaseRow($row) && $lineSelected;
-                if (is_array($targetLineNumbers) && $lineSelected) {
-                    $targetIdx++;
-                }
+                    $row = $this->csvToAssocRow($csvRow);
+                    if (!$this->shouldProcessCreditPhaseRow($row)) {
+                        $skippedRows++;
+                        continue;
+                    }
 
-                if ($shouldProcess) {
                     $processedRows++;
                     try {
                         $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
@@ -1727,13 +1763,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             'aborted' => false,
                             'token_abort' => true,
                             'token_abort_message' => $e->abortCsvMessage(),
-                            'pending_lines' => $pendingLines,
+                            'pending_count' => $pendingCount,
                             'processed_rows' => $processedRows,
                             'skipped_rows' => $skippedRows,
                             'resolved_approved' => $resolvedApprovedRows,
                             'resolved_not_approved' => $resolvedNotApprovedRows,
                         ];
                     }
+
                     $row = $creditOutcome['row'];
                     $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
@@ -1743,7 +1780,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             'aborted' => true,
                             'token_abort' => false,
                             'token_abort_message' => null,
-                            'pending_lines' => [],
+                            'pending_count' => $pendingCount,
                             'processed_rows' => $processedRows,
                             'skipped_rows' => $skippedRows,
                             'resolved_approved' => $resolvedApprovedRows,
@@ -1752,7 +1789,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     if (!empty($creditOutcome['pending'])) {
-                        $pendingLines[] = $lineNo;
+                        $pendingCount++;
+                        $this->queuePhase2PendingRow($lineNo, $row);
                     } else {
                         $this->logPhase2CpfValidationAudit($lineNo, $row, $attempt, $creditOutcome);
                         if ($this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)) {
@@ -1761,11 +1799,108 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $resolvedNotApprovedRows++;
                         }
                     }
-                } else {
-                    $skippedRows++;
-                }
 
-                if ($shouldProcess) {
+                    $approvedEstimate = max(0, $baseApprovedCount + $resolvedApprovedRows);
+                    $notApprovedEstimate = max(0, $baseNotApprovedCount + $resolvedNotApprovedRows);
+                    $elapsedSinceFlushMs = $this->lastPhase2ProgressFlushAt > 0
+                        ? (int) ((microtime(true) - $this->lastPhase2ProgressFlushAt) * 1000)
+                        : PHP_INT_MAX;
+                    $shouldCheckpoint =
+                        ($processedRows % $this->phase2ProgressFlushEveryRows === 0)
+                        || $elapsedSinceFlushMs >= $this->phase2ProgressFlushIntervalMs;
+
+                    if ($shouldCheckpoint) {
+                        $this->flushPhaseTwoProgress(
+                            $job,
+                            $attempt,
+                            $phase2Total,
+                            $approvedEstimate,
+                            $notApprovedEstimate,
+                            false
+                        );
+                    }
+                }
+            } else {
+                while (($line = fgets($in)) !== false) {
+                    if ($this->finishIfStopped($job)) {
+                        return [
+                            'aborted' => true,
+                            'token_abort' => false,
+                            'token_abort_message' => null,
+                            'pending_count' => $pendingCount,
+                            'processed_rows' => $processedRows,
+                            'skipped_rows' => $skippedRows,
+                            'resolved_approved' => $resolvedApprovedRows,
+                            'resolved_not_approved' => $resolvedNotApprovedRows,
+                        ];
+                    }
+
+                    $line = trim($line);
+                    if ($line === '') {
+                        continue;
+                    }
+
+                    $decoded = json_decode($line, true);
+                    if (!is_array($decoded)) {
+                        continue;
+                    }
+
+                    $lineNo = (int) ($decoded['l'] ?? 0);
+                    if ($lineNo <= 0) {
+                        continue;
+                    }
+
+                    $row = $this->phase2PendingPayloadToRow($decoded);
+                    if (!is_array($row)) {
+                        $skippedRows++;
+                        continue;
+                    }
+
+                    $processedRows++;
+                    try {
+                        $creditOutcome = $this->applyCreditPhaseToRow($api, $job, $row, $lineNo, $attempt);
+                    } catch (FactaFatalAuthException $e) {
+                        return [
+                            'aborted' => false,
+                            'token_abort' => true,
+                            'token_abort_message' => $e->abortCsvMessage(),
+                            'pending_count' => $pendingCount,
+                            'processed_rows' => $processedRows,
+                            'skipped_rows' => $skippedRows,
+                            'resolved_approved' => $resolvedApprovedRows,
+                            'resolved_not_approved' => $resolvedNotApprovedRows,
+                        ];
+                    }
+
+                    $row = $creditOutcome['row'];
+                    $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
+                    $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
+
+                    if (($creditOutcome['aborted'] ?? false) === true) {
+                        return [
+                            'aborted' => true,
+                            'token_abort' => false,
+                            'token_abort_message' => null,
+                            'pending_count' => $pendingCount,
+                            'processed_rows' => $processedRows,
+                            'skipped_rows' => $skippedRows,
+                            'resolved_approved' => $resolvedApprovedRows,
+                            'resolved_not_approved' => $resolvedNotApprovedRows,
+                        ];
+                    }
+
+                    if (!empty($creditOutcome['pending'])) {
+                        $pendingCount++;
+                        $this->queuePhase2PendingRow($lineNo, $row);
+                    } else {
+                        $this->logPhase2CpfValidationAudit($lineNo, $row, $attempt, $creditOutcome);
+                        if ($this->isCreditApprovedFlag($row['politicaCreditoAprovado'] ?? null)) {
+                            $resolvedApprovedRows++;
+                        } else {
+                            $resolvedNotApprovedRows++;
+                        }
+                    }
+
                     $approvedEstimate = max(0, $baseApprovedCount + $resolvedApprovedRows);
                     $notApprovedEstimate = max(0, $baseNotApprovedCount + $resolvedNotApprovedRows);
                     $elapsedSinceFlushMs = $this->lastPhase2ProgressFlushAt > 0
@@ -1792,7 +1927,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'aborted' => false,
                 'token_abort' => false,
                 'token_abort_message' => null,
-                'pending_lines' => $pendingLines,
+                'pending_count' => $pendingCount,
                 'processed_rows' => $processedRows,
                 'skipped_rows' => $skippedRows,
                 'resolved_approved' => $resolvedApprovedRows,
@@ -1800,6 +1935,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ];
         } finally {
             @fclose($in);
+            $this->flushPhase2PendingBuffer(true);
             $this->flushPhase2DeltaBuffer(true);
         }
     }
@@ -2143,6 +2279,142 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function queuePhase2PendingRow(int $lineNo, array $row): void
+    {
+        if ($lineNo <= 0 || $this->phase2PendingNextReal === '') {
+            return;
+        }
+
+        $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
+        if (!is_string($cpf) || strlen($cpf) !== 11) {
+            return;
+        }
+
+        $payload = [
+            'l' => $lineNo,
+            'cpf' => $cpf,
+            'mt' => $row['matricula'] ?? null,
+            'dn' => $row['dataNascimento'] ?? null,
+            'da' => $row['dataAdmissao'] ?? null,
+            'vp' => $row['valorMaximoPrestacao'] ?? null,
+            'vr' => $row['valorTotalVencimentos'] ?? null,
+        ];
+
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json) || $json === '') {
+            return;
+        }
+
+        $this->phase2PendingBuffer[] = $json;
+        $this->flushPhase2PendingBuffer(false);
+    }
+
+    private function flushPhase2PendingBuffer(bool $force): void
+    {
+        if (empty($this->phase2PendingBuffer) || $this->phase2PendingNextReal === '') {
+            return;
+        }
+
+        if (!$force && count($this->phase2PendingBuffer) < $this->phase2PendingFlushEveryRows) {
+            return;
+        }
+
+        $data = implode("\n", $this->phase2PendingBuffer) . "\n";
+        $written = @file_put_contents($this->phase2PendingNextReal, $data, FILE_APPEND | LOCK_EX);
+        if ($written === false) {
+            CltLog::warning("[CLT] Job {$this->jobId} falha ao persistir pendências da fase 2.");
+            return;
+        }
+
+        $this->phase2PendingBuffer = [];
+    }
+
+    private function preparePhase2PendingOutput(): void
+    {
+        $this->phase2PendingBuffer = [];
+        if ($this->phase2PendingNextReal === '') {
+            return;
+        }
+
+        try {
+            if (is_file($this->phase2PendingNextReal)) {
+                @unlink($this->phase2PendingNextReal);
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    private function promotePhase2PendingOutput(): bool
+    {
+        $this->flushPhase2PendingBuffer(true);
+
+        if ($this->phase2PendingNextReal === '' || $this->phase2PendingReal === '') {
+            return true;
+        }
+
+        if (!is_file($this->phase2PendingNextReal)) {
+            try {
+                if (is_file($this->phase2PendingReal)) {
+                    @unlink($this->phase2PendingReal);
+                }
+            } catch (Throwable) {
+            }
+            return true;
+        }
+
+        if (@rename($this->phase2PendingNextReal, $this->phase2PendingReal)) {
+            return true;
+        }
+
+        CltLog::warning("[CLT] Job {$this->jobId} falha ao promover pendências da fase 2.");
+        return false;
+    }
+
+    /**
+     * @param array<string,mixed> $decoded
+     * @return array<string,mixed>|null
+     */
+    private function phase2PendingPayloadToRow(array $decoded): ?array
+    {
+        $cpf = preg_replace('/\D+/', '', (string) ($decoded['cpf'] ?? ''));
+        if (!is_string($cpf) || strlen($cpf) !== 11) {
+            return null;
+        }
+
+        $row = $this->baseRow($cpf);
+        $row['matricula'] = $decoded['mt'] ?? null;
+        $row['dataNascimento'] = $decoded['dn'] ?? null;
+        $row['dataAdmissao'] = $decoded['da'] ?? null;
+        $row['valorMaximoPrestacao'] = $decoded['vp'] ?? null;
+        $row['valorTotalVencimentos'] = $decoded['vr'] ?? null;
+
+        return $row;
+    }
+
+    private function resetPhaseTwoPendingFiles(): void
+    {
+        $this->phase2PendingBuffer = [];
+        foreach ([$this->phase2PendingReal, $this->phase2PendingNextReal] as $file) {
+            if ($file === '') {
+                continue;
+            }
+            try {
+                if (is_file($file)) {
+                    @unlink($file);
+                }
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    private function removePhaseTwoPendingFiles(): void
+    {
+        $this->resetPhaseTwoPendingFiles();
+    }
+
     private function shouldProcessCreditPhaseRow(array $row): bool
     {
         $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
@@ -2363,7 +2635,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($status === 'cancelado') {
             $this->flushPhase2DeltaBuffer(true);
+            $this->flushPhase2PendingBuffer(true);
             $this->closeSpoolWriter();
+            $this->cleanupSpool($job);
             DB::table('clt_consult_jobs')->where('id', $job->id)->update(['phase' => null, 'finished_at' => Carbon::now()]);
             CltLog::info("[CLT] Job {$this->jobId} cancelado.");
             return true;
@@ -2407,6 +2681,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $job->spool_cpfs_path ?? null,
                 $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
                 $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
+                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
+                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
             ];
             foreach ($targets as $p) {
                 if ($p && $disk->exists($p)) {
@@ -2585,11 +2861,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function shouldSpill(): bool
     {
-        $limit = $this->memoryLimitBytes();
-        if ($limit <= 0)
+        $limit = $this->effectiveMemoryBudgetBytes();
+        if ($limit <= 0 || $limit === PHP_INT_MAX)
             return false;
         $usage = memory_get_usage(true);
-        return $usage > (int) ($limit * 0.70);
+        $threshold = max(0.10, min(0.95, $this->memorySpillThresholdPercent / 100));
+        return $usage > (int) floor($limit * $threshold);
     }
 
     private function simNaoToBool($val): ?bool
@@ -2647,6 +2924,63 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $num > 0 ? $num : PHP_INT_MAX;
     }
 
+    private function effectiveMemoryBudgetBytes(): int
+    {
+        $limits = [$this->memoryLimitBytes()];
+
+        if (is_int($this->runtimeWorkerMemoryLimitBytes) && $this->runtimeWorkerMemoryLimitBytes > 0) {
+            $limits[] = $this->runtimeWorkerMemoryLimitBytes;
+        }
+
+        $softMb = (int) config('cltfacta.job.memory_soft_limit_mb', 0);
+        if ($softMb > 0) {
+            $limits[] = $softMb * 1024 * 1024;
+        }
+
+        $effective = PHP_INT_MAX;
+        foreach ($limits as $candidate) {
+            if ($candidate > 0 && $candidate < $effective) {
+                $effective = $candidate;
+            }
+        }
+
+        return $effective;
+    }
+
+    private function detectRuntimeWorkerMemoryLimitBytes(): ?int
+    {
+        $argv = $_SERVER['argv'] ?? null;
+        if (!is_array($argv) || empty($argv)) {
+            return null;
+        }
+
+        $memoryMb = null;
+        foreach ($argv as $idx => $arg) {
+            if (!is_string($arg) || $arg === '') {
+                continue;
+            }
+
+            if (preg_match('/^--memory=(\d+)$/', $arg, $m)) {
+                $memoryMb = (int) ($m[1] ?? 0);
+                break;
+            }
+
+            if ($arg === '--memory') {
+                $next = $argv[$idx + 1] ?? null;
+                if (is_string($next) && ctype_digit($next)) {
+                    $memoryMb = (int) $next;
+                    break;
+                }
+            }
+        }
+
+        if (!is_int($memoryMb) || $memoryMb <= 0) {
+            return null;
+        }
+
+        return $memoryMb * 1024 * 1024;
+    }
+
     private function deletePendFiles(): void
     {
         try {
@@ -2678,6 +3012,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             if ($job->status === 'cancelado') {
                 $this->flushPhase2DeltaBuffer(true);
+                $this->flushPhase2PendingBuffer(true);
+                $this->cleanupSpool($job);
                 $this->deletePendFiles();
                 return;
             }

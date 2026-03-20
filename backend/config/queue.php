@@ -41,7 +41,9 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            // Fallback para DB_QUEUE_RETRY_AFTER evita redelivery prematuro
+            // quando a aplicação usa Redis mas só define a variável legada.
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', (int) env('DB_QUEUE_RETRY_AFTER', 18030)),
             'block_for' => null,
             'after_commit' => false,
         ],
