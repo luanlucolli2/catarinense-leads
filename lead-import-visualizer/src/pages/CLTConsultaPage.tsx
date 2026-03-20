@@ -22,6 +22,7 @@ import {
   downloadCltReport,
   downloadCltPreview,
   cancelCltConsultJob,
+  rerunCltConsultJobPhase2,
   deleteCltConsultJob,
   CltConsultJobListItem,
   CltConsultJobShow,
@@ -340,6 +341,17 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
   });
 
+  const rerunPhase2Mutation = useMutation({
+    mutationFn: (id: number) => rerunCltConsultJobPhase2(id),
+    onSuccess: (_data, id) => {
+      setWatchingJobId(id);
+      toast.success(`Reprocessamento da fase 2 iniciado para "${titleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível reprocessar a fase 2"),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteCltConsultJob(id),
     onSuccess: (_data, id) => {
@@ -491,6 +503,10 @@ const CLTConsultaPage = () => {
     await cancelMutation.mutateAsync({ id, reason });
   };
 
+  const handleRerunPhase2 = async (id: number) => {
+    await rerunPhase2Mutation.mutateAsync(id);
+  };
+
   const handleDelete = async (id: number) => {
     await deleteMutation.mutateAsync(id);
   };
@@ -640,6 +656,7 @@ const CLTConsultaPage = () => {
             loading={!!(listLoading && !jobsPage)}
             onDownload={handleDownload}
             onCancel={handleCancel}
+            onRerunPhase2={handleRerunPhase2}
             onDelete={handleDelete}
             onViewHttpCounters={handleViewHttpCounters}
             onRefresh={() => refetchList()}

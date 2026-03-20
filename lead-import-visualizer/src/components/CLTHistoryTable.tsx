@@ -15,6 +15,7 @@ import {
   Wifi,
   Database,
   BarChart3,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,7 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
+  onRerunPhase2: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onViewHttpCounters?: (id: number) => void;
   onRefresh?: () => void;
@@ -480,6 +482,7 @@ export const CLTHistoryTable = ({
   loading,
   onDownload,
   onCancel,
+  onRerunPhase2,
   onDelete,
   onViewHttpCounters,
   page,
@@ -489,6 +492,8 @@ export const CLTHistoryTable = ({
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
+  const [rerunningId, setRerunningId] = useState<number | null>(null);
+  const [confirmRerunJob, setConfirmRerunJob] = useState<CltConsultJobListItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] =
     useState<CltConsultJobListItem | null>(null);
@@ -503,6 +508,12 @@ export const CLTHistoryTable = ({
 
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
+
+  const canRerunPhase2 = (i: CltConsultJobListItem) => {
+    const variant = resolveVariant(i);
+    const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
+    return variant === "online" && i.status === "concluido" && hasFinal;
+  };
 
   const canDelete = (i: CltConsultJobListItem) =>
     !(i.status === "pendente" || i.status === "em_progresso");
@@ -520,6 +531,22 @@ export const CLTHistoryTable = ({
     } finally {
       setCancelingId(null);
       setConfirmJob(null);
+    }
+  };
+
+  const openRerunDialog = (i: CltConsultJobListItem) => {
+    if (!canRerunPhase2(i) || rerunningId !== null) return;
+    setConfirmRerunJob(i);
+  };
+
+  const executeRerun = async () => {
+    if (!confirmRerunJob) return;
+    try {
+      setRerunningId(confirmRerunJob.id);
+      await onRerunPhase2(confirmRerunJob.id);
+    } finally {
+      setRerunningId(null);
+      setConfirmRerunJob(null);
     }
   };
 
@@ -630,16 +657,30 @@ export const CLTHistoryTable = ({
                             <span className="sr-only">Mais ações</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-56">
                           {canViewHttpCounters && (
                             <DropdownMenuItem onClick={() => onViewHttpCounters?.(i.id)}>
                               <BarChart3 className="w-4 h-4 mr-2" />
                               Ver chamadas API
                             </DropdownMenuItem>
                           )}
-                          {(i.status === "pendente" || i.status === "em_progresso") && (
+                          {canRerunPhase2(i) && (
                             <DropdownMenuItem
-                              onClick={() => setConfirmJob(i)}
+                              onClick={() => openRerunDialog(i)}
+                              className="text-blue-700 dark:text-blue-400"
+                              disabled={rerunningId !== null}
+                            >
+                              {rerunningId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                              )}
+                              Rodar fase 2 novamente
+                            </DropdownMenuItem>
+                          )}
+                          {canCancel(i) && (
+                            <DropdownMenuItem
+                              onClick={() => openCancelDialog(i)}
                               className="text-orange-600 dark:text-orange-400"
                             >
                               <X className="w-4 h-4 mr-2" />
@@ -648,7 +689,7 @@ export const CLTHistoryTable = ({
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => setConfirmDeleteJob(i)}
+                            onClick={() => openDeleteDialog(i)}
                             className={
                               i.status === "em_progresso" || i.status === "pendente"
                                 ? "text-muted-foreground cursor-not-allowed"
@@ -709,16 +750,30 @@ export const CLTHistoryTable = ({
                             <span className="sr-only">Mais ações</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-56">
                           {canViewHttpCounters && (
                             <DropdownMenuItem onClick={() => onViewHttpCounters?.(i.id)}>
                               <BarChart3 className="w-4 h-4 mr-2" />
                               Ver chamadas API
                             </DropdownMenuItem>
                           )}
-                          {(i.status === "pendente" || i.status === "em_progresso") && (
+                          {canRerunPhase2(i) && (
                             <DropdownMenuItem
-                              onClick={() => setConfirmJob(i)}
+                              onClick={() => openRerunDialog(i)}
+                              className="text-blue-700 dark:text-blue-400"
+                              disabled={rerunningId !== null}
+                            >
+                              {rerunningId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                              )}
+                              Rodar fase 2 novamente
+                            </DropdownMenuItem>
+                          )}
+                          {canCancel(i) && (
+                            <DropdownMenuItem
+                              onClick={() => openCancelDialog(i)}
                               className="text-orange-600 dark:text-orange-400"
                             >
                               <X className="w-4 h-4 mr-2" />
@@ -727,7 +782,7 @@ export const CLTHistoryTable = ({
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => setConfirmDeleteJob(i)}
+                            onClick={() => openDeleteDialog(i)}
                             className={
                               i.status === "em_progresso" || i.status === "pendente"
                                 ? "text-muted-foreground cursor-not-allowed"
@@ -862,6 +917,48 @@ export const CLTHistoryTable = ({
           </Button>
         </div>
       </div>
+
+      {/* Confirmar RERUN FASE 2 */}
+      <AlertDialog
+        open={!!confirmRerunJob}
+        onOpenChange={(isOpen) => !isOpen && setConfirmRerunJob(null)}
+      >
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
+              Rodar fase 2 novamente?
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="text-sm text-gray-700 dark:text-gray-200">
+            <p>O resultado de política de crédito atual será recalculado.</p>
+            {confirmRerunJob && (
+              <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
+                {confirmRerunJob.title} (#{confirmRerunJob.id})
+              </p>
+            )}
+            <p>Deseja continuar?</p>
+          </div>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel disabled={rerunningId !== null} className="w-full sm:w-auto">
+              Fechar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+              disabled={rerunningId !== null}
+              onClick={(e) => {
+                e.preventDefault();
+                void executeRerun();
+              }}
+            >
+              {rerunningId === confirmRerunJob?.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Sim, reprocessar"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Confirmar CANCELAMENTO */}
       <AlertDialog

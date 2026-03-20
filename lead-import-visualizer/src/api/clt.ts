@@ -238,6 +238,20 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
   return data
 }
 
+/** Reprocessa a fase 2 de um job online concluído */
+export async function rerunCltConsultJobPhase2(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: CltJobStatus
+    phase?: CltJobPhase
+    phase2_total?: number
+    phase2_attempt?: number
+    phase2_aprovado_count?: number
+    phase2_nao_aprovado_count?: number
+  }>(`${BASE}/${id}/phase2/rerun`)
+  return data
+}
+
 /** Exclui definitivamente um job e seus arquivos (204 No Content) */
 export async function deleteCltConsultJob(id: number): Promise<void> {
   await axiosClient.delete(`${BASE}/${id}`)

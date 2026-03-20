@@ -296,6 +296,117 @@ class CltConsultController extends Controller
         ]);
     }
 
+    public function rerunPhase2(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if (($job->variant ?? 'online') !== 'online') {
+            return response()->json([
+                'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        if ($job->status !== 'concluido') {
+            return response()->json([
+                'message' => 'A fase 2 só pode ser reprocessada quando o job estiver concluído.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if (empty($job->file_disk) || empty($job->file_path)) {
+            return response()->json([
+                'message' => 'CSV final indisponível para reconstruir o spool da fase 2.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $sourceDisk = Storage::disk($job->file_disk);
+        if (!$sourceDisk->exists($job->file_path)) {
+            return response()->json([
+                'message' => 'Arquivo final não encontrado.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $reportsDisk = Storage::disk($reportsDiskName);
+        $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        if (!$reportsDisk->exists($dirSpool)) {
+            $reportsDisk->makeDirectory($dirSpool);
+        }
+
+        $spoolPath = "{$dirSpool}/{$this->finalPrefix()}_{$job->id}.spool.csv";
+
+        try {
+            $this->deleteSpoolArtifacts($reportsDisk, $job->spool_path, $job->spool_cpfs_path);
+            $this->deleteSpoolArtifacts($reportsDisk, $spoolPath, null);
+            $spoolBytes = $this->rebuildPhase2SpoolFromFinalCsv(
+                $sourceDisk,
+                (string) $job->file_path,
+                $reportsDisk,
+                $spoolPath
+            );
+        } catch (\Throwable $e) {
+            CltLog::error("[CLT] Falha ao preparar rerun da fase 2 (job {$job->id}): " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'Não foi possível preparar o reprocessamento da fase 2.',
+            ], 500);
+        }
+
+        if (Schema::hasTable('clt_job_http_counters')) {
+            DB::table('clt_job_http_counters')->where('job_id', $job->id)->delete();
+        }
+
+        $oldFinalDisk = $job->file_disk;
+        $oldFinalPath = $job->file_path;
+
+        $job->update([
+            'status' => 'pendente',
+            'phase' => 'fase_2',
+            'phase2_total' => 0,
+            'phase2_attempt' => 0,
+            'phase2_aprovado_count' => 0,
+            'phase2_nao_aprovado_count' => 0,
+            'spool_path' => $spoolPath,
+            'spool_cpfs_path' => null,
+            'spool_bytes' => $spoolBytes,
+            'file_disk' => null,
+            'file_path' => null,
+            'file_name' => null,
+            'started_at' => now(),
+            'finished_at' => null,
+            'canceled_at' => null,
+            'cancel_reason' => null,
+        ]);
+
+        if ($oldFinalDisk && $oldFinalPath) {
+            try {
+                $oldDisk = Storage::disk($oldFinalDisk);
+                if ($oldDisk->exists($oldFinalPath)) {
+                    $oldDisk->delete($oldFinalPath);
+                }
+            } catch (\Throwable $e) {
+                CltLog::warning("[CLT] Falha ao remover CSV final antigo no rerun da fase 2 (job {$job->id}): " . $e->getMessage());
+            }
+        }
+
+        $queue = (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred');
+        ProcessCltConsultJob::dispatch($job->id, 'phase2')->onQueue($queue);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'phase2_total' => (int) ($job->phase2_total ?? 0),
+            'phase2_attempt' => (int) ($job->phase2_attempt ?? 0),
+            'phase2_aprovado_count' => (int) ($job->phase2_aprovado_count ?? 0),
+            'phase2_nao_aprovado_count' => (int) ($job->phase2_nao_aprovado_count ?? 0),
+        ], Response::HTTP_ACCEPTED);
+    }
+
     public function destroy(int $id)
     {
         $job = CltConsultJob::query()
@@ -579,6 +690,97 @@ class CltConsultController extends Controller
         } catch (\Throwable $e) {
             CltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
         }
+    }
+
+    private function rebuildPhase2SpoolFromFinalCsv($sourceDisk, string $sourcePath, $targetDisk, string $targetPath): int
+    {
+        $in = $sourceDisk->readStream($sourcePath);
+        if ($in === false) {
+            throw new \RuntimeException("Falha ao abrir CSV final de origem: {$sourcePath}");
+        }
+
+        $out = @fopen($targetDisk->path($targetPath), 'c+');
+        if ($out === false) {
+            if (is_resource($in)) {
+                @fclose($in);
+            }
+            throw new \RuntimeException("Falha ao abrir spool de destino para rerun: {$targetPath}");
+        }
+
+        $phase2Indexes = $this->phase2ColumnsIndexesForReset();
+        $colsCount = count(CltSchema::COLS);
+
+        try {
+            if (!@flock($out, LOCK_EX)) {
+                throw new \RuntimeException("Não foi possível bloquear spool de destino para rerun.");
+            }
+
+            @ftruncate($out, 0);
+            $header = @fgetcsv($in, 0, ';');
+            if ($header === false) {
+                throw new \RuntimeException("CSV final vazio, impossível reconstruir spool de rerun.");
+            }
+
+            @fputcsv($out, CltSchema::TITLES, ';');
+
+            while (($row = @fgetcsv($in, 0, ';')) !== false) {
+                if (count($row) < $colsCount) {
+                    $row = array_pad($row, $colsCount, null);
+                } elseif (count($row) > $colsCount) {
+                    $row = array_slice($row, 0, $colsCount);
+                }
+
+                foreach ($phase2Indexes as $idx) {
+                    $row[$idx] = null;
+                }
+
+                @fputcsv($out, $row, ';');
+            }
+
+            @fflush($out);
+            @flock($out, LOCK_UN);
+        } finally {
+            if (is_resource($in)) {
+                @fclose($in);
+            }
+            if (is_resource($out)) {
+                @fclose($out);
+            }
+        }
+
+        try {
+            return (int) $targetDisk->size($targetPath);
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * @return array<int,int>
+     */
+    private function phase2ColumnsIndexesForReset(): array
+    {
+        static $indexes = null;
+        if (is_array($indexes)) {
+            return $indexes;
+        }
+
+        $lookup = array_flip(CltSchema::COLS);
+        $indexes = [];
+        foreach (
+            [
+                'politicaCreditoAprovado',
+                'politicaCreditoMensagem',
+                'politicaCreditoValorMaximoDisponivel',
+                'politicaCreditoPrazoMaximoDisponivel',
+            ] as $col
+        ) {
+            if (array_key_exists($col, $lookup)) {
+                $indexes[] = (int) $lookup[$col];
+            }
+        }
+
+        return $indexes;
     }
 
     private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
