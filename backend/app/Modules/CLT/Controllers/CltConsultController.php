@@ -546,14 +546,20 @@ class CltConsultController extends Controller
             $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
             $finalPref = $this->finalPrefix();
             $spoolPath = "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv";
-            foreach ([
+            $targets = [
                 $spoolPath,
                 "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt",
                 "{$spoolPath}.phase2.tmp",
                 "{$spoolPath}.phase2.delta.ndjson",
                 "{$spoolPath}.phase2.pending.ndjson",
                 "{$spoolPath}.phase2.pending.ndjson.next",
-            ] as $p) {
+            ];
+            $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
+            }
+
+            foreach ($targets as $p) {
                 if ($disk->exists($p))
                     $disk->delete($p);
             }
@@ -715,6 +721,12 @@ class CltConsultController extends Controller
             $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
             $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
         ];
+        if ($spoolPath) {
+            $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
+            }
+        }
 
         foreach ($targets as $target) {
             if ($target && $disk->exists($target)) {
