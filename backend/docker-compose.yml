@@ -7,7 +7,8 @@ x-app-environment: &app-environment
   XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
   IGNITION_LOCAL_SITES_PATH: '${PWD}'
   # Variáveis Default (Fallback)
-  CLT_ON_JOB_QUEUE: 'clt-on'
+  CLT_ON_JOB_QUEUE: 'clt-consulta-online'
+  CLT_PHASE2_JOB_QUEUE: 'clt-valida-politica-cred'
   CLT_OFF_JOB_QUEUE: 'clt-off'
   CLT_FACTA_LOG_RESPONSES: 'true'
   CLT_FACTA_LOG_SUCCESS_RESPONSES: 'true'
@@ -17,6 +18,7 @@ x-app-environment: &app-environment
   URA_JOB_QUEUE: 'ura'
   C6_JOB_QUEUE: 'c6-auth'
   CLT_ON_JOB_TIMEOUT: '18000'
+  CLT_PHASE2_JOB_TIMEOUT: '18000'
   CLT_OFF_JOB_TIMEOUT: '18000'
   FGTS_OFF_JOB_TIMEOUT: '18000'
   V8_JOB_TIMEOUT: '18000'

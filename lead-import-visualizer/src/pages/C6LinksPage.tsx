@@ -165,7 +165,7 @@ const C6LinksPage = () => {
           <div>
             <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">Geração de Links C6</h1>
             <p className="text-gray-600 text-sm lg:text-base">
-              Gere links de autorização de consulta de dados no banco C6. Links expiram em 48 horas.
+              Gere links de autorização de consulta de dados no banco C6. Links expiram em 69 horas.
             </p>
           </div>
 

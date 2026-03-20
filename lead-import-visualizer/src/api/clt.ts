@@ -10,6 +10,9 @@ export type CltJobStatus =
   | 'falhou'
   | 'cancelado'
 
+export type CltJobStatusFilter = CltJobStatus | 'todos'
+export type CltJobVariantFilter = 'online' | 'offline' | 'todos'
+
 export type CltJobPhase = 'fase_1' | 'fase_2' | null
 
 /** Estados da PRÉVIA (alinhado ao backend) */
@@ -145,11 +148,35 @@ export interface Paginated<T> {
 }
 
 const BASE = '/clt/consult-jobs'
+const CLT_JOB_STATUSES: CltJobStatus[] = ['pendente', 'em_progresso', 'concluido', 'falhou', 'cancelado']
+const CLT_JOB_VARIANTS: Array<'online' | 'offline'> = ['online', 'offline']
 
-/** Lista os jobs do usuário autenticado */
-export async function listCltConsultJobs(page = 1): Promise<Paginated<CltConsultJobListItem>> {
+/** Lista os jobs CLT com filtros opcionais */
+export async function listCltConsultJobs(
+  page = 1,
+  opts?: { status?: CltJobStatusFilter; variant?: CltJobVariantFilter }
+): Promise<Paginated<CltConsultJobListItem>> {
+  const params: Record<string, string | number> = { page }
+  const requestedStatus = opts?.status
+  const requestedVariant = opts?.variant
+  if (
+    typeof requestedStatus === 'string'
+    && requestedStatus !== 'todos'
+    && CLT_JOB_STATUSES.includes(requestedStatus as CltJobStatus)
+  ) {
+    params.status = requestedStatus
+  }
+  if (
+    typeof requestedVariant === 'string'
+    && requestedVariant !== 'todos'
+    && CLT_JOB_VARIANTS.includes(requestedVariant as 'online' | 'offline')
+  ) {
+    params.variant = requestedVariant
+  }
+
   const { data } = await axiosClient.get<Paginated<CltConsultJobListItem>>(
-    `${BASE}?page=${page}`
+    BASE,
+    { params }
   )
   return data
 }
@@ -235,6 +262,20 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
     canceled_at?: string | null
     cancel_reason?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
+  return data
+}
+
+/** Reprocessa a fase 2 de um job online concluído */
+export async function rerunCltConsultJobPhase2(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: CltJobStatus
+    phase?: CltJobPhase
+    phase2_total?: number
+    phase2_attempt?: number
+    phase2_aprovado_count?: number
+    phase2_nao_aprovado_count?: number
+  }>(`${BASE}/${id}/phase2/rerun`)
   return data
 }
 

@@ -22,12 +22,15 @@ import {
   downloadCltReport,
   downloadCltPreview,
   cancelCltConsultJob,
+  rerunCltConsultJobPhase2,
   deleteCltConsultJob,
   CltConsultJobListItem,
   CltConsultJobShow,
   getCltConsultJob,
   getCltJobHttpCounters,
   CltJobHttpCountersResponse,
+  CltJobStatusFilter,
+  CltJobVariantFilter,
   requestCltPreview,
 } from "@/api/clt";
 import {
@@ -64,6 +67,14 @@ const CLTConsultaPage = () => {
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = usePersistedState<CltJobStatusFilter>(
+    "clt:statusFilter",
+    "todos"
+  );
+  const [variantFilter, setVariantFilter] = usePersistedState<CltJobVariantFilter>(
+    "clt:variantFilter",
+    "todos"
+  );
   const [page, setPage] = useState(1);
 
   const [isNewV8ModalOpen, setIsNewV8ModalOpen] = useState(false);
@@ -95,8 +106,8 @@ const CLTConsultaPage = () => {
     isLoading: listLoading,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ["clt:list", page],
-    queryFn: () => listCltConsultJobs(page),
+    queryKey: ["clt:list", page, statusFilter, variantFilter],
+    queryFn: () => listCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     refetchInterval: 30000,
@@ -340,6 +351,17 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
   });
 
+  const rerunPhase2Mutation = useMutation({
+    mutationFn: (id: number) => rerunCltConsultJobPhase2(id),
+    onSuccess: (_data, id) => {
+      setWatchingJobId(id);
+      toast.success(`Reprocessamento da fase 2 iniciado para "${titleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível reprocessar a fase 2"),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteCltConsultJob(id),
     onSuccess: (_data, id) => {
@@ -491,6 +513,10 @@ const CLTConsultaPage = () => {
     await cancelMutation.mutateAsync({ id, reason });
   };
 
+  const handleRerunPhase2 = async (id: number) => {
+    await rerunPhase2Mutation.mutateAsync(id);
+  };
+
   const handleDelete = async (id: number) => {
     await deleteMutation.mutateAsync(id);
   };
@@ -633,6 +659,16 @@ const CLTConsultaPage = () => {
             onNewConsultClick={() => setIsNewConsultModalOpen(true)}
             searchValue={searchValue}
             onSearchChange={setSearchValue}
+            statusFilter={statusFilter}
+            onStatusFilterChange={(value) => {
+              setStatusFilter(value);
+              setPage(1);
+            }}
+            variantFilter={variantFilter}
+            onVariantFilterChange={(value) => {
+              setVariantFilter(value);
+              setPage(1);
+            }}
           />
 
           <CLTHistoryTable
@@ -640,6 +676,7 @@ const CLTConsultaPage = () => {
             loading={!!(listLoading && !jobsPage)}
             onDownload={handleDownload}
             onCancel={handleCancel}
+            onRerunPhase2={handleRerunPhase2}
             onDelete={handleDelete}
             onViewHttpCounters={handleViewHttpCounters}
             onRefresh={() => refetchList()}

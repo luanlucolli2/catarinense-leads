@@ -160,7 +160,15 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                 $job->spool_cpfs_path ?? null,
                 $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
                 $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
+                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
+                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
             ];
+            if ($spoolPath) {
+                $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                    $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
+                }
+            }
             foreach ($targets as $p) {
                 if ($p && $disk->exists($p)) {
                     try {
