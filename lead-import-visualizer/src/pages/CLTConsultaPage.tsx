@@ -29,6 +29,8 @@ import {
   getCltConsultJob,
   getCltJobHttpCounters,
   CltJobHttpCountersResponse,
+  CltJobStatusFilter,
+  CltJobVariantFilter,
   requestCltPreview,
 } from "@/api/clt";
 import {
@@ -65,6 +67,14 @@ const CLTConsultaPage = () => {
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = usePersistedState<CltJobStatusFilter>(
+    "clt:statusFilter",
+    "todos"
+  );
+  const [variantFilter, setVariantFilter] = usePersistedState<CltJobVariantFilter>(
+    "clt:variantFilter",
+    "todos"
+  );
   const [page, setPage] = useState(1);
 
   const [isNewV8ModalOpen, setIsNewV8ModalOpen] = useState(false);
@@ -96,8 +106,8 @@ const CLTConsultaPage = () => {
     isLoading: listLoading,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ["clt:list", page],
-    queryFn: () => listCltConsultJobs(page),
+    queryKey: ["clt:list", page, statusFilter, variantFilter],
+    queryFn: () => listCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     refetchInterval: 30000,
@@ -649,6 +659,16 @@ const CLTConsultaPage = () => {
             onNewConsultClick={() => setIsNewConsultModalOpen(true)}
             searchValue={searchValue}
             onSearchChange={setSearchValue}
+            statusFilter={statusFilter}
+            onStatusFilterChange={(value) => {
+              setStatusFilter(value);
+              setPage(1);
+            }}
+            variantFilter={variantFilter}
+            onVariantFilterChange={(value) => {
+              setVariantFilter(value);
+              setPage(1);
+            }}
           />
 
           <CLTHistoryTable

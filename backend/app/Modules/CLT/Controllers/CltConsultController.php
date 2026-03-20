@@ -18,10 +18,39 @@ use Symfony\Component\HttpFoundation\Response;
 
 class CltConsultController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $jobs = CltConsultJob::query()
-            ->where('user_id', Auth::id())
+        $data = Validator::make($request->query(), [
+            'status' => ['nullable', 'in:pendente,em_progresso,concluido,falhou,cancelado,todos'],
+            'variant' => ['nullable', 'in:online,offline,on,off,todos'],
+        ])->validate();
+
+        $jobsQuery = CltConsultJob::query();
+
+        $status = $data['status'] ?? null;
+        if (is_string($status) && $status !== '' && $status !== 'todos') {
+            $jobsQuery->where('status', $status);
+        }
+
+        $variant = $data['variant'] ?? null;
+        if (is_string($variant) && $variant !== '' && $variant !== 'todos') {
+            $variantNormalized = match ($variant) {
+                'on' => 'online',
+                'off' => 'offline',
+                default => $variant,
+            };
+
+            if ($variantNormalized === 'online') {
+                $jobsQuery->where(function ($q) {
+                    $q->where('variant', 'online')
+                        ->orWhereNull('variant');
+                });
+            } else {
+                $jobsQuery->where('variant', $variantNormalized);
+            }
+        }
+
+        $jobs = $jobsQuery
             ->orderByDesc('created_at')
             ->paginate(15);
 
