@@ -89,6 +89,7 @@ class FactaApiService
     private const TOKEN_TRANSIENT_MAX_ATTEMPTS = 8;
     private const TOKEN_ABORT_MSG_FATAL_IMMEDIATE = 'Processamento abortado: Usuário ou senha inválida.';
     private const TOKEN_ABORT_MSG_TRANSIENT_EXHAUSTED = 'Processamento abortado: Não foi possível obter token FACTA após múltiplas tentativas.';
+    private const CREDIT_POLICY_INTERNAL_APPROVAL_MIN_VALUE = 500.0;
 
     /** DDDs válidos do Brasil (ANATEL) */
     private const VALID_BR_DDDS = [
@@ -1165,7 +1166,7 @@ class FactaApiService
                 $policyMensagem = (string) ($policy['mensagem'] ?? '');
                 if (
                     empty($policy['aprovado'])
-                    && $this->isValorMaiorPermitido4000PolicyApprovalMessage($policyMensagem)
+                    && $this->isValorMaiorPermitidoPolicyApprovalMessage($policyMensagem)
                 ) {
                     $mensagemAprovadaInternamente = $policyMensagem !== '' ? $policyMensagem : 'Aprovado pela política de crédito.';
                     if (!str_contains($this->normalize($mensagemAprovadaInternamente), 'aprovado internamente')) {
@@ -3014,7 +3015,7 @@ class FactaApiService
         return $prazo > 0 ? $prazo : null;
     }
 
-    private function isValorMaiorPermitido4000PolicyApprovalMessage(string $mensagem): bool
+    private function isValorMaiorPermitidoPolicyApprovalMessage(string $mensagem): bool
     {
         $norm = $this->normalize($mensagem);
         if ($norm === '' || !str_contains($norm, 'politica de credito')) {
@@ -3032,7 +3033,7 @@ class FactaApiService
             return false;
         }
 
-        return abs($valor - 4000.0) < 0.00001;
+        return $valor > self::CREDIT_POLICY_INTERNAL_APPROVAL_MIN_VALUE;
     }
 
     private function isAllowedCreditPolicyTableName(string $tableName): bool
