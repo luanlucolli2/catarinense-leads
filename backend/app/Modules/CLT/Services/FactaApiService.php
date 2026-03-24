@@ -60,6 +60,10 @@ class FactaApiService
     private string $creditConvenio;
     private string $creditOpcaoValor;
     private int $creditPolicyBatchSize;
+    private string $creditPolicySourceMode;
+    private string $creditPolicyFixedValorEmprestimo;
+    /** @var array<int,int> */
+    private array $creditPolicyFixedPrazos = [];
     private bool $phase2CpfValidationAuditLogEnabled;
     private bool $phase2OperacoesRequestLogEnabled;
     private bool $jobHttpCountersEnabled;
@@ -90,6 +94,10 @@ class FactaApiService
     private const TOKEN_ABORT_MSG_FATAL_IMMEDIATE = 'Processamento abortado: Usuário ou senha inválida.';
     private const TOKEN_ABORT_MSG_TRANSIENT_EXHAUSTED = 'Processamento abortado: Não foi possível obter token FACTA após múltiplas tentativas.';
     private const CREDIT_POLICY_INTERNAL_APPROVAL_MIN_VALUE = 500.0;
+    private const CREDIT_POLICY_SOURCE_MODE_OPERACOES = 'operacoes';
+    private const CREDIT_POLICY_SOURCE_MODE_FIXED = 'fixed';
+    /** @var array<int,int> */
+    private const CREDIT_POLICY_FIXED_PRAZOS_DEFAULT = [6, 8, 10, 12, 14, 15, 18, 20, 24, 30, 36, 42, 48];
 
     /** DDDs válidos do Brasil (ANATEL) */
     private const VALID_BR_DDDS = [
@@ -174,6 +182,13 @@ class FactaApiService
         $this->creditConvenio = (string) ($credit['convenio'] ?? '3');
         $this->creditOpcaoValor = (string) ($credit['opcao_valor'] ?? '2');
         $this->creditPolicyBatchSize = max(1, (int) ($credit['policy_batch_size'] ?? 3));
+        $this->creditPolicySourceMode = $this->normalizeCreditPolicySourceMode((string) ($credit['policy_source_mode'] ?? self::CREDIT_POLICY_SOURCE_MODE_OPERACOES));
+        $fixedValorEmprestimo = $this->toMoneyString($credit['policy_fixed_valor_emprestimo'] ?? 500);
+        $this->creditPolicyFixedValorEmprestimo = $fixedValorEmprestimo ?? '500.00';
+        $this->creditPolicyFixedPrazos = $this->normalizeCreditPolicyFixedPrazos($credit['policy_fixed_prazos'] ?? self::CREDIT_POLICY_FIXED_PRAZOS_DEFAULT);
+        if (empty($this->creditPolicyFixedPrazos)) {
+            $this->creditPolicyFixedPrazos = self::CREDIT_POLICY_FIXED_PRAZOS_DEFAULT;
+        }
         $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
         $this->phase2OperacoesRequestLogEnabled = (bool) config('cltfacta.logging.phase2_operacoes_request_log_enabled', false);
         $this->jobHttpCountersEnabled = (bool) config('cltfacta.logging.facta_job_http_counters_enabled', true);
@@ -943,9 +958,9 @@ class FactaApiService
     }
 
     /**
-     * Continuação do fluxo para CPF elegível (CLT online):
-     * - Etapa 4: /proposta/operacoes-disponiveis
-     * - Etapa 3: /consignado-trabalhador/analise-politica-credito
+     * Continuação do fluxo para CPF elegível (CLT online), alternável por configuração:
+     * - operacoes (legado): /proposta/operacoes-disponiveis + /consignado-trabalhador/analise-politica-credito
+     * - fixed (teste): somente /consignado-trabalhador/analise-politica-credito com valor/prazos fixos
      */
     public function continuarCreditoTrabalhadorElegivel(array $ctx): array
     {
@@ -953,8 +968,9 @@ class FactaApiService
         $matricula = trim((string) ($ctx['matricula'] ?? ''));
         $dataNascimento = $this->toFactaDate($ctx['dataNascimento'] ?? null);
         $dataAdmissao = $this->toFactaDate($ctx['dataAdmissao'] ?? null);
-        $valorParcela = $this->toMoneyString($ctx['valorParcela'] ?? null);
-        $valorRenda = $this->toMoneyString($ctx['valorRenda'] ?? null);
+        $useFixedPolicySource = $this->shouldUseFixedCreditPolicySource();
+        $valorParcela = $useFixedPolicySource ? null : $this->toMoneyString($ctx['valorParcela'] ?? null);
+        $valorRenda = $useFixedPolicySource ? null : $this->toMoneyString($ctx['valorRenda'] ?? null);
         $operacoesReqCount = 0;
         $politicaReqCount = 0;
         $attachCreditReqMeta = function (array $result, int $opReqs, int $policyReqs, ?array $approvedTable = null): array {
@@ -984,7 +1000,12 @@ class FactaApiService
             ], $operacoesReqCount, $politicaReqCount);
         }
 
-        if ($matricula === '' || $dataNascimento === null || $dataAdmissao === null || $valorParcela === null || $valorRenda === null) {
+        if (
+            $matricula === ''
+            || $dataNascimento === null
+            || $dataAdmissao === null
+            || (!$useFixedPolicySource && ($valorParcela === null || $valorRenda === null))
+        ) {
             return $attachCreditReqMeta([
                 'attempted' => true,
                 'aprovado' => false,
@@ -997,33 +1018,35 @@ class FactaApiService
             ], $operacoesReqCount, $politicaReqCount);
         }
 
-        $valorParcelaNum = (float) $valorParcela;
-        $valorRendaNum = (float) $valorRenda;
+        if (!$useFixedPolicySource) {
+            $valorParcelaNum = (float) $valorParcela;
+            $valorRendaNum = (float) $valorRenda;
 
-        $validationMessages = [];
-        if ($valorParcelaNum < 0.0) {
-            $validationMessages[] = 'Parcela negativa (margem indisponível).';
-        } elseif ($valorParcelaNum == 0.0) {
-            $validationMessages[] = 'Parcela zerada (margem indisponível).';
-        }
+            $validationMessages = [];
+            if ($valorParcelaNum < 0.0) {
+                $validationMessages[] = 'Parcela negativa (margem indisponível).';
+            } elseif ($valorParcelaNum == 0.0) {
+                $validationMessages[] = 'Parcela zerada (margem indisponível).';
+            }
 
-        if ($valorRendaNum < 0.0) {
-            $validationMessages[] = 'Renda negativa.';
-        } elseif ($valorRendaNum == 0.0) {
-            $validationMessages[] = 'Renda zerada.';
-        }
+            if ($valorRendaNum < 0.0) {
+                $validationMessages[] = 'Renda negativa.';
+            } elseif ($valorRendaNum == 0.0) {
+                $validationMessages[] = 'Renda zerada.';
+            }
 
-        if (!empty($validationMessages)) {
-            return $attachCreditReqMeta([
-                'attempted' => true,
-                'aprovado' => false,
-                'mensagem' => implode(' ', $validationMessages),
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => false,
-                'http_status' => null,
-                'retry_after' => null,
-            ], $operacoesReqCount, $politicaReqCount);
+            if (!empty($validationMessages)) {
+                return $attachCreditReqMeta([
+                    'attempted' => true,
+                    'aprovado' => false,
+                    'mensagem' => implode(' ', $validationMessages),
+                    'valor_maximo_disponivel' => null,
+                    'prazo_maximo_disponivel' => null,
+                    'retriable' => false,
+                    'http_status' => null,
+                    'retry_after' => null,
+                ], $operacoesReqCount, $politicaReqCount);
+            }
         }
 
         $token = null;
@@ -1044,83 +1067,101 @@ class FactaApiService
             ], $operacoesReqCount, $politicaReqCount);
         }
 
-        $operacoesReqCount++;
-        $op = $this->consultaOperacoesDisponiveis($cpf, $matricula, $dataNascimento, $valorRenda, $valorParcela, $token);
-        if (!($op['ok'] ?? false)) {
-            return $attachCreditReqMeta([
-                'attempted' => true,
-                'aprovado' => false,
-                'mensagem' => (string) ($op['mensagem'] ?? 'Falha na consulta de operações disponíveis.'),
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => (bool) ($op['retriable'] ?? true),
-                'http_status' => $op['http_status'] ?? null,
-                'retry_after' => $op['retry_after'] ?? null,
-            ], $operacoesReqCount, $politicaReqCount);
-        }
-
-        $tabelas = is_array($op['tabelas'] ?? null) ? $op['tabelas'] : [];
-        if (empty($tabelas)) {
-            return $attachCreditReqMeta([
-                'attempted' => true,
-                'aprovado' => false,
-                'mensagem' => (string) ($op['mensagem'] ?? 'Nenhuma tabela disponível.'),
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => false,
-                'http_status' => 200,
-                'retry_after' => null,
-            ], $operacoesReqCount, $politicaReqCount);
-        }
-
         $policyCandidates = [];
         $policyCandidatesByPrazo = [];
-        $seenPolicyCandidates = [];
-        foreach ($tabelas as $tb) {
-            if (!is_array($tb)) {
-                continue;
+        if ($useFixedPolicySource) {
+            // Modo de teste: consulta direta /consignado-trabalhador/analise-politica-credito
+            // com valor fixo e prazos configuráveis.
+            [$policyCandidates, $policyCandidatesByPrazo] = $this->buildFixedCreditPolicyCandidates();
+            if (empty($policyCandidates)) {
+                return $attachCreditReqMeta([
+                    'attempted' => true,
+                    'aprovado' => false,
+                    'mensagem' => 'Nenhum prazo configurado para teste de política de crédito.',
+                    'valor_maximo_disponivel' => null,
+                    'prazo_maximo_disponivel' => null,
+                    'retriable' => false,
+                    'http_status' => 200,
+                    'retry_after' => null,
+                ], $operacoesReqCount, $politicaReqCount);
+            }
+        } else {
+            $operacoesReqCount++;
+            $op = $this->consultaOperacoesDisponiveis($cpf, $matricula, $dataNascimento, (string) $valorRenda, (string) $valorParcela, $token);
+            if (!($op['ok'] ?? false)) {
+                return $attachCreditReqMeta([
+                    'attempted' => true,
+                    'aprovado' => false,
+                    'mensagem' => (string) ($op['mensagem'] ?? 'Falha na consulta de operações disponíveis.'),
+                    'valor_maximo_disponivel' => null,
+                    'prazo_maximo_disponivel' => null,
+                    'retriable' => (bool) ($op['retriable'] ?? true),
+                    'http_status' => $op['http_status'] ?? null,
+                    'retry_after' => $op['retry_after'] ?? null,
+                ], $operacoesReqCount, $politicaReqCount);
             }
 
-            $tableName = (string) ($tb['tabela'] ?? '');
-            if (!$this->isAllowedCreditPolicyTableName($tableName)) {
-                continue;
+            $tabelas = is_array($op['tabelas'] ?? null) ? $op['tabelas'] : [];
+            if (empty($tabelas)) {
+                return $attachCreditReqMeta([
+                    'attempted' => true,
+                    'aprovado' => false,
+                    'mensagem' => (string) ($op['mensagem'] ?? 'Nenhuma tabela disponível.'),
+                    'valor_maximo_disponivel' => null,
+                    'prazo_maximo_disponivel' => null,
+                    'retriable' => false,
+                    'http_status' => 200,
+                    'retry_after' => null,
+                ], $operacoesReqCount, $politicaReqCount);
             }
 
-            $prazo = isset($tb['prazo']) && is_numeric($tb['prazo']) ? (int) $tb['prazo'] : null;
-            $valorEmprestimo = $this->toMoneyString($tb['valor_liquido'] ?? null);
-            if ($prazo === null || $prazo <= 0 || $valorEmprestimo === null) {
-                continue;
+            $seenPolicyCandidates = [];
+            foreach ($tabelas as $tb) {
+                if (!is_array($tb)) {
+                    continue;
+                }
+
+                $tableName = (string) ($tb['tabela'] ?? '');
+                if (!$this->isAllowedCreditPolicyTableName($tableName)) {
+                    continue;
+                }
+
+                $prazo = isset($tb['prazo']) && is_numeric($tb['prazo']) ? (int) $tb['prazo'] : null;
+                $valorEmprestimo = $this->toMoneyString($tb['valor_liquido'] ?? null);
+                if ($prazo === null || $prazo <= 0 || $valorEmprestimo === null) {
+                    continue;
+                }
+
+                $candidateKey = $prazo . '|' . $valorEmprestimo;
+                if (isset($seenPolicyCandidates[$candidateKey])) {
+                    continue;
+                }
+                $seenPolicyCandidates[$candidateKey] = true;
+
+                $policyCandidates[] = [
+                    'prazo' => $prazo,
+                    'valorEmprestimo' => $valorEmprestimo,
+                    'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
+                ];
+                $policyCandidatesByPrazo[$prazo][] = [
+                    'prazo' => $prazo,
+                    'valorEmprestimo' => $valorEmprestimo,
+                    'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
+                ];
             }
 
-            $candidateKey = $prazo . '|' . $valorEmprestimo;
-            if (isset($seenPolicyCandidates[$candidateKey])) {
-                continue;
+            if (empty($policyCandidates)) {
+                return $attachCreditReqMeta([
+                    'attempted' => true,
+                    'aprovado' => false,
+                    'mensagem' => 'Nenhuma tabela elegível para política (CLT NOVO GOLD 2PMT SB/3PMT SB).',
+                    'valor_maximo_disponivel' => null,
+                    'prazo_maximo_disponivel' => null,
+                    'retriable' => false,
+                    'http_status' => 200,
+                    'retry_after' => null,
+                ], $operacoesReqCount, $politicaReqCount);
             }
-            $seenPolicyCandidates[$candidateKey] = true;
-
-            $policyCandidates[] = [
-                'prazo' => $prazo,
-                'valorEmprestimo' => $valorEmprestimo,
-                'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
-            ];
-            $policyCandidatesByPrazo[$prazo][] = [
-                'prazo' => $prazo,
-                'valorEmprestimo' => $valorEmprestimo,
-                'sourceTable' => $this->phase2CpfValidationAuditLogEnabled ? $tb : null,
-            ];
-        }
-
-        if (empty($policyCandidates)) {
-            return $attachCreditReqMeta([
-                'attempted' => true,
-                'aprovado' => false,
-                'mensagem' => 'Nenhuma tabela elegível para política (CLT NOVO GOLD 2PMT SB/3PMT SB).',
-                'valor_maximo_disponivel' => null,
-                'prazo_maximo_disponivel' => null,
-                'retriable' => false,
-                'http_status' => 200,
-                'retry_after' => null,
-            ], $operacoesReqCount, $politicaReqCount);
         }
 
         $policyQueue = $policyCandidates;
@@ -3013,6 +3054,84 @@ class FactaApiService
 
         $prazo = (int) ($matches[1] ?? 0);
         return $prazo > 0 ? $prazo : null;
+    }
+
+    private function shouldUseFixedCreditPolicySource(): bool
+    {
+        return $this->creditPolicySourceMode === self::CREDIT_POLICY_SOURCE_MODE_FIXED;
+    }
+
+    private function normalizeCreditPolicySourceMode(string $mode): string
+    {
+        $norm = $this->normalize($mode);
+        if (
+            $norm === self::CREDIT_POLICY_SOURCE_MODE_FIXED
+            || $norm === 'fixo'
+            || $norm === 'teste'
+            || $norm === 'test'
+        ) {
+            return self::CREDIT_POLICY_SOURCE_MODE_FIXED;
+        }
+
+        return self::CREDIT_POLICY_SOURCE_MODE_OPERACOES;
+    }
+
+    /**
+     * @param mixed $raw
+     * @return array<int,int>
+     */
+    private function normalizeCreditPolicyFixedPrazos($raw): array
+    {
+        $items = [];
+        if (is_array($raw)) {
+            $items = $raw;
+        } elseif (is_string($raw)) {
+            $items = preg_split('/[,\s;]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        } elseif (is_int($raw) || is_float($raw)) {
+            $items = [$raw];
+        }
+
+        $normalized = [];
+        $seen = [];
+        foreach ($items as $item) {
+            if (!is_numeric($item)) {
+                continue;
+            }
+
+            $prazo = (int) $item;
+            if ($prazo <= 0 || isset($seen[$prazo])) {
+                continue;
+            }
+
+            $seen[$prazo] = true;
+            $normalized[] = $prazo;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array{0:array<int,array{prazo:int,valorEmprestimo:string,sourceTable:null}>,1:array<int,array<int,array{prazo:int,valorEmprestimo:string,sourceTable:null}>>}
+     */
+    private function buildFixedCreditPolicyCandidates(): array
+    {
+        $policyCandidates = [];
+        $policyCandidatesByPrazo = [];
+        foreach ($this->creditPolicyFixedPrazos as $prazo) {
+            if ($prazo <= 0) {
+                continue;
+            }
+
+            $candidate = [
+                'prazo' => $prazo,
+                'valorEmprestimo' => $this->creditPolicyFixedValorEmprestimo,
+                'sourceTable' => null,
+            ];
+            $policyCandidates[] = $candidate;
+            $policyCandidatesByPrazo[$prazo][] = $candidate;
+        }
+
+        return [$policyCandidates, $policyCandidatesByPrazo];
     }
 
     private function isValorMaiorPermitidoPolicyApprovalMessage(string $mensagem): bool
