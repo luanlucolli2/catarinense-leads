@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -7,18 +7,18 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  FileDown,
   Inbox,
   Loader2,
   RefreshCw,
-  Search,
 } from "lucide-react";
 
-import { listUy3Posts } from "@/api/uy3";
+import { downloadUy3Export, getUy3ExportStatus, listUy3Posts, startUy3Export } from "@/api/uy3";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 
 type TimeFilter = "all" | "24h" | "7d" | "30d" | "90d";
 type SortDirection = "desc" | "asc";
@@ -49,15 +49,16 @@ const formatDateTime = (iso: string | null): string => {
   }
 };
 
-const useDebouncedValue = <T,>(value: T, delayMs: number): T => {
-  const [debounced, setDebounced] = useState(value);
+const sleep = (ms: number): Promise<void> => {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+};
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-
-  return debounced;
+const getExportPollDelayMs = (attempt: number): number => {
+  if (attempt < 10) return 2000;
+  if (attempt < 30) return 3000;
+  return 5000;
 };
 
 // --- RENDERIZAÇÃO DE DADOS ATUALIZADA (SEM JUSTIFY-BETWEEN) ---
@@ -159,23 +160,19 @@ const getDadosFieldCount = (dados: unknown): number => {
 };
 
 const ParceirosUY3Page = () => {
-  const [searchTerm, setSearchTerm] = useState("");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("30d");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  const debouncedSearch = useDebouncedValue(searchTerm.trim(), 450);
-  const serverSearch = debouncedSearch.length >= 3 ? debouncedSearch : "";
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["uy3:posts", page, serverSearch, timeFilter, sortDirection],
+    queryKey: ["uy3:posts", page, timeFilter, sortDirection],
     queryFn: ({ signal }) =>
       listUy3Posts(
         {
           page,
           perPage: 20,
-          q: serverSearch || undefined,
           period: timeFilter,
           sort: "received_at",
           direction: sortDirection,
@@ -186,9 +183,9 @@ const ParceirosUY3Page = () => {
     staleTime: 15_000,
     gcTime: 120_000,
     retry: 1,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 
   const posts = useMemo(() => data?.data ?? [], [data]);
@@ -210,6 +207,53 @@ const ParceirosUY3Page = () => {
     setExpandedIds(new Set());
   };
 
+  const handleExportCsv = async () => {
+    if (isExporting) return;
+
+    setIsExporting(true);
+    const toastId = toast.loading("Gerando CSV da UY3...", { duration: Infinity });
+
+    try {
+      const { token } = await startUy3Export({
+        period: timeFilter,
+        sort: "received_at",
+        direction: sortDirection,
+      });
+
+      const maxAttempts = 180;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const status = await getUy3ExportStatus(token);
+
+        if (status.status === "ready") {
+          toast.success("CSV pronto. Baixando...", { id: toastId });
+          await downloadUy3Export(token);
+          toast.dismiss(toastId);
+          return;
+        }
+
+        if (status.status === "error") {
+          throw new Error(status.error || status.message || "Falha ao gerar export.");
+        }
+
+        if (status.status === "deleted") {
+          throw new Error(status.message || "Export expirou antes do download.");
+        }
+
+        await sleep(getExportPollDelayMs(attempt));
+      }
+
+      throw new Error("O export demorou além do esperado. Tente novamente em instantes.");
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Não foi possível exportar o CSV.";
+      toast.error(message, { id: toastId });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="p-4 lg:p-6 max-w-full min-w-0">
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -220,26 +264,25 @@ const ParceirosUY3Page = () => {
           </p>
         </div>
 
-        <Button variant="outline" className="shrink-0" onClick={() => void refetch()}>
-          {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void handleExportCsv()}
+            disabled={isExporting}
+          >
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            Exportar CSV
+          </Button>
+
+          <Button variant="outline" className="shrink-0" onClick={() => void refetch()}>
+            {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Atualizar
+          </Button>
+        </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar nos dados..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              resetPage();
-            }}
-            className="pl-9"
-          />
-        </div>
-
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Select
           value={timeFilter}
           onValueChange={(value) => {
@@ -282,9 +325,9 @@ const ParceirosUY3Page = () => {
         </Select>
       </div>
 
-      {searchTerm.trim() !== "" && searchTerm.trim().length < 3 ? (
-        <p className="mb-3 text-xs text-muted-foreground">Digite pelo menos 3 caracteres para aplicar a busca textual.</p>
-      ) : null}
+      <p className="mb-3 text-xs text-muted-foreground">
+        O CSV exporta somente registros com <span className="font-semibold">typeWebook = LEADS_CLT</span>.
+      </p>
 
       <div className="mb-4 flex items-center justify-between gap-2">
         <div>

@@ -31,12 +31,7 @@ class VerifyUy3Webhook
             ], 500);
         }
 
-        $provided = $request->header('X-UY3-Secret-Key')
-            ?? $request->header('X-Uy3-Secret-Key')
-            ?? $request->header('X-Secret-Key')
-            ?? $request->header('Secret-Key')
-            ?? $request->header('secret-key')
-            ?? $this->bearerFromAuthorizationHeader($request);
+        $provided = $this->extractProvidedSecret($request);
 
         if (! is_string($provided) || $provided === '' || ! hash_equals($configured, $provided)) {
             return response()->json([
@@ -60,5 +55,28 @@ class VerifyUy3Webhook
         }
 
         return null;
+    }
+
+    private function extractProvidedSecret(Request $request): ?string
+    {
+        $headers = [
+            'X-UY3-Secret-Key',
+            'X-Secret-Key',
+            'Secret-Key',
+        ];
+
+        foreach ($headers as $header) {
+            $value = $request->header($header);
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return $this->bearerFromAuthorizationHeader($request);
     }
 }

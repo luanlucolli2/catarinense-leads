@@ -11,7 +11,6 @@ class Uy3WebhookPost extends Model
 
     protected $fillable = [
         'payload',
-        'search_text',
         'received_at',
     ];
 
