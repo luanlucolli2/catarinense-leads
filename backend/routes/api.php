@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 // ✅ NOVO: URA
 use App\Http\Controllers\Api\UraSendOfficialTemplateController;
 use App\Http\Middleware\VerifyUraWebhook;
+use App\Modules\Uy3\Controllers\Uy3PostExportController;
 use App\Modules\Uy3\Controllers\Uy3PostListController;
 use App\Modules\Uy3\Controllers\Uy3WebhookPostController;
 use App\Modules\Uy3\Middleware\VerifyUy3Webhook;
@@ -53,6 +54,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 
     /* Parceiros */
+    Route::post('/uy3/posts/export', [Uy3PostExportController::class, 'export'])
+        ->middleware('throttle:30,1');
+    Route::get('/uy3/posts/export/{token}', [Uy3PostExportController::class, 'status'])
+        ->middleware('throttle:120,1');
+    Route::get('/uy3/posts/export/{token}/download', [Uy3PostExportController::class, 'download'])
+        ->middleware('throttle:30,1');
+
     Route::get('/uy3/posts', Uy3PostListController::class)
         ->middleware('throttle:120,1');
 

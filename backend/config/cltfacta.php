@@ -54,6 +54,14 @@ return [
         'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
         // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
         'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 4),
+        // Fonte de candidatos para a análise de política:
+        // - operacoes: fluxo legado via /proposta/operacoes-disponiveis
+        // - fixed: modo teste com valor/prazos fixos (sem chamar operacoes-disponiveis)
+        'policy_source_mode' => env('FACTA_CLT_CREDITO_POLICY_SOURCE_MODE', 'operacoes'),
+        // Usado quando policy_source_mode=fixed
+        'policy_fixed_valor_emprestimo' => env('FACTA_CLT_CREDITO_POLICY_FIXED_VALOR_EMPRESTIMO', '500'),
+        // Aceita CSV: "6,8,10,12,14,15,18,20,24,30,36,42,48"
+        'policy_fixed_prazos' => env('FACTA_CLT_CREDITO_POLICY_FIXED_PRAZOS', '6,8,10,12,14,15,18,20,24,30,36,42,48'),
         // Rodadas máximas da fase 2 (varredura do CSV para política de crédito).
         'phase2_max_attempts' => (int) env('CLT_CREDIT_PHASE2_MAX_ATTEMPTS', 3),
         // Intervalo entre rodadas da fase 2 quando ainda há pendências retriables.
