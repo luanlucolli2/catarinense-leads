@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertCircle,
@@ -17,19 +17,18 @@ import { downloadUy3Export, getUy3ExportStatus, listUy3Posts, startUy3Export } f
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 
-type TimeFilter = "all" | "24h" | "7d" | "30d" | "90d";
 type SortDirection = "desc" | "asc";
+type Uy3PersistedFilters = {
+  from: string;
+  to: string;
+  sortDirection: SortDirection;
+};
 
-const timeFilters: Array<{ value: TimeFilter; label: string }> = [
-  { value: "24h", label: "Últimas 24h" },
-  { value: "7d", label: "Últimos 7 dias" },
-  { value: "30d", label: "Últimos 30 dias" },
-  { value: "90d", label: "Últimos 90 dias" },
-  { value: "all", label: "Todo o período" },
-];
+const UY3_FILTERS_STORAGE_KEY = "uy3:filters:v1";
 
 const sortOptions: Array<{ value: SortDirection; label: string }> = [
   { value: "desc", label: "Mais recentes" },
@@ -59,6 +58,61 @@ const getExportPollDelayMs = (attempt: number): number => {
   if (attempt < 10) return 2000;
   if (attempt < 30) return 3000;
   return 5000;
+};
+
+const buildDefaultFilters = (): Uy3PersistedFilters => ({
+  from: toDateTimeLocalValue(subHours(new Date(), 24)),
+  to: toDateTimeLocalValue(new Date()),
+  sortDirection: "desc",
+});
+
+const isValidDateTimeLocal = (value: unknown): value is string => {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime());
+};
+
+const loadPersistedFilters = (): Uy3PersistedFilters => {
+  const fallback = buildDefaultFilters();
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(UY3_FILTERS_STORAGE_KEY);
+    if (!raw) return fallback;
+
+    const parsed = JSON.parse(raw) as Partial<Uy3PersistedFilters>;
+
+    const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
+    const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
+    const sortDirection = parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
+      ? parsed.sortDirection
+      : fallback.sortDirection;
+
+    return { from, to, sortDirection };
+  } catch {
+    return fallback;
+  }
+};
+
+const persistFilters = (filters: Uy3PersistedFilters): void => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(UY3_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+  }
+};
+
+const toDateTimeLocalValue = (date: Date): string => {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const toUtcIsoFromDateTimeLocal = (value: string): string | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 };
 
 // --- RENDERIZAÇÃO DE DADOS ATUALIZADA (SEM JUSTIFY-BETWEEN) ---
@@ -160,22 +214,48 @@ const getDadosFieldCount = (dados: unknown): number => {
 };
 
 const ParceirosUY3Page = () => {
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("30d");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const initialFilters = useMemo(() => loadPersistedFilters(), []);
+  const [fromInput, setFromInput] = useState<string>(initialFilters.from);
+  const [toInput, setToInput] = useState<string>(initialFilters.to);
+  const [appliedRange, setAppliedRange] = useState<{ from: string; to: string }>(() => ({
+    from: initialFilters.from,
+    to: initialFilters.to,
+  }));
+  const [sortDirectionInput, setSortDirectionInput] = useState<SortDirection>(initialFilters.sortDirection);
+  const [appliedSortDirection, setAppliedSortDirection] = useState<SortDirection>(initialFilters.sortDirection);
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
+
+  const appliedFromIso = useMemo(
+    () => toUtcIsoFromDateTimeLocal(appliedRange.from),
+    [appliedRange.from]
+  );
+  const appliedToIso = useMemo(
+    () => toUtcIsoFromDateTimeLocal(appliedRange.to),
+    [appliedRange.to]
+  );
+
+  useEffect(() => {
+    persistFilters({
+      from: appliedRange.from,
+      to: appliedRange.to,
+      sortDirection: appliedSortDirection,
+    });
+  }, [appliedRange.from, appliedRange.to, appliedSortDirection]);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["uy3:posts", page, timeFilter, sortDirection],
+    queryKey: ["uy3:posts", page, appliedFromIso, appliedToIso, appliedSortDirection],
     queryFn: ({ signal }) =>
       listUy3Posts(
         {
           page,
           perPage: 20,
-          period: timeFilter,
+          from: appliedFromIso || undefined,
+          to: appliedToIso || undefined,
           sort: "received_at",
-          direction: sortDirection,
+          direction: appliedSortDirection,
         },
         signal
       ),
@@ -207,6 +287,26 @@ const ParceirosUY3Page = () => {
     setExpandedIds(new Set());
   };
 
+  const applyFilters = () => {
+    const fromDate = new Date(fromInput);
+    const toDate = new Date(toInput);
+
+    if (!fromInput || !toInput || Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      setRangeError("Preencha um intervalo válido com data e hora.");
+      return;
+    }
+
+    if (fromDate.getTime() > toDate.getTime()) {
+      setRangeError("A data/hora inicial não pode ser maior que a final.");
+      return;
+    }
+
+    setRangeError(null);
+    setAppliedRange({ from: fromInput, to: toInput });
+    setAppliedSortDirection(sortDirectionInput);
+    resetPage();
+  };
+
   const handleExportCsv = async () => {
     if (isExporting) return;
 
@@ -215,9 +315,10 @@ const ParceirosUY3Page = () => {
 
     try {
       const { token } = await startUy3Export({
-        period: timeFilter,
+        from: appliedFromIso || undefined,
+        to: appliedToIso || undefined,
         sort: "received_at",
-        direction: sortDirection,
+        direction: appliedSortDirection,
       });
 
       const maxAttempts = 180;
@@ -282,34 +383,25 @@ const ParceirosUY3Page = () => {
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select
-          value={timeFilter}
-          onValueChange={(value) => {
-            setTimeFilter(value as TimeFilter);
-            resetPage();
-          }}
-        >
-          <SelectTrigger>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              <SelectValue placeholder="Período" />
-            </div>
-          </SelectTrigger>
-          <SelectContent>
-            {timeFilters.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <Input
+          type="datetime-local"
+          value={fromInput}
+          onChange={(e) => setFromInput(e.target.value)}
+          aria-label="Data e hora inicial"
+        />
+
+        <Input
+          type="datetime-local"
+          value={toInput}
+          onChange={(e) => setToInput(e.target.value)}
+          aria-label="Data e hora final"
+        />
 
         <Select
-          value={sortDirection}
+          value={sortDirectionInput}
           onValueChange={(value) => {
-            setSortDirection(value as SortDirection);
-            resetPage();
+            setSortDirectionInput(value as SortDirection);
           }}
         >
           <SelectTrigger>
@@ -323,7 +415,15 @@ const ParceirosUY3Page = () => {
             ))}
           </SelectContent>
         </Select>
+
+        <Button type="button" variant="outline" onClick={applyFilters}>
+          Aplicar filtros
+        </Button>
       </div>
+
+      {rangeError ? (
+        <p className="mb-3 text-xs text-red-600">{rangeError}</p>
+      ) : null}
 
       <p className="mb-3 text-xs text-muted-foreground">
         O CSV exporta somente registros com <span className="font-semibold">typeWebook = LEADS_CLT</span>.
