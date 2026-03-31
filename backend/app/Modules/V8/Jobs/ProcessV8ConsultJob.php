@@ -2391,12 +2391,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $first = $this->extractFirstName($nome);
         if (!$first) {
-            return null;
+            return $this->randomBinaryGender();
         }
         $first = $this->upper($first);
         $gender = IbgeName::query()->where('name', $first)->value('gender');
         if (!is_string($gender) || $gender === '') {
-            return null;
+            return $this->randomBinaryGender();
         }
         $gender = strtoupper($gender);
         if ($gender === 'M') {
@@ -2405,7 +2405,16 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         if ($gender === 'F') {
             return 'female';
         }
-        return null;
+        return $this->randomBinaryGender();
+    }
+
+    private function randomBinaryGender(): string
+    {
+        try {
+            return random_int(0, 1) === 0 ? 'male' : 'female';
+        } catch (Throwable) {
+            return 'male';
+        }
     }
 
     private function extractFirstName(string $nome): ?string
