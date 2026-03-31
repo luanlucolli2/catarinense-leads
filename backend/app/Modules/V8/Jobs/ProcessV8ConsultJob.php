@@ -78,6 +78,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $pauseCheckIntervalSeconds;
     private float $lastPauseCheckAt = 0.0;
     private bool $isPaused = false;
+    private bool $logEnabled;
+    private bool $logCpfFailureEnabled;
+    private bool $logApiResponses;
+    private bool $logApiSuccessResponses;
+    private bool $logApi429;
 
     public function __construct(int $jobId)
     {
@@ -119,6 +124,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->pauseEnd = $this->normalizePauseTimeValue((string) config('v8.job.pause_end', '16:30'));
         $this->pauseTimezone = (string) config('v8.job.pause_timezone', 'America/Sao_Paulo');
         $this->pauseCheckIntervalSeconds = max(1, (int) config('v8.job.pause_check_interval_seconds', 15));
+        $this->logEnabled = (bool) config('v8.logging.enabled', true);
+        $this->logCpfFailureEnabled = (bool) config('v8.logging.cpf_failure_enabled', false);
+        $this->logApiResponses = (bool) config('v8.logging.api_log_responses', true);
+        $this->logApiSuccessResponses = (bool) config('v8.logging.api_log_success_responses', false);
+        $this->logApi429 = (bool) config('v8.logging.api_log_429', true);
     }
 
     public function uniqueId(): string
@@ -662,6 +672,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         foreach ($payloads as $key => $payload) {
             [$cpf, $nome, $nasc] = $entryByKey[$key];
             $resp = $responses[$key] ?? null;
+            if ($resp instanceof HttpResponse) {
+                $this->logPoolHttpResponse('/private-consignment/consult', $resp, [
+                    'cpf' => $cpf,
+                ]);
+            }
 
             if (!$resp instanceof HttpResponse) {
                 $resp = $api->createConsult($payload);
@@ -758,7 +773,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($saw429 && $this->httpRateLimitSleepSeconds > 0) {
-            $this->logCpfFailure('consult', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            if ($this->shouldLogPoolApi429Event()) {
+                $this->logCpfFailure('consult', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            }
             sleep($this->httpRateLimitSleepSeconds);
         }
 
@@ -782,6 +799,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         foreach ($consultIds as $key => $consultId) {
             [$cpf, $nome, $nasc] = $entryByKey[$key];
             $resp = $authResponses[$key] ?? null;
+            if ($resp instanceof HttpResponse) {
+                $this->logPoolHttpResponse('/private-consignment/consult/{id}/authorize', $resp, [
+                    'cpf' => $cpf,
+                    'consult_id' => $consultId,
+                ]);
+            }
 
             if (!$resp instanceof HttpResponse) {
                 $authResp = $api->authorizeConsult($consultId);
@@ -858,7 +881,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($saw429 && $this->httpRateLimitSleepSeconds > 0) {
-            $this->logCpfFailure('authorize', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            if ($this->shouldLogPoolApi429Event()) {
+                $this->logCpfFailure('authorize', null, null, 'Pausa após 429 (fase 1).', ['seconds' => $this->httpRateLimitSleepSeconds]);
+            }
             sleep($this->httpRateLimitSleepSeconds);
         }
 
@@ -2355,8 +2380,106 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         ];
     }
 
+    private function shouldLogPoolApi429Event(): bool
+    {
+        return $this->logEnabled && $this->logApi429;
+    }
+
+    private function shouldLogPoolApiResponse(HttpResponse $resp): bool
+    {
+        if (!$this->logEnabled || !$this->logApiResponses) {
+            return false;
+        }
+
+        if ($this->logApiSuccessResponses) {
+            return true;
+        }
+
+        $status = $resp->status();
+        if ($status === 429 && !$this->logApi429) {
+            return false;
+        }
+
+        return $status < 200 || $status >= 300;
+    }
+
+    private function logPoolHttpResponse(string $path, HttpResponse $resp, array $extra = []): void
+    {
+        if (!$this->shouldLogPoolApiResponse($resp)) {
+            return;
+        }
+
+        try {
+            $status = $resp->status();
+            $json = null;
+            $type = null;
+            $message = null;
+
+            try {
+                $decoded = $resp->json();
+                if (is_array($decoded)) {
+                    $json = $decoded;
+                    $type = $decoded['type'] ?? null;
+                    $message = $decoded['detail'] ?? $decoded['message'] ?? $decoded['mensagem'] ?? $decoded['title'] ?? null;
+                }
+            } catch (Throwable) {
+            }
+
+            $body = trim((string) $resp->body());
+            $bodyText = trim(strip_tags($body));
+            if ($bodyText === '') {
+                $bodyText = $body;
+            }
+
+            $context = array_merge([
+                'job_id' => $this->jobId,
+                'source' => 'phase1_pool',
+                'method' => 'POST',
+                'path' => $path,
+                'http_status' => $status,
+                'elapsed_ms' => $this->extractPoolElapsedMs($resp),
+                'outcome' => ($status < 200 || $status >= 300) ? 'error' : 'success',
+            ], $extra);
+
+            if ($status < 200 || $status >= 300) {
+                $context['type'] = is_string($type) && $type !== '' ? $type : null;
+                $context['message'] = is_string($message) && $message !== '' ? $this->truncate($message, 200) : null;
+                $context['body_excerpt'] = $bodyText !== '' ? $this->truncate($bodyText, 320) : null;
+                if (is_array($json)) {
+                    $context['json_keys'] = array_slice(array_keys($json), 0, 20);
+                }
+            }
+
+            Log::warning('[V8] HTTP response', $context);
+        } catch (Throwable) {
+        }
+    }
+
+    private function extractPoolElapsedMs(HttpResponse $resp): ?int
+    {
+        try {
+            $stats = $resp->handlerStats();
+            if (!is_array($stats)) {
+                return null;
+            }
+
+            $totalTime = $stats['total_time'] ?? null;
+            if (!is_numeric($totalTime)) {
+                return null;
+            }
+
+            return (int) round(((float) $totalTime) * 1000);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     private function logCpfFailure(string $step, ?string $cpf, ?string $consultId, string $message, array $extra = []): void
     {
+        if (!$this->logEnabled || !$this->logCpfFailureEnabled) {
+            return;
+        }
+
         try {
             Log::warning('[V8] CPF falhou', array_merge([
                 'job_id' => $this->jobId,

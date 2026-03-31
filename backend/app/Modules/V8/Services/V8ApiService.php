@@ -31,12 +31,17 @@ class V8ApiService
     private int $httpRateLimitSleepSeconds;
     private ?int $jobId = null;
     private ?int $rateLimitOverrideMs = null;
+    private bool $logEnabled;
+    private bool $logApiResponses;
+    private bool $logApiSuccessResponses;
+    private bool $logApi429;
 
     public function __construct()
     {
         $oauth = (array) config('v8.oauth', []);
         $bff = (array) config('v8.bff', []);
         $http = (array) config('v8.http', []);
+        $logging = (array) config('v8.logging', []);
 
         $this->oauthBaseUrl = rtrim((string) ($oauth['base_url'] ?? ''), '/');
         $this->username = $oauth['username'] ?? null;
@@ -54,6 +59,10 @@ class V8ApiService
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
         $this->httpMinIntervalMs = (int) ($http['min_interval_ms'] ?? 2000);
         $this->httpRateLimitSleepSeconds = (int) ($http['rate_limit_sleep_seconds'] ?? 15);
+        $this->logEnabled = (bool) ($logging['enabled'] ?? true);
+        $this->logApiResponses = (bool) ($logging['api_log_responses'] ?? true);
+        $this->logApiSuccessResponses = (bool) ($logging['api_log_success_responses'] ?? false);
+        $this->logApi429 = (bool) ($logging['api_log_429'] ?? true);
     }
 
     public function setJobId(?int $jobId): void
@@ -103,6 +112,7 @@ class V8ApiService
                 'method' => 'POST',
                 'path' => '/oauth/token',
             ]);
+            $this->logHttpResponse('oauth', 'POST', '/oauth/token', $resp);
 
             if (!$resp->ok()) {
                 $msg = $this->responseMessage($resp);
@@ -185,6 +195,7 @@ class V8ApiService
                 'method' => strtoupper($method),
                 'path' => $path,
             ]);
+            $this->logHttpResponse('bff', strtoupper($method), $path, $resp);
 
             if ($resp->ok()) {
                 $json = $resp->json();
@@ -288,6 +299,10 @@ class V8ApiService
 
     private function logRateLimit(array $context, int $attempt): void
     {
+        if (!$this->shouldLogApi429Event()) {
+            return;
+        }
+
         try {
             Log::warning('[V8] HTTP 429 recebido', array_merge([
                 'attempt' => $attempt,
@@ -305,22 +320,130 @@ class V8ApiService
             return;
         }
 
-        try {
-            Log::warning('[V8] Pausa após 429 iniciada', array_merge([
-                'seconds' => $sleepSeconds,
-                'job_id' => $this->jobId,
-            ], $context));
-        } catch (\Throwable) {
+        if ($this->shouldLogApi429Event()) {
+            try {
+                Log::warning('[V8] Pausa após 429 iniciada', array_merge([
+                    'seconds' => $sleepSeconds,
+                    'job_id' => $this->jobId,
+                ], $context));
+            } catch (\Throwable) {
+            }
         }
 
         sleep($sleepSeconds);
 
+        if ($this->shouldLogApi429Event()) {
+            try {
+                Log::warning('[V8] Pausa após 429 finalizada', array_merge([
+                    'seconds' => $sleepSeconds,
+                    'job_id' => $this->jobId,
+                ], $context));
+            } catch (\Throwable) {
+            }
+        }
+    }
+
+    private function shouldLogApi429Event(): bool
+    {
+        return $this->logEnabled && $this->logApi429;
+    }
+
+    private function shouldLogApiResponse(HttpResponse $resp): bool
+    {
+        if (!$this->logEnabled || !$this->logApiResponses) {
+            return false;
+        }
+
+        if ($this->logApiSuccessResponses) {
+            return true;
+        }
+
+        $status = $resp->status();
+        if ($status === 429 && !$this->logApi429) {
+            return false;
+        }
+
+        return $status < 200 || $status >= 300;
+    }
+
+    private function logHttpResponse(string $source, string $method, string $path, HttpResponse $resp): void
+    {
+        if (!$this->shouldLogApiResponse($resp)) {
+            return;
+        }
+
         try {
-            Log::warning('[V8] Pausa após 429 finalizada', array_merge([
-                'seconds' => $sleepSeconds,
+            $status = $resp->status();
+            $context = [
                 'job_id' => $this->jobId,
-            ], $context));
+                'source' => $source,
+                'method' => strtoupper($method),
+                'path' => $path,
+                'http_status' => $status,
+                'elapsed_ms' => $this->extractElapsedMs($resp),
+                'outcome' => ($status < 200 || $status >= 300) ? 'error' : 'success',
+            ];
+
+            if ($status < 200 || $status >= 300) {
+                $context = array_merge($context, $this->compactResponseLogContext($resp, 320));
+            }
+
+            Log::warning('[V8] HTTP response', $context);
         } catch (\Throwable) {
+        }
+    }
+
+    private function compactResponseLogContext(HttpResponse $resp, int $bodyLimit = 320): array
+    {
+        $json = null;
+        $type = null;
+        $message = null;
+
+        try {
+            $decoded = $resp->json();
+            if (is_array($decoded)) {
+                $json = $decoded;
+                $type = $decoded['type'] ?? null;
+                $message = $decoded['detail'] ?? $decoded['message'] ?? $decoded['mensagem'] ?? $decoded['title'] ?? null;
+            }
+        } catch (\Throwable) {
+        }
+
+        $body = trim((string) $resp->body());
+        $bodyText = trim(strip_tags($body));
+        if ($bodyText === '') {
+            $bodyText = Str::limit($body, $bodyLimit);
+        }
+
+        $context = [
+            'type' => is_string($type) && $type !== '' ? $type : null,
+            'message' => is_string($message) && $message !== '' ? Str::limit($message, 200) : null,
+            'body_excerpt' => $bodyText !== '' ? Str::limit($bodyText, $bodyLimit) : null,
+        ];
+
+        if (is_array($json)) {
+            $context['json_keys'] = array_slice(array_keys($json), 0, 20);
+        }
+
+        return $context;
+    }
+
+    private function extractElapsedMs(HttpResponse $resp): ?int
+    {
+        try {
+            $stats = $resp->handlerStats();
+            if (!is_array($stats)) {
+                return null;
+            }
+
+            $totalTime = $stats['total_time'] ?? null;
+            if (!is_numeric($totalTime)) {
+                return null;
+            }
+
+            return (int) round(((float) $totalTime) * 1000);
+        } catch (\Throwable) {
+            return null;
         }
     }
 
