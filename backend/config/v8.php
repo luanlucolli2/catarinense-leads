@@ -56,7 +56,7 @@ return [
         'status_batch_limit_round_step'  => (int) env('V8_STATUS_BATCH_LIMIT_ROUND_STEP', 50),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
         'status_lookback_existing_hours' => (int) env('V8_STATUS_LOOKBACK_EXISTING_HOURS', 168),
-        'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 9),
+        'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 12),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
         'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 50),
@@ -84,5 +84,13 @@ return [
     'csv' => [
         'embed_bom' => (bool) env('V8_CSV_EMBED_BOM', true),
         'final_eol' => env('V8_CSV_FINAL_EOL', 'LF'),
+    ],
+
+    'logging' => [
+        'enabled' => (bool) env('V8_LOG_ENABLED', true),
+        'cpf_failure_enabled' => (bool) env('V8_LOG_CPF_FAILURE', false),
+        'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', true),
+        'api_log_success_responses' => (bool) env('V8_API_LOG_SUCCESS_RESPONSES', false),
+        'api_log_429' => (bool) env('V8_API_LOG_429', true),
     ],
 ];
