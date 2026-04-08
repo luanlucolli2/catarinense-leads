@@ -4,11 +4,15 @@ import { format, parseISO, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertCircle,
+  ArrowUpDown,
   Calendar,
   ChevronDown,
   ChevronUp,
+  Clock,
   FileDown,
+  Filter,
   Inbox,
+  Info,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -22,10 +26,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 type SortDirection = "desc" | "asc";
+type Uy3WindowMode = "rolling" | "fixed";
 type Uy3PersistedFilters = {
   from: string;
   to: string;
   sortDirection: SortDirection;
+  windowMode: Uy3WindowMode;
 };
 
 const UY3_FILTERS_STORAGE_KEY = "uy3:filters:v1";
@@ -33,6 +39,11 @@ const UY3_FILTERS_STORAGE_KEY = "uy3:filters:v1";
 const sortOptions: Array<{ value: SortDirection; label: string }> = [
   { value: "desc", label: "Mais recentes" },
   { value: "asc", label: "Mais antigos" },
+];
+
+const windowModeOptions: Array<{ value: Uy3WindowMode; label: string }> = [
+  { value: "rolling", label: "Janela móvel" },
+  { value: "fixed", label: "Intervalo fixo" },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -64,6 +75,7 @@ const buildDefaultFilters = (): Uy3PersistedFilters => ({
   from: toDateTimeLocalValue(subHours(new Date(), 24)),
   to: toDateTimeLocalValue(new Date()),
   sortDirection: "desc",
+  windowMode: "rolling",
 });
 
 const isValidDateTimeLocal = (value: unknown): value is string => {
@@ -84,11 +96,21 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
 
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
-    const sortDirection = parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
-      ? parsed.sortDirection
-      : fallback.sortDirection;
+    const sortDirection =
+      parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
+        ? parsed.sortDirection
+        : fallback.sortDirection;
+    const windowMode =
+      parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
+        ? parsed.windowMode
+        : fallback.windowMode;
 
-    return { from, to, sortDirection };
+    if (windowMode === "rolling") {
+      const rolled = rollRangeToNow(from, to);
+      return { from: rolled.from, to: rolled.to, sortDirection, windowMode };
+    }
+
+    return { from, to, sortDirection, windowMode };
   } catch {
     return fallback;
   }
@@ -99,13 +121,36 @@ const persistFilters = (filters: Uy3PersistedFilters): void => {
 
   try {
     window.localStorage.setItem(UY3_FILTERS_STORAGE_KEY, JSON.stringify(filters));
-  } catch {
+  } catch {}
+};
+
+const rollRangeToNow = (fromValue: string, toValue: string): { from: string; to: string } => {
+  const fromDate = new Date(fromValue);
+  const toDate = new Date(toValue);
+
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
+    const now = new Date();
+    return {
+      from: toDateTimeLocalValue(subHours(now, 24)),
+      to: toDateTimeLocalValue(now),
+    };
   }
+
+  const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
+  const now = new Date();
+  const nextFrom = new Date(now.getTime() - durationMs);
+
+  return {
+    from: toDateTimeLocalValue(nextFrom),
+    to: toDateTimeLocalValue(now),
+  };
 };
 
 const toDateTimeLocalValue = (date: Date): string => {
   const pad = (value: number): string => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 };
 
 const toUtcIsoFromDateTimeLocal = (value: string): string | null => {
@@ -115,7 +160,6 @@ const toUtcIsoFromDateTimeLocal = (value: string): string | null => {
   return parsed.toISOString();
 };
 
-// --- RENDERIZAÇÃO DE DADOS ATUALIZADA (SEM JUSTIFY-BETWEEN) ---
 const renderDados = (value: unknown, depth = 0): JSX.Element => {
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground italic text-sm">Não informado</span>;
@@ -161,21 +205,19 @@ const renderDados = (value: unknown, depth = 0): JSX.Element => {
     return (
       <div className="flex flex-col w-full rounded-md">
         {entries.map(([key, itemValue], index) => {
-          const isComplex = typeof itemValue === 'object' && itemValue !== null;
-          
+          const isComplex = typeof itemValue === "object" && itemValue !== null;
+
           return (
-            <div 
-              key={key} 
-              // A MUDANÇA PRINCIPAL ESTÁ AQUI: Alinhamento à esquerda com flex-row no desktop e flex-col no mobile
-              className={`flex ${isComplex ? 'flex-col' : 'flex-col sm:flex-row sm:items-center gap-1 sm:gap-4'} 
-              py-2 ${index !== entries.length - 1 ? 'border-b border-gray-100' : ''}`}
+            <div
+              key={key}
+              className={`flex ${
+                isComplex ? "flex-col" : "flex-col sm:flex-row sm:items-center gap-1 sm:gap-4"
+              } py-2 ${index !== entries.length - 1 ? "border-b border-gray-100" : ""}`}
             >
-              {/* Largura mínima fixada para a chave, empurrando o valor de forma alinhada */}
               <span className="text-sm font-semibold text-gray-500 min-w-[160px] md:min-w-[200px] shrink-0 capitalize">
-                {key.replace(/_/g, ' ')}
+                {key.replace(/_/g, " ")}
               </span>
-              
-              {/* Texto alinhado à esquerda nativamente */}
+
               <div className={isComplex ? "mt-2 pl-4 border-l-2 border-indigo-200 w-full" : "text-sm text-gray-800 break-words flex-1"}>
                 {renderDados(itemValue, depth + 1)}
               </div>
@@ -195,7 +237,7 @@ const getPreviewTags = (dados: unknown): string[] => {
       .slice(0, 3)
       .map(([key, value]) => {
         const raw = typeof value === "object" ? "..." : String(value);
-        const cleanKey = key.replace(/_/g, ' ');
+        const cleanKey = key.replace(/_/g, " ");
         return `${cleanKey}: ${raw.slice(0, 24)}`;
       });
   }
@@ -223,27 +265,24 @@ const ParceirosUY3Page = () => {
   }));
   const [sortDirectionInput, setSortDirectionInput] = useState<SortDirection>(initialFilters.sortDirection);
   const [appliedSortDirection, setAppliedSortDirection] = useState<SortDirection>(initialFilters.sortDirection);
+  const [windowModeInput, setWindowModeInput] = useState<Uy3WindowMode>(initialFilters.windowMode);
+  const [appliedWindowMode, setAppliedWindowMode] = useState<Uy3WindowMode>(initialFilters.windowMode);
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
 
-  const appliedFromIso = useMemo(
-    () => toUtcIsoFromDateTimeLocal(appliedRange.from),
-    [appliedRange.from]
-  );
-  const appliedToIso = useMemo(
-    () => toUtcIsoFromDateTimeLocal(appliedRange.to),
-    [appliedRange.to]
-  );
+  const appliedFromIso = useMemo(() => toUtcIsoFromDateTimeLocal(appliedRange.from), [appliedRange.from]);
+  const appliedToIso = useMemo(() => toUtcIsoFromDateTimeLocal(appliedRange.to), [appliedRange.to]);
 
   useEffect(() => {
     persistFilters({
       from: appliedRange.from,
       to: appliedRange.to,
       sortDirection: appliedSortDirection,
+      windowMode: appliedWindowMode,
     });
-  }, [appliedRange.from, appliedRange.to, appliedSortDirection]);
+  }, [appliedRange.from, appliedRange.to, appliedSortDirection, appliedWindowMode]);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["uy3:posts", page, appliedFromIso, appliedToIso, appliedSortDirection],
@@ -302,8 +341,20 @@ const ParceirosUY3Page = () => {
     }
 
     setRangeError(null);
-    setAppliedRange({ from: fromInput, to: toInput });
+
+    let nextFrom = fromInput;
+    let nextTo = toInput;
+    if (windowModeInput === "rolling") {
+      const rolled = rollRangeToNow(fromInput, toInput);
+      nextFrom = rolled.from;
+      nextTo = rolled.to;
+      setFromInput(nextFrom);
+      setToInput(nextTo);
+    }
+
+    setAppliedRange({ from: nextFrom, to: nextTo });
     setAppliedSortDirection(sortDirectionInput);
+    setAppliedWindowMode(windowModeInput);
     resetPage();
   };
 
@@ -356,12 +407,13 @@ const ParceirosUY3Page = () => {
   };
 
   return (
-    <div className="p-4 lg:p-6 max-w-full min-w-0">
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="p-4 lg:p-6 max-w-full min-w-0 flex flex-col gap-6">
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">Dados recebidos UY3</h1>
+          <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-1">Dados recebidos UY3</h1>
           <p className="text-gray-600 text-sm lg:text-base">
-            Visualize os dados enviados pela UY3 via API.
+            Visualize e exporte os dados enviados pela UY3 via API.
           </p>
         </div>
 
@@ -372,181 +424,259 @@ const ParceirosUY3Page = () => {
             onClick={() => void handleExportCsv()}
             disabled={isExporting}
           >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}
             Exportar CSV
           </Button>
 
           <Button variant="outline" className="shrink-0" onClick={() => void refetch()}>
-            {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
             Atualizar
           </Button>
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Input
-          type="datetime-local"
-          value={fromInput}
-          onChange={(e) => setFromInput(e.target.value)}
-          aria-label="Data e hora inicial"
-        />
+      {/* FILTER SECTION - SEM CARD, COM DELIMITAÇÃO SUTIL E LABELS CLAROS */}
+      <div className="py-5 border-y border-gray-100 bg-transparent">
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+          
+          <div className="w-full lg:w-auto flex-1 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              Data inicial
+            </label>
+            <Input
+              type="datetime-local"
+              value={fromInput}
+              onChange={(e) => setFromInput(e.target.value)}
+              className="w-full"
+            />
+          </div>
 
-        <Input
-          type="datetime-local"
-          value={toInput}
-          onChange={(e) => setToInput(e.target.value)}
-          aria-label="Data e hora final"
-        />
+          <div className="w-full lg:w-auto flex-1 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              Data final
+            </label>
+            <Input
+              type="datetime-local"
+              value={toInput}
+              onChange={(e) => setToInput(e.target.value)}
+              className="w-full"
+            />
+          </div>
 
-        <Select
-          value={sortDirectionInput}
-          onValueChange={(value) => {
-            setSortDirectionInput(value as SortDirection);
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Ordenação" />
-          </SelectTrigger>
-          <SelectContent>
-            {sortOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <div className="w-full lg:w-auto flex-1 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-gray-400" />
+              Modo de intervalo
+            </label>
+            <Select
+              value={windowModeInput}
+              onValueChange={(value) => setWindowModeInput(value as Uy3WindowMode)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent>
+                {windowModeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <Button type="button" variant="outline" onClick={applyFilters}>
-          Aplicar filtros
-        </Button>
-      </div>
+          <div className="w-full lg:w-auto flex-1 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <ArrowUpDown className="w-4 h-4 text-gray-400" />
+              Ordenação
+            </label>
+            <Select
+              value={sortDirectionInput}
+              onValueChange={(value) => setSortDirectionInput(value as SortDirection)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {rangeError ? (
-        <p className="mb-3 text-xs text-red-600">{rangeError}</p>
-      ) : null}
+          <div className="w-full lg:w-auto pt-2 lg:pt-0">
+            <Button 
+              type="button" 
+              onClick={applyFilters} 
+              className="w-full lg:w-auto"
+            >
+              <Filter className="w-4 h-4 mr-2" />
+              Aplicar filtros
+            </Button>
+          </div>
+        </div>
 
-      <p className="mb-3 text-xs text-muted-foreground">
-        O CSV exporta somente registros com <span className="font-semibold">typeWebook = LEADS_CLT</span>.
-      </p>
+        {/* FEEDBACK DOS FILTROS (Dicas e Erros agrupados) */}
+        <div className="mt-4 flex flex-col gap-2">
+          {rangeError && (
+            <p className="text-sm text-red-600 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4" />
+              {rangeError}
+            </p>
+          )}
 
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Posts Recebidos</h2>
-          <p className="text-muted-foreground text-sm">
-            {posts.length} nesta página • {total} no total
+          {windowModeInput === "rolling" && (
+            <p className="text-sm text-gray-500 flex items-center gap-1.5">
+              <Info className="w-4 h-4 text-blue-500" />
+              Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
+            </p>
+          )}
+
+          <p className="text-sm text-gray-500 flex items-center gap-1.5">
+            <Info className="w-4 h-4 text-gray-400" />
+            Atenção: O CSV exporta somente registros com <strong className="font-semibold text-gray-700">typeWebook = LEADS_CLT</strong>.
           </p>
         </div>
-        <div className="text-sm text-gray-500 flex items-center gap-2">
-          {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-          {isFetching ? "Atualizando..." : "Atualizado"}
-        </div>
       </div>
 
-      {isLoading ? (
-        <Card>
-          <CardContent className="py-12 flex flex-col items-center text-gray-500">
-            <Loader2 className="w-10 h-10 mb-3 animate-spin text-gray-300" />
-            <p className="font-medium">Carregando dados...</p>
-          </CardContent>
-        </Card>
-      ) : isError ? (
-        <Card>
-          <CardContent className="py-12 flex flex-col items-center text-gray-500">
-            <AlertCircle className="w-10 h-10 mb-3 text-red-400" />
-            <p className="font-medium">Falha ao carregar os dados</p>
-            <p className="text-sm">Atualize a página para tentar novamente.</p>
-          </CardContent>
-        </Card>
-      ) : posts.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 flex flex-col items-center text-muted-foreground">
-            <Inbox className="w-10 h-10 mb-3 opacity-40" />
-            <p className="font-medium">Nenhum registro encontrado</p>
-            <p className="text-sm">Ajuste os filtros para visualizar os dados.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {posts.map((post) => {
-            const isExpanded = expandedIds.has(post.id);
-            const previewTags = getPreviewTags(post.dados);
-            const fieldCount = getDadosFieldCount(post.dados);
+      {/* LISTING SECTION */}
+      <div>
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Posts Recebidos</h2>
+            <p className="text-muted-foreground text-sm">
+              {posts.length} nesta página • {total} no total
+            </p>
+          </div>
+          <div className="text-sm text-gray-500 flex items-center gap-2">
+            {isFetching ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            )}
+            {isFetching ? "Atualizando lista..." : "Atualizado em tempo real"}
+          </div>
+        </div>
 
-            return (
-              <Card key={post.id} className="transition-shadow hover:shadow-md">
-                <CardContent className="py-4">
-                  <button
-                    onClick={() => toggleExpand(post.id)}
-                    className="w-full flex items-start md:items-center justify-between gap-3 text-left"
-                  >
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="font-mono text-xs">
-                          {post.id}
-                        </Badge>
-                        <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 text-xs">
-                          {fieldCount} campo{fieldCount !== 1 ? "s" : ""}
-                        </Badge>
-                      </div>
+        {isLoading ? (
+          <Card className="border-dashed">
+            <CardContent className="py-16 flex flex-col items-center text-gray-500">
+              <Loader2 className="w-8 h-8 mb-4 animate-spin text-gray-400" />
+              <p className="font-medium text-gray-600">Carregando dados...</p>
+              <p className="text-sm text-gray-400 mt-1">Buscando os registros mais recentes.</p>
+            </CardContent>
+          </Card>
+        ) : isError ? (
+          <Card className="border-red-100 bg-red-50/50">
+            <CardContent className="py-16 flex flex-col items-center text-gray-500">
+              <AlertCircle className="w-10 h-10 mb-3 text-red-400" />
+              <p className="font-medium text-red-800">Falha ao carregar os dados</p>
+              <p className="text-sm text-red-600/80 mt-1">Tente atualizar a página ou verificar a conexão.</p>
+            </CardContent>
+          </Card>
+        ) : posts.length === 0 ? (
+          <Card className="border-dashed bg-gray-50/50">
+            <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+              <Inbox className="w-10 h-10 mb-3 opacity-40" />
+              <p className="font-medium text-gray-700">Nenhum registro encontrado</p>
+              <p className="text-sm mt-1">Ajuste os filtros de data para visualizar mais resultados.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {posts.map((post) => {
+              const isExpanded = expandedIds.has(post.id);
+              const previewTags = getPreviewTags(post.dados);
+              const fieldCount = getDadosFieldCount(post.dados);
 
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {formatDateTime(post.received_at)}
-                      </div>
-
-                      {!isExpanded && (
-                        <div className="flex gap-2 flex-wrap mt-2">
-                          {previewTags.map((tag) => (
-                            <span key={tag} className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-md capitalize">
-                              {tag}
-                            </span>
-                          ))}
+              return (
+                <Card key={post.id} className="transition-shadow hover:shadow-md">
+                  <CardContent className="py-4">
+                    <button
+                      onClick={() => toggleExpand(post.id)}
+                      className="w-full flex items-start md:items-center justify-between gap-3 text-left"
+                    >
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono text-xs text-gray-600 bg-gray-50">
+                            {post.id}
+                          </Badge>
+                          <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 text-xs">
+                            {fieldCount} campo{fieldCount !== 1 ? "s" : ""}
+                          </Badge>
                         </div>
-                      )}
-                    </div>
 
-                    <div className="shrink-0 p-2 rounded-full hover:bg-gray-100 transition-colors">
-                      {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
-                    </div>
-                  </button>
+                        <div className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {formatDateTime(post.received_at)}
+                        </div>
 
-                  {isExpanded && (
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                      <div className="bg-gray-50/80 rounded-lg p-5 border border-gray-100">
-                        {renderDados(post.dados)}
+                        {!isExpanded && (
+                          <div className="flex gap-2 flex-wrap mt-2">
+                            {previewTags.map((tag) => (
+                              <span key={tag} className="text-[11px] font-medium text-gray-600 bg-gray-100/80 px-2 py-1 rounded-md capitalize border border-gray-200/50">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
 
-      {lastPage > 1 ? (
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            disabled={currentPage <= 1 || isFetching}
-          >
-            Anterior
-          </Button>
-          <span className="text-sm text-gray-600">
-            Página {currentPage} de {lastPage}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setPage((current) => Math.min(lastPage, current + 1))}
-            disabled={currentPage >= lastPage || isFetching}
-          >
-            Próxima
-          </Button>
-        </div>
-      ) : null}
+                      <div className="shrink-0 p-2 rounded-full bg-gray-50 hover:bg-gray-100 transition-colors border border-gray-100">
+                        {isExpanded ? (
+                          <ChevronUp className="w-5 h-5 text-gray-600" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-gray-600" />
+                        )}
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-4 pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="bg-gray-50/60 rounded-lg p-5 border border-gray-100 shadow-inner">
+                          {renderDados(post.dados)}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {/* PAGINAÇÃO */}
+        {lastPage > 1 && (
+          <div className="mt-6 flex items-center justify-end gap-3 bg-white p-2 border-t border-gray-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={currentPage <= 1 || isFetching}
+            >
+              Anterior
+            </Button>
+            <span className="text-sm font-medium text-gray-600 min-w-[100px] text-center">
+              Pág. {currentPage} de {lastPage}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => Math.min(lastPage, current + 1))}
+              disabled={currentPage >= lastPage || isFetching}
+            >
+              Próxima
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
