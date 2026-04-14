@@ -1,5 +1,8 @@
 <?php
 
+$defaultRetryAfter = (int) env('DB_QUEUE_RETRY_AFTER', 18030);
+$redisRetryAfter = (int) env('REDIS_QUEUE_RETRY_AFTER', $defaultRetryAfter);
+
 return [
 
     'default' => env('QUEUE_CONNECTION', 'database'),
@@ -13,7 +16,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 18030),
+            'retry_after' => $defaultRetryAfter,
             'after_commit' => false,
         ],
 
@@ -43,7 +46,7 @@ return [
             'queue' => env('REDIS_QUEUE', 'default'),
             // Fallback para DB_QUEUE_RETRY_AFTER evita redelivery prematuro
             // quando a aplicação usa Redis mas só define a variável legada.
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', (int) env('DB_QUEUE_RETRY_AFTER', 18030)),
+            'retry_after' => $redisRetryAfter,
             'block_for' => null,
             'after_commit' => false,
         ],

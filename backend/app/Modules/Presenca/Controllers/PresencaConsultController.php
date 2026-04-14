@@ -309,9 +309,10 @@ class PresencaConsultController extends Controller
     private function tokenizeLinesLazy($lines): \Generator
     {
         if (is_string($lines)) {
-            $arr = preg_split('/\r\n|\r|\n/', $lines) ?: [];
-            foreach ($arr as $line) {
-                yield $line;
+            $token = strtok($lines, "\r\n");
+            while ($token !== false) {
+                yield $token;
+                $token = strtok("\r\n");
             }
             return;
         }
@@ -377,7 +378,7 @@ class PresencaConsultController extends Controller
                         continue;
                     }
 
-                    fwrite($fp2, $cpf . ';' . $nome . "\n");
+                    fputcsv($fp2, [$cpf, $nome], ';');
                     $count++;
                 }
 

@@ -10,6 +10,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -57,13 +58,18 @@ class PresencaApiService
     private string $simEmailDomain;
 
     private int $termoPhoneRetryAttempts;
+    private int $authorizationReuseTtlSeconds;
 
     private bool $logApiResponses;
     private bool $logApiSuccessResponses;
     private bool $logApi429;
 
     private ?int $jobId = null;
+    private ?string $currentCpf = null;
     private ?string $fatalAuthMessage = null;
+
+    /** @var array<string,float> */
+    private array $authorizationApprovedLocal = [];
 
     public function __construct()
     {
@@ -72,6 +78,7 @@ class PresencaApiService
         $rate = (array) config('presenca.rate_limit', []);
         $simulacao = (array) config('presenca.simulacao', []);
         $termo = (array) config('presenca.termo', []);
+        $authorization = (array) config('presenca.authorization', []);
         $logging = (array) config('presenca.logging', []);
 
         $this->baseUrl = rtrim((string) ($api['base_url'] ?? ''), '/');
@@ -97,11 +104,12 @@ class PresencaApiService
         $this->rateLockTtl = max(1, (int) ($rate['lock_ttl'] ?? 10));
         $this->rateLockWait = max(1, (int) ($rate['lock_wait'] ?? 5));
 
-        $this->simRetryAttempts = max(1, (int) ($simulacao['retry_attempts'] ?? 8));
+        $this->simRetryAttempts = max(1, (int) ($simulacao['retry_attempts'] ?? 12));
         $this->simRetryDelaySeconds = max(1, (int) ($simulacao['retry_delay_seconds'] ?? 3));
         $this->simEmailDomain = (string) ($simulacao['email_domain'] ?? 'example.com');
 
         $this->termoPhoneRetryAttempts = max(1, (int) ($termo['phone_retry_attempts'] ?? 5));
+        $this->authorizationReuseTtlSeconds = max(0, (int) ($authorization['reuse_ttl_seconds'] ?? 172800));
 
         $this->logApiResponses = (bool) ($logging['api_log_responses'] ?? true);
         $this->logApiSuccessResponses = (bool) ($logging['api_log_success_responses'] ?? false);
@@ -120,6 +128,7 @@ class PresencaApiService
     {
         $cpf = Cpf::normalize($cpf);
         $nome = $this->normalizeName($nome);
+        $this->currentCpf = $cpf;
 
         $row = $this->baseRow($cpf ?? '', $nome);
 
@@ -138,101 +147,111 @@ class PresencaApiService
         }
 
         $phoneContext = $this->generatePhoneContext();
+        $authorizationReused = $this->hasReusableAuthorization($cpf);
 
-        $termoData = null;
-        $lastTermoMessage = null;
+        if (!$authorizationReused) {
+            $termoData = null;
+            $lastTermoMessage = null;
 
-        for ($attempt = 1; $attempt <= $this->termoPhoneRetryAttempts; $attempt++) {
-            if ($attempt > 1) {
-                $phoneContext = $this->generatePhoneContext();
-            }
+            for ($attempt = 1; $attempt <= $this->termoPhoneRetryAttempts; $attempt++) {
+                if ($attempt > 1) {
+                    $phoneContext = $this->generatePhoneContext();
+                }
 
-            $termoResp = $this->requestJson('POST', '/consultas/termo-inss', [
-                'cpf' => $cpf,
-                'nome' => $nome,
-                'telefone' => $phoneContext['telefone'],
-                'produtoId' => $this->produtoId,
-            ]);
+                $termoResp = $this->requestJson('POST', '/consultas/termo-inss', [
+                    'cpf' => $cpf,
+                    'nome' => $nome,
+                    'telefone' => $phoneContext['telefone'],
+                    'produtoId' => $this->produtoId,
+                ]);
 
-            if (!$termoResp) {
-                $row['status'] = 'FALHA';
-                $row['status_code'] = 'TERMO_NO_RESPONSE';
-                $row['mensagem'] = 'Sem resposta ao gerar termo de autorização.';
-                return ['outcome' => 'failed', 'row' => $row];
-            }
-
-            if ($termoResp->status() === 200) {
-                $json = $termoResp->json();
-                if (!is_array($json) || empty($json['autorizacaoId'])) {
+                if (!$termoResp) {
                     $row['status'] = 'FALHA';
-                    $row['status_code'] = 'TERMO_INVALID_BODY';
-                    $row['mensagem'] = 'Resposta inválida ao gerar termo.';
+                    $row['status_code'] = 'TERMO_NO_RESPONSE';
+                    $row['mensagem'] = 'Sem resposta ao gerar termo de autorização.';
                     return ['outcome' => 'failed', 'row' => $row];
                 }
 
-                $termoData = [
-                    'autorizacaoId' => (string) $json['autorizacaoId'],
-                    'shortUrl' => isset($json['shortUrl']) ? (string) $json['shortUrl'] : null,
-                ];
-                break;
-            }
+                if ($termoResp->status() === 200) {
+                    $json = $termoResp->json();
+                    if (!is_array($json) || empty($json['autorizacaoId'])) {
+                        $row['status'] = 'FALHA';
+                        $row['status_code'] = 'TERMO_INVALID_BODY';
+                        $row['mensagem'] = 'Resposta inválida ao gerar termo.';
+                        return ['outcome' => 'failed', 'row' => $row];
+                    }
 
-            if ($termoResp->status() === 400) {
-                $messages = $this->extractMessages($termoResp);
-                if ($this->containsTelefoneJaUtilizado($messages)) {
-                    $lastTermoMessage = $this->joinMessages($messages, 'Telefone já utilizado em termo para outro cliente.');
-                    continue;
+                    $termoData = [
+                        'autorizacaoId' => (string) $json['autorizacaoId'],
+                        'shortUrl' => isset($json['shortUrl']) ? (string) $json['shortUrl'] : null,
+                    ];
+                    break;
+                }
+
+                if ($termoResp->status() === 400) {
+                    $messages = $this->extractMessages($termoResp);
+                    if ($this->containsTelefoneJaUtilizado($messages)) {
+                        $lastTermoMessage = $this->joinMessages($messages, 'Telefone já utilizado em termo para outro cliente.');
+                        continue;
+                    }
+
+                    $row['status'] = 'FALHA';
+                    $row['status_code'] = 'TERMO_400';
+                    $row['mensagem'] = $this->joinMessages($messages, 'Erro ao gerar termo de autorização.');
+                    return ['outcome' => 'failed', 'row' => $row];
                 }
 
                 $row['status'] = 'FALHA';
-                $row['status_code'] = 'TERMO_400';
-                $row['mensagem'] = $this->joinMessages($messages, 'Erro ao gerar termo de autorização.');
+                $row['status_code'] = 'TERMO_' . $termoResp->status();
+                $row['mensagem'] = $this->joinMessages($this->extractMessages($termoResp), 'Erro ao gerar termo de autorização.');
                 return ['outcome' => 'failed', 'row' => $row];
             }
 
-            $row['status'] = 'FALHA';
-            $row['status_code'] = 'TERMO_' . $termoResp->status();
-            $row['mensagem'] = $this->joinMessages($this->extractMessages($termoResp), 'Erro ao gerar termo de autorização.');
-            return ['outcome' => 'failed', 'row' => $row];
-        }
-
-        if (!$termoData) {
-            $row['status'] = 'FALHA';
-            $row['status_code'] = 'TERMO_PHONE_CONFLICT';
-            $row['mensagem'] = $lastTermoMessage ?: 'Não foi possível gerar termo após troca de telefone.';
-            return ['outcome' => 'failed', 'row' => $row];
-        }
-
-        $autorizacaoResp = $this->requestJson(
-            'PUT',
-            '/consultas/termo-inss/' . rawurlencode($termoData['autorizacaoId']),
-            $this->authorizationPayload($phoneContext),
-            ['tenant-id' => $this->tenantId]
-        );
-
-        if (!$autorizacaoResp) {
-            $row['status'] = 'FALHA';
-            $row['status_code'] = 'AUTORIZACAO_NO_RESPONSE';
-            $row['mensagem'] = 'Sem resposta na autorização do termo.';
-            return ['outcome' => 'failed', 'row' => $row];
-        }
-
-        if ($autorizacaoResp->status() !== 200) {
-            $messages = $this->extractMessages($autorizacaoResp);
-
-            if ($autorizacaoResp->status() === 500 && $this->isKnownAuthorization500($messages)) {
-                // fluxo segue normalmente
-            } elseif ($autorizacaoResp->status() === 400 && $this->isInvalidTermId($messages)) {
+            if (!$termoData) {
                 $row['status'] = 'FALHA';
-                $row['status_code'] = 'AUTORIZACAO_TERMO_INVALIDO';
-                $row['mensagem'] = $this->joinMessages($messages, 'Termo inválido para autorização.');
-                return ['outcome' => 'failed', 'row' => $row];
-            } else {
-                $row['status'] = 'FALHA';
-                $row['status_code'] = 'AUTORIZACAO_' . $autorizacaoResp->status();
-                $row['mensagem'] = $this->joinMessages($messages, 'Erro ao autorizar termo.');
+                $row['status_code'] = 'TERMO_PHONE_CONFLICT';
+                $row['mensagem'] = $lastTermoMessage ?: 'Não foi possível gerar termo após troca de telefone.';
                 return ['outcome' => 'failed', 'row' => $row];
             }
+
+            $autorizacaoResp = $this->requestJson(
+                'PUT',
+                '/consultas/termo-inss/' . rawurlencode($termoData['autorizacaoId']),
+                $this->authorizationPayload($phoneContext),
+                ['tenant-id' => $this->tenantId]
+            );
+
+            if (!$autorizacaoResp) {
+                $row['status'] = 'FALHA';
+                $row['status_code'] = 'AUTORIZACAO_NO_RESPONSE';
+                $row['mensagem'] = 'Sem resposta na autorização do termo.';
+                return ['outcome' => 'failed', 'row' => $row];
+            }
+
+            if ($autorizacaoResp->status() !== 200) {
+                $messages = $this->extractMessages($autorizacaoResp);
+
+                if ($autorizacaoResp->status() === 500 && $this->isKnownAuthorization500($messages)) {
+                    // fluxo segue normalmente
+                } elseif ($autorizacaoResp->status() === 400 && $this->isInvalidTermId($messages)) {
+                    $row['status'] = 'FALHA';
+                    $row['status_code'] = 'AUTORIZACAO_TERMO_INVALIDO';
+                    $row['mensagem'] = $this->joinMessages($messages, 'Termo inválido para autorização.');
+                    return ['outcome' => 'failed', 'row' => $row];
+                } else {
+                    $row['status'] = 'FALHA';
+                    $row['status_code'] = 'AUTORIZACAO_' . $autorizacaoResp->status();
+                    $row['mensagem'] = $this->joinMessages($messages, 'Erro ao autorizar termo.');
+                    return ['outcome' => 'failed', 'row' => $row];
+                }
+            }
+
+            $this->markAuthorizationGrant($cpf);
+        } else {
+            PresencaLog::warning(
+                '[PRESENCA] Autorização reaproveitada do banco; pulando termo/autorização.',
+                $this->logContext()
+            );
         }
 
         $vinculosResp = $this->requestJson('POST', '/v3/operacoes/consignado-privado/consultar-vinculos', [
@@ -453,7 +472,14 @@ class PresencaApiService
                 $messages = $this->extractMessages($resp);
                 if ($this->containsFalhaSimulacaoTemporaria($messages)) {
                     if ($attempt < $this->simRetryAttempts) {
-                        sleep($this->simRetryDelaySeconds);
+                        PresencaLog::warning(
+                            '[PRESENCA] Simulação com falha temporária; nova tentativa via throttle global.',
+                            $this->logContext([
+                                'attempt' => $attempt,
+                                'max_attempts' => $this->simRetryAttempts,
+                                'messages' => $messages,
+                            ])
+                        );
                         continue;
                     }
 
@@ -649,10 +675,9 @@ class PresencaApiService
         try {
             $lock->block($this->tokenLockWait);
         } catch (LockTimeoutException $e) {
-            PresencaLog::warning('[PRESENCA] Timeout ao aguardar lock do token.', [
-                'job_id' => $this->jobId,
+            PresencaLog::warning('[PRESENCA] Timeout ao aguardar lock do token.', $this->logContext([
                 'error' => $e->getMessage(),
-            ]);
+            ]));
             return null;
         }
 
@@ -677,20 +702,18 @@ class PresencaApiService
             }
 
             if ($resp->status() !== 200) {
-                PresencaLog::warning('[PRESENCA] Falha ao obter token.', [
-                    'job_id' => $this->jobId,
+                PresencaLog::warning('[PRESENCA] Falha ao obter token.', $this->logContext([
                     'status' => $resp->status(),
                     'messages' => $this->extractMessages($resp),
-                ]);
+                ]));
                 return null;
             }
 
             $json = $resp->json();
             if (!is_array($json) || empty($json['token'])) {
-                PresencaLog::warning('[PRESENCA] Resposta de login sem token válido.', [
-                    'job_id' => $this->jobId,
+                PresencaLog::warning('[PRESENCA] Resposta de login sem token válido.', $this->logContext([
                     'status' => $resp->status(),
-                ]);
+                ]));
                 return null;
             }
 
@@ -786,12 +809,11 @@ class PresencaApiService
 
                 if ($response->status() === 429) {
                     if ($this->logApi429) {
-                        PresencaLog::warning('[PRESENCA] HTTP 429 recebido.', [
-                            'job_id' => $this->jobId,
+                        PresencaLog::warning('[PRESENCA] HTTP 429 recebido.', $this->logContext([
                             'method' => strtoupper($method),
                             'path' => $path,
                             'attempt' => $attempt,
-                        ]);
+                        ]));
                     }
 
                     if ($attempt < $attempts) {
@@ -807,13 +829,12 @@ class PresencaApiService
 
                 return $response;
             } catch (ConnectionException $e) {
-                PresencaLog::warning('[PRESENCA] Erro de conexão na requisição.', [
-                    'job_id' => $this->jobId,
+                PresencaLog::warning('[PRESENCA] Erro de conexão na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
                     'attempt' => $attempt,
                     'error' => $e->getMessage(),
-                ]);
+                ]));
 
                 if ($attempt >= $attempts) {
                     return null;
@@ -821,13 +842,12 @@ class PresencaApiService
 
                 $this->sleepWithBackoff($attempt);
             } catch (Throwable $e) {
-                PresencaLog::warning('[PRESENCA] Exceção na requisição.', [
-                    'job_id' => $this->jobId,
+                PresencaLog::warning('[PRESENCA] Exceção na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
                     'attempt' => $attempt,
                     'error' => $e->getMessage(),
-                ]);
+                ]));
 
                 if ($attempt >= $attempts) {
                     return $response;
@@ -878,23 +898,109 @@ class PresencaApiService
         }
     }
 
+    private function hasReusableAuthorization(string $cpf): bool
+    {
+        if ($cpf === '' || $this->authorizationReuseTtlSeconds <= 0) {
+            return false;
+        }
+
+        $nowTs = microtime(true);
+        if (isset($this->authorizationApprovedLocal[$cpf])) {
+            $expiresAtTs = (float) $this->authorizationApprovedLocal[$cpf];
+            if ($expiresAtTs >= $nowTs) {
+                return true;
+            }
+
+            unset($this->authorizationApprovedLocal[$cpf]);
+        }
+
+        try {
+            $nowUtc = now('UTC')->format('Y-m-d H:i:s');
+            $row = DB::table('presenca_authorizations')
+                ->where('cpf', $cpf)
+                ->where('expires_at', '>', $nowUtc)
+                ->select('expires_at')
+                ->first();
+
+            if ($row === null) {
+                return false;
+            }
+
+            $expiresAtTs = strtotime((string) ($row->expires_at ?? ''));
+            if (!is_int($expiresAtTs) || $expiresAtTs <= 0) {
+                return false;
+            }
+
+            $this->authorizationApprovedLocal[$cpf] = (float) $expiresAtTs;
+            return true;
+        } catch (Throwable $e) {
+            PresencaLog::warning('[PRESENCA] Falha ao consultar cache persistente de autorização.', $this->logContext([
+                'error' => $e->getMessage(),
+            ]));
+            return false;
+        }
+    }
+
+    private function markAuthorizationGrant(string $cpf): void
+    {
+        if ($cpf === '' || $this->authorizationReuseTtlSeconds <= 0) {
+            return;
+        }
+
+        $nowUtc = now('UTC');
+        $nowStr = $nowUtc->format('Y-m-d H:i:s');
+        $expiresUtc = $nowUtc->copy()->addSeconds($this->authorizationReuseTtlSeconds);
+        $expiresStr = $expiresUtc->format('Y-m-d H:i:s');
+        $this->authorizationApprovedLocal[$cpf] = (float) $expiresUtc->getTimestamp();
+
+        try {
+            DB::table('presenca_authorizations')->upsert(
+                [[
+                    'cpf' => $cpf,
+                    'authorized_at' => $nowStr,
+                    'expires_at' => $expiresStr,
+                    'created_at' => $nowStr,
+                    'updated_at' => $nowStr,
+                ]],
+                ['cpf'],
+                ['authorized_at', 'expires_at', 'updated_at']
+            );
+        } catch (Throwable $e) {
+            PresencaLog::warning('[PRESENCA] Falha ao persistir cache de autorização.', $this->logContext([
+                'error' => $e->getMessage(),
+            ]));
+        }
+    }
+
     private function throttleRequests(): void
     {
         if (!$this->rateLimitEnabled) {
             return;
         }
 
+        $lockTimeoutCount = 0;
         while (true) {
             $lock = Cache::lock('presenca_http_rate_lock', $this->rateLockTtl);
 
             try {
                 $lock->block($this->rateLockWait);
             } catch (LockTimeoutException $e) {
-                PresencaLog::warning('[PRESENCA] Timeout ao aguardar lock de rate limit.', [
-                    'job_id' => $this->jobId,
+                $lockTimeoutCount++;
+                PresencaLog::warning('[PRESENCA] Timeout ao aguardar lock de rate limit.', $this->logContext([
                     'error' => $e->getMessage(),
-                ]);
-                return;
+                    'timeout_count' => $lockTimeoutCount,
+                ]));
+
+                if ($lockTimeoutCount >= 5) {
+                    throw new \RuntimeException(
+                        'Não foi possível adquirir lock de rate limit após múltiplas tentativas.',
+                        0,
+                        $e
+                    );
+                }
+
+                usleep(200000);
+                continue;
             }
 
             $waitMs = 0;
@@ -1198,12 +1304,25 @@ class PresencaApiService
             return;
         }
 
-        PresencaLog::warning('[PRESENCA] HTTP response', [
-            'job_id' => $this->jobId,
+        PresencaLog::warning('[PRESENCA] HTTP response', $this->logContext([
             'method' => strtoupper($method),
             'path' => $path,
             'status' => $status,
             'messages' => $status >= 400 ? $this->extractMessages($response) : null,
-        ]);
+        ]));
+    }
+
+    /** @param array<string,mixed> $context */
+    private function logContext(array $context = []): array
+    {
+        if (!array_key_exists('job_id', $context) && $this->jobId !== null) {
+            $context['job_id'] = $this->jobId;
+        }
+
+        if (!array_key_exists('cpf', $context) && $this->currentCpf !== null && $this->currentCpf !== '') {
+            $context['cpf'] = $this->currentCpf;
+        }
+
+        return $context;
     }
 }

@@ -31,13 +31,17 @@ return [
     ],
 
     'simulacao' => [
-        'retry_attempts' => (int) env('PRESENCA_SIMULACAO_RETRY_ATTEMPTS', 8),
+        'retry_attempts' => (int) env('PRESENCA_SIMULACAO_RETRY_ATTEMPTS', 12),
         'retry_delay_seconds' => (int) env('PRESENCA_SIMULACAO_RETRY_DELAY_SECONDS', 3),
         'email_domain' => env('PRESENCA_EMAIL_DOMAIN', 'example.com'),
     ],
 
     'termo' => [
         'phone_retry_attempts' => (int) env('PRESENCA_TERMO_PHONE_RETRY_ATTEMPTS', 5),
+    ],
+
+    'authorization' => [
+        'reuse_ttl_seconds' => (int) env('PRESENCA_AUTH_REUSE_TTL_SECONDS', 172800),
     ],
 
     'job' => [

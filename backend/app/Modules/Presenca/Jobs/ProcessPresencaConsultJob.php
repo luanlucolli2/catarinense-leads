@@ -126,14 +126,18 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         $rowsBuffer = [];
 
         try {
-            while (($line = fgets($reader)) !== false) {
+            while (($parts = fgetcsv($reader, 0, ';')) !== false) {
                 if ($this->finishIfCancelled($job)) {
                     $this->closeSpool();
                     fclose($reader);
                     return;
                 }
 
-                [$cpf, $nome] = $this->parseInputLine($line);
+                if (!is_array($parts) || $parts === [null]) {
+                    continue;
+                }
+
+                [$cpf, $nome] = $this->parseInputColumns($parts);
                 if (!$cpf || !$nome) {
                     continue;
                 }
@@ -187,14 +191,12 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function parseInputLine(string $line): array
+    /**
+     * @param array<int,mixed> $parts
+     * @return array{0:?string,1:?string}
+     */
+    private function parseInputColumns(array $parts): array
     {
-        $line = trim($line);
-        if ($line === '') {
-            return [null, null];
-        }
-
-        $parts = str_getcsv($line, ';');
         $cpf = isset($parts[0]) ? trim((string) $parts[0]) : null;
         $nome = isset($parts[1]) ? trim((string) $parts[1]) : null;
 
@@ -237,15 +239,24 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        foreach ($rows as $row) {
-            $line = [];
-            foreach (PresencaSchema::COLS as $col) {
-                $line[] = $row[$col] ?? null;
-            }
-            fputcsv($this->spoolFp, $line, ';');
+        if (!flock($this->spoolFp, LOCK_EX)) {
+            throw new \RuntimeException("Falha ao adquirir lock de escrita do spool (job {$this->jobId}).");
         }
 
-        fflush($this->spoolFp);
+        try {
+            foreach ($rows as $row) {
+                $line = [];
+                foreach (PresencaSchema::COLS as $col) {
+                    $line[] = $row[$col] ?? null;
+                }
+                fputcsv($this->spoolFp, $line, ';');
+            }
+
+            fflush($this->spoolFp);
+        } finally {
+            flock($this->spoolFp, LOCK_UN);
+        }
+
         $this->lastFlushAt = microtime(true);
     }
 
