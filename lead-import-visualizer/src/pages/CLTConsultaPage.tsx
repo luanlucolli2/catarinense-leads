@@ -9,12 +9,15 @@ import { NewCLTConsultModal } from "@/components/NewCLTConsultModal";
 import { V8Controls } from "@/components/V8Controls";
 import { V8HistoryTable } from "@/components/V8HistoryTable";
 import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
+import { PresencaHistoryTable } from "@/components/PresencaHistoryTable";
+import { NewPresencaConsultModal } from "@/components/NewPresencaConsultModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import factaLogo from "@/assets/factalogo.png";
 import v8Logo from "@/assets/v8logo.png";
+import pbankLogo from "@/assets/pbanklogo.png";
 
 import {
   listCltConsultJobs,
@@ -44,6 +47,17 @@ import {
   V8ConsultJobShow,
   getV8ConsultJob,
 } from "@/api/v8";
+import {
+  listPresencaConsultJobs,
+  createPresencaConsultJob,
+  downloadPresencaReport,
+  downloadPresencaPreview,
+  cancelPresencaConsultJob,
+  deletePresencaConsultJob,
+  PresencaConsultJobListItem,
+  PresencaConsultJobShow,
+  getPresencaConsultJob,
+} from "@/api/presenca";
 
 function formatDateTimeBR(iso: string | null | undefined) {
   if (!iso) return "-";
@@ -60,7 +74,7 @@ function formatDateTimeBR(iso: string | null | undefined) {
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8">(
+  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "presenca">(
     "clt:activeTab",
     "facta"
   );
@@ -80,6 +94,9 @@ const CLTConsultaPage = () => {
   const [isNewV8ModalOpen, setIsNewV8ModalOpen] = useState(false);
   const [searchValueV8, setSearchValueV8] = useState("");
   const [pageV8, setPageV8] = useState(1);
+  const [isNewPresencaModalOpen, setIsNewPresencaModalOpen] = useState(false);
+  const [searchValuePresenca, setSearchValuePresenca] = useState("");
+  const [pagePresenca, setPagePresenca] = useState(1);
 
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
     "clt:watchJobId",
@@ -87,6 +104,10 @@ const CLTConsultaPage = () => {
   );
   const [watchingV8JobId, setWatchingV8JobId] = usePersistedState<number | null>(
     "v8:watchJobId",
+    null
+  );
+  const [watchingPresencaJobId, setWatchingPresencaJobId] = usePersistedState<number | null>(
+    "presenca:watchJobId",
     null
   );
   const [httpCountersModalJob, setHttpCountersModalJob] = useState<{ id: number; title: string } | null>(null);
@@ -100,6 +121,8 @@ const CLTConsultaPage = () => {
 
   const v8InFlight = useRef<Set<number>>(new Set());
   const lastV8Snapshot = useRef<{ id: number; status?: string | null } | null>(null);
+  const presencaInFlight = useRef<Set<number>>(new Set());
+  const lastPresencaSnapshot = useRef<{ id: number; status?: string | null } | null>(null);
 
   const {
     data: jobsPage,
@@ -137,6 +160,24 @@ const CLTConsultaPage = () => {
   const v8TitleOf = (id: number) =>
     (v8JobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
+  const {
+    data: presencaJobsPage,
+    isLoading: presencaListLoading,
+    refetch: refetchPresencaList,
+  } = useQuery({
+    queryKey: ["presenca:list", pagePresenca],
+    queryFn: () => listPresencaConsultJobs(pagePresenca),
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
+    refetchInterval: activeTab === "presenca" ? 30000 : false,
+  });
+
+  const presencaItems = presencaJobsPage?.data ?? [];
+  const presencaLastPage = presencaJobsPage?.last_page ?? 1;
+
+  const presencaTitleOf = (id: number) =>
+    (presencaJobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
+
   const { data: watchedJob } = useQuery<CltConsultJobShow>({
     queryKey: ["clt:job", watchingJobId],
     queryFn: () => getCltConsultJob(watchingJobId as number),
@@ -161,6 +202,21 @@ const CLTConsultaPage = () => {
     refetchOnMount: "always",
     refetchInterval: (query) => {
       const job = query.state.data as V8ConsultJobShow | undefined;
+      if (!job) return false;
+      const open = job.status === "pendente" || job.status === "em_progresso";
+      return open ? 5000 : false;
+    },
+  });
+
+  const { data: watchedPresencaJob } = useQuery<PresencaConsultJobShow>({
+    queryKey: ["presenca:job", watchingPresencaJobId],
+    queryFn: () => getPresencaConsultJob(watchingPresencaJobId as number),
+    enabled: !!watchingPresencaJobId,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: "always",
+    refetchInterval: (query) => {
+      const job = query.state.data as PresencaConsultJobShow | undefined;
       if (!job) return false;
       const open = job.status === "pendente" || job.status === "em_progresso";
       return open ? 5000 : false;
@@ -244,6 +300,29 @@ const CLTConsultaPage = () => {
     return v8ItemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [v8ItemsWithOverlay, searchValueV8]);
 
+  const presencaItemsWithOverlay: PresencaConsultJobListItem[] = useMemo(() => {
+    if (!watchedPresencaJob) return presencaItems;
+    return presencaItems.map((i) => {
+      if (i.id !== watchedPresencaJob.id) return i;
+      return {
+        ...i,
+        status: watchedPresencaJob.status,
+        phase: watchedPresencaJob.phase,
+        total_cpfs: watchedPresencaJob.total_cpfs,
+        success_count: watchedPresencaJob.success_count,
+        policy_declined_count: watchedPresencaJob.policy_declined_count,
+        fail_count: watchedPresencaJob.fail_count,
+        spool_bytes: watchedPresencaJob.spool_bytes ?? i.spool_bytes,
+      };
+    });
+  }, [presencaItems, watchedPresencaJob]);
+
+  const filteredPresencaItems = useMemo(() => {
+    const q = searchValuePresenca.trim().toLowerCase();
+    if (!q) return presencaItemsWithOverlay;
+    return presencaItemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
+  }, [presencaItemsWithOverlay, searchValuePresenca]);
+
   useEffect(() => {
     if (!watchedJob) return;
 
@@ -325,6 +404,31 @@ const CLTConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["v8:list"] });
     }
   }, [watchedV8Job, qc, setWatchingV8JobId]);
+
+  useEffect(() => {
+    if (!watchedPresencaJob) return;
+
+    const niceTitle = watchedPresencaJob.title ?? `#${watchedPresencaJob.id}`;
+    const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedPresencaJob.status);
+
+    const prev = lastPresencaSnapshot.current;
+    const changed =
+      !prev ||
+      prev.id !== watchedPresencaJob.id ||
+      prev.status !== watchedPresencaJob.status;
+
+    if (!changed) return;
+    lastPresencaSnapshot.current = { id: watchedPresencaJob.id, status: watchedPresencaJob.status };
+
+    if (isTerminal) {
+      if (watchedPresencaJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
+      else if (watchedPresencaJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
+      else if (watchedPresencaJob.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
+
+      setWatchingPresencaJobId(null);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+    }
+  }, [watchedPresencaJob, qc, setWatchingPresencaJobId]);
 
   // Aceita payload estendido
   const createMutation = useMutation<any, any, any>({
@@ -411,6 +515,40 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
   });
 
+  const createPresencaMutation = useMutation<any, any, { title: string; lines: string }>({
+    mutationFn: (vars) => createPresencaConsultJob(vars),
+    onSuccess: (data, vars) => {
+      setWatchingPresencaJobId(data.id);
+      toast.success(`Consulta "${vars.title}" criada.`);
+      setPagePresenca(1);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
+  });
+
+  const cancelPresencaMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      cancelPresencaConsultJob(id, reason),
+    onSuccess: (_data, { id }) => {
+      if (id === watchingPresencaJobId) setWatchingPresencaJobId(null);
+      toast.info(`Consulta "${presencaTitleOf(id)}" cancelada.`);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const deletePresencaMutation = useMutation({
+    mutationFn: (id: number) => deletePresencaConsultJob(id),
+    onSuccess: (_data, id) => {
+      if (id === watchingPresencaJobId) setWatchingPresencaJobId(null);
+      toast.success(`Consulta "${presencaTitleOf(id)}" excluída.`);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      void qc.removeQueries({ queryKey: ["presenca:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+  });
+
   // Mapear modo → variant esperado pelo backend
   const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE") => {
     const variant = modo === "OFF" ? "offline" : "online";
@@ -419,6 +557,10 @@ const CLTConsultaPage = () => {
 
   const handleNewV8Consult = async (titulo: string, lines: string) => {
     await createV8Mutation.mutateAsync({ title: titulo, lines });
+  };
+
+  const handleNewPresencaConsult = async (titulo: string, lines: string) => {
+    await createPresencaMutation.mutateAsync({ title: titulo, lines });
   };
 
   const getOrCreatePreviewToast = (id: number) => {
@@ -601,13 +743,65 @@ const CLTConsultaPage = () => {
     await deleteV8Mutation.mutateAsync(id);
   };
 
+  const handleDownloadPresenca = async (id: number, opts?: { preview?: boolean }) => {
+    if (presencaInFlight.current.has(id)) {
+      toast.warning("Já estamos gerando/baixando para este job.");
+      return;
+    }
+    presencaInFlight.current.add(id);
+
+    try {
+      const j = await qc.ensureQueryData<PresencaConsultJobShow>({
+        queryKey: ["presenca:job", id],
+        queryFn: () => getPresencaConsultJob(id),
+      });
+
+      if (!opts?.preview && j.has_file) {
+        await downloadPresencaReport(id);
+        presencaInFlight.current.delete(id);
+        return;
+      }
+
+      try {
+        await downloadPresencaPreview(id);
+      } catch (e: any) {
+        if (e?.status === 409) {
+          toast.info("Prévia indisponível ainda. Aguarde o início do processamento.");
+        } else {
+          const apiMsg = e?.response?.data?.message || e?.message;
+          toast.error(apiMsg ?? "Falha ao baixar a prévia");
+        }
+      } finally {
+        presencaInFlight.current.delete(id);
+        void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
+      }
+    } catch (e: any) {
+      const apiMsg = e?.response?.data?.message || e?.message;
+      toast.error(apiMsg ?? "Falha no download");
+      presencaInFlight.current.delete(id);
+    }
+  };
+
+  const handleCancelPresenca = async (id: number, reason?: string) => {
+    await cancelPresencaMutation.mutateAsync({ id, reason });
+  };
+
+  const handleDeletePresenca = async (id: number) => {
+    await deletePresencaMutation.mutateAsync(id);
+  };
+
   const isV8Tab = activeTab === "v8";
+  const isPresencaTab = activeTab === "presenca";
   const headerTitle = isV8Tab
     ? "Consulta CLT (V8)"
-    : "Consulta CLT (FACTA)";
+    : isPresencaTab
+      ? "Consulta CLT (Presença)"
+      : "Consulta CLT (FACTA)";
   const headerDescription = isV8Tab
     ? "Envie CPF, nome e data de nascimento em massa e baixe o resultado em CSV."
-    : "Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.";
+    : isPresencaTab
+      ? "Envie CPF e nome em massa para consulta Presença e baixe o resultado em CSV."
+      : "Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.";
 
   return (
     <div className="p-4 lg:p-6 max-w-full min-w-0">
@@ -622,7 +816,7 @@ const CLTConsultaPage = () => {
 
       <Tabs
         value={activeTab}
-        onValueChange={(val) => setActiveTab(val as "facta" | "v8")}
+        onValueChange={(val) => setActiveTab(val as "facta" | "v8" | "presenca")}
         className="space-y-6"
       >
         <TabsList className="flex w-fit h-auto p-1 bg-muted/50 rounded-lg justify-start">
@@ -650,6 +844,19 @@ const CLTConsultaPage = () => {
                 className="h-4 w-4 object-contain"
               />
               V8
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="presenca"
+            className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <img
+                src={pbankLogo}
+                alt="Presença"
+                className="h-4 w-4 object-contain"
+              />
+              Presença
             </span>
           </TabsTrigger>
         </TabsList>
@@ -704,6 +911,27 @@ const CLTConsultaPage = () => {
             page={pageV8}
             lastPage={v8LastPage}
             onPageChange={(p) => setPageV8(p)}
+            formatDateTimeBR={formatDateTimeBR}
+          />
+        </TabsContent>
+
+        <TabsContent value="presenca" className="space-y-6">
+          <V8Controls
+            onNewConsultClick={() => setIsNewPresencaModalOpen(true)}
+            searchValue={searchValuePresenca}
+            onSearchChange={setSearchValuePresenca}
+          />
+
+          <PresencaHistoryTable
+            items={filteredPresencaItems}
+            loading={!!(presencaListLoading && !presencaJobsPage)}
+            onDownload={handleDownloadPresenca}
+            onCancel={handleCancelPresenca}
+            onDelete={handleDeletePresenca}
+            onRefresh={() => refetchPresencaList()}
+            page={pagePresenca}
+            lastPage={presencaLastPage}
+            onPageChange={(p) => setPagePresenca(p)}
             formatDateTimeBR={formatDateTimeBR}
           />
         </TabsContent>
@@ -855,6 +1083,12 @@ const CLTConsultaPage = () => {
         isOpen={isNewV8ModalOpen}
         onClose={() => setIsNewV8ModalOpen(false)}
         onSubmit={handleNewV8Consult}
+      />
+
+      <NewPresencaConsultModal
+        isOpen={isNewPresencaModalOpen}
+        onClose={() => setIsNewPresencaModalOpen(false)}
+        onSubmit={handleNewPresencaConsult}
       />
     </div>
   );

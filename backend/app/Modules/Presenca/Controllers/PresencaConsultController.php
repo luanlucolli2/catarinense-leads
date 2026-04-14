@@ -19,7 +19,6 @@ class PresencaConsultController extends Controller
     public function index(Request $request)
     {
         $jobs = PresencaConsultJob::query()
-            ->where('user_id', Auth::id())
             ->orderByDesc('created_at')
             ->paginate(15);
 
