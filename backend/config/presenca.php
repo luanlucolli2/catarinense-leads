@@ -42,6 +42,8 @@ return [
 
     'authorization' => [
         'reuse_ttl_seconds' => (int) env('PRESENCA_AUTH_REUSE_TTL_SECONDS', 172800),
+        'local_cache_max' => (int) env('PRESENCA_AUTH_LOCAL_CACHE_MAX', 5000),
+        'warmup_batch_size' => (int) env('PRESENCA_AUTH_WARMUP_BATCH_SIZE', 500),
     ],
 
     'job' => [

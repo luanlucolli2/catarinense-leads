@@ -59,6 +59,8 @@ class PresencaApiService
 
     private int $termoPhoneRetryAttempts;
     private int $authorizationReuseTtlSeconds;
+    private int $authorizationLocalCacheMax;
+    private int $authorizationWarmupBatchSize;
 
     private bool $logApiResponses;
     private bool $logApiSuccessResponses;
@@ -68,8 +70,10 @@ class PresencaApiService
     private ?string $currentCpf = null;
     private ?string $fatalAuthMessage = null;
 
-    /** @var array<string,float> */
-    private array $authorizationApprovedLocal = [];
+    /** @var array<string,float> cpf => expires_ts (0.0 para miss conhecido) */
+    private array $authorizationLocalState = [];
+    /** @var array<string,bool> LRU keys (ordem de inserção/acesso) */
+    private array $authorizationLocalOrder = [];
 
     public function __construct()
     {
@@ -110,6 +114,8 @@ class PresencaApiService
 
         $this->termoPhoneRetryAttempts = max(1, (int) ($termo['phone_retry_attempts'] ?? 5));
         $this->authorizationReuseTtlSeconds = max(0, (int) ($authorization['reuse_ttl_seconds'] ?? 172800));
+        $this->authorizationLocalCacheMax = max(0, (int) ($authorization['local_cache_max'] ?? 5000));
+        $this->authorizationWarmupBatchSize = max(1, (int) ($authorization['warmup_batch_size'] ?? 500));
 
         $this->logApiResponses = (bool) ($logging['api_log_responses'] ?? true);
         $this->logApiSuccessResponses = (bool) ($logging['api_log_success_responses'] ?? false);
@@ -119,6 +125,84 @@ class PresencaApiService
     public function setJobId(?int $jobId): void
     {
         $this->jobId = $jobId;
+    }
+
+    /** @param array<int,string> $cpfs */
+    public function warmReusableAuthorizations(array $cpfs): void
+    {
+        if ($this->authorizationReuseTtlSeconds <= 0 || $this->authorizationLocalCacheMax <= 0 || empty($cpfs)) {
+            return;
+        }
+
+        $normalized = [];
+        foreach ($cpfs as $cpf) {
+            $digits = Cpf::normalize((string) $cpf);
+            if ($digits !== null && $digits !== '') {
+                $normalized[] = $digits;
+            }
+        }
+
+        $normalized = array_values(array_unique($normalized));
+        if (empty($normalized)) {
+            return;
+        }
+
+        $nowTs = microtime(true);
+        $toLookup = [];
+        foreach ($normalized as $cpf) {
+            $cached = $this->getAuthorizationLocalState($cpf, $nowTs);
+            if ($cached === null) {
+                $toLookup[] = $cpf;
+            }
+        }
+
+        if (empty($toLookup)) {
+            return;
+        }
+
+        $nowUtc = now('UTC')->format('Y-m-d H:i:s');
+        $batchSize = max(1, $this->authorizationWarmupBatchSize);
+
+        try {
+            for ($offset = 0, $total = count($toLookup); $offset < $total; $offset += $batchSize) {
+                $chunk = array_slice($toLookup, $offset, $batchSize);
+                if (empty($chunk)) {
+                    continue;
+                }
+
+                $rows = DB::table('presenca_authorizations')
+                    ->whereIn('cpf', $chunk)
+                    ->where('expires_at', '>', $nowUtc)
+                    ->select('cpf', 'expires_at')
+                    ->get();
+
+                $found = [];
+                foreach ($rows as $row) {
+                    $cpf = (string) ($row->cpf ?? '');
+                    if ($cpf === '') {
+                        continue;
+                    }
+
+                    $expiresAtTs = strtotime((string) ($row->expires_at ?? ''));
+                    if (!is_int($expiresAtTs) || $expiresAtTs <= 0) {
+                        continue;
+                    }
+
+                    $found[$cpf] = true;
+                    $this->putAuthorizationLocalState($cpf, (float) $expiresAtTs);
+                }
+
+                foreach ($chunk as $cpf) {
+                    if (!isset($found[$cpf])) {
+                        $this->putAuthorizationLocalState($cpf, 0.0);
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            PresencaLog::warning('[PRESENCA] Falha ao aquecer cache de autorização.', $this->logContext([
+                'error' => $e->getMessage(),
+            ]));
+        }
     }
 
     /**
@@ -905,13 +989,9 @@ class PresencaApiService
         }
 
         $nowTs = microtime(true);
-        if (isset($this->authorizationApprovedLocal[$cpf])) {
-            $expiresAtTs = (float) $this->authorizationApprovedLocal[$cpf];
-            if ($expiresAtTs >= $nowTs) {
-                return true;
-            }
-
-            unset($this->authorizationApprovedLocal[$cpf]);
+        $cached = $this->getAuthorizationLocalState($cpf, $nowTs);
+        if ($cached !== null) {
+            return $cached;
         }
 
         try {
@@ -923,15 +1003,17 @@ class PresencaApiService
                 ->first();
 
             if ($row === null) {
+                $this->putAuthorizationLocalState($cpf, 0.0);
                 return false;
             }
 
             $expiresAtTs = strtotime((string) ($row->expires_at ?? ''));
             if (!is_int($expiresAtTs) || $expiresAtTs <= 0) {
+                $this->putAuthorizationLocalState($cpf, 0.0);
                 return false;
             }
 
-            $this->authorizationApprovedLocal[$cpf] = (float) $expiresAtTs;
+            $this->putAuthorizationLocalState($cpf, (float) $expiresAtTs);
             return true;
         } catch (Throwable $e) {
             PresencaLog::warning('[PRESENCA] Falha ao consultar cache persistente de autorização.', $this->logContext([
@@ -951,7 +1033,7 @@ class PresencaApiService
         $nowStr = $nowUtc->format('Y-m-d H:i:s');
         $expiresUtc = $nowUtc->copy()->addSeconds($this->authorizationReuseTtlSeconds);
         $expiresStr = $expiresUtc->format('Y-m-d H:i:s');
-        $this->authorizationApprovedLocal[$cpf] = (float) $expiresUtc->getTimestamp();
+        $this->putAuthorizationLocalState($cpf, (float) $expiresUtc->getTimestamp());
 
         try {
             DB::table('presenca_authorizations')->upsert(
@@ -969,6 +1051,70 @@ class PresencaApiService
             PresencaLog::warning('[PRESENCA] Falha ao persistir cache de autorização.', $this->logContext([
                 'error' => $e->getMessage(),
             ]));
+        }
+    }
+
+    private function getAuthorizationLocalState(string $cpf, float $nowTs): ?bool
+    {
+        if (!array_key_exists($cpf, $this->authorizationLocalState)) {
+            return null;
+        }
+
+        $expiresAtTs = (float) $this->authorizationLocalState[$cpf];
+
+        if ($expiresAtTs > 0.0 && $expiresAtTs < $nowTs) {
+            unset($this->authorizationLocalState[$cpf], $this->authorizationLocalOrder[$cpf]);
+            return null;
+        }
+
+        $this->touchAuthorizationLocalOrder($cpf);
+
+        if ($expiresAtTs <= 0.0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function putAuthorizationLocalState(string $cpf, float $expiresAtTs): void
+    {
+        if ($this->authorizationLocalCacheMax <= 0) {
+            return;
+        }
+
+        $this->authorizationLocalState[$cpf] = $expiresAtTs;
+        $this->touchAuthorizationLocalOrder($cpf);
+        $this->trimAuthorizationLocalCache();
+    }
+
+    private function touchAuthorizationLocalOrder(string $cpf): void
+    {
+        if ($this->authorizationLocalCacheMax <= 0) {
+            return;
+        }
+
+        if (array_key_exists($cpf, $this->authorizationLocalOrder)) {
+            unset($this->authorizationLocalOrder[$cpf]);
+        }
+
+        $this->authorizationLocalOrder[$cpf] = true;
+    }
+
+    private function trimAuthorizationLocalCache(): void
+    {
+        if ($this->authorizationLocalCacheMax <= 0) {
+            $this->authorizationLocalState = [];
+            $this->authorizationLocalOrder = [];
+            return;
+        }
+
+        while (count($this->authorizationLocalOrder) > $this->authorizationLocalCacheMax) {
+            $oldestCpf = array_key_first($this->authorizationLocalOrder);
+            if (!is_string($oldestCpf) || $oldestCpf === '') {
+                break;
+            }
+
+            unset($this->authorizationLocalOrder[$oldestCpf], $this->authorizationLocalState[$oldestCpf]);
         }
     }
 
@@ -1226,7 +1372,13 @@ class PresencaApiService
     {
         if (is_array($payload)) {
             if ($this->isList($payload)) {
-                return array_values(array_filter($payload, 'is_array'));
+                $out = [];
+                foreach ($payload as $item) {
+                    if (is_array($item)) {
+                        $out[] = $item;
+                    }
+                }
+                return $out;
             }
 
             foreach (['id', 'data', 'result', 'vinculos'] as $key) {
@@ -1235,7 +1387,13 @@ class PresencaApiService
                 }
 
                 if ($this->isList($payload[$key])) {
-                    return array_values(array_filter($payload[$key], 'is_array'));
+                    $out = [];
+                    foreach ($payload[$key] as $item) {
+                        if (is_array($item)) {
+                            $out[] = $item;
+                        }
+                    }
+                    return $out;
                 }
             }
         }

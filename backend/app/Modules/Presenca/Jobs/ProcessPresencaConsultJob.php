@@ -30,6 +30,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
     private int $rowsBufferFlush;
     private int $flushEverySecs;
     private int $statusCheckIntervalMs;
+    private int $authorizationWarmupBatchSize;
 
     private float $lastFlushAt = 0.0;
     private float $lastStatusCheckAt = 0.0;
@@ -46,6 +47,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
     /** @var resource|null */
     private $spoolFp = null;
     private string $spoolReal = '';
+    private int $spoolBytes = 0;
 
     public function __construct(int $jobId)
     {
@@ -58,6 +60,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         $this->rowsBufferFlush = max(1, (int) config('presenca.job.rows_buffer_flush', 100));
         $this->flushEverySecs = max(1, (int) config('presenca.job.progress_flush_interval_seconds', 10));
         $this->statusCheckIntervalMs = max(100, (int) config('presenca.job.status_check_interval_ms', 1000));
+        $this->authorizationWarmupBatchSize = max(1, (int) config('presenca.authorization.warmup_batch_size', 500));
     }
 
     public function uniqueId(): string
@@ -95,12 +98,13 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         $this->baseSuccess = (int) ($job->success_count ?? 0);
         $this->basePolicyDeclined = (int) ($job->policy_declined_count ?? 0);
         $this->baseFail = (int) ($job->fail_count ?? 0);
+        $this->spoolBytes = $this->fileSizeSafe($job->spool_path);
 
         $job->update([
             'status' => 'em_progresso',
             'phase' => 'processando',
             'started_at' => $job->started_at ?? Carbon::now(),
-            'spool_bytes' => $this->fileSizeSafe($job->spool_path),
+            'spool_bytes' => $this->spoolBytes,
         ]);
 
         $this->cachedStatus = $job->status;
@@ -124,6 +128,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $rowsBuffer = [];
+        $inputBatch = [];
 
         try {
             while (($parts = fgetcsv($reader, 0, ';')) !== false) {
@@ -142,24 +147,22 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
 
-                $result = $api->consultarCpf($cpf, $nome);
-                $row = is_array($result['row'] ?? null) ? $result['row'] : [];
-                $outcome = (string) ($result['outcome'] ?? 'failed');
-
-                $rowsBuffer[] = $this->normalizeRowForCsv($row, $cpf, $nome);
-
-                if ($outcome === 'success') {
-                    $this->accSuccess++;
-                } elseif ($outcome === 'policy_declined') {
-                    $this->accPolicyDeclined++;
-                } else {
-                    $this->accFail++;
+                $inputBatch[] = ['cpf' => $cpf, 'nome' => $nome];
+                if (count($inputBatch) >= $this->authorizationWarmupBatchSize) {
+                    if ($this->processInputBatch($job, $api, $inputBatch, $rowsBuffer)) {
+                        $this->closeSpool();
+                        fclose($reader);
+                        return;
+                    }
+                    $inputBatch = [];
                 }
+            }
 
-                if (count($rowsBuffer) >= $this->rowsBufferFlush || $this->shouldFlushByTime()) {
-                    $this->flushRowsBuffer($rowsBuffer);
-                    $rowsBuffer = [];
-                    $this->flushProgress($job, false);
+            if (!empty($inputBatch)) {
+                if ($this->processInputBatch($job, $api, $inputBatch, $rowsBuffer)) {
+                    $this->closeSpool();
+                    fclose($reader);
+                    return;
                 }
             }
 
@@ -205,6 +208,67 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         return [$cpf, $nome];
+    }
+
+    /**
+     * @param array<int,array{cpf:string,nome:string}> $inputBatch
+     * @param array<int,array<string,mixed>> $rowsBuffer
+     */
+    private function processInputBatch(
+        PresencaConsultJob $job,
+        PresencaApiService $api,
+        array $inputBatch,
+        array &$rowsBuffer
+    ): bool {
+        if (empty($inputBatch)) {
+            return false;
+        }
+
+        $cpfs = [];
+        foreach ($inputBatch as $entry) {
+            $cpf = (string) ($entry['cpf'] ?? '');
+            if ($cpf !== '') {
+                $cpfs[] = $cpf;
+            }
+        }
+
+        if (!empty($cpfs)) {
+            $api->warmReusableAuthorizations($cpfs);
+        }
+
+        foreach ($inputBatch as $entry) {
+            if ($this->finishIfCancelled($job)) {
+                return true;
+            }
+
+            $cpf = (string) ($entry['cpf'] ?? '');
+            $nome = (string) ($entry['nome'] ?? '');
+            if ($cpf === '' || $nome === '') {
+                continue;
+            }
+
+            $result = $api->consultarCpf($cpf, $nome);
+            $row = is_array($result['row'] ?? null) ? $result['row'] : [];
+            $outcome = (string) ($result['outcome'] ?? 'failed');
+
+            $rowsBuffer[] = $this->normalizeRowForCsv($row, $cpf, $nome);
+
+            if ($outcome === 'success') {
+                $this->accSuccess++;
+            } elseif ($outcome === 'policy_declined') {
+                $this->accPolicyDeclined++;
+            } else {
+                $this->accFail++;
+            }
+
+            if (count($rowsBuffer) >= $this->rowsBufferFlush || $this->shouldFlushByTime()) {
+                $this->flushRowsBuffer($rowsBuffer);
+                $rowsBuffer = [];
+                $this->flushProgress($job, false);
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string,mixed> $row */
@@ -253,6 +317,10 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             fflush($this->spoolFp);
+            $pos = ftell($this->spoolFp);
+            if (is_int($pos) && $pos >= 0) {
+                $this->spoolBytes = max($this->spoolBytes, $pos);
+            }
         } finally {
             flock($this->spoolFp, LOCK_UN);
         }
@@ -273,7 +341,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 'success_count' => $this->baseSuccess + $this->accSuccess,
                 'policy_declined_count' => $this->basePolicyDeclined + $this->accPolicyDeclined,
                 'fail_count' => $this->baseFail + $this->accFail,
-                'spool_bytes' => $this->fileSizeSafe($job->spool_path),
+                'spool_bytes' => $this->spoolBytes,
                 'updated_at' => Carbon::now(),
             ]);
 

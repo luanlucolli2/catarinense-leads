@@ -9,6 +9,7 @@ use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -55,14 +56,18 @@ class PresencaConsultController extends Controller
 
     public function store(Request $request)
     {
+        /** @var UploadedFile|null $uploadedFile */
+        $uploadedFile = $request->file('file');
         $rawLines = $request->input('lines', $request->input('entries', $request->input('rows')));
 
         $validator = Validator::make([
             'title' => $request->input('title'),
             'lines' => $rawLines,
+            'file' => $uploadedFile,
         ], [
             'title' => ['required', 'string', 'max:191'],
-            'lines' => ['required'],
+            'lines' => ['required_without:file'],
+            'file' => ['nullable', 'file'],
         ]);
 
         if ($validator->fails()) {
@@ -84,10 +89,21 @@ class PresencaConsultController extends Controller
         ]);
 
         try {
-            [$spoolPath, $inputsPath, $spoolBytes, $linesCount] = $this->createInitialSpool(
-                $job->id,
-                $this->tokenizeLinesLazy($rawLines)
-            );
+            if ($uploadedFile instanceof UploadedFile) {
+                if (!$uploadedFile->isValid()) {
+                    throw new \RuntimeException('Arquivo enviado inválido para processamento.');
+                }
+
+                [$spoolPath, $inputsPath, $spoolBytes, $linesCount] = $this->createInitialSpoolFromUploadedFile(
+                    $job->id,
+                    $uploadedFile
+                );
+            } else {
+                [$spoolPath, $inputsPath, $spoolBytes, $linesCount] = $this->createInitialSpool(
+                    $job->id,
+                    $this->tokenizeLinesLazy($rawLines)
+                );
+            }
         } catch (\Throwable $e) {
             $this->safeCleanupInit($job->id);
             $job->delete();
@@ -328,6 +344,32 @@ class PresencaConsultController extends Controller
             foreach ($lines as $line) {
                 yield $line;
             }
+        }
+    }
+
+    private function createInitialSpoolFromUploadedFile(int $jobId, UploadedFile $uploadedFile): array
+    {
+        $realPath = $uploadedFile->getRealPath();
+        if (!is_string($realPath) || $realPath === '' || !is_file($realPath)) {
+            throw new \RuntimeException('Arquivo temporário de upload indisponível.');
+        }
+
+        $handle = @fopen($realPath, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException('Falha ao abrir stream de leitura do upload.');
+        }
+
+        try {
+            return $this->createInitialSpool($jobId, $this->iterateHandleLines($handle));
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    private function iterateHandleLines($handle): \Generator
+    {
+        while (($line = fgets($handle)) !== false) {
+            yield $line;
         }
     }
 
