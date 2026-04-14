@@ -1,5 +1,8 @@
 <?php
 
+$defaultRetryAfter = (int) env('DB_QUEUE_RETRY_AFTER', 18030);
+$redisRetryAfter = (int) env('REDIS_QUEUE_RETRY_AFTER', $defaultRetryAfter);
+
 return [
 
     /*

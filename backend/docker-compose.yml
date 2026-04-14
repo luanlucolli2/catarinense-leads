@@ -17,11 +17,13 @@ x-app-environment: &app-environment
   V8_JOB_QUEUE: 'v8'
   URA_JOB_QUEUE: 'ura'
   C6_JOB_QUEUE: 'c6-auth'
+  PRESENCA_JOB_QUEUE: 'presenca'
   CLT_ON_JOB_TIMEOUT: '18000'
   CLT_PHASE2_JOB_TIMEOUT: '18000'
   CLT_OFF_JOB_TIMEOUT: '18000'
   FGTS_OFF_JOB_TIMEOUT: '18000'
   V8_JOB_TIMEOUT: '18000'
+  PRESENCA_JOB_TIMEOUT: '115200'
 
 services:
   # ===== SERVIÇO APP (HTTP / API) =====

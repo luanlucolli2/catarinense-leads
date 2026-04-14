@@ -11,6 +11,7 @@ use App\Modules\Leads\Controllers\RollbackController;
 use App\Modules\CLT\Controllers\CltConsultController;
 use App\Modules\V8\Controllers\V8ConsultController;
 use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
+use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 
@@ -121,4 +122,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/fgts-off/consult-jobs/{id}/preview', [FgtsOfflineController::class, 'downloadPreview'])->whereNumber('id');
     Route::post('/fgts-off/consult-jobs/{id}/cancel', [FgtsOfflineController::class, 'cancel'])->whereNumber('id');
     Route::delete('/fgts-off/consult-jobs/{id}', [FgtsOfflineController::class, 'destroy'])->whereNumber('id');
+
+    /* Banco Presença */
+    Route::get('/presenca/consult-jobs', [PresencaConsultController::class, 'index']);
+    Route::post('/presenca/consult-jobs', [PresencaConsultController::class, 'store']);
+    Route::get('/presenca/consult-jobs/{id}', [PresencaConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/presenca/consult-jobs/{id}/download', [PresencaConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/presenca/consult-jobs/{id}/preview/generate', [PresencaConsultController::class, 'requestPreview'])->whereNumber('id');
+    Route::get('/presenca/consult-jobs/{id}/preview', [PresencaConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/presenca/consult-jobs/{id}/cancel', [PresencaConsultController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/presenca/consult-jobs/{id}', [PresencaConsultController::class, 'destroy'])->whereNumber('id');
 });
