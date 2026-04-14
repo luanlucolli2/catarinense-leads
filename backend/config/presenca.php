@@ -48,7 +48,7 @@ return [
 
     'job' => [
         'queue' => env('PRESENCA_JOB_QUEUE', 'presenca'),
-        'timeout_seconds' => (int) env('PRESENCA_JOB_TIMEOUT', 115200),
+        'timeout_seconds' => (int) env('PRESENCA_JOB_TIMEOUT', 259200),
         'status_check_interval_ms' => (int) env('PRESENCA_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
         'progress_flush_interval_seconds' => (int) env('PRESENCA_JOB_PROGRESS_FLUSH_INTERVAL_SECONDS', 10),
         'rows_buffer_flush' => (int) env('PRESENCA_JOB_ROWS_BUFFER_FLUSH', 100),
