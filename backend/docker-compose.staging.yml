@@ -55,7 +55,11 @@ services:
     volumes:
       - ./docker/php-fpm.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks: [sail]
     # Limite para o servidor web (PHP-FPM)
     mem_limit: 512m
@@ -73,7 +77,11 @@ services:
     volumes:
       - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini
       - storage-data:/var/www/html/storage
-    depends_on: [mysql, redis]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks: [sail]
     # Limite GLOBAL do container.
     # PHP Limits somados (teórico): 768+640+512+384+640+320 = ~3.2GB
