@@ -378,11 +378,7 @@ class PresencaApiService
 
         $row['vinculo_elegivel'] = $this->toBoolString($selectedVinculo['elegivel'] ?? null);
 
-        $margemResp = $this->requestJson('POST', '/v3/operacoes/consignado-privado/consultar-margem', [
-            'cpf' => $cpf,
-            'matricula' => $matricula,
-            'cnpj' => $numeroInscricaoEmpregador,
-        ]);
+        $margemResp = $this->consultarMargemComRetry($cpf, $matricula, $numeroInscricaoEmpregador);
 
         if (!$margemResp) {
             $row['status'] = 'FALHA';
@@ -593,6 +589,33 @@ class PresencaApiService
             'status_code' => 'SIMULACAO_MAX_ATTEMPTS',
             'message' => 'Limite de tentativas da simulação atingido.',
         ];
+    }
+
+    private function consultarMargemComRetry(string $cpf, string $matricula, string $cnpj): ?HttpResponse
+    {
+        for ($attempt = 1; $attempt <= $this->simRetryAttempts; $attempt++) {
+            $resp = $this->requestJson('POST', '/v3/operacoes/consignado-privado/consultar-margem', [
+                'cpf' => $cpf,
+                'matricula' => $matricula,
+                'cnpj' => $cnpj,
+            ]);
+
+            if ($resp) {
+                return $resp;
+            }
+
+            if ($attempt < $this->simRetryAttempts) {
+                PresencaLog::warning(
+                    '[PRESENCA] Consulta de margem sem resposta; nova tentativa via throttle global.',
+                    $this->logContext([
+                        'attempt' => $attempt,
+                        'max_attempts' => $this->simRetryAttempts,
+                    ])
+                );
+            }
+        }
+
+        return null;
     }
 
     private function generatePhoneContext(): array
@@ -842,7 +865,7 @@ class PresencaApiService
     ): ?HttpResponse {
         $attempts = max(1, $this->httpRetryAttempts);
 
-        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        for ($attempt = 1; ; $attempt++) {
             if ($auth && $this->fatalAuthMessage !== null) {
                 return null;
             }
@@ -857,6 +880,11 @@ class PresencaApiService
                 if ($auth) {
                     $token = $this->getToken();
                     if (!$token) {
+                        if ($attempt < $attempts && $this->fatalAuthMessage === null) {
+                            $this->sleepWithBackoff($attempt);
+                            continue;
+                        }
+
                         return null;
                     }
 
@@ -900,10 +928,10 @@ class PresencaApiService
                         ]));
                     }
 
-                    if ($attempt < $attempts) {
-                        $this->sleepFor429($response);
-                        continue;
-                    }
+                    // 429 não consome orçamento de retry: o fluxo aguarda e tenta novamente.
+                    $this->sleepFor429($response);
+                    $attempt = max(0, $attempt - 1);
+                    continue;
                 }
 
                 if ($response->status() >= 500 && $attempt < $attempts) {

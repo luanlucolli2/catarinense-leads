@@ -31,6 +31,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
     private int $flushEverySecs;
     private int $statusCheckIntervalMs;
     private int $authorizationWarmupBatchSize;
+    private ?int $runtimeWorkerMemoryLimitBytes = null;
 
     private float $lastFlushAt = 0.0;
     private float $lastStatusCheckAt = 0.0;
@@ -62,6 +63,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         $this->flushEverySecs = max(1, (int) config('presenca.job.progress_flush_interval_seconds', 10));
         $this->statusCheckIntervalMs = max(100, (int) config('presenca.job.status_check_interval_ms', 1000));
         $this->authorizationWarmupBatchSize = max(1, (int) config('presenca.authorization.warmup_batch_size', 500));
+        $this->runtimeWorkerMemoryLimitBytes = $this->detectRuntimeWorkerMemoryLimitBytes();
     }
 
     public function uniqueId(): string
@@ -120,10 +122,45 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $reader = @fopen($disk->path($job->spool_inputs_path), 'r');
+        $uniqInputsRel = $this->uniqueInputsPathRel();
+        $uniqueCount = $this->buildUniqueInputsFile($job, $disk->path($job->spool_inputs_path), $uniqInputsRel);
+        if ($uniqueCount < 0) {
+            $this->closeSpool();
+            $this->cleanupTempRel($uniqInputsRel);
+            return;
+        }
+
+        if ($uniqueCount === 0) {
+            PresencaLog::error("[PRESENCA] Job {$this->jobId} sem entradas válidas após deduplicação.");
+            $this->closeSpool();
+            $this->cleanupTempRel($uniqInputsRel);
+            $this->dispatchFinalize('falhou');
+            return;
+        }
+
+        $sourceTotal = (int) ($job->total_cpfs ?? 0);
+
+        DB::table('presenca_consult_jobs')
+            ->where('id', $job->id)
+            ->update([
+                'total_cpfs' => $uniqueCount,
+                'updated_at' => Carbon::now(),
+            ]);
+
+        $duplicatesSkipped = max(0, $sourceTotal - $uniqueCount);
+        if ($duplicatesSkipped > 0) {
+            PresencaLog::info("[PRESENCA] Deduplicação aplicada no worker (job {$this->jobId}).", [
+                'input_rows' => $sourceTotal,
+                'unique_cpfs' => $uniqueCount,
+                'duplicates_skipped' => $duplicatesSkipped,
+            ]);
+        }
+
+        $reader = @fopen($disk->path($uniqInputsRel), 'r');
         if (!is_resource($reader)) {
             PresencaLog::error("[PRESENCA] Job {$this->jobId} falha ao abrir arquivo de entradas.");
             $this->closeSpool();
+            $this->cleanupTempRel($uniqInputsRel);
             $this->dispatchFinalize('falhou');
             return;
         }
@@ -136,6 +173,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($this->finishIfCancelled($job)) {
                     $this->closeSpool();
                     fclose($reader);
+                    $this->cleanupTempRel($uniqInputsRel);
                     return;
                 }
 
@@ -153,6 +191,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                     if ($this->processInputBatch($job, $api, $inputBatch, $rowsBuffer)) {
                         $this->closeSpool();
                         fclose($reader);
+                        $this->cleanupTempRel($uniqInputsRel);
                         return;
                     }
                     $inputBatch = [];
@@ -163,6 +202,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($this->processInputBatch($job, $api, $inputBatch, $rowsBuffer)) {
                     $this->closeSpool();
                     fclose($reader);
+                    $this->cleanupTempRel($uniqInputsRel);
                     return;
                 }
             }
@@ -177,9 +217,11 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
 
             if ($this->isCancelled($job)) {
                 $this->cleanupSpool($job);
+                $this->cleanupTempRel($uniqInputsRel);
                 return;
             }
 
+            $this->cleanupTempRel($uniqInputsRel);
             $this->dispatchFinalize('concluido');
         } catch (Throwable $e) {
             PresencaLog::error("[PRESENCA] Erro no processamento do job {$this->jobId}: {$e->getMessage()}", [
@@ -191,6 +233,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 fclose($reader);
             }
 
+            $this->cleanupTempRel($uniqInputsRel);
             $this->dispatchFinalize('falhou');
         }
     }
@@ -433,6 +476,337 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 'phase' => null,
             ]);
         }
+    }
+
+    private function uniqueInputsPathRel(): string
+    {
+        $dirSpool = (string) (config('presenca.storage.dir_spool') ?? 'presenca-spool');
+        $finalPrefix = (string) config('presenca.storage.final_prefix', 'presenca-consulta');
+
+        return "{$dirSpool}/{$finalPrefix}_{$this->jobId}.inputs.uniq.txt";
+    }
+
+    private function cleanupTempRel(?string $relPath): void
+    {
+        if (!is_string($relPath) || $relPath === '') {
+            return;
+        }
+
+        try {
+            $disk = Storage::disk($this->disk);
+            if ($disk->exists($relPath)) {
+                $disk->delete($relPath);
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    /**
+     * @return int Número de CPFs únicos gravados. Retorna -1 quando interrompido por cancelamento.
+     */
+    private function buildUniqueInputsFile(PresencaConsultJob $job, string $inputsReal, string $uniqRel): int
+    {
+        $disk = Storage::disk($this->disk);
+        $uniqReal = $disk->path($uniqRel);
+
+        $dirSpool = (string) (config('presenca.storage.dir_spool') ?? 'presenca-spool');
+        if (!$disk->exists($dirSpool)) {
+            $disk->makeDirectory($dirSpool);
+        }
+
+        $blockSize = 10000;
+        $chunks = [];
+
+        $reader = @fopen($inputsReal, 'r');
+        if (!is_resource($reader)) {
+            return 0;
+        }
+
+        try {
+            $block = [];
+
+            while (($parts = fgetcsv($reader, 0, ';')) !== false) {
+                if ($this->finishIfCancelled($job)) {
+                    foreach ($chunks as $chunk) {
+                        $this->cleanupTempRel($chunk['rel'] ?? null);
+                    }
+                    return -1;
+                }
+
+                if (!is_array($parts) || $parts === [null]) {
+                    continue;
+                }
+
+                [$cpf, $nome] = $this->parseInputColumns($parts);
+                if (!$cpf || !$nome) {
+                    continue;
+                }
+
+                if (!isset($block[$cpf])) {
+                    $block[$cpf] = $nome; // mantém a primeira ocorrência no bloco
+                }
+
+                if (count($block) >= $blockSize || $this->shouldSpill(count($block))) {
+                    $chunks[] = $this->writeSortedUniqueChunk($block);
+                    $block = [];
+                }
+            }
+
+            if (!empty($block)) {
+                $chunks[] = $this->writeSortedUniqueChunk($block);
+                $block = [];
+            }
+        } finally {
+            fclose($reader);
+        }
+
+        if (empty($chunks)) {
+            $w = @fopen($uniqReal, 'w');
+            if (is_resource($w)) {
+                fclose($w);
+            }
+            return 0;
+        }
+
+        if (count($chunks) === 1) {
+            @rename($chunks[0]['real'], $uniqReal);
+            return $this->countLines($uniqReal);
+        }
+
+        $writer = @fopen($uniqReal, 'w');
+        if (!is_resource($writer)) {
+            foreach ($chunks as $chunk) {
+                $this->cleanupTempRel($chunk['rel'] ?? null);
+            }
+            return 0;
+        }
+
+        $handles = [];
+        $heads = [];
+        foreach ($chunks as $idx => $chunk) {
+            $h = @fopen($chunk['real'], 'r');
+            if (!is_resource($h)) {
+                continue;
+            }
+
+            $first = fgetcsv($h, 0, ';');
+            if (!is_array($first) || $first === [null]) {
+                fclose($h);
+                continue;
+            }
+
+            [$cpf, $nome] = $this->parseInputColumns($first);
+            if (!$cpf || !$nome) {
+                fclose($h);
+                continue;
+            }
+
+            $handles[$idx] = $h;
+            $heads[$idx] = ['cpf' => $cpf, 'nome' => $nome];
+        }
+
+        $written = 0;
+        try {
+            while (!empty($heads)) {
+                $pickIdx = null;
+                $pickCpf = null;
+
+                foreach ($heads as $idx => $head) {
+                    $cpf = (string) ($head['cpf'] ?? '');
+                    if ($cpf === '') {
+                        continue;
+                    }
+
+                    if (
+                        $pickCpf === null
+                        || strcmp($cpf, $pickCpf) < 0
+                        || (strcmp($cpf, $pickCpf) === 0 && $idx < (int) $pickIdx)
+                    ) {
+                        $pickCpf = $cpf;
+                        $pickIdx = $idx;
+                    }
+                }
+
+                if ($pickIdx === null || $pickCpf === null) {
+                    break;
+                }
+
+                $picked = $heads[$pickIdx];
+                fputcsv($writer, [$picked['cpf'], $picked['nome']], ';');
+                $written++;
+
+                foreach (array_keys($heads) as $idx) {
+                    while (true) {
+                        $current = $heads[$idx] ?? null;
+                        if (!is_array($current) || (string) ($current['cpf'] ?? '') !== $pickCpf) {
+                            break;
+                        }
+
+                        $next = fgetcsv($handles[$idx], 0, ';');
+                        if (!is_array($next) || $next === [null]) {
+                            fclose($handles[$idx]);
+                            unset($handles[$idx], $heads[$idx]);
+                            break;
+                        }
+
+                        [$nextCpf, $nextNome] = $this->parseInputColumns($next);
+                        if (!$nextCpf || !$nextNome) {
+                            continue;
+                        }
+
+                        $heads[$idx] = ['cpf' => $nextCpf, 'nome' => $nextNome];
+                    }
+                }
+            }
+        } finally {
+            foreach ($handles as $h) {
+                if (is_resource($h)) {
+                    fclose($h);
+                }
+            }
+            fclose($writer);
+
+            foreach ($chunks as $chunk) {
+                $this->cleanupTempRel($chunk['rel'] ?? null);
+            }
+        }
+
+        return $written;
+    }
+
+    /**
+     * @param array<string,string> $block cpf => nome
+     * @return array{rel:string,real:string}
+     */
+    private function writeSortedUniqueChunk(array $block): array
+    {
+        $disk = Storage::disk($this->disk);
+        $dirSpool = (string) (config('presenca.storage.dir_spool') ?? 'presenca-spool');
+        $finalPrefix = (string) config('presenca.storage.final_prefix', 'presenca-consulta');
+
+        if (!$disk->exists($dirSpool)) {
+            $disk->makeDirectory($dirSpool);
+        }
+
+        $rel = "{$dirSpool}/{$finalPrefix}_{$this->jobId}.inputs.chunk." . uniqid('', true) . ".txt";
+        $real = $disk->path($rel);
+
+        ksort($block, SORT_STRING);
+        $writer = @fopen($real, 'w');
+        if (is_resource($writer)) {
+            foreach ($block as $cpf => $nome) {
+                fputcsv($writer, [$cpf, $nome], ';');
+            }
+            fclose($writer);
+        }
+
+        return ['rel' => $rel, 'real' => $real];
+    }
+
+    private function shouldSpill(int $currentCount): bool
+    {
+        if ($currentCount <= 0) {
+            return false;
+        }
+
+        $limit = $this->effectiveMemoryBudgetBytes();
+        if ($limit <= 0 || $limit === PHP_INT_MAX) {
+            return false;
+        }
+
+        $usage = memory_get_usage(true);
+        return $usage > (int) floor($limit * 0.70);
+    }
+
+    private function memoryLimitBytes(): int
+    {
+        $val = ini_get('memory_limit');
+        if ($val === false || $val === '' || $val === '-1') {
+            return PHP_INT_MAX;
+        }
+
+        $val = trim($val);
+        $last = strtolower($val[strlen($val) - 1]);
+        $num = (int) $val;
+
+        switch ($last) {
+            case 'g':
+                $num *= 1024;
+                // no break
+            case 'm':
+                $num *= 1024;
+                // no break
+            case 'k':
+                $num *= 1024;
+        }
+
+        return $num > 0 ? $num : PHP_INT_MAX;
+    }
+
+    private function effectiveMemoryBudgetBytes(): int
+    {
+        $limits = [$this->memoryLimitBytes()];
+
+        if (is_int($this->runtimeWorkerMemoryLimitBytes) && $this->runtimeWorkerMemoryLimitBytes > 0) {
+            $limits[] = $this->runtimeWorkerMemoryLimitBytes;
+        }
+
+        $effective = PHP_INT_MAX;
+        foreach ($limits as $candidate) {
+            if ($candidate > 0 && $candidate < $effective) {
+                $effective = $candidate;
+            }
+        }
+
+        return $effective;
+    }
+
+    private function detectRuntimeWorkerMemoryLimitBytes(): ?int
+    {
+        $argv = $_SERVER['argv'] ?? null;
+        if (!is_array($argv) || empty($argv)) {
+            return null;
+        }
+
+        $memoryMb = null;
+        foreach ($argv as $idx => $arg) {
+            if (!is_string($arg) || $arg === '') {
+                continue;
+            }
+
+            if (preg_match('/^--memory=(\d+)$/', $arg, $m)) {
+                $memoryMb = (int) ($m[1] ?? 0);
+                break;
+            }
+
+            if ($arg === '--memory' && isset($argv[$idx + 1]) && is_numeric((string) $argv[$idx + 1])) {
+                $memoryMb = (int) $argv[$idx + 1];
+                break;
+            }
+        }
+
+        return ($memoryMb !== null && $memoryMb > 0) ? ($memoryMb * 1024 * 1024) : null;
+    }
+
+    private function countLines(string $realPath): int
+    {
+        $count = 0;
+        $h = @fopen($realPath, 'r');
+        if (!is_resource($h)) {
+            return 0;
+        }
+
+        try {
+            while (!feof($h)) {
+                if (fgets($h) !== false) {
+                    $count++;
+                }
+            }
+        } finally {
+            fclose($h);
+        }
+
+        return $count;
     }
 
     private function dispatchFinalize(string $status): void
