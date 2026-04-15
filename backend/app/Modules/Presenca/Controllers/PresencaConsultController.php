@@ -410,6 +410,8 @@ class PresencaConsultController extends Controller
         }
 
         $count = 0;
+        $duplicateCount = 0;
+        $seenCpfs = [];
         try {
             if (flock($fp2, LOCK_EX)) {
                 ftruncate($fp2, 0);
@@ -420,6 +422,12 @@ class PresencaConsultController extends Controller
                         continue;
                     }
 
+                    if (isset($seenCpfs[$cpf])) {
+                        $duplicateCount++;
+                        continue;
+                    }
+
+                    $seenCpfs[$cpf] = true;
                     fputcsv($fp2, [$cpf, $nome], ';');
                     $count++;
                 }
@@ -429,6 +437,13 @@ class PresencaConsultController extends Controller
             }
         } finally {
             fclose($fp2);
+        }
+
+        if ($duplicateCount > 0) {
+            PresencaLog::info("[PRESENCA] Deduplicação de entradas aplicada (job {$jobId}).", [
+                'duplicates_skipped' => $duplicateCount,
+                'unique_entries' => $count,
+            ]);
         }
 
         $bytes = 0;

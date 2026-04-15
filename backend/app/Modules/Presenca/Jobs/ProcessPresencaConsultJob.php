@@ -35,6 +35,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
     private float $lastFlushAt = 0.0;
     private float $lastStatusCheckAt = 0.0;
     private ?string $cachedStatus = null;
+    private bool $missingJobLogged = false;
 
     private int $accSuccess = 0;
     private int $accPolicyDeclined = 0;
@@ -371,7 +372,19 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             ->where('id', $job->id)
             ->value('status');
 
-        $this->cachedStatus = is_string($status) ? $status : null;
+        if (!is_string($status)) {
+            $this->cachedStatus = 'cancelado';
+            $this->lastStatusCheckAt = $now;
+
+            if (!$this->missingJobLogged) {
+                PresencaLog::warning("[PRESENCA] Job {$this->jobId} removido durante processamento; interrompendo execução.");
+                $this->missingJobLogged = true;
+            }
+
+            return true;
+        }
+
+        $this->cachedStatus = $status;
         $this->lastStatusCheckAt = $now;
 
         return $this->cachedStatus === 'cancelado';
