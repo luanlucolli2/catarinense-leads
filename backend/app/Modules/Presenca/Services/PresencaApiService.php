@@ -1252,7 +1252,7 @@ class PresencaApiService
     private function toBoolString(mixed $value): ?string
     {
         if (is_bool($value)) {
-            return $value ? 'true' : 'false';
+            return $value ? 'sim' : 'nao';
         }
 
         return null;
