@@ -53,6 +53,13 @@ class PresencaApiService
     private int $rateLockTtl;
     private int $rateLockWait;
 
+    private int $loginRequestAttempts;
+    private int $termoRequestAttempts;
+    private int $authorizationRequestAttempts;
+    private int $vinculosRequestAttempts;
+    private int $margemRequestAttempts;
+    private int $simulacaoRequestAttempts;
+
     private int $simRetryAttempts;
     private int $simRetryDelaySeconds;
     private string $simEmailDomain;
@@ -69,6 +76,8 @@ class PresencaApiService
     private ?int $jobId = null;
     private ?string $currentCpf = null;
     private ?string $fatalAuthMessage = null;
+    private ?string $lastRequestFailureType = null;
+    private ?string $lastRequestFailurePath = null;
 
     /** @var array<string,float> cpf => expires_ts (0.0 para miss conhecido) */
     private array $authorizationLocalState = [];
@@ -80,6 +89,7 @@ class PresencaApiService
         $api = (array) config('presenca.api', []);
         $http = (array) config('presenca.http', []);
         $rate = (array) config('presenca.rate_limit', []);
+        $requestRetries = (array) config('presenca.request_retries', []);
         $simulacao = (array) config('presenca.simulacao', []);
         $termo = (array) config('presenca.termo', []);
         $authorization = (array) config('presenca.authorization', []);
@@ -97,7 +107,7 @@ class PresencaApiService
 
         $this->httpTimeout = max(1, (int) ($http['timeout'] ?? 30));
         $this->httpConnectTimeout = max(1, (int) ($http['connect_timeout'] ?? 10));
-        $this->httpRetryAttempts = max(1, (int) ($http['retry_attempts'] ?? 4));
+        $this->httpRetryAttempts = max(1, min(2, (int) ($http['retry_attempts'] ?? 2)));
         $this->httpRetryBaseDelayMs = max(200, (int) ($http['retry_base_delay_ms'] ?? 1000));
         $this->httpRetryMaxDelayMs = max($this->httpRetryBaseDelayMs, (int) ($http['retry_max_delay_ms'] ?? 12000));
         $this->default429DelaySeconds = max(1, (int) ($http['default_429_delay_seconds'] ?? 3));
@@ -107,6 +117,13 @@ class PresencaApiService
         $this->rateMaxRequestsPerMinute = max(0, (int) ($rate['max_requests_per_minute'] ?? 30));
         $this->rateLockTtl = max(1, (int) ($rate['lock_ttl'] ?? 10));
         $this->rateLockWait = max(1, (int) ($rate['lock_wait'] ?? 5));
+
+        $this->loginRequestAttempts = max(1, (int) ($requestRetries['login_attempts'] ?? 2));
+        $this->termoRequestAttempts = max(1, (int) ($requestRetries['termo_attempts'] ?? 3));
+        $this->authorizationRequestAttempts = max(1, (int) ($requestRetries['authorization_attempts'] ?? 3));
+        $this->vinculosRequestAttempts = max(1, (int) ($requestRetries['vinculos_attempts'] ?? 3));
+        $this->margemRequestAttempts = max(1, (int) ($requestRetries['margem_attempts'] ?? 3));
+        $this->simulacaoRequestAttempts = max(1, (int) ($requestRetries['simulacao_attempts'] ?? 3));
 
         $this->simRetryAttempts = max(1, (int) ($simulacao['retry_attempts'] ?? 12));
         $this->simRetryDelaySeconds = max(1, (int) ($simulacao['retry_delay_seconds'] ?? 3));
@@ -242,17 +259,30 @@ class PresencaApiService
                     $phoneContext = $this->generatePhoneContext();
                 }
 
-                $termoResp = $this->requestJson('POST', '/consultas/termo-inss', [
-                    'cpf' => $cpf,
-                    'nome' => $nome,
-                    'telefone' => $phoneContext['telefone'],
-                    'produtoId' => $this->produtoId,
-                ]);
+                $termoResp = $this->requestJsonWithStageRetries(
+                    'POST',
+                    '/consultas/termo-inss',
+                    [
+                        'cpf' => $cpf,
+                        'nome' => $nome,
+                        'telefone' => $phoneContext['telefone'],
+                        'produtoId' => $this->produtoId,
+                    ],
+                    [],
+                    true,
+                    $this->termoRequestAttempts,
+                    static fn (HttpResponse $response): bool => $response->status() >= 500,
+                    '[PRESENCA] Geração de termo com falha temporária; nova tentativa via throttle global.'
+                );
 
                 if (!$termoResp) {
+                    $failure = $this->describeLastRequestFailure(
+                        'TERMO_NO_RESPONSE',
+                        'Sem resposta ao gerar termo de autorização.'
+                    );
                     $row['status'] = 'FALHA';
-                    $row['status_code'] = 'TERMO_NO_RESPONSE';
-                    $row['mensagem'] = 'Sem resposta ao gerar termo de autorização.';
+                    $row['status_code'] = $failure['status_code'];
+                    $row['mensagem'] = $failure['message'];
                     return ['outcome' => 'failed', 'row' => $row];
                 }
 
@@ -298,17 +328,27 @@ class PresencaApiService
                 return ['outcome' => 'failed', 'row' => $row];
             }
 
-            $autorizacaoResp = $this->requestJson(
+            $autorizacaoResp = $this->requestJsonWithStageRetries(
                 'PUT',
                 '/consultas/termo-inss/' . rawurlencode($termoData['autorizacaoId']),
                 $this->authorizationPayload($phoneContext),
-                ['tenant-id' => $this->tenantId]
+                ['tenant-id' => $this->tenantId],
+                true,
+                $this->authorizationRequestAttempts,
+                fn (HttpResponse $response): bool => $response->status() >= 500
+                    && !($response->status() === 500
+                        && $this->isKnownAuthorization500($this->extractMessages($response))),
+                '[PRESENCA] Autorização com falha temporária; nova tentativa via throttle global.'
             );
 
             if (!$autorizacaoResp) {
+                $failure = $this->describeLastRequestFailure(
+                    'AUTORIZACAO_NO_RESPONSE',
+                    'Sem resposta na autorização do termo.'
+                );
                 $row['status'] = 'FALHA';
-                $row['status_code'] = 'AUTORIZACAO_NO_RESPONSE';
-                $row['mensagem'] = 'Sem resposta na autorização do termo.';
+                $row['status_code'] = $failure['status_code'];
+                $row['mensagem'] = $failure['message'];
                 return ['outcome' => 'failed', 'row' => $row];
             }
 
@@ -338,14 +378,25 @@ class PresencaApiService
             );
         }
 
-        $vinculosResp = $this->requestJson('POST', '/v3/operacoes/consignado-privado/consultar-vinculos', [
-            'cpf' => $cpf,
-        ]);
+        $vinculosResp = $this->requestJsonWithStageRetries(
+            'POST',
+            '/v3/operacoes/consignado-privado/consultar-vinculos',
+            ['cpf' => $cpf],
+            [],
+            true,
+            $this->vinculosRequestAttempts,
+            static fn (HttpResponse $response): bool => $response->status() >= 500,
+            '[PRESENCA] Consulta de vínculos com falha temporária; nova tentativa via throttle global.'
+        );
 
         if (!$vinculosResp) {
+            $failure = $this->describeLastRequestFailure(
+                'VINCULOS_NO_RESPONSE',
+                'Sem resposta na consulta de vínculos.'
+            );
             $row['status'] = 'FALHA';
-            $row['status_code'] = 'VINCULOS_NO_RESPONSE';
-            $row['mensagem'] = 'Sem resposta na consulta de vínculos.';
+            $row['status_code'] = $failure['status_code'];
+            $row['mensagem'] = $failure['message'];
             return ['outcome' => 'failed', 'row' => $row];
         }
 
@@ -381,9 +432,13 @@ class PresencaApiService
         $margemResp = $this->consultarMargemComRetry($cpf, $matricula, $numeroInscricaoEmpregador);
 
         if (!$margemResp) {
+            $failure = $this->describeLastRequestFailure(
+                'MARGEM_NO_RESPONSE',
+                'Sem resposta na consulta de margem.'
+            );
             $row['status'] = 'FALHA';
-            $row['status_code'] = 'MARGEM_NO_RESPONSE';
-            $row['mensagem'] = 'Sem resposta na consulta de margem.';
+            $row['status_code'] = $failure['status_code'];
+            $row['mensagem'] = $failure['message'];
             return ['outcome' => 'failed', 'row' => $row];
         }
 
@@ -522,13 +577,26 @@ class PresencaApiService
         ];
 
         for ($attempt = 1; $attempt <= $this->simRetryAttempts; $attempt++) {
-            $resp = $this->requestJson('POST', '/v5/operacoes/simulacao/disponiveis', $payload);
+            $resp = $this->requestJsonWithStageRetries(
+                'POST',
+                '/v5/operacoes/simulacao/disponiveis',
+                $payload,
+                [],
+                true,
+                $this->simulacaoRequestAttempts,
+                static fn (HttpResponse $response): bool => $response->status() >= 500,
+                '[PRESENCA] Simulação com falha temporária de transporte; nova tentativa via throttle global.'
+            );
 
             if (!$resp) {
+                $failure = $this->describeLastRequestFailure(
+                    'SIMULACAO_NO_RESPONSE',
+                    'Sem resposta na consulta de simulação.'
+                );
                 return [
                     'outcome' => 'failed',
-                    'status_code' => 'SIMULACAO_NO_RESPONSE',
-                    'message' => 'Sem resposta na consulta de simulação.',
+                    'status_code' => $failure['status_code'],
+                    'message' => $failure['message'],
                 ];
             }
 
@@ -593,25 +661,33 @@ class PresencaApiService
 
     private function consultarMargemComRetry(string $cpf, string $matricula, string $cnpj): ?HttpResponse
     {
-        for ($attempt = 1; $attempt <= $this->simRetryAttempts; $attempt++) {
+        for ($attempt = 1; $attempt <= $this->margemRequestAttempts; $attempt++) {
             $resp = $this->requestJson('POST', '/v3/operacoes/consignado-privado/consultar-margem', [
                 'cpf' => $cpf,
                 'matricula' => $matricula,
                 'cnpj' => $cnpj,
             ]);
 
-            if ($resp) {
+            if ($resp && $resp->status() < 500) {
                 return $resp;
             }
 
-            if ($attempt < $this->simRetryAttempts) {
+            if ($attempt < $this->margemRequestAttempts) {
                 PresencaLog::warning(
-                    '[PRESENCA] Consulta de margem sem resposta; nova tentativa via throttle global.',
+                    '[PRESENCA] Consulta de margem com falha temporária; nova tentativa via throttle global.',
                     $this->logContext([
                         'attempt' => $attempt,
-                        'max_attempts' => $this->simRetryAttempts,
+                        'max_attempts' => $this->margemRequestAttempts,
+                        'status' => $resp?->status(),
+                        'messages' => $resp ? $this->extractMessages($resp) : null,
+                        'failure_type' => $resp ? null : $this->lastRequestFailureType,
+                        'failure_path' => $resp ? null : $this->lastRequestFailurePath,
                     ])
                 );
+            }
+
+            if ($resp && $resp->status() >= 500 && $attempt >= $this->margemRequestAttempts) {
+                return $resp;
             }
         }
 
@@ -794,10 +870,19 @@ class PresencaApiService
                 return $cached;
             }
 
-            $resp = $this->requestJson('POST', '/login', [
-                'login' => $this->login,
-                'senha' => $this->senha,
-            ], [], false);
+            $resp = $this->requestJsonWithStageRetries(
+                'POST',
+                '/login',
+                [
+                    'login' => $this->login,
+                    'senha' => $this->senha,
+                ],
+                [],
+                false,
+                $this->loginRequestAttempts,
+                static fn (HttpResponse $response): bool => $response->status() >= 500,
+                '[PRESENCA] Login com falha temporária; nova tentativa via throttle global.'
+            );
 
             if (!$resp) {
                 return null;
@@ -873,6 +958,8 @@ class PresencaApiService
             $response = null;
 
             try {
+                $this->clearLastRequestFailure();
+
                 $client = Http::acceptJson()
                     ->timeout($this->httpTimeout)
                     ->connectTimeout($this->httpConnectTimeout);
@@ -880,11 +967,6 @@ class PresencaApiService
                 if ($auth) {
                     $token = $this->getToken();
                     if (!$token) {
-                        if ($attempt < $attempts && $this->fatalAuthMessage === null) {
-                            $this->sleepWithBackoff($attempt);
-                            continue;
-                        }
-
                         return null;
                     }
 
@@ -911,6 +993,7 @@ class PresencaApiService
                 }
 
                 $this->logHttpResponse($method, $path, $response);
+                $this->clearLastRequestFailure();
 
                 if ($response->status() === 401 && $auth) {
                     $this->invalidateToken();
@@ -934,39 +1017,68 @@ class PresencaApiService
                     continue;
                 }
 
-                if ($response->status() >= 500 && $attempt < $attempts) {
-                    $this->sleepWithBackoff($attempt);
-                    continue;
-                }
-
                 return $response;
             } catch (ConnectionException $e) {
+                $this->rememberRequestFailure(
+                    $path,
+                    $this->isTimeoutException($e) ? 'timeout' : 'connection'
+                );
                 PresencaLog::warning('[PRESENCA] Erro de conexão na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
-                    'attempt' => $attempt,
                     'error' => $e->getMessage(),
                 ]));
 
-                if ($attempt >= $attempts) {
-                    return null;
-                }
-
-                $this->sleepWithBackoff($attempt);
+                return null;
             } catch (Throwable $e) {
+                $this->rememberRequestFailure($path, 'exception');
                 PresencaLog::warning('[PRESENCA] Exceção na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
-                    'attempt' => $attempt,
                     'error' => $e->getMessage(),
                 ]));
 
-                if ($attempt >= $attempts) {
-                    return $response;
+                return $response;
+            }
+        }
+
+        return null;
+    }
+
+    private function requestJsonWithStageRetries(
+        string $method,
+        string $path,
+        array $payload = [],
+        array $headers = [],
+        bool $auth = true,
+        int $attempts = 1,
+        ?callable $shouldRetryResponse = null,
+        string $retryLogMessage = '[PRESENCA] Falha temporária na requisição; nova tentativa via throttle global.'
+    ): ?HttpResponse {
+        $attempts = max(1, $attempts);
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $response = $this->requestJson($method, $path, $payload, $headers, $auth);
+
+            if ($response === null) {
+                if ($attempt < $attempts) {
+                    $this->logStageRetry($retryLogMessage, $attempt, $attempts);
+                    continue;
                 }
 
-                $this->sleepWithBackoff($attempt);
+                return null;
             }
+
+            $retryResponse = $shouldRetryResponse !== null
+                ? (bool) $shouldRetryResponse($response)
+                : false;
+
+            if ($retryResponse && $attempt < $attempts) {
+                $this->logStageRetry($retryLogMessage, $attempt, $attempts, $response);
+                continue;
+            }
+
+            return $response;
         }
 
         return null;
@@ -1008,6 +1120,135 @@ class PresencaApiService
         } catch (Throwable) {
             return null;
         }
+    }
+
+    private function clearLastRequestFailure(): void
+    {
+        $this->lastRequestFailureType = null;
+        $this->lastRequestFailurePath = null;
+    }
+
+    private function rememberRequestFailure(string $path, string $type): void
+    {
+        $this->lastRequestFailureType = $type;
+        $this->lastRequestFailurePath = $path;
+    }
+
+    /** @return array{status_code:string,message:string} */
+    private function describeLastRequestFailure(string $defaultStatusCode, string $defaultMessage): array
+    {
+        if ($this->fatalAuthMessage !== null) {
+            return [
+                'status_code' => 'LOGIN_401',
+                'message' => $this->fatalAuthMessage,
+            ];
+        }
+
+        $path = $this->lastRequestFailurePath;
+        $isTimeout = $this->lastRequestFailureType === 'timeout';
+
+        if ($path === '/login') {
+            return [
+                'status_code' => $isTimeout ? 'LOGIN_TIMEOUT' : 'LOGIN_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout ao obter token da API.' : 'Sem resposta ao obter token da API.',
+            ];
+        }
+
+        if ($path === '/consultas/termo-inss') {
+            return [
+                'status_code' => $isTimeout ? 'TERMO_TIMEOUT' : 'TERMO_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout ao gerar termo de autorização.' : 'Sem resposta ao gerar termo de autorização.',
+            ];
+        }
+
+        if (is_string($path) && str_starts_with($path, '/consultas/termo-inss/')) {
+            return [
+                'status_code' => $isTimeout ? 'AUTORIZACAO_TIMEOUT' : 'AUTORIZACAO_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout na autorização do termo.' : 'Sem resposta na autorização do termo.',
+            ];
+        }
+
+        if ($path === '/v3/operacoes/consignado-privado/consultar-vinculos') {
+            return [
+                'status_code' => $isTimeout ? 'VINCULOS_TIMEOUT' : 'VINCULOS_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout na consulta de vínculos.' : 'Sem resposta na consulta de vínculos.',
+            ];
+        }
+
+        if ($path === '/v3/operacoes/consignado-privado/consultar-margem') {
+            return [
+                'status_code' => $isTimeout ? 'MARGEM_TIMEOUT' : 'MARGEM_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout na consulta de margem.' : 'Sem resposta na consulta de margem.',
+            ];
+        }
+
+        if ($path === '/v5/operacoes/simulacao/disponiveis') {
+            return [
+                'status_code' => $isTimeout ? 'SIMULACAO_TIMEOUT' : 'SIMULACAO_NO_RESPONSE',
+                'message' => $isTimeout ? 'Timeout na consulta de simulação.' : 'Sem resposta na consulta de simulação.',
+            ];
+        }
+
+        if ($isTimeout) {
+            return [
+                'status_code' => $this->timeoutStatusCodeFrom($defaultStatusCode),
+                'message' => $this->timeoutMessageFrom($defaultMessage),
+            ];
+        }
+
+        return [
+            'status_code' => $defaultStatusCode,
+            'message' => $defaultMessage,
+        ];
+    }
+
+    private function timeoutStatusCodeFrom(string $statusCode): string
+    {
+        if (str_ends_with($statusCode, '_NO_RESPONSE')) {
+            return substr($statusCode, 0, -strlen('_NO_RESPONSE')) . '_TIMEOUT';
+        }
+
+        return $statusCode . '_TIMEOUT';
+    }
+
+    private function timeoutMessageFrom(string $message): string
+    {
+        if (str_starts_with($message, 'Sem resposta')) {
+            return 'Timeout' . substr($message, strlen('Sem resposta'));
+        }
+
+        return $message;
+    }
+
+    private function isTimeoutException(Throwable $e): bool
+    {
+        $message = $this->normalizeText($e->getMessage());
+
+        return str_contains($message, 'curl error 28')
+            || str_contains($message, 'timed out')
+            || str_contains($message, 'timeout');
+    }
+
+    private function logStageRetry(
+        string $message,
+        int $attempt,
+        int $maxAttempts,
+        ?HttpResponse $response = null
+    ): void {
+        $context = [
+            'attempt' => $attempt,
+            'max_attempts' => $maxAttempts,
+        ];
+
+        if ($response !== null) {
+            $context['status'] = $response->status();
+            $context['messages'] = $this->extractMessages($response);
+        } else {
+            $context['failure_type'] = $this->lastRequestFailureType;
+            $context['failure_path'] = $this->lastRequestFailurePath;
+        }
+
+        PresencaLog::warning($message, $this->logContext($context));
     }
 
     private function hasReusableAuthorization(string $cpf): bool
