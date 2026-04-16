@@ -14,7 +14,7 @@ return [
     ],
 
     'http' => [
-        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 60),
+        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 30),
         'connect_timeout' => (int) env('PRESENCA_HTTP_CONNECT_TIMEOUT', 10),
         'retry_attempts' => (int) env('PRESENCA_HTTP_RETRY_ATTEMPTS', 2),
         'retry_base_delay_ms' => (int) env('PRESENCA_HTTP_RETRY_BASE_DELAY_MS', 1000),
