@@ -235,10 +235,12 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
             </Label>
             <Input
               id="modal-cpf"
+              name="c6-link-cpf"
               placeholder="000.000.000-00"
               value={cpf}
               onChange={(e) => setCpf(formatCPF(e.target.value))}
               maxLength={14}
+              autoComplete="off"
               className={inputFocusClass}
             />
             {hasCpfLengthWarning ? (
@@ -252,10 +254,13 @@ export const NewLinkModal = ({ isOpen, onClose, onLinkGenerated }: NewLinkModalP
             <Label htmlFor="modal-nome">Nome (opcional)</Label>
             <Input
               id="modal-nome"
+              name="c6-link-nome"
               placeholder="Nome do cliente (opcional)"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               maxLength={255}
+              autoComplete="off"
+              spellCheck={false}
               className={inputFocusClass}
             />
           </div>

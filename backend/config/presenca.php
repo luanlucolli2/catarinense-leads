@@ -14,7 +14,7 @@ return [
     ],
 
     'http' => [
-        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 30),
+        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 60),
         'connect_timeout' => (int) env('PRESENCA_HTTP_CONNECT_TIMEOUT', 10),
         'retry_attempts' => (int) env('PRESENCA_HTTP_RETRY_ATTEMPTS', 2),
         'retry_base_delay_ms' => (int) env('PRESENCA_HTTP_RETRY_BASE_DELAY_MS', 1000),
@@ -37,12 +37,12 @@ return [
     ],
 
     'request_retries' => [
-        'login_attempts' => (int) env('PRESENCA_LOGIN_RETRY_ATTEMPTS', 5),
-        'termo_attempts' => (int) env('PRESENCA_TERMO_RETRY_ATTEMPTS', 5),
-        'authorization_attempts' => (int) env('PRESENCA_AUTHORIZATION_RETRY_ATTEMPTS', 5),
-        'vinculos_attempts' => (int) env('PRESENCA_VINCULOS_RETRY_ATTEMPTS', 5),
-        'margem_attempts' => (int) env('PRESENCA_MARGEM_RETRY_ATTEMPTS', 5),
-        'simulacao_attempts' => (int) env('PRESENCA_SIMULACAO_REQUEST_RETRY_ATTEMPTS', 5),
+        'login_attempts' => (int) env('PRESENCA_LOGIN_RETRY_ATTEMPTS', 2),
+        'termo_attempts' => (int) env('PRESENCA_TERMO_RETRY_ATTEMPTS', 2),
+        'authorization_attempts' => (int) env('PRESENCA_AUTHORIZATION_RETRY_ATTEMPTS', 2),
+        'vinculos_attempts' => (int) env('PRESENCA_VINCULOS_RETRY_ATTEMPTS', 2),
+        'margem_attempts' => (int) env('PRESENCA_MARGEM_RETRY_ATTEMPTS', 2),
+        'simulacao_attempts' => (int) env('PRESENCA_SIMULACAO_REQUEST_RETRY_ATTEMPTS', 2),
     ],
 
     'termo' => [
