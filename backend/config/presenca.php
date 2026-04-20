@@ -14,7 +14,7 @@ return [
     ],
 
     'http' => [
-        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 60),
+        'timeout' => (int) env('PRESENCA_HTTP_TIMEOUT', 30),
         'connect_timeout' => (int) env('PRESENCA_HTTP_CONNECT_TIMEOUT', 10),
         'retry_attempts' => (int) env('PRESENCA_HTTP_RETRY_ATTEMPTS', 2),
         'retry_base_delay_ms' => (int) env('PRESENCA_HTTP_RETRY_BASE_DELAY_MS', 1000),
@@ -84,5 +84,7 @@ return [
         'api_log_responses' => (bool) env('PRESENCA_API_LOG_RESPONSES', true),
         'api_log_success_responses' => (bool) env('PRESENCA_API_LOG_SUCCESS_RESPONSES', false),
         'api_log_429' => (bool) env('PRESENCA_API_LOG_429', true),
+        'api_log_slow_requests' => (bool) env('PRESENCA_API_LOG_SLOW_REQUESTS', true),
+        'api_slow_request_threshold_ms' => (int) env('PRESENCA_API_SLOW_REQUEST_THRESHOLD_MS', 10000),
     ],
 ];
