@@ -11,7 +11,7 @@ export type CltJobStatus =
   | 'cancelado'
 
 export type CltJobStatusFilter = CltJobStatus | 'todos'
-export type CltJobVariantFilter = 'online' | 'offline' | 'todos'
+export type CltJobVariantFilter = 'online' | 'offline' | 'hybrid' | 'todos'
 
 export type CltJobPhase = 'fase_1' | 'fase_2' | null
 
@@ -50,7 +50,7 @@ export interface CltConsultJobListItem {
   spool_bytes?: number | null
 
   /** modo/variante */
-  variant?: 'online' | 'offline' | null
+  variant?: 'online' | 'offline' | 'hybrid' | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -91,7 +91,7 @@ export interface CltConsultJobShow {
   spool_bytes?: number | null
 
   /** modo/variante (opcional no show) */
-  variant?: 'online' | 'offline' | null
+  variant?: 'online' | 'offline' | 'hybrid' | null
 
   /** datas */
   started_at?: string | null
@@ -118,7 +118,7 @@ export interface CltJobHttpCounterRow {
 export interface CltJobHttpCountersResponse {
   id: number
   title: string
-  variant: 'online' | 'offline' | null
+  variant: 'online' | 'offline' | 'hybrid' | null
   status: CltJobStatus
   available: boolean
   summary: Omit<CltJobHttpCounterRow, 'endpoint'>
@@ -134,8 +134,8 @@ export interface CltJobHttpCountersResponse {
 export interface CreateCltConsultInput {
   title: string
   cpfs: string | string[]
-  /** 'online' | 'offline' */
-  variant?: 'online' | 'offline'
+  /** 'online' | 'offline' | 'hybrid' */
+  variant?: 'online' | 'offline' | 'hybrid'
 }
 
 /** Resposta de paginação Laravel */
@@ -149,7 +149,7 @@ export interface Paginated<T> {
 
 const BASE = '/clt/consult-jobs'
 const CLT_JOB_STATUSES: CltJobStatus[] = ['pendente', 'em_progresso', 'concluido', 'falhou', 'cancelado']
-const CLT_JOB_VARIANTS: Array<'online' | 'offline'> = ['online', 'offline']
+const CLT_JOB_VARIANTS: Array<'online' | 'offline' | 'hybrid'> = ['online', 'offline', 'hybrid']
 
 /** Lista os jobs CLT com filtros opcionais */
 export async function listCltConsultJobs(
@@ -169,7 +169,7 @@ export async function listCltConsultJobs(
   if (
     typeof requestedVariant === 'string'
     && requestedVariant !== 'todos'
-    && CLT_JOB_VARIANTS.includes(requestedVariant as 'online' | 'offline')
+    && CLT_JOB_VARIANTS.includes(requestedVariant as 'online' | 'offline' | 'hybrid')
   ) {
     params.variant = requestedVariant
   }
@@ -265,7 +265,7 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
   return data
 }
 
-/** Reprocessa a fase 2 de um job online concluído */
+/** Reprocessa a fase 2 de um job online/hibrido concluído */
 export async function rerunCltConsultJobPhase2(id: number) {
   const { data } = await axiosClient.post<{
     id: number

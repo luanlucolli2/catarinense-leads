@@ -100,6 +100,7 @@ return [
         // novas filas distintas
         'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-consulta-online'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
+        'queue_hybrid'        => env('CLT_HYBRID_JOB_QUEUE', env('CLT_ON_JOB_QUEUE', 'clt-consulta-online')),
         'queue_phase2'        => env('CLT_PHASE2_JOB_QUEUE', 'clt-valida-politica-cred'),
 
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
@@ -125,6 +126,10 @@ return [
         'memory_soft_limit_mb' => (int) env('CLT_JOB_MEMORY_SOFT_LIMIT_MB', 0),
         // Percentual do limite efetivo de memória para iniciar spill do dedup.
         'memory_spill_threshold_percent' => (int) env('CLT_JOB_MEMORY_SPILL_THRESHOLD_PERCENT', 70),
+    ],
+
+    'hybrid' => [
+        'offline_max_age_days' => (int) env('CLT_HYBRID_OFFLINE_MAX_AGE_DAYS', 7),
     ],
 
     // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====

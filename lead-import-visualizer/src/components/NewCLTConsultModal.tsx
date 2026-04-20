@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils";
 interface NewCLTConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (titulo: string, cpfs: string, modo: "OFF" | "ONLINE") => void;
+  onSubmit: (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => void;
 }
 
 export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
   const [cpfs, setCpfs] = useState("");
   const [cpfCount, setCpfCount] = useState(0);
-  const [modo, setModo] = useState<"OFF" | "ONLINE" | "">("");
+  const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "">("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
 
     try {
       setSubmitting(true);
-      await onSubmit(titulo, cpfs, modo as "OFF" | "ONLINE");
+      await onSubmit(titulo, cpfs, modo as "OFF" | "ONLINE" | "HYBRID");
       setTitulo("");
       setCpfs("");
       setCpfCount(0);
@@ -92,7 +92,21 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
           {/* Modo de Consulta – estilo de botões toggle */}
           <div className="space-y-3">
             <Label className="text-sm font-medium">Modo de Consulta *</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                 <Button
+                type="button"
+                onClick={() => setModo("HYBRID")}
+                disabled={submitting}
+                className={cn(
+                  noFocus,
+                  "transition-colors duration-200",
+                  modo === "HYBRID"
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                )}
+              >
+                HÍBRDO
+              </Button>
               <Button
                 type="button"
                 onClick={() => setModo("ONLINE")}
@@ -107,6 +121,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
               >
                 ONLINE
               </Button>
+           
               <Button
                 type="button"
                 onClick={() => setModo("OFF")}
@@ -122,6 +137,9 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
                 OFF (Base Offline)
               </Button>
             </div>
+            <p className="text-xs text-gray-600">
+              Hybrid reaproveita dados recentes do offline e envia ao online apenas CPFs antigos, incompletos ou nao encontrados.
+            </p>
           </div>
 
           <div className="space-y-2">

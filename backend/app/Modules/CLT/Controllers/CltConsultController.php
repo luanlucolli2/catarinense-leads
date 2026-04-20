@@ -22,7 +22,7 @@ class CltConsultController extends Controller
     {
         $data = Validator::make($request->query(), [
             'status' => ['nullable', 'in:pendente,em_progresso,concluido,falhou,cancelado,todos'],
-            'variant' => ['nullable', 'in:online,offline,on,off,todos'],
+            'variant' => ['nullable', 'in:online,offline,hybrid,on,off,hyb,todos'],
         ])->validate();
 
         $jobsQuery = CltConsultJob::query();
@@ -34,11 +34,7 @@ class CltConsultController extends Controller
 
         $variant = $data['variant'] ?? null;
         if (is_string($variant) && $variant !== '' && $variant !== 'todos') {
-            $variantNormalized = match ($variant) {
-                'on' => 'online',
-                'off' => 'offline',
-                default => $variant,
-            };
+            $variantNormalized = $this->normalizeVariantFilter($variant);
 
             if ($variantNormalized === 'online') {
                 $jobsQuery->where(function ($q) {
@@ -96,7 +92,7 @@ class CltConsultController extends Controller
         $rules = [
             'title' => ['required', 'string', 'max:191'],
             'cpfs' => ['required'],
-            'variant' => ['nullable', 'in:online,offline'],
+            'variant' => ['nullable', 'in:online,offline,hybrid'],
         ];
         $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -147,9 +143,11 @@ class CltConsultController extends Controller
         ]);
 
         // ===== DISPATCH POR FILA SEPARADA =====
-        $queue = $variant === 'offline'
-            ? (string) config('cltfacta.job.queue_offline', 'clt-off')
-            : (string) config('cltfacta.job.queue_online', 'clt-consulta-online');
+        $queue = match ($variant) {
+            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
+            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
+            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
+        };
 
         ProcessCltConsultJob::dispatch($job->id, 'phase1')->onQueue($queue);
 
@@ -242,6 +240,7 @@ class CltConsultController extends Controller
                         $csvRow = $this->applyPhase2PatchToCsvRow($csvRow, $deltaMap[$lineNo], $phase2Indexes);
                     }
 
+                    $csvRow = CltSchema::normalizeOrderedRowForCsv($csvRow);
                     fputcsv($out, $csvRow, ';', '"', '\\', $finalEol);
                 }
             } finally {
@@ -331,9 +330,9 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (($job->variant ?? 'online') !== 'online') {
+        if (!$this->supportsPhaseTwoOperations($job->variant)) {
             return response()->json([
-                'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online.',
+                'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
@@ -479,9 +478,9 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (($job->variant ?? 'online') !== 'online') {
+        if (!$this->supportsHttpCounters($job->variant)) {
             return response()->json([
-                'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online.',
+                'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
@@ -763,6 +762,7 @@ class CltConsultController extends Controller
                     $row[$idx] = null;
                 }
 
+                $row = CltSchema::normalizeOrderedRowForCsv($row);
                 @fputcsv($out, $row, ';');
             }
 
@@ -814,7 +814,7 @@ class CltConsultController extends Controller
 
     private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
     {
-        return $job->variant === 'online'
+        return $this->supportsPhaseTwoOperations($job->variant)
             && in_array($job->status, ['pendente', 'em_progresso', 'cancelado', 'falhou'], true)
             && !empty($job->spool_path);
     }
@@ -985,5 +985,27 @@ class CltConsultController extends Controller
         } finally {
             @flock($fh, LOCK_UN);
         }
+    }
+
+    private function normalizeVariantFilter(string $variant): string
+    {
+        return match ($variant) {
+            'on' => 'online',
+            'off' => 'offline',
+            'hyb' => 'hybrid',
+            default => $variant,
+        };
+    }
+
+    private function supportsPhaseTwoOperations(?string $variant): bool
+    {
+        $normalized = $variant ?? 'online';
+
+        return in_array($normalized, ['online', 'hybrid'], true);
+    }
+
+    private function supportsHttpCounters(?string $variant): bool
+    {
+        return $this->supportsPhaseTwoOperations($variant);
     }
 }

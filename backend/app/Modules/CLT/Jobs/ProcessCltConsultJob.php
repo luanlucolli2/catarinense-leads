@@ -69,8 +69,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private float $semResponseChunkThreshold;
     private int $semResponseChunkCooldownSeconds;
 
-    /** Guarda a variante (online|offline) para a regra de snapshot */
+    /** Guarda a variante (online|offline|hybrid) para a regra de snapshot */
     private string $variant = 'online';
+    private int $hybridOfflineMaxAgeDays;
     private array $baseRowTemplate = [];
     private int $phase2MaxAttempts;
     private int $phase2RetryDelaySeconds;
@@ -130,6 +131,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
         $this->semResponseChunkThreshold = max(0.05, min(1.0, (float) config('cltfacta.job.sem_response_chunk_threshold', 0.5)));
         $this->semResponseChunkCooldownSeconds = max(0, (int) config('cltfacta.job.sem_response_chunk_cooldown_seconds', 10));
+        $this->hybridOfflineMaxAgeDays = max(0, (int) config('cltfacta.hybrid.offline_max_age_days', 7));
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
         $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
@@ -155,13 +157,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         // variante para snapshots
-        $this->variant = ($job->variant === 'offline') ? 'offline' : 'online';
+        $this->variant = match ($job->variant) {
+            'offline' => 'offline',
+            'hybrid' => 'hybrid',
+            default => 'online',
+        };
         $this->cachedStatus = $job->status;
         $this->lastStatusCheckAt = microtime(true);
 
-        $api = $job->variant === 'offline'
+        $api = $this->variant === 'offline'
             ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
             : app(\App\Modules\CLT\Services\FactaApiService::class);
+        $hybridOfflineApi = $this->variant === 'hybrid'
+            ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
+            : null;
         if ($api instanceof \App\Modules\CLT\Services\FactaApiService) {
             $api->setRuntimeJobId($this->jobId);
         }
@@ -196,7 +205,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2PendingNextReal = $this->phase2PendingReal . '.next';
 
         if ($this->stage === self::STAGE_PHASE2) {
-            if ($this->variant !== 'online' || !$api instanceof \App\Modules\CLT\Services\FactaApiService) {
+            if (!$this->supportsCreditPhaseTwo() || !$api instanceof \App\Modules\CLT\Services\FactaApiService) {
                 CltLog::warning('[CLT] Job recebido na fila da fase 2 com variante não suportada.', [
                     'job_id' => $this->jobId,
                     'variant' => $this->variant,
@@ -231,7 +240,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $job->update([
             'status' => 'em_progresso',
-            'phase' => $this->variant === 'online' ? 'fase_1' : null,
+            'phase' => $this->supportsCreditPhaseTwo() ? 'fase_1' : null,
             'phase2_total' => 0,
             'phase2_attempt' => 0,
             'phase2_aprovado_count' => 0,
@@ -241,7 +250,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
         CltLog::warning($this->variant === 'online'
             ? '[CLT] Fase 1 iniciada (consulta de trabalhadores)'
-            : '[CLT-OFF] Processamento iniciado (sem fases)', [
+            : ($this->variant === 'hybrid'
+                ? '[CLT-HYB] Fase 1 iniciada (triagem offline + fallback online)'
+                : '[CLT-OFF] Processamento iniciado (sem fases)'), [
             'job_id' => $this->jobId,
             'variant' => $this->variant,
         ]);
@@ -307,6 +318,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'CPF inválido (dígitos verificadores)';
                         $row['consulted_at'] = $nowBr;
+                        $row['fonteConsulta'] = null;
                         $batch[] = $row;
                         $invCount++;
                         if (count($batch) >= $snapSz) {
@@ -402,7 +414,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                 $semRespTotal,
                                 $totalInAttempt,
                                 $chunkSemResp,
-                                $chunkProcessed
+                                $chunkProcessed,
+                                $hybridOfflineApi,
+                                $this->variant === 'hybrid' && $attempt === 1
                             );
 
                             $chunkSemRespRatio = $chunkProcessed > 0 ? ($chunkSemResp / $chunkProcessed) : 0.0;
@@ -465,7 +479,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $semRespTotal,
                             $totalInAttempt,
                             $chunkSemResp,
-                            $chunkProcessed
+                            $chunkProcessed,
+                            $hybridOfflineApi,
+                            $this->variant === 'hybrid' && $attempt === 1
                         );
 
                         $chunkSemRespRatio = $chunkProcessed > 0 ? ($chunkSemResp / $chunkProcessed) : 0.0;
@@ -578,6 +594,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row['numeroVinculos'] = 0;
                         $row['mensagem'] = 'Não foi possível consultar após múltiplas tentativas';
                         $row['consulted_at'] = $nowBr;
+                        $row['fonteConsulta'] = $this->formatConsultaSource($this->finalConsultaSourceForPendingFailures());
                         $rows[] = $row;
                         $left++;
                         if (count($rows) >= $batch) {
@@ -605,7 +622,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if ($this->variant === 'online' && $api instanceof \App\Modules\CLT\Services\FactaApiService) {
+            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\CLT\Services\FactaApiService) {
                 $this->dispatchPhaseTwo($job);
                 return;
             }
@@ -685,6 +702,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $row['numeroVinculos'] = 0;
             $row['mensagem'] = $abortMessage;
             $row['consulted_at'] = $nowBr;
+            $row['fonteConsulta'] = $this->formatConsultaSource($this->finalConsultaSourceForPendingFailures());
             $rows[] = $row;
             $abortedCount++;
 
@@ -746,12 +764,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         int &$semRespTotal,
         int &$totalInAttempt,
         int &$semRespInChunkOut,
-        int &$chunkProcessedOut
+        int &$chunkProcessedOut,
+        ?\App\Modules\CLT\Services\CltOfflineApiService $hybridOfflineApi = null,
+        bool $allowHybridOfflineReuse = false
     ): void {
         $t0 = microtime(true);
         $chunkCount = count($chunkCpfs);
         $semRespInChunkOut = 0;
-        $chunkProcessedOut = $chunkCount;
+        $chunkProcessedOut = 0;
 
         $micro = max(1, min($this->subchunkSize, $chunkCount));
         $slices = ($micro >= $chunkCount) ? [$chunkCpfs] : array_chunk($chunkCpfs, $micro);
@@ -764,6 +784,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $notFoundInChunk = 0;
         $failTermInChunk = 0;
         $semRespInChunk = 0;
+        $onlineAttemptsInChunk = 0;
 
         // CORREÇÃO: Força o timezone BR (America/Sao_Paulo) explicitamente.
         // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
@@ -774,12 +795,45 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             if ($this->finishIfStopped($job))
                 return;
 
+            $onlineSlice = $slice;
+            if (
+                $allowHybridOfflineReuse
+                && $api instanceof \App\Modules\CLT\Services\FactaApiService
+                && $hybridOfflineApi instanceof \App\Modules\CLT\Services\CltOfflineApiService
+            ) {
+                $onlineSlice = $this->precheckHybridSlice(
+                    $hybridOfflineApi,
+                    $slice,
+                    $nowStr,
+                    $rows,
+                    $snapRows,
+                    $eligibleInChunk,
+                    $ineligibleInChunk
+                );
+                $this->flushPhaseOneBuffers($job, $rows, $snapRows);
+            }
+
+            if (empty($onlineSlice)) {
+                if ($this->subchunkDelayMs > 0 && $idx < $sliceTotal - 1) {
+                    if ($this->microSleepCoop($this->subchunkDelayMs, $job))
+                        return;
+                }
+                continue;
+            }
+
+            $onlineAttemptsInChunk += count($onlineSlice);
+            $consultaSource = $api instanceof \App\Modules\CLT\Services\CltOfflineApiService
+                ? 'offline'
+                : 'online';
+
             try {
-                $batchResults = $api->autorizaConsultaLote($slice);
+                $batchResults = $api->autorizaConsultaLote($onlineSlice);
             } catch (FactaFatalAuthException $e) {
                 $pendingCpfs = [];
                 for ($pendingSliceIdx = $idx; $pendingSliceIdx < $sliceTotal; $pendingSliceIdx++) {
-                    $pendingSlice = $slices[$pendingSliceIdx] ?? [];
+                    $pendingSlice = $pendingSliceIdx === $idx
+                        ? $onlineSlice
+                        : ($slices[$pendingSliceIdx] ?? []);
                     if (!is_array($pendingSlice)) {
                         continue;
                     }
@@ -799,26 +853,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 );
             } catch (\Throwable $e) {
                 CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
-                foreach ($slice as $cpf) {
+                foreach ($onlineSlice as $cpf) {
                     fwrite($nextPendHandle, $cpf . "\n");
                 }
-                $semRespTotal += count($slice);
-                $semRespInChunk += count($slice);
+                $semRespTotal += count($onlineSlice);
+                $semRespInChunk += count($onlineSlice);
                 if ($this->subchunkDelayMs > 0 && $this->microSleepCoop($this->subchunkDelayMs, $job))
                     return;
                 continue;
             }
 
-            foreach ($slice as $cpf) {
-                $res = $batchResults[$cpf] ?? [
-                    'ok' => false,
-                    'mensagem' => 'Sem resposta do serviço',
-                    'vinculos' => null,
-                    'retriable' => true,
-                    'not_found' => false,
-                    'http_status' => null,
-                    'retry_after' => null,
-                ];
+            foreach ($onlineSlice as $cpf) {
+                $res = $batchResults[$cpf] ?? $this->defaultConsultaErrorResult();
 
                 $http = $res['http_status'] ?? null;
                 if ($http === null) {
@@ -830,163 +876,34 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 if (!empty($res['ok'])) {
-                    $vinculos = $res['vinculos'] ?? [];
-                    $total = is_array($vinculos) ? count($vinculos) : 0;
-
-                    if ($total > 0) {
-                        $bestIdx = $this->pickLatestVinculoIndex($vinculos);
-                        $best = ($bestIdx !== null && isset($vinculos[$bestIdx]) && is_array($vinculos[$bestIdx]))
-                            ? $vinculos[$bestIdx]
-                            : null;
-
-                        foreach ($vinculos as $i => $v) {
-                            if (!is_array($v)) {
-                                continue;
-                            }
-                            $row = $this->baseRow($cpf);
-                            $row['numeroVinculos'] = $total;
-
-                            $row['elegivel'] = $v['elegivel'] ?? null;
-                            $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
-                            $row['valorMaximoPrestacao'] = $this->computeValorMaxPrest($v['valorMargemDisponivel'] ?? null);
-                            $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
-                            $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
-
-                            $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
-                            $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
-                            $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
-                            $row['matricula'] = $v['matricula'] ?? null;
-                            $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
-                            $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
-                            $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
-                            $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
-
-                            $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
-                            $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
-                            $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
-                            $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
-
-                            // NOVO: meses de empresa a partir do início da atividade do empregador
-                            $row['mesesEmpresaEmpregador'] = $this->computeMesesEmpresaEmpregador($v['dataInicioAtividadeEmpregador'] ?? null);
-
-                            $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
-                            $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
-                            $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
-                            $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
-
-                            $row['nome'] = $v['nome'] ?? null;
-                            $row['dataNascimento'] = $v['dataNascimento'] ?? null;
-                            $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
-                            $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
-
-                            $row['status_code'] = $v['status_code'] ?? null;
-                            $row['mensagem'] = $res['mensagem'] ?? 'OK';
-
-                            // CONVERSÃO DE DATA LEVE
-                            $rawUpdated = $v['updated_at'] ?? ($v['created_at'] ?? null);
-                            $row['updated_at'] = $this->toBrDateTime($rawUpdated);
-                            $row['consulted_at'] = $nowStr;
-
-                            $rows[] = $row;
-                        }
-
-                        if ($best) {
-                            $margemFloat = $this->toFloatSmart($best['valorMargemDisponivel'] ?? null);
-                            $valorMaxFloat = $this->computeValorMaxPrestFloat($best['valorMargemDisponivel'] ?? null);
-
-                            $snapRows[] = [
-                                'cpf' => $cpf,
-                                'nome' => $best['nome'] ?? null,
-                                'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null),
-                                'data_nasc' => $this->parseDateFlexible($best['dataNascimento'] ?? null),
-                                'idade' => $this->computeIdadeAnos($best['dataNascimento'] ?? null),
-                                'sexo' => $best['sexo_descricao'] ?? null,
-
-                                'data_adm' => $this->parseDateFlexible($best['dataAdmissao'] ?? null),
-                                'meses_adm' => $this->computeTempoAdmissaoMeses($best['dataAdmissao'] ?? null, $best['dataDesligamento'] ?? null),
-
-                                'valor_renda' => $this->toFloatSmart($best['valorTotalVencimentos'] ?? null),
-                                'valor_base' => $this->toFloatSmart($best['valorBaseMargem'] ?? null),
-                                'margem_disp' => $margemFloat,
-                                'valor_max' => $valorMaxFloat,
-
-                                'cat_cod' => $best['codigoCategoriaTrabalhador'] ?? null,
-                                'inicio_emp' => $this->parseDateFlexible($best['dataInicioAtividadeEmpregador'] ?? null),
-
-                                // NOVO snapshot: meses da empresa
-                                'meses_emp' => $this->computeMesesEmpresaEmpregador($best['dataInicioAtividadeEmpregador'] ?? null),
-
-                                'qtd_ems' => isset($best['qtdEmprestimosAtivosSuspensos']) ? (int) $best['qtdEmprestimosAtivosSuspensos'] : null,
-                                'legados' => array_key_exists('emprestimosLegados', $best)
-                                    ? $this->simNaoToBool($best['emprestimosLegados'])
-                                    : null,
-
-                                // carimbo da ORIGEM (UTC)
-                                'src_updated_at' => $best['updated_at'] ?? ($best['created_at'] ?? null),
-
-                                'not_found' => false,
-                            ];
-                        }
-                    } else {
-                        $row = $this->baseRow($cpf);
-                        $row['numeroVinculos'] = 0;
-                        $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
-                        $row['consulted_at'] = $nowStr; // Data da consulta
-                        $rows[] = $row;
-                    }
-
-                    if ($this->isCpfEligibleByVinculos($vinculos)) {
-                        $eligibleInChunk++;
-                    } else {
-                        $ineligibleInChunk++;
-                    }
+                    $this->appendSuccessfulConsultaResult(
+                        $cpf,
+                        $res,
+                        $nowStr,
+                        $rows,
+                        $snapRows,
+                        $eligibleInChunk,
+                        $ineligibleInChunk,
+                        $consultaSource
+                    );
                 } else {
-                    $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
-
-                    if (!empty($res['not_found'])) {
-                        $row = $this->baseRow($cpf);
-                        $row['numeroVinculos'] = 0;
-                        $row['mensagem'] = $msg;
-                        $row['consulted_at'] = $nowStr; // Data da consulta (Not Found)
-                        $rows[] = $row;
-
-                        $snapRows[] = [
-                            'cpf' => $cpf,
-                            'not_found' => true,
-                            'src_updated_at' => null,
-                        ];
-
-                        $notFoundInChunk++;
-                    } elseif (($res['retriable'] ?? true) === false) {
-                        $row = $this->baseRow($cpf);
-                        $row['numeroVinculos'] = 0;
-                        $row['mensagem'] = $msg;
-                        $row['consulted_at'] = $nowStr; // Data da consulta (Erro terminal)
-                        $rows[] = $row;
-                        $failTermInChunk++;
-                    } else {
-                        fwrite($nextPendHandle, $cpf . "\n");
-                    }
+                    $this->appendFailedConsultaResult(
+                        $cpf,
+                        $res,
+                        $nowStr,
+                        $nextPendHandle,
+                        $rows,
+                        $snapRows,
+                        $notFoundInChunk,
+                        $failTermInChunk,
+                        $consultaSource
+                    );
                 }
 
-                if (count($rows) >= $this->rowsBufferFlush) {
-                    $this->spoolAppendManyPersist($job, $rows);
-                    $rows = [];
-                }
-                if (count($snapRows) >= $this->snapBufferFlush) {
-                    $this->persistSnapshots($snapRows);
-                    $snapRows = [];
-                }
+                $this->flushPhaseOneBuffers($job, $rows, $snapRows);
             }
 
-            if (!empty($rows)) {
-                $this->spoolAppendManyPersist($job, $rows);
-                $rows = [];
-            }
-            if (!empty($snapRows)) {
-                $this->persistSnapshots($snapRows);
-                $snapRows = [];
-            }
+            $this->flushPhaseOneBuffers($job, $rows, $snapRows);
 
             if ($this->subchunkDelayMs > 0 && $idx < $sliceTotal - 1) {
                 if ($this->microSleepCoop($this->subchunkDelayMs, $job))
@@ -1003,16 +920,337 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($failTermInChunk > 0)
             $this->accFail += $failTermInChunk;
 
+        if (!empty($rows)) {
+            $this->spoolAppendManyPersist($job, $rows);
+            $rows = [];
+        }
+        if (!empty($snapRows)) {
+            $this->persistSnapshots($snapRows);
+            $snapRows = [];
+        }
+
         // Fase 1: persistir progresso no fim de cada chunk (sem depender da janela temporal).
         $this->updateTotalsThrottled($job, [], true);
-        $totalInAttempt += $chunkCount;
+        $processedForHealth = $allowHybridOfflineReuse ? $onlineAttemptsInChunk : $chunkCount;
+        $totalInAttempt += $processedForHealth;
         $semRespInChunkOut = $semRespInChunk;
+        $chunkProcessedOut = $processedForHealth;
 
         if ($this->chunkPerfDebug) {
             $elapsed = microtime(true) - $t0;
             $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
             CltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
         }
+    }
+
+    private function defaultConsultaErrorResult(string $message = 'Sem resposta do serviço'): array
+    {
+        return [
+            'ok' => false,
+            'mensagem' => $message,
+            'vinculos' => null,
+            'retriable' => true,
+            'not_found' => false,
+            'http_status' => null,
+            'retry_after' => null,
+        ];
+    }
+
+    private function flushPhaseOneBuffers(CltConsultJob $job, array &$rows, array &$snapRows): void
+    {
+        if (count($rows) >= $this->rowsBufferFlush) {
+            $this->spoolAppendManyPersist($job, $rows);
+            $rows = [];
+        }
+        if (count($snapRows) >= $this->snapBufferFlush) {
+            $this->persistSnapshots($snapRows);
+            $snapRows = [];
+        }
+    }
+
+    private function appendSuccessfulConsultaResult(
+        string $cpf,
+        array $res,
+        string $nowStr,
+        array &$rows,
+        array &$snapRows,
+        int &$eligibleCount,
+        int &$ineligibleCount,
+        string $consultaSource
+    ): void {
+        $vinculos = $res['vinculos'] ?? [];
+        $total = is_array($vinculos) ? count($vinculos) : 0;
+
+        if ($total > 0) {
+            $bestIdx = $this->pickLatestVinculoIndex($vinculos);
+            $best = ($bestIdx !== null && isset($vinculos[$bestIdx]) && is_array($vinculos[$bestIdx]))
+                ? $vinculos[$bestIdx]
+                : null;
+
+            foreach ($vinculos as $v) {
+                if (!is_array($v)) {
+                    continue;
+                }
+                $row = $this->baseRow($cpf);
+                $row['numeroVinculos'] = $total;
+
+                $row['elegivel'] = $v['elegivel'] ?? null;
+                $row['valorMargemDisponivel'] = $v['valorMargemDisponivel'] ?? null;
+                $row['valorMaximoPrestacao'] = $this->computeValorMaxPrest($v['valorMargemDisponivel'] ?? null);
+                $row['valorBaseMargem'] = $v['valorBaseMargem'] ?? null;
+                $row['valorTotalVencimentos'] = $v['valorTotalVencimentos'] ?? null;
+
+                $row['nomeEmpregador'] = $v['nomeEmpregador'] ?? null;
+                $row['numeroInscricaoEmpregador'] = $v['numeroInscricaoEmpregador'] ?? null;
+                $row['inscricaoEmpregador_descricao'] = $v['inscricaoEmpregador_descricao'] ?? null;
+                $row['matricula'] = $v['matricula'] ?? null;
+                $row['dataAdmissao'] = $v['dataAdmissao'] ?? null;
+                $row['tempoAdmissaoMeses'] = $this->computeTempoAdmissaoMeses($v['dataAdmissao'] ?? null, $v['dataDesligamento'] ?? null);
+                $row['dataDesligamento'] = $v['dataDesligamento'] ?? null;
+                $row['codigoMotivoDesligamento'] = $v['codigoMotivoDesligamento'] ?? null;
+
+                $row['codigoCategoriaTrabalhador'] = $v['codigoCategoriaTrabalhador'] ?? null;
+                $row['cbo_descricao'] = $v['cbo_descricao'] ?? null;
+                $row['cnae_descricao'] = $v['cnae_descricao'] ?? null;
+                $row['dataInicioAtividadeEmpregador'] = $v['dataInicioAtividadeEmpregador'] ?? null;
+                $row['mesesEmpresaEmpregador'] = $this->computeMesesEmpresaEmpregador($v['dataInicioAtividadeEmpregador'] ?? null);
+
+                $row['possuiAlertas'] = $v['possuiAlertas'] ?? null;
+                $row['qtdEmprestimosAtivosSuspensos'] = $v['qtdEmprestimosAtivosSuspensos'] ?? null;
+                $row['emprestimosLegados'] = $v['emprestimosLegados'] ?? null;
+                $row['pessoaExpostaPoliticamente_descricao'] = $v['pessoaExpostaPoliticamente_descricao'] ?? null;
+
+                $row['nome'] = $v['nome'] ?? null;
+                $row['dataNascimento'] = $v['dataNascimento'] ?? null;
+                $row['idade'] = $this->computeIdadeAnos($v['dataNascimento'] ?? null);
+                $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
+
+                $row['status_code'] = $v['status_code'] ?? null;
+                $row['mensagem'] = $res['mensagem'] ?? 'OK';
+                $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
+
+                $rawUpdated = $v['updated_at'] ?? ($v['created_at'] ?? null);
+                $row['updated_at'] = $this->toBrDateTime($rawUpdated);
+                $row['consulted_at'] = $nowStr;
+
+                $rows[] = $row;
+            }
+
+            if ($best) {
+                $margemFloat = $this->toFloatSmart($best['valorMargemDisponivel'] ?? null);
+                $valorMaxFloat = $this->computeValorMaxPrestFloat($best['valorMargemDisponivel'] ?? null);
+
+                $snapRows[] = [
+                    'cpf' => $cpf,
+                    'nome' => $best['nome'] ?? null,
+                    'elegivel' => $this->simNaoToBool($best['elegivel'] ?? null),
+                    'data_nasc' => $this->parseDateFlexible($best['dataNascimento'] ?? null),
+                    'idade' => $this->computeIdadeAnos($best['dataNascimento'] ?? null),
+                    'sexo' => $best['sexo_descricao'] ?? null,
+                    'data_adm' => $this->parseDateFlexible($best['dataAdmissao'] ?? null),
+                    'meses_adm' => $this->computeTempoAdmissaoMeses($best['dataAdmissao'] ?? null, $best['dataDesligamento'] ?? null),
+                    'valor_renda' => $this->toFloatSmart($best['valorTotalVencimentos'] ?? null),
+                    'valor_base' => $this->toFloatSmart($best['valorBaseMargem'] ?? null),
+                    'margem_disp' => $margemFloat,
+                    'valor_max' => $valorMaxFloat,
+                    'cat_cod' => $best['codigoCategoriaTrabalhador'] ?? null,
+                    'inicio_emp' => $this->parseDateFlexible($best['dataInicioAtividadeEmpregador'] ?? null),
+                    'meses_emp' => $this->computeMesesEmpresaEmpregador($best['dataInicioAtividadeEmpregador'] ?? null),
+                    'qtd_ems' => isset($best['qtdEmprestimosAtivosSuspensos']) ? (int) $best['qtdEmprestimosAtivosSuspensos'] : null,
+                    'legados' => array_key_exists('emprestimosLegados', $best)
+                        ? $this->simNaoToBool($best['emprestimosLegados'])
+                        : null,
+                    'src_updated_at' => $best['updated_at'] ?? ($best['created_at'] ?? null),
+                    'not_found' => false,
+                    'snapshot_mode' => $consultaSource,
+                ];
+            }
+        } else {
+            $row = $this->baseRow($cpf);
+            $row['numeroVinculos'] = 0;
+            $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
+            $row['consulted_at'] = $nowStr;
+            $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
+            $rows[] = $row;
+        }
+
+        if ($this->isCpfEligibleByVinculos($vinculos)) {
+            $eligibleCount++;
+        } else {
+            $ineligibleCount++;
+        }
+    }
+
+    private function appendFailedConsultaResult(
+        string $cpf,
+        array $res,
+        string $nowStr,
+        $nextPendHandle,
+        array &$rows,
+        array &$snapRows,
+        int &$notFoundCount,
+        int &$failTermCount,
+        string $consultaSource
+    ): void {
+        $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
+
+        if (!empty($res['not_found'])) {
+            $row = $this->baseRow($cpf);
+            $row['numeroVinculos'] = 0;
+            $row['mensagem'] = $msg;
+            $row['consulted_at'] = $nowStr;
+            $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
+            $rows[] = $row;
+
+            $snapRows[] = [
+                'cpf' => $cpf,
+                'not_found' => true,
+                'src_updated_at' => null,
+                'snapshot_mode' => $consultaSource,
+            ];
+
+            $notFoundCount++;
+        } elseif (($res['retriable'] ?? true) === false) {
+            $row = $this->baseRow($cpf);
+            $row['numeroVinculos'] = 0;
+            $row['mensagem'] = $msg;
+            $row['consulted_at'] = $nowStr;
+            $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
+            $rows[] = $row;
+            $failTermCount++;
+        } else {
+            fwrite($nextPendHandle, $cpf . "\n");
+        }
+    }
+
+    private function precheckHybridSlice(
+        \App\Modules\CLT\Services\CltOfflineApiService $offlineApi,
+        array $slice,
+        string $nowStr,
+        array &$rows,
+        array &$snapRows,
+        int &$eligibleCount,
+        int &$ineligibleCount
+    ): array {
+        try {
+            $offlineResults = $offlineApi->autorizaConsultaLote($slice);
+        } catch (\Throwable) {
+            return $slice;
+        }
+
+        $onlineCpfs = [];
+        foreach ($slice as $cpf) {
+            $res = $offlineResults[$cpf] ?? $this->defaultConsultaErrorResult();
+            if (!$this->shouldReuseOfflineResultInHybrid($res)) {
+                $onlineCpfs[] = $cpf;
+                continue;
+            }
+
+            $this->appendSuccessfulConsultaResult(
+                $cpf,
+                $res,
+                $nowStr,
+                $rows,
+                $snapRows,
+                $eligibleCount,
+                $ineligibleCount,
+                'offline'
+            );
+        }
+
+        return $onlineCpfs;
+    }
+
+    private function shouldReuseOfflineResultInHybrid(array $res): bool
+    {
+        if (empty($res['ok'])) {
+            return false;
+        }
+
+        $vinculos = $res['vinculos'] ?? null;
+        if (!is_array($vinculos) || empty($vinculos)) {
+            return false;
+        }
+
+        $latestUpdatedAt = $this->latestHybridOfflineUpdatedAt($vinculos);
+        if ($latestUpdatedAt === null) {
+            return false;
+        }
+
+        if ($this->hybridOfflineMaxAgeDays > 0) {
+            $cutoff = Carbon::now('UTC')
+                ->subDays($this->hybridOfflineMaxAgeDays)
+                ->format('Y-m-d H:i:s');
+
+            if (strcmp($latestUpdatedAt, $cutoff) < 0) {
+                return false;
+            }
+        }
+
+        return $this->hybridOfflineEligibleRowsHaveRequiredFields($vinculos);
+    }
+
+    private function latestHybridOfflineUpdatedAt(array $vinculos): ?string
+    {
+        $latest = null;
+
+        foreach ($vinculos as $vinculo) {
+            if (!is_array($vinculo)) {
+                return null;
+            }
+
+            $updatedAt = $this->parseDateTimeFlexible($vinculo['updated_at'] ?? null);
+            if ($updatedAt === null) {
+                return null;
+            }
+
+            if ($latest === null || strcmp($updatedAt, $latest) > 0) {
+                $latest = $updatedAt;
+            }
+        }
+
+        return $latest;
+    }
+
+    private function hybridOfflineEligibleRowsHaveRequiredFields(array $vinculos): bool
+    {
+        foreach ($vinculos as $vinculo) {
+            if (!is_array($vinculo)) {
+                return false;
+            }
+
+            if ($this->simNaoToBool($vinculo['elegivel'] ?? null) !== true) {
+                continue;
+            }
+
+            if (!$this->hasHybridCreditPhaseRequiredFields($vinculo)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasHybridCreditPhaseRequiredFields(array $vinculo): bool
+    {
+        $matricula = trim((string) ($vinculo['matricula'] ?? ''));
+        if ($matricula === '') {
+            return false;
+        }
+
+        if ($this->parseCarbonDateFlexible($vinculo['dataNascimento'] ?? null) === null) {
+            return false;
+        }
+
+        if ($this->parseCarbonDateFlexible($vinculo['dataAdmissao'] ?? null) === null) {
+            return false;
+        }
+
+        if ($this->toFloatSmart($vinculo['valorTotalVencimentos'] ?? null) === null) {
+            return false;
+        }
+
+        return $this->computeValorMaxPrestFloat($vinculo['valorMargemDisponivel'] ?? null) !== null;
     }
 
     /**
@@ -1029,6 +1267,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function formatConsultaSource(?string $source): ?string
+    {
+        return match ($source) {
+            'online' => 'ONLINE',
+            'offline' => 'OFFLINE',
+            default => null,
+        };
     }
 
     /**
@@ -1068,6 +1315,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             throw new \RuntimeException("Writer do spool não inicializado.");
         if (flock($this->spoolFp, LOCK_EX)) {
             foreach ($rows as $row) {
+                $row = CltSchema::normalizeAssocRowForCsv($row);
                 $ordered = [];
                 foreach (CltSchema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
@@ -1332,6 +1580,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         try {
             $cpfs = [];
             $payload = [];
+            $needsExistingLookup = false;
 
             foreach ($snapRows as $r) {
                 $cpf = (string) ($r['cpf'] ?? '');
@@ -1341,6 +1590,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $cpfs[] = $cpf;
 
                 $srcUpdated = $this->parseDateTimeFlexible($r['src_updated_at'] ?? null);
+                $snapshotMode = (($r['snapshot_mode'] ?? ($this->variant === 'online' ? 'online' : 'offline')) === 'online')
+                    ? 'online'
+                    : 'offline';
+                if ($snapshotMode !== 'online') {
+                    $needsExistingLookup = true;
+                }
 
                 $payload[] = [
                     'cpf' => $cpf,
@@ -1370,6 +1625,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'not_found' => !empty($r['not_found']),
 
                     '_src_updated_at' => $srcUpdated,
+                    '_snapshot_mode' => $snapshotMode,
                 ];
             }
             if (empty($payload))
@@ -1385,68 +1641,67 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             unset($row);
 
             $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
-            $isOnline = ($this->variant === 'online');
-
-            $toUpsert = [];
-            if ($isOnline) {
-                foreach ($payload as $row) {
-                    $srcUpdated = $row['_src_updated_at'] ?? null;
-                    unset($row['_src_updated_at']);
-                    $row['job_id'] = $this->jobId;
-                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
-                    $row['consulted_at'] = $nowUtc;
-                    $toUpsert[] = $row;
-                }
-            } else {
+            $existing = collect();
+            if ($needsExistingLookup) {
                 $existing = DB::table('clt_snapshots')
                     ->whereIn('cpf', array_values(array_unique($cpfs)))
                     ->select('cpf', 'updated_at', 'not_found')
                     ->get()
                     ->keyBy('cpf');
+            }
 
-                foreach ($payload as $row) {
-                    $cpf = $row['cpf'];
-                    $srcUpdated = $row['_src_updated_at'] ?? null;
-                    $rowExists = $existing->has($cpf);
-                    $existingRow = $rowExists ? $existing[$cpf] : null;
+            $toUpsert = [];
+            foreach ($payload as $row) {
+                $snapshotMode = $row['_snapshot_mode'] ?? 'offline';
+                $srcUpdated = $row['_src_updated_at'] ?? null;
+                unset($row['_src_updated_at'], $row['_snapshot_mode']);
 
-                    $existingUpdated = null;
-                    if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
-                        $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
-                    }
+                if ($snapshotMode === 'online') {
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
 
-                    $incomingNotFound = (bool) ($row['not_found'] ?? false);
+                $cpf = $row['cpf'];
+                $rowExists = $existing->has($cpf);
+                $existingRow = $rowExists ? $existing[$cpf] : null;
 
-                    unset($row['_src_updated_at']);
+                $existingUpdated = null;
+                if ($existingRow && isset($existingRow->updated_at) && $existingRow->updated_at !== null) {
+                    $existingUpdated = $this->parseDateTimeFlexible((string) $existingRow->updated_at);
+                }
 
-                    if ($incomingNotFound) {
-                        if ($rowExists) {
-                            continue;
-                        }
-                        $row['job_id'] = $this->jobId;
-                        $row['updated_at'] = $nowUtc;
-                        $row['consulted_at'] = $nowUtc;
-                        $toUpsert[] = $row;
+                $incomingNotFound = (bool) ($row['not_found'] ?? false);
+
+                if ($incomingNotFound) {
+                    if ($rowExists) {
                         continue;
                     }
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
 
-                    if (!$rowExists) {
-                        $row['job_id'] = $this->jobId;
-                        $row['updated_at'] = $srcUpdated ?? $nowUtc;
-                        $row['consulted_at'] = $nowUtc;
-                        $toUpsert[] = $row;
-                        continue;
-                    }
+                if (!$rowExists) {
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated ?? $nowUtc;
+                    $row['consulted_at'] = $nowUtc;
+                    $toUpsert[] = $row;
+                    continue;
+                }
 
-                    if ($srcUpdated === null) {
-                        continue;
-                    }
-                    if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
-                        $row['job_id'] = $this->jobId;
-                        $row['updated_at'] = $srcUpdated;
-                        $row['consulted_at'] = $nowUtc;
-                        $toUpsert[] = $row;
-                    }
+                if ($srcUpdated === null) {
+                    continue;
+                }
+                if ($existingUpdated === null || strcmp($srcUpdated, $existingUpdated) > 0) {
+                    $row['job_id'] = $this->jobId;
+                    $row['updated_at'] = $srcUpdated;
+                    $row['consulted_at'] = $nowUtc;
+                    $toUpsert[] = $row;
                 }
             }
 
@@ -2793,6 +3048,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      */
     private function assocToCsvRow(array $row): array
     {
+        $row = CltSchema::normalizeAssocRowForCsv($row);
         $ordered = [];
         foreach (CltSchema::COLS as $key) {
             $ordered[] = $row[$key] ?? null;
@@ -2845,6 +3101,16 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $s = $this->currentStatusCached($job->id, true);
         return ($s === 'cancelado') || ($s === null);
+    }
+
+    private function supportsCreditPhaseTwo(): bool
+    {
+        return in_array($this->variant, ['online', 'hybrid'], true);
+    }
+
+    private function finalConsultaSourceForPendingFailures(): string
+    {
+        return $this->variant === 'offline' ? 'offline' : 'online';
     }
 
     private function cleanupSpool(CltConsultJob $job): void
