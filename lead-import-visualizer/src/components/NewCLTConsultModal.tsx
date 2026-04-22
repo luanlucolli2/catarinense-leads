@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,30 @@ interface NewCLTConsultModalProps {
   onClose: () => void;
   onSubmit: (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => void;
 }
+
+const MODE_OPTIONS = [
+  {
+    value: "HYBRID" as const,
+    label: "Híbrido",
+    helper: "Reaproveita offline recente",
+    description:
+      "Consulta primeiro a base offline. Reaproveita dados atualizados nos últimos 7 dias e envia ao online apenas CPFs antigos, incompletos ou não encontrados.",
+  },
+  {
+    value: "ONLINE" as const,
+    label: "Online",
+    helper: "Consulta direta",
+    description:
+      "Consulta direto no online. Indicado quando você quer forçar atualização sem reaproveitar a base offline.",
+  },
+  {
+    value: "OFF" as const,
+    label: "Offline",
+    helper: "Base offline",
+    description:
+      "Consulta apenas a base offline. Não consome o limite do online e não executa a continuação da fase 2.",
+  },
+];
 
 export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
@@ -66,6 +91,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
   };
 
   const noFocus = "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0";
+  const selectedMode = MODE_OPTIONS.find((option) => option.value === modo);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -89,57 +115,45 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
             />
           </div>
 
-          {/* Modo de Consulta – estilo de botões toggle */}
           <div className="space-y-3">
             <Label className="text-sm font-medium">Modo de Consulta *</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                 <Button
-                type="button"
-                onClick={() => setModo("HYBRID")}
-                disabled={submitting}
-                className={cn(
-                  noFocus,
-                  "transition-colors duration-200",
-                  modo === "HYBRID"
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
-                )}
-              >
-                HÍBRDO
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setModo("ONLINE")}
-                disabled={submitting}
-                className={cn(
-                  noFocus,
-                  "transition-colors duration-200",
-                  modo === "ONLINE"
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
-                )}
-              >
-                ONLINE
-              </Button>
-           
-              <Button
-                type="button"
-                onClick={() => setModo("OFF")}
-                disabled={submitting}
-                className={cn(
-                  noFocus,
-                  "transition-colors duration-200",
-                  modo === "OFF"
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
-                )}
-              >
-                OFF (Base Offline)
-              </Button>
+            <Tabs value={modo || ""} onValueChange={(value) => setModo(value as "OFF" | "ONLINE" | "HYBRID")}>
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-1 rounded-lg bg-muted/50 p-1 sm:grid-cols-3">
+                {MODE_OPTIONS.map((option) => (
+                  <TabsTrigger
+                    key={option.value}
+                    value={option.value}
+                    disabled={submitting}
+                    className={cn(
+                      noFocus,
+                      "h-auto min-h-[68px] flex-col items-start gap-1 rounded-md px-4 py-3 text-left transition-all duration-200 sm:items-center sm:text-center",
+                      "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+                      // Alteração aqui: cor de fundo e texto para o estado ativo
+                      "data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md"
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{option.label}</span>
+                    <span 
+                      className={cn(
+                        "text-xs transition-colors",
+                        modo === option.value ? "text-blue-100" : "text-muted-foreground"
+                      )}
+                    >
+                      {option.helper}
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            <div className="rounded-md border border-gray-200 bg-gray-50/70 px-3 py-2">
+              <p className="text-xs font-medium text-gray-700">
+                {selectedMode?.label ?? "Selecione um modo"}{selectedMode ? " :" : ""}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-600">
+                {selectedMode?.description ?? "Escolha como a consulta deve ser executada."}
+              </p>
             </div>
-            <p className="text-xs text-gray-600">
-              Hybrid reaproveita dados recentes do offline e envia ao online apenas CPFs antigos, incompletos ou nao encontrados.
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -170,7 +184,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
           <Button
             onClick={handleSubmit}
             disabled={submitting || !modo}
-            className={cn("bg-blue-600 hover:bg-blue-700", noFocus)}
+            className={cn("bg-blue-600 hover:bg-blue-700 text-white", noFocus)}
           >
             {submitting ? "Criando..." : "Criar consulta"}
           </Button>
