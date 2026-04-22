@@ -39,6 +39,8 @@ return [
         'global_rate_limit_rps' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPS', 4),
         'global_rate_limit_rpm' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPM', 180),
         'global_rate_limit_sleep_ms' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_SLEEP_MS', 80),
+        // Retry imediato técnico do /autoriza-consulta antes de cair para a próxima rodada do job.
+        'autoriza_transient_retry_attempts' => (int) env('CLT_HTTP_AUTORIZA_TRANSIENT_RETRY_ATTEMPTS', 1),
         // Janela máxima por pool para evitar burst acima do permitido.
         'autoriza_pool_window' => (int) env('CLT_HTTP_AUTORIZA_POOL_WINDOW', 4),
         'policy_pool_window' => (int) env('CLT_HTTP_POLICY_POOL_WINDOW', 4),
@@ -93,6 +95,13 @@ return [
             'retry_delay_ms'  => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
             'min_interval_ms' => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200),
         ],
+        'rate_limit' => [
+            'enabled'              => (bool) env('CLT_OFF_RATE_LIMIT_ENABLED', true),
+            'min_interval_ms'      => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200),
+            'lock_ttl'             => (int) env('CLT_OFF_RATE_LOCK_TTL', 10),
+            'lock_wait'            => (int) env('CLT_OFF_RATE_LOCK_WAIT', 5),
+            'retry_later_attempts' => (int) env('CLT_OFF_RETRY_LATER_ATTEMPTS', 2),
+        ],
     ],
 
     // ===== JOB =====
@@ -100,6 +109,7 @@ return [
         // novas filas distintas
         'queue_online'        => env('CLT_ON_JOB_QUEUE', 'clt-consulta-online'),
         'queue_offline'       => env('CLT_OFF_JOB_QUEUE', 'clt-off'),
+        'queue_hybrid'        => env('CLT_HYBRID_JOB_QUEUE', env('CLT_ON_JOB_QUEUE', 'clt-consulta-online')),
         'queue_phase2'        => env('CLT_PHASE2_JOB_QUEUE', 'clt-valida-politica-cred'),
 
         'timeout_seconds'     => (int) env('CLT_JOB_TIMEOUT', 115200),
@@ -116,6 +126,10 @@ return [
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 0),
         // intervalo mínimo para reconsultar status do job no banco (reduz polling excessivo)
         'status_check_interval_ms' => (int) env('CLT_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
+        // Coordenação leve da fase 1: hybrid roda sozinho; online/offline podem coexistir entre si.
+        'phase1_coord_lock_ttl' => (int) env('CLT_PHASE1_COORD_LOCK_TTL', 10),
+        'phase1_coord_lock_wait' => (int) env('CLT_PHASE1_COORD_LOCK_WAIT', 5),
+        'phase1_coord_retry_delay_seconds' => (int) env('CLT_PHASE1_COORD_RETRY_DELAY_SECONDS', 15),
         // Checkpoint de progresso (fase 1) no banco; fase 2 respeita no mínimo este intervalo.
         'progress_flush_interval_seconds' => (int) env('CLT_JOB_PROGRESS_FLUSH_INTERVAL_SECONDS', 20),
         // Flush incremental dos buffers internos do job para reduzir pico de RAM.
@@ -125,6 +139,10 @@ return [
         'memory_soft_limit_mb' => (int) env('CLT_JOB_MEMORY_SOFT_LIMIT_MB', 0),
         // Percentual do limite efetivo de memória para iniciar spill do dedup.
         'memory_spill_threshold_percent' => (int) env('CLT_JOB_MEMORY_SPILL_THRESHOLD_PERCENT', 70),
+    ],
+
+    'hybrid' => [
+        'offline_max_age_days' => (int) env('CLT_HYBRID_OFFLINE_MAX_AGE_DAYS', 7),
     ],
 
     // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====

@@ -72,12 +72,15 @@ class PresencaApiService
     private bool $logApiResponses;
     private bool $logApiSuccessResponses;
     private bool $logApi429;
+    private bool $logApiSlowRequests;
+    private int $apiSlowRequestThresholdMs;
 
     private ?int $jobId = null;
     private ?string $currentCpf = null;
     private ?string $fatalAuthMessage = null;
     private ?string $lastRequestFailureType = null;
     private ?string $lastRequestFailurePath = null;
+    private ?int $lastRequestElapsedMs = null;
 
     /** @var array<string,float> cpf => expires_ts (0.0 para miss conhecido) */
     private array $authorizationLocalState = [];
@@ -137,6 +140,8 @@ class PresencaApiService
         $this->logApiResponses = (bool) ($logging['api_log_responses'] ?? true);
         $this->logApiSuccessResponses = (bool) ($logging['api_log_success_responses'] ?? false);
         $this->logApi429 = (bool) ($logging['api_log_429'] ?? true);
+        $this->logApiSlowRequests = (bool) ($logging['api_log_slow_requests'] ?? true);
+        $this->apiSlowRequestThresholdMs = max(1, (int) ($logging['api_slow_request_threshold_ms'] ?? 10000));
     }
 
     public function setJobId(?int $jobId): void
@@ -956,6 +961,7 @@ class PresencaApiService
             }
 
             $response = null;
+            $startedAt = microtime(true);
 
             try {
                 $this->clearLastRequestFailure();
@@ -992,7 +998,9 @@ class PresencaApiService
                     $response = $client->get($url, $payload);
                 }
 
-                $this->logHttpResponse($method, $path, $response);
+                $elapsedMs = $this->resolveElapsedMs($response, $startedAt);
+                $this->rememberRequestElapsedMs($elapsedMs);
+                $this->logHttpResponse($method, $path, $response, $elapsedMs);
                 $this->clearLastRequestFailure();
 
                 if ($response->status() === 401 && $auth) {
@@ -1008,6 +1016,7 @@ class PresencaApiService
                             'method' => strtoupper($method),
                             'path' => $path,
                             'attempt' => $attempt,
+                            'elapsed_ms' => $elapsedMs,
                         ]));
                     }
 
@@ -1019,22 +1028,28 @@ class PresencaApiService
 
                 return $response;
             } catch (ConnectionException $e) {
+                $elapsedMs = $this->elapsedSinceMs($startedAt);
                 $this->rememberRequestFailure(
                     $path,
                     $this->isTimeoutException($e) ? 'timeout' : 'connection'
                 );
+                $this->rememberRequestElapsedMs($elapsedMs);
                 PresencaLog::warning('[PRESENCA] Erro de conexão na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
+                    'elapsed_ms' => $elapsedMs,
                     'error' => $e->getMessage(),
                 ]));
 
                 return null;
             } catch (Throwable $e) {
+                $elapsedMs = $this->elapsedSinceMs($startedAt);
                 $this->rememberRequestFailure($path, 'exception');
+                $this->rememberRequestElapsedMs($elapsedMs);
                 PresencaLog::warning('[PRESENCA] Exceção na requisição.', $this->logContext([
                     'method' => strtoupper($method),
                     'path' => $path,
+                    'elapsed_ms' => $elapsedMs,
                     'error' => $e->getMessage(),
                 ]));
 
@@ -1126,12 +1141,18 @@ class PresencaApiService
     {
         $this->lastRequestFailureType = null;
         $this->lastRequestFailurePath = null;
+        $this->lastRequestElapsedMs = null;
     }
 
     private function rememberRequestFailure(string $path, string $type): void
     {
         $this->lastRequestFailureType = $type;
         $this->lastRequestFailurePath = $path;
+    }
+
+    private function rememberRequestElapsedMs(?int $elapsedMs): void
+    {
+        $this->lastRequestElapsedMs = $elapsedMs;
     }
 
     /** @return array{status_code:string,message:string} */
@@ -1243,9 +1264,11 @@ class PresencaApiService
         if ($response !== null) {
             $context['status'] = $response->status();
             $context['messages'] = $this->extractMessages($response);
+            $context['elapsed_ms'] = $this->extractElapsedMs($response);
         } else {
             $context['failure_type'] = $this->lastRequestFailureType;
             $context['failure_path'] = $this->lastRequestFailurePath;
+            $context['elapsed_ms'] = $this->lastRequestElapsedMs;
         }
 
         PresencaLog::warning($message, $this->logContext($context));
@@ -1720,23 +1743,64 @@ class PresencaApiService
         return true;
     }
 
-    private function logHttpResponse(string $method, string $path, HttpResponse $response): void
+    private function logHttpResponse(string $method, string $path, HttpResponse $response, ?int $elapsedMs = null): void
     {
-        if (!$this->logApiResponses) {
-            return;
-        }
-
         $status = $response->status();
-        if (!$this->logApiSuccessResponses && $status < 400) {
+        $shouldLogResponse = $this->logApiResponses
+            && ($this->logApiSuccessResponses || $status >= 400);
+        $shouldLogSlow = $this->logApiSlowRequests
+            && $status < 400
+            && $elapsedMs !== null
+            && $elapsedMs >= $this->apiSlowRequestThresholdMs;
+
+        if (!$shouldLogResponse && !$shouldLogSlow) {
             return;
         }
 
-        PresencaLog::warning('[PRESENCA] HTTP response', $this->logContext([
+        $context = $this->logContext([
             'method' => strtoupper($method),
             'path' => $path,
             'status' => $status,
+            'elapsed_ms' => $elapsedMs,
             'messages' => $status >= 400 ? $this->extractMessages($response) : null,
-        ]));
+        ]);
+
+        if ($shouldLogResponse) {
+            PresencaLog::warning('[PRESENCA] HTTP response', $context);
+        }
+
+        if ($shouldLogSlow && !$shouldLogResponse) {
+            PresencaLog::warning('[PRESENCA] Slow HTTP response', $context);
+        }
+    }
+
+    private function extractElapsedMs(HttpResponse $response): ?int
+    {
+        try {
+            $stats = $response->handlerStats();
+            if (!is_array($stats)) {
+                return null;
+            }
+
+            $totalTime = $stats['total_time'] ?? null;
+            if (!is_numeric($totalTime)) {
+                return null;
+            }
+
+            return (int) round(((float) $totalTime) * 1000);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function resolveElapsedMs(HttpResponse $response, float $startedAt): ?int
+    {
+        return $this->extractElapsedMs($response) ?? $this->elapsedSinceMs($startedAt);
+    }
+
+    private function elapsedSinceMs(float $startedAt): int
+    {
+        return (int) round((microtime(true) - $startedAt) * 1000);
     }
 
     /** @param array<string,mixed> $context */

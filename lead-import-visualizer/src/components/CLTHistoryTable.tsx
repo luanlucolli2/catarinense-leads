@@ -160,11 +160,11 @@ function calcSegments(i: CltConsultJobListItem) {
   };
 }
 
-type CltVariant = "online" | "offline" | undefined;
+type CltVariant = "online" | "offline" | "hybrid" | undefined;
 type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Concluído" | "Falhou" | "Cancelada";
 
 function resolveVariant(item: CltConsultJobListItem): CltVariant {
-  if (item.variant === "online" || item.variant === "offline") {
+  if (item.variant === "online" || item.variant === "offline" || item.variant === "hybrid") {
     return item.variant;
   }
 
@@ -181,8 +181,13 @@ function resolveVariant(item: CltConsultJobListItem): CltVariant {
 
   const legacy = String(legacyItem.mode ?? legacyItem.tipo ?? legacyItem.type ?? "").toLowerCase();
   if (legacy === "offline" || legacy === "off") return "offline";
+  if (legacy === "hybrid" || legacy === "hyb") return "hybrid";
   if (legacy === "online" || legacy === "on") return "online";
   return undefined;
+}
+
+function isTwoPhaseVariant(variant: CltVariant): boolean {
+  return variant !== "offline";
 }
 
 function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {
@@ -512,7 +517,7 @@ export const CLTHistoryTable = ({
   const canRerunPhase2 = (i: CltConsultJobListItem) => {
     const variant = resolveVariant(i);
     const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
-    return variant === "online" && i.status === "concluido" && hasFinal;
+    return isTwoPhaseVariant(variant) && i.status === "concluido" && hasFinal;
   };
 
   const canDelete = (i: CltConsultJobListItem) =>
@@ -598,11 +603,10 @@ export const CLTHistoryTable = ({
           const downloadDisabled = !finalReady && !previewReady;
 
           const variant = resolveVariant(i);
-
-          const type = variant === 'offline' ? 'OFF' : variant === 'online' ? 'ONLINE' : 'ONLINE';
-          const canViewHttpCounters = type === "ONLINE" && typeof onViewHttpCounters === "function";
+          const isTwoPhase = isTwoPhaseVariant(variant);
+          const canViewHttpCounters = isTwoPhase && typeof onViewHttpCounters === "function";
           const phaseAndStatusInfo =
-            type === "ONLINE" && phaseInfo
+            isTwoPhase && phaseInfo
               ? {
                   icon: statusInfo.icon,
                   className: statusInfo.className,
@@ -610,13 +614,25 @@ export const CLTHistoryTable = ({
                 }
               : statusInfo;
 
-          const modeBadge = type === "OFF"
+          const modeBadge = variant === "offline"
             ? {
                 icon: <Database className="w-3.5 h-3.5" />,
                 className:
                   "bg-gradient-to-r from-slate-100 to-stone-50 text-slate-700 border-slate-300 dark:from-slate-800/30 dark:to-stone-800/20 dark:text-slate-300 dark:border-slate-700 shadow-sm",
                 label: "Base Offline",
               }
+            : variant === "hybrid"
+              ? {
+                  icon: (
+                    <span className="inline-flex items-center gap-0.5">
+                      <Database className="w-3 h-3" />
+                      <Wifi className="w-3 h-3" />
+                    </span>
+                  ),
+                  className:
+                    "bg-gradient-to-r from-amber-100 to-orange-50 text-amber-800 border-amber-300 dark:from-amber-900/30 dark:to-orange-800/20 dark:text-amber-300 dark:border-amber-700 shadow-sm",
+                  label: "Híbrido",
+                }
             : {
                 icon: <Wifi className="w-3.5 h-3.5" />,
                 className:
@@ -844,13 +860,13 @@ export const CLTHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  {type === "ONLINE" ? (
+                  {isTwoPhase ? (
                     <OnlineTwoPhaseProgress item={i} />
                   ) : (
                     <SegmentedProgressBar item={i} />
                   )}
 
-                  {type !== "ONLINE" && (i.status === "concluido" ||
+                  {!isTwoPhase && (i.status === "concluido" ||
                     i.status === "em_progresso" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (

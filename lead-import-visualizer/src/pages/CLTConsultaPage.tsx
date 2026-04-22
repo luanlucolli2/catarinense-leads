@@ -550,8 +550,12 @@ const CLTConsultaPage = () => {
   });
 
   // Mapear modo → variant esperado pelo backend
-  const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE") => {
-    const variant = modo === "OFF" ? "offline" : "online";
+  const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => {
+    const variant = modo === "OFF"
+      ? "offline"
+      : modo === "HYBRID"
+        ? "hybrid"
+        : "online";
     await createMutation.mutateAsync({ title: titulo, cpfs, variant });
   };
 
@@ -666,7 +670,7 @@ const CLTConsultaPage = () => {
   const handleViewHttpCounters = (id: number) => {
     const item = itemsWithOverlay.find((j) => j.id === id);
     if (item?.variant === "offline") {
-      toast.info("Contadores HTTP disponíveis apenas para consultas online.");
+      toast.info("Contadores HTTP disponíveis apenas para consultas online e híbridas.");
       return;
     }
 

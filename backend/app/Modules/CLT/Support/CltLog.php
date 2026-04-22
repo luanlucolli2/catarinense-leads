@@ -13,29 +13,17 @@ final class CltLog
 
     public static function debug($message, array $context = []): void
     {
-        if (!self::enabled()) {
-            return;
-        }
-
-        Log::debug($message, $context);
+        return;
     }
 
     public static function info($message, array $context = []): void
     {
-        if (!self::enabled()) {
-            return;
-        }
-
-        Log::info($message, $context);
+        return;
     }
 
     public static function warning($message, array $context = []): void
     {
-        if (!self::enabled()) {
-            return;
-        }
-
-        Log::warning($message, $context);
+        return;
     }
 
     public static function error($message, array $context = []): void

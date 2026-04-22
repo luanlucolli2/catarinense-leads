@@ -3,6 +3,7 @@
 namespace App\Modules\CLT\Services;
 
 use App\Modules\CLT\Support\CltLog;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
@@ -25,17 +26,20 @@ class CltOfflineApiService
     private int $httpRetry;
     private int $httpRetryDelayMs;
 
-    /** Intervalo mínimo entre requests (ms) exigido pela doc */
+    /** Rate limit global do serviço OFF */
+    private bool $rateLimitEnabled;
     private int $minIntervalMs;
-
-    /** Pacing global (entre chamadas) */
-    private float $lastCallAt = 0.0; // em memória, por processo
-    private string $rateKey = 'clt_off_last_call_at'; // opcional: cross-process via cache
+    private int $rateLockTtl;
+    private int $rateLockWait;
+    private int $retryLaterImmediateAttempts;
+    private string $rateLockKey = 'clt_off_rate_lock';
+    private string $rateLastAtKey = 'clt_off_rate_last_at_ms';
 
     public function __construct()
     {
         $api = (array) config('cltfacta.clt_off.api', []);
         $http = (array) config('cltfacta.clt_off.http', []);
+        $rate = (array) config('cltfacta.clt_off.rate_limit', []);
 
         $this->baseUrl = rtrim((string) ($api['base_url'] ?? ''), '/');
         $this->basicAuth = $api['basic_auth'] ?? null;
@@ -48,8 +52,11 @@ class CltOfflineApiService
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 5);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
-
-        $this->minIntervalMs = (int) ($http['min_interval_ms'] ?? 3200);
+        $this->rateLimitEnabled = (bool) ($rate['enabled'] ?? true);
+        $this->minIntervalMs = max(0, (int) ($rate['min_interval_ms'] ?? $http['min_interval_ms'] ?? 3200));
+        $this->rateLockTtl = max(1, (int) ($rate['lock_ttl'] ?? 10));
+        $this->rateLockWait = max(1, (int) ($rate['lock_wait'] ?? 5));
+        $this->retryLaterImmediateAttempts = max(0, (int) ($rate['retry_later_attempts'] ?? 2));
     }
 
     /** GET {BASE}/gera-token */
@@ -153,7 +160,7 @@ class CltOfflineApiService
                 $normalizedCpfs[] = $digits;
             }
         }
-        $cpfs = $normalizedCpfs;
+        $cpfs = array_values(array_unique($normalizedCpfs));
 
         if (empty($cpfs)) {
             return [];
@@ -186,57 +193,32 @@ class CltOfflineApiService
             'Authorization' => 'Bearer ' . $token,
             'Accept' => 'application/json',
         ];
-        
-        // CORREÇÃO: Removemos o /debug pois o manual v2.0 especifica /clt/base-offline
         $url = $this->baseUrl . '/clt/base-offline';
 
         $out = [];
 
         foreach ($cpfs as $cpf) {
-            $maxAttempts = max(1, $this->httpRetry + 1);
-            $resp = null;
+            $out[$cpf] = $this->consultaCpfOffline($url, $headers, $cpf, $retryAfterDefault);
+        }
+
+        return $out;
+    }
+
+    private function consultaCpfOffline(string $url, array $headers, string $cpf, float $retryAfterDefault): array
+    {
+        $immediateRetryBudget = $this->retryLaterImmediateAttempts;
+
+        while (true) {
             $lastError = null;
-
-            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                $this->respectMinInterval();
-                try {
-                    $resp = Http::withHeaders($headers)
-                        ->timeout($this->httpTimeout)
-                        ->connectTimeout($this->httpConnectTimeout)
-                        ->get($url, ['cpf' => $cpf]);
-                } catch (Throwable $e) {
-                    $lastError = $e;
-                    if (
-                        $attempt < $maxAttempts
-                        && ($e instanceof ConnectionException || $this->isTimeoutException($e))
-                    ) {
-                        $this->sleepTransientPauseMs();
-                        continue;
-                    }
-                    break;
-                } finally {
-                    // Atualiza o timer APÓS cada tentativa efetiva.
-                    $this->markRequestDone();
-                }
-
-                if ($resp->status() === 403) {
-                    $this->logForbidden($resp, $cpf);
-                }
-
-                if ($this->isTransientHttpStatus($resp->status()) && $attempt < $maxAttempts) {
-                    $this->sleepTransientPauseMs($this->getRetryAfterSeconds($resp));
-                    continue;
-                }
-
-                break;
-            }
+            $resp = $this->sendOfflineRequest($url, $headers, $cpf, $lastError);
 
             if (!$resp instanceof HttpResponse) {
                 $msg = 'Sem resposta do serviço OFF';
                 if ($lastError instanceof Throwable) {
                     $msg .= ': ' . $lastError->getMessage();
                 }
-                $out[$cpf] = [
+
+                return [
                     'ok' => false,
                     'mensagem' => $msg,
                     'vinculos' => null,
@@ -245,37 +227,117 @@ class CltOfflineApiService
                     'http_status' => null,
                     'retry_after' => $retryAfterDefault,
                 ];
+            }
+
+            $parsed = $this->parseOffResponse($resp);
+            if (
+                $immediateRetryBudget > 0
+                && $this->shouldRetryImmediatelyForRetryLaterMessage($parsed)
+            ) {
+                $immediateRetryBudget--;
+                $this->sleepRetryLaterPause();
                 continue;
             }
 
-            $out[$cpf] = $this->parseOffResponse($resp);
+            return $parsed;
+        }
+    }
+
+    private function sendOfflineRequest(
+        string $url,
+        array $headers,
+        string $cpf,
+        ?Throwable &$lastError = null
+    ): ?HttpResponse {
+        $maxAttempts = max(1, $this->httpRetry + 1);
+        $resp = null;
+        $lastError = null;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $this->throttleRequests();
+                $resp = Http::withHeaders($headers)
+                    ->timeout($this->httpTimeout)
+                    ->connectTimeout($this->httpConnectTimeout)
+                    ->get($url, ['cpf' => $cpf]);
+            } catch (Throwable $e) {
+                $lastError = $e;
+                if (
+                    $attempt < $maxAttempts
+                    && ($e instanceof ConnectionException || $this->isTimeoutException($e))
+                ) {
+                    $this->sleepTransientPauseMs();
+                    continue;
+                }
+
+                return null;
+            }
+
+            if ($resp->status() === 403) {
+                $this->logForbidden($resp, $cpf);
+            }
+
+            if ($this->isTransientHttpStatus($resp->status()) && $attempt < $maxAttempts) {
+                $this->sleepTransientPauseMs($this->getRetryAfterSeconds($resp));
+                continue;
+            }
+
+            return $resp;
         }
 
-        return $out;
+        return $resp;
     }
 
     /** ------- Helpers de pacing ------- */
-    private function respectMinInterval(): void
+    private function throttleRequests(): void
     {
-        $minSecs = max(0, $this->minIntervalMs) / 1000.0;
-
-        // obtém último instante global (cache) e local (processo)
-        $lastGlobal = (float) (Cache::get($this->rateKey) ?? 0.0);
-        $effectiveLast = max($lastGlobal, $this->lastCallAt);
-
-        $now = microtime(true);
-        $sleepUs = (int) max(0, ($effectiveLast + $minSecs - $now) * 1_000_000);
-        if ($sleepUs > 0) {
-            usleep($sleepUs);
+        if (!$this->rateLimitEnabled || $this->minIntervalMs <= 0) {
+            return;
         }
-    }
 
-    private function markRequestDone(): void
-    {
-        $t = microtime(true);
-        $this->lastCallAt = $t;
-        // TTL curto só para amortecer processos paralelos; com 1 worker já resolve.
-        Cache::put($this->rateKey, $t, 300);
+        $lockTimeoutCount = 0;
+        while (true) {
+            $lock = Cache::lock($this->rateLockKey, $this->rateLockTtl);
+
+            try {
+                $lock->block($this->rateLockWait);
+            } catch (LockTimeoutException $e) {
+                $lockTimeoutCount++;
+                if ($lockTimeoutCount >= 5) {
+                    throw new \RuntimeException(
+                        'Não foi possível adquirir lock de rate limit do CLT-OFF após múltiplas tentativas.',
+                        0,
+                        $e
+                    );
+                }
+
+                usleep(200000);
+                continue;
+            }
+
+            $waitMs = 0;
+
+            try {
+                $nowMs = (int) floor(microtime(true) * 1000);
+                $lastAtMs = (int) Cache::get($this->rateLastAtKey, 0);
+
+                if ($lastAtMs > 0) {
+                    $elapsedMs = $nowMs - $lastAtMs;
+                    if ($elapsedMs < $this->minIntervalMs) {
+                        $waitMs = $this->minIntervalMs - $elapsedMs;
+                    }
+                }
+
+                if ($waitMs <= 0) {
+                    Cache::put($this->rateLastAtKey, $nowMs, 300);
+                    return;
+                }
+            } finally {
+                optional($lock)->release();
+            }
+
+            usleep(max(1, $waitMs) * 1000);
+        }
     }
 
     private function isTransientHttpStatus(int $status): bool
@@ -292,6 +354,16 @@ class CltOfflineApiService
 
         $pauseMs = max(3000, $this->httpRetryDelayMs);
         usleep($pauseMs * 1000);
+    }
+
+    private function sleepRetryLaterPause(?int $retryAfterSeconds = null): void
+    {
+        if ($retryAfterSeconds !== null && $retryAfterSeconds > 0) {
+            sleep($retryAfterSeconds);
+            return;
+        }
+
+        usleep(max(1, $this->minIntervalMs) * 1000);
     }
 
     private function isTimeoutException(Throwable $e): bool
@@ -571,6 +643,16 @@ class CltOfflineApiService
     {
         $n = $this->normalize($msg);
         return str_contains($n, 'indisponivel') || str_contains($n, 'volte em 3 segundos');
+    }
+
+    private function shouldRetryImmediatelyForRetryLaterMessage(array $res): bool
+    {
+        if (!($res['retriable'] ?? false)) {
+            return false;
+        }
+
+        $msg = (string) ($res['mensagem'] ?? '');
+        return $this->isRetryLaterMessage($msg);
     }
 
     private function isNotFoundMessage(string $msg): bool

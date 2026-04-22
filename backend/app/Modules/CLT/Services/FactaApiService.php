@@ -35,6 +35,10 @@ class FactaApiService
     private int $httpGlobalRateLimitRps;
     private int $httpGlobalRateLimitRpm;
     private int $httpGlobalRateLimitSleepMs;
+    private int $httpTransientPauseSeconds;
+    private int $httpRateLimitDefaultPauseSeconds;
+    private int $httpRateLimitPauseCapSeconds;
+    private int $httpAutorizaTransientRetryAttempts;
     private int $httpAutorizaPoolWindow;
     private int $httpPolicyPoolWindow;
 
@@ -160,6 +164,10 @@ class FactaApiService
         $this->httpGlobalRateLimitRps = max(0, (int) ($http['global_rate_limit_rps'] ?? 4));
         $this->httpGlobalRateLimitRpm = max(0, (int) ($http['global_rate_limit_rpm'] ?? 180));
         $this->httpGlobalRateLimitSleepMs = max(50, (int) ($http['global_rate_limit_sleep_ms'] ?? 120));
+        $this->httpTransientPauseSeconds = max(1, (int) ($http['transient_pause_seconds'] ?? 3));
+        $this->httpRateLimitDefaultPauseSeconds = max(1, (int) ($http['rate_limit_default_pause_seconds'] ?? 3));
+        $this->httpRateLimitPauseCapSeconds = max($this->httpRateLimitDefaultPauseSeconds, (int) ($http['rate_limit_pause_cap_seconds'] ?? 30));
+        $this->httpAutorizaTransientRetryAttempts = max(0, (int) ($http['autoriza_transient_retry_attempts'] ?? 1));
         $this->httpGlobalRateLimitEnabled = (bool) ($http['global_rate_limit_enabled'] ?? true)
             && ($this->httpGlobalRateLimitRps > 0 || $this->httpGlobalRateLimitRpm > 0);
         $this->httpAutorizaPoolWindow = max(1, (int) ($http['autoriza_pool_window'] ?? 4));
@@ -787,20 +795,41 @@ class FactaApiService
                 }
             };
 
-            $resp = $doRequest();
-            $this->logAutorizaConsultaResponse($resp, $cpf, 'initial', 1);
+            $parsed = null;
+            for ($attempt = 1; $attempt <= ($this->httpAutorizaTransientRetryAttempts + 1); $attempt++) {
+                try {
+                    $resp = $doRequest();
+                    $stage = $attempt === 1 ? 'initial' : 'transient_retry_unit';
+                    $this->logAutorizaConsultaResponse($resp, $cpf, $stage, $attempt);
+                    $parsed = $this->buildAutorizaConsultaResult($cpf, $resp, $token, 'autoriza_consulta_unit');
+                } catch (Throwable $e) {
+                    $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                        'cpf' => $cpf,
+                        'stage' => 'autoriza-consulta',
+                        'attempt' => $attempt,
+                    ]);
+                    $parsed = [
+                        'ok' => false,
+                        'mensagem' => 'Exceção: ' . $e->getMessage(),
+                        'vinculos' => null,
+                        'retriable' => true,
+                        'not_found' => false,
+                        'http_status' => null,
+                        'retry_after' => null,
+                    ];
+                }
 
-            if ($resp->status() === 403) {
-                $this->logForbidden($resp, $cpf);
+                if ($attempt >= ($this->httpAutorizaTransientRetryAttempts + 1)) {
+                    break;
+                }
+
+                if (!$this->shouldRetryAutorizaTransientImmediately($parsed)) {
+                    break;
+                }
+
+                $this->sleepAutorizaTransientRetryPause($parsed);
             }
 
-            $parsed = $this->parseAutorizaResponse($resp);
-            if (
-                empty($parsed['ok'])
-                && $this->isTokenExpiradoSolicitaRequiredMessage((string) ($parsed['mensagem'] ?? ''))
-            ) {
-                $this->refreshPreAuthorizationAfterTokenExpired($cpf, $token, 'autoriza_consulta_unit');
-            }
             if (!empty($parsed['ok'])) {
                 $this->markPreAuthGrant($cpf, false);
             }
@@ -893,63 +922,79 @@ class FactaApiService
 
             $this->sleepPreAuthCooldown($latestPreAuthAt);
 
-        $headers = [
-            'Authorization' => 'Bearer ' . $token,
-            'Accept' => 'application/json',
-        ];
-        $url = $this->baseUrl . '/consignado-trabalhador/autoriza-consulta';
-        /** @var array<string,HttpResponse> $responses */
-        $responses = [];
+            $headers = [
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+            ];
+            $url = $this->baseUrl . '/consignado-trabalhador/autoriza-consulta';
+            /** @var array<string,HttpResponse> $responses */
+            $responses = [];
 
-        // -------- 1ª TENTATIVA (POOL) --------
-        try {
-            $responses = $this->requestAutorizaPool(
-                $authorizedCpfs,
-                $headers,
-                $url,
-                $this->httpTimeout,
-                $this->httpConnectTimeout,
-                'initial_pool',
-                1
-            );
-        } catch (Throwable $e) {
-            $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
-                'stage' => 'initial_pool',
-                'attempt' => 1,
-                'batch_size' => count($authorizedCpfs),
-            ]);
-            // Pool inteiro falhou → devolve retriable (o Job vai retriar)
+            // Segunda passada imediata só para subconjunto técnico transitório,
+            // preservando o ganho de pool sem serializar o chunk.
+            try {
+                $responses = $this->requestAutorizaPool(
+                    $authorizedCpfs,
+                    $headers,
+                    $url,
+                    $this->httpTimeout,
+                    $this->httpConnectTimeout,
+                    'initial_pool',
+                    1
+                );
+            } catch (Throwable $e) {
+                $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                    'stage' => 'initial_pool',
+                    'attempt' => 1,
+                    'batch_size' => count($authorizedCpfs),
+                ]);
+                foreach ($authorizedCpfs as $cpf) {
+                    $out[$cpf] = $this->errorResult('Sem resposta (pool falhou)', true);
+                }
+                return $out;
+            }
+
             foreach ($authorizedCpfs as $cpf) {
-                $out[$cpf] = $this->errorResult('Sem resposta (pool falhou)', true);
-            }
-            return $out;
-        }
-
-        // -------- Monta saída --------
-        foreach ($authorizedCpfs as $cpf) {
-            $resp = $responses[$cpf] ?? null;
-            if (!$resp instanceof HttpResponse) {
-                $out[$cpf] = $this->errorResult('Sem resposta do serviço', true);
-                continue;
+                $resp = $responses[$cpf] ?? null;
+                $out[$cpf] = $this->buildAutorizaConsultaResult($cpf, $resp, $token, 'autoriza_consulta_lote');
             }
 
-            // 👉 LOG 403 com headers + corpo (por CPF)
-            if ($resp->status() === 403) {
-                $this->logForbidden($resp, $cpf);
+            $retryCpfs = $this->pickAutorizaTransientRetryCpfs($out, $authorizedCpfs);
+            for ($attempt = 2; !empty($retryCpfs) && $attempt <= ($this->httpAutorizaTransientRetryAttempts + 1); $attempt++) {
+                $this->sleepAutorizaTransientRetryPauseForBatch($out, $retryCpfs);
+
+                try {
+                    $retryResponses = $this->requestAutorizaPool(
+                        $retryCpfs,
+                        $headers,
+                        $url,
+                        $this->httpTimeout,
+                        $this->httpConnectTimeout,
+                        'transient_retry_pool',
+                        $attempt
+                    );
+                } catch (Throwable $e) {
+                    $this->logRequestException('/consignado-trabalhador/autoriza-consulta', $e, [
+                        'stage' => 'transient_retry_pool',
+                        'attempt' => $attempt,
+                        'batch_size' => count($retryCpfs),
+                    ]);
+                    break;
+                }
+
+                foreach ($retryCpfs as $cpf) {
+                    $retryResp = $retryResponses[$cpf] ?? null;
+                    $out[$cpf] = $this->buildAutorizaConsultaResult($cpf, $retryResp, $token, 'autoriza_consulta_lote');
+                }
+
+                $retryCpfs = $this->pickAutorizaTransientRetryCpfs($out, $retryCpfs);
             }
 
-            $out[$cpf] = $this->parseAutorizaResponse($resp);
-            if (
-                empty($out[$cpf]['ok'])
-                && $this->isTokenExpiradoSolicitaRequiredMessage((string) ($out[$cpf]['mensagem'] ?? ''))
-            ) {
-                $this->refreshPreAuthorizationAfterTokenExpired($cpf, $token, 'autoriza_consulta_lote');
+            foreach ($authorizedCpfs as $cpf) {
+                if (!empty($out[$cpf]['ok'])) {
+                    $this->markPreAuthGrant($cpf, false);
+                }
             }
-
-            if (!empty($out[$cpf]['ok'])) {
-                $this->markPreAuthGrant($cpf, false);
-            }
-        }
 
             return $out;
         } finally {
@@ -1810,6 +1855,125 @@ class FactaApiService
         ];
     }
 
+    private function buildAutorizaConsultaResult(string $cpf, $resp, string &$token, string $origin): array
+    {
+        if (!$resp instanceof HttpResponse) {
+            return $this->errorResult('Sem resposta do serviço', true);
+        }
+
+        if ($resp->status() === 403) {
+            $this->logForbidden($resp, $cpf);
+        }
+
+        $parsed = $this->parseAutorizaResponse($resp);
+        if (
+            empty($parsed['ok'])
+            && $this->isTokenExpiradoSolicitaRequiredMessage((string) ($parsed['mensagem'] ?? ''))
+        ) {
+            $this->refreshPreAuthorizationAfterTokenExpired($cpf, $token, $origin);
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $results
+     * @param array<int,string> $cpfs
+     * @return array<int,string>
+     */
+    private function pickAutorizaTransientRetryCpfs(array $results, array $cpfs): array
+    {
+        $retryCpfs = [];
+
+        foreach ($cpfs as $cpf) {
+            $result = $results[$cpf] ?? null;
+            if (!is_array($result) || !$this->shouldRetryAutorizaTransientImmediately($result)) {
+                continue;
+            }
+
+            $retryCpfs[] = $cpf;
+        }
+
+        return $retryCpfs;
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private function shouldRetryAutorizaTransientImmediately(array $result): bool
+    {
+        if (!($result['retriable'] ?? false) || !empty($result['not_found'])) {
+            return false;
+        }
+
+        $mensagem = (string) ($result['mensagem'] ?? '');
+        if ($this->isTokenExpiradoSolicitaRequiredMessage($mensagem)) {
+            return false;
+        }
+
+        $httpStatus = $result['http_status'] ?? null;
+        if ($httpStatus === null) {
+            return true;
+        }
+
+        if ($httpStatus === 403 || $httpStatus === 408 || $httpStatus === 429 || $httpStatus >= 500) {
+            return true;
+        }
+
+        return $this->isAutorizaTransientRetryMessage($mensagem);
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private function sleepAutorizaTransientRetryPause(array $result): void
+    {
+        $retryAfter = isset($result['retry_after']) ? (int) $result['retry_after'] : null;
+        $httpStatus = isset($result['http_status']) ? (int) $result['http_status'] : null;
+        $sleepSeconds = $this->autorizaTransientRetryPauseSeconds($retryAfter, $httpStatus);
+
+        if ($sleepSeconds > 0) {
+            sleep($sleepSeconds);
+        }
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $results
+     * @param array<int,string> $cpfs
+     */
+    private function sleepAutorizaTransientRetryPauseForBatch(array $results, array $cpfs): void
+    {
+        $sleepSeconds = 0;
+
+        foreach ($cpfs as $cpf) {
+            $result = $results[$cpf] ?? null;
+            if (!is_array($result)) {
+                continue;
+            }
+
+            $retryAfter = isset($result['retry_after']) ? (int) $result['retry_after'] : null;
+            $httpStatus = isset($result['http_status']) ? (int) $result['http_status'] : null;
+            $sleepSeconds = max($sleepSeconds, $this->autorizaTransientRetryPauseSeconds($retryAfter, $httpStatus));
+        }
+
+        if ($sleepSeconds > 0) {
+            sleep($sleepSeconds);
+        }
+    }
+
+    private function autorizaTransientRetryPauseSeconds(?int $retryAfter, ?int $httpStatus): int
+    {
+        if ($retryAfter !== null && $retryAfter > 0) {
+            return min($retryAfter, $this->httpRateLimitPauseCapSeconds);
+        }
+
+        if ($httpStatus === 429) {
+            return min($this->httpRateLimitDefaultPauseSeconds, $this->httpRateLimitPauseCapSeconds);
+        }
+
+        return max(1, $this->httpTransientPauseSeconds);
+    }
+
     private function policyErrorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
     {
         return [
@@ -2562,6 +2726,23 @@ class FactaApiService
     {
         $norm = $this->normalize($mensagem);
         return str_contains($norm, 'nao possui um ddd valido');
+    }
+
+    private function isAutorizaTransientRetryMessage(string $mensagem): bool
+    {
+        $norm = $this->normalize($mensagem);
+        if ($norm === '') {
+            return false;
+        }
+
+        return str_contains($norm, 'resposta invalida da facta')
+            || str_contains($norm, 'resposta html inesperada')
+            || str_contains($norm, 'html ')
+            || str_contains($norm, 'temporar')
+            || str_contains($norm, 'service unavailable')
+            || str_contains($norm, 'gateway')
+            || str_contains($norm, 'cloudflare')
+            || str_contains($norm, 'waf');
     }
 
     private function parseAutorizaResponse(HttpResponse $resp): array
