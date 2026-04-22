@@ -74,7 +74,7 @@ export const CLTControls = ({
                 <SelectItem value="todos">Todos os tipos</SelectItem>
                 <SelectItem value="online">Online (ON)</SelectItem>
                 <SelectItem value="offline">Offline (OFF)</SelectItem>
-                <SelectItem value="hybrid">Híbrido (HYB)</SelectItem>
+                <SelectItem value="hybrid">Híbrido</SelectItem>
               </SelectContent>
             </Select>
           </div>
