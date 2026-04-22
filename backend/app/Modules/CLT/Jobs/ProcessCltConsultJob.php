@@ -1280,13 +1280,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function latestHybridOfflineUpdatedAt(array $vinculos): ?string
     {
         $latest = null;
+        $foundRelevantVinculo = false;
 
         foreach ($vinculos as $vinculo) {
             if (!is_array($vinculo)) {
                 return null;
             }
 
-            $updatedAt = $this->parseDateTimeFlexible($vinculo['updated_at'] ?? null);
+            if (!$this->isRelevantHybridOfflineVinculo($vinculo)) {
+                continue;
+            }
+
+            $foundRelevantVinculo = true;
+
+            $updatedAt = $this->parseDateTimeFlexible($vinculo['updated_at'] ?? ($vinculo['created_at'] ?? null));
             if ($updatedAt === null) {
                 return null;
             }
@@ -1296,7 +1303,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        return $latest;
+        return $foundRelevantVinculo ? $latest : null;
     }
 
     private function hybridOfflineEligibleRowsHaveRequiredFields(array $vinculos): bool
@@ -1316,6 +1323,35 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         return true;
+    }
+
+    private function isRelevantHybridOfflineVinculo(array $vinculo): bool
+    {
+        if ($this->simNaoToBool($vinculo['elegivel'] ?? null) !== null) {
+            return true;
+        }
+
+        foreach ([
+            'nome',
+            'dataNascimento',
+            'dataAdmissao',
+            'valorTotalVencimentos',
+            'valorBaseMargem',
+            'valorMargemDisponivel',
+            'numeroInscricaoEmpregador',
+            'nomeEmpregador',
+            'codigoCategoriaTrabalhador',
+        ] as $field) {
+            $value = $vinculo[$field] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return true;
+            }
+            if ($value !== null && !is_string($value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasHybridCreditPhaseRequiredFields(array $vinculo): bool
