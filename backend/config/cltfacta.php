@@ -39,6 +39,8 @@ return [
         'global_rate_limit_rps' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPS', 4),
         'global_rate_limit_rpm' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_RPM', 180),
         'global_rate_limit_sleep_ms' => (int) env('CLT_HTTP_GLOBAL_RATE_LIMIT_SLEEP_MS', 80),
+        // Retry imediato técnico do /autoriza-consulta antes de cair para a próxima rodada do job.
+        'autoriza_transient_retry_attempts' => (int) env('CLT_HTTP_AUTORIZA_TRANSIENT_RETRY_ATTEMPTS', 1),
         // Janela máxima por pool para evitar burst acima do permitido.
         'autoriza_pool_window' => (int) env('CLT_HTTP_AUTORIZA_POOL_WINDOW', 4),
         'policy_pool_window' => (int) env('CLT_HTTP_POLICY_POOL_WINDOW', 4),
