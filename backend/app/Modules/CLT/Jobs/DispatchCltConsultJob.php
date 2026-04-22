@@ -3,6 +3,7 @@
 namespace App\Modules\CLT\Jobs;
 
 use App\Modules\CLT\Models\CltConsultJob;
+use App\Modules\CLT\Support\CltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,28 +25,11 @@ class DispatchCltConsultJob implements ShouldQueue
     public function handle(): void
     {
         $job = CltConsultJob::query()->whereKey($this->jobId)->first();
-        if ($job === null) {
-            return;
-        }
-
-        if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
-            return;
-        }
-
-        if ($job->status === 'em_progresso') {
+        if ($job === null || $job->status !== 'pendente') {
             return;
         }
 
         ProcessCltConsultJob::dispatch($job->id, $this->stage)
-            ->onQueue($this->resolveQueue($job->variant));
-    }
-
-    private function resolveQueue(?string $variant): string
-    {
-        return match ($variant) {
-            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
-            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
-            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
-        };
+            ->onQueue(CltVariant::resolvePhaseOneQueue($job->variant));
     }
 }

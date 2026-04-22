@@ -29,7 +29,6 @@ class CltSnapshot extends Model
         'valor_max_prestacao',
         'categoria_trabalhador_codigo',
         'inicio_atividade_empregador',
-        // NOVO
         'meses_empresa_empregador',
         'qtd_emprestimos_ativos_suspensos',
         'emprestimos_legados',
@@ -50,7 +49,6 @@ class CltSnapshot extends Model
         'margem_disponivel' => 'decimal:2',
         'valor_max_prestacao' => 'decimal:2',
         'inicio_atividade_empregador' => 'date',
-        // NOVO
         'meses_empresa_empregador' => 'integer',
         'qtd_emprestimos_ativos_suspensos' => 'integer',
         'emprestimos_legados' => 'boolean',

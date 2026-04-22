@@ -57,7 +57,6 @@ final class CltSchema
         'cbo_descricao',
         'cnae_descricao',
         'dataInicioAtividadeEmpregador',
-        // NOVO: meses da empresa calculado a partir de dataInicioAtividadeEmpregador
         'mesesEmpresaEmpregador',
         'possuiAlertas',
         'qtdEmprestimosAtivosSuspensos',
@@ -102,7 +101,6 @@ final class CltSchema
         'CBO (descrição)',
         'CNAE (descrição)',
         'Início da Atividade do Empregador',
-        // NOVO
         'Meses da Empresa (Empregador)',
         'Possui Alertas',
         'Qtde Empréstimos Ativos/Suspensos',
@@ -110,7 +108,6 @@ final class CltSchema
         'Pessoa Exposta Politicamente',
         'Status Code',
         'Mensagem',
-        // NOVOS TÍTULOS
         'Data de Atualização (Origem)',
         'Data da Consulta',
         'Fonte da Consulta',

@@ -5,6 +5,7 @@ namespace App\Modules\CLT\Jobs;
 use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
+use App\Modules\CLT\Support\CltSpool;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -154,29 +155,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-            $spoolPath = $job->spool_path ?? null;
-            $targets = [
-                $spoolPath,
-                $job->spool_cpfs_path ?? null,
-                $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
-                $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
-                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
-                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
-            ];
-            if ($spoolPath) {
-                $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
-                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                    $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
-                }
-            }
-            foreach ($targets as $p) {
-                if ($p && $disk->exists($p)) {
-                    try {
-                        $disk->delete($p);
-                    } catch (Throwable) {
-                    }
-                }
-            }
+            CltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null);
         } finally {
             $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0, 'phase' => null]);
         }

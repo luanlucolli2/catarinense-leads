@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Modules\CLT\Jobs\ProcessCltConsultJob;
 use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
-use App\Support\Cpf;
 use App\Modules\CLT\Support\CltSchema;
+use App\Modules\CLT\Support\CltSpool;
+use App\Modules\CLT\Support\CltVariant;
+use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -34,7 +36,7 @@ class CltConsultController extends Controller
 
         $variant = $data['variant'] ?? null;
         if (is_string($variant) && $variant !== '' && $variant !== 'todos') {
-            $variantNormalized = $this->normalizeVariantFilter($variant);
+            $variantNormalized = CltVariant::normalizeFilter($variant);
 
             if ($variantNormalized === 'online') {
                 $jobsQuery->where(function ($q) {
@@ -142,13 +144,7 @@ class CltConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ]);
 
-        // ===== DISPATCH POR FILA SEPARADA =====
-        $queue = match ($variant) {
-            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
-            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
-            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
-        };
-
+        $queue = CltVariant::resolvePhaseOneQueue($variant);
         ProcessCltConsultJob::dispatch($job->id, 'phase1')->onQueue($queue);
 
         return response()->json([
@@ -330,7 +326,7 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (!$this->supportsPhaseTwoOperations($job->variant)) {
+        if (!CltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
                 'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -478,7 +474,7 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (!$this->supportsHttpCounters($job->variant)) {
+        if (!CltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
                 'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -814,7 +810,7 @@ class CltConsultController extends Controller
 
     private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
     {
-        return $this->supportsPhaseTwoOperations($job->variant)
+        return CltVariant::supportsCreditPhaseTwo($job->variant)
             && in_array($job->status, ['pendente', 'em_progresso', 'cancelado', 'falhou'], true)
             && !empty($job->spool_path);
     }
@@ -944,26 +940,7 @@ class CltConsultController extends Controller
 
     private function deleteSpoolArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
     {
-        $targets = [
-            $spoolPath,
-            $cpfsPath,
-            $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
-            $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
-            $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
-            $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
-        ];
-        if ($spoolPath) {
-            $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
-            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
-            }
-        }
-
-        foreach ($targets as $target) {
-            if ($target && $disk->exists($target)) {
-                $disk->delete($target);
-            }
-        }
+        CltSpool::deleteArtifacts($disk, $spoolPath, $cpfsPath);
     }
 
     /**
@@ -987,25 +964,4 @@ class CltConsultController extends Controller
         }
     }
 
-    private function normalizeVariantFilter(string $variant): string
-    {
-        return match ($variant) {
-            'on' => 'online',
-            'off' => 'offline',
-            'hyb' => 'hybrid',
-            default => $variant,
-        };
-    }
-
-    private function supportsPhaseTwoOperations(?string $variant): bool
-    {
-        $normalized = $variant ?? 'online';
-
-        return in_array($normalized, ['online', 'hybrid'], true);
-    }
-
-    private function supportsHttpCounters(?string $variant): bool
-    {
-        return $this->supportsPhaseTwoOperations($variant);
-    }
 }

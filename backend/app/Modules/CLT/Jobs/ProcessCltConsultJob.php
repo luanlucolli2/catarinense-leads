@@ -6,6 +6,8 @@ use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
+use App\Modules\CLT\Support\CltSpool;
+use App\Modules\CLT\Support\CltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -165,11 +167,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         // variante para snapshots
-        $this->variant = match ($job->variant) {
-            'offline' => 'offline',
-            'hybrid' => 'hybrid',
-            default => 'online',
-        };
+        $this->variant = CltVariant::normalizeStored($job->variant);
         $this->cachedStatus = $job->status;
         $this->lastStatusCheckAt = microtime(true);
 
@@ -288,7 +286,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $pf = fopen($pend1Real, 'c+');
             if ($pf === false) {
-                $this->failFinalize($job);
+                $this->failFinalize();
                 return;
             }
             ftruncate($pf, 0);
@@ -297,7 +295,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $reader = fopen($disk->path($uniqRel), 'r');
             if ($reader === false) {
                 fclose($pf);
-                $this->failFinalize($job);
+                $this->failFinalize();
                 return;
             }
             try {
@@ -377,7 +375,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $nf = fopen($nextPendReal, 'c+');
                 if ($nf === false) {
-                    $this->failFinalize($job);
+                    $this->failFinalize();
                     return;
                 }
                 ftruncate($nf, 0);
@@ -389,7 +387,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $r2 = fopen($currPendReal, 'r');
                 if ($r2 === false) {
                     fclose($nf);
-                    $this->failFinalize($job);
+                    $this->failFinalize();
                     return;
                 }
 
@@ -637,7 +635,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'exception' => $e,
             ]);
             try {
-                $this->failFinalize($job);
+                $this->failFinalize();
             } catch (Throwable) {
             }
         } finally {
@@ -791,9 +789,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $semRespInChunk = 0;
         $onlineAttemptsInChunk = 0;
 
-        // CORREÇÃO: Força o timezone BR (America/Sao_Paulo) explicitamente.
-        // OTIMIZAÇÃO: Chamamos o Carbon apenas UMA vez por lote (chunk), e não por CPF.
-        // Isso é extremamente leve para o servidor (custo zero de CPU no loop).
+        // Captura o timestamp BR uma vez por chunk para reutilizar nas linhas.
         $nowStr = Carbon::now('America/Sao_Paulo')->format('d/m/Y H:i:s');
 
         foreach ($slices as $idx => $slice) {
@@ -3185,7 +3181,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function supportsCreditPhaseTwo(): bool
     {
-        return in_array($this->variant, ['online', 'hybrid'], true);
+        return CltVariant::supportsCreditPhaseTwo($this->variant);
     }
 
     private function normalizeConsultaMensagemForCsv($mensagem): ?string
@@ -3215,28 +3211,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         try {
             $disk = Storage::disk($this->disk);
-            $spoolPath = $job->spool_path ?? null;
-            $targets = [
-                $spoolPath,
-                $job->spool_cpfs_path ?? null,
-                $spoolPath ? "{$spoolPath}.phase2.tmp" : null,
-                $spoolPath ? "{$spoolPath}.phase2.delta.ndjson" : null,
-                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson" : null,
-                $spoolPath ? "{$spoolPath}.phase2.pending.ndjson.next" : null,
-            ];
-            if ($spoolPath) {
-                for ($attempt = 1; $attempt <= $this->phase2MaxAttempts; $attempt++) {
-                    $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
-                }
-            }
-            foreach ($targets as $p) {
-                if ($p && $disk->exists($p)) {
-                    try {
-                        $disk->delete($p);
-                    } catch (Throwable) {
-                    }
-                }
-            }
+            CltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null, $this->phase2MaxAttempts);
         } finally {
             if (DB::table('clt_consult_jobs')->where('id', $job->id)->exists()) {
                 try {
@@ -3578,7 +3553,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function failFinalize(CltConsultJob $job): void
+    private function failFinalize(): void
     {
         $this->dispatchFinalize('falhou');
         $this->deletePendFiles();
@@ -3675,11 +3650,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function resolvePhaseOneQueue(): string
     {
-        return match ($this->variant) {
-            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
-            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
-            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
-        };
+        return CltVariant::resolvePhaseOneQueue($this->variant);
     }
 
     private function dispatchPhaseTwo(CltConsultJob $job): void

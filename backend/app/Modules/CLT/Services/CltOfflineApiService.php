@@ -160,7 +160,7 @@ class CltOfflineApiService
                 $normalizedCpfs[] = $digits;
             }
         }
-        $cpfs = $normalizedCpfs;
+        $cpfs = array_values(array_unique($normalizedCpfs));
 
         if (empty($cpfs)) {
             return [];
@@ -193,8 +193,6 @@ class CltOfflineApiService
             'Authorization' => 'Bearer ' . $token,
             'Accept' => 'application/json',
         ];
-        
-        // CORREÇÃO: Removemos o /debug pois o manual v2.0 especifica /clt/base-offline
         $url = $this->baseUrl . '/clt/base-offline';
 
         $out = [];
