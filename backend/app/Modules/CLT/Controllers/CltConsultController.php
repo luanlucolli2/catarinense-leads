@@ -384,9 +384,6 @@ class CltConsultController extends Controller
             DB::table('clt_job_http_counters')->where('job_id', $job->id)->delete();
         }
 
-        $oldFinalDisk = $job->file_disk;
-        $oldFinalPath = $job->file_path;
-
         $job->update([
             'status' => 'pendente',
             'phase' => 'fase_2',
@@ -397,25 +394,11 @@ class CltConsultController extends Controller
             'spool_path' => $spoolPath,
             'spool_cpfs_path' => null,
             'spool_bytes' => $spoolBytes,
-            'file_disk' => null,
-            'file_path' => null,
-            'file_name' => null,
             'started_at' => now(),
             'finished_at' => null,
             'canceled_at' => null,
             'cancel_reason' => null,
         ]);
-
-        if ($oldFinalDisk && $oldFinalPath) {
-            try {
-                $oldDisk = Storage::disk($oldFinalDisk);
-                if ($oldDisk->exists($oldFinalPath)) {
-                    $oldDisk->delete($oldFinalPath);
-                }
-            } catch (\Throwable $e) {
-                CltLog::warning("[CLT] Falha ao remover CSV final antigo no rerun da fase 2 (job {$job->id}): " . $e->getMessage());
-            }
-        }
 
         $queue = (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred');
         ProcessCltConsultJob::dispatch($job->id, 'phase2')->onQueue($queue);
@@ -437,9 +420,12 @@ class CltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true)) {
+        $cancelCleanupInProgress = $job->status === 'cancelado'
+            && (!empty($job->spool_path) || !empty($job->spool_cpfs_path));
+
+        if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
+                'message' => 'Não é possível excluir enquanto o job ainda está em andamento ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
@@ -630,10 +616,19 @@ class CltConsultController extends Controller
         if ($fp === false)
             throw new \RuntimeException("Não foi possível criar spool em {$spoolPath}");
         try {
-            if (flock($fp, LOCK_EX)) {
-                ftruncate($fp, 0);
-                fputcsv($fp, CltSchema::TITLES, ';');
-                fflush($fp);
+            if (!flock($fp, LOCK_EX)) {
+                throw new \RuntimeException("Não foi possível bloquear spool em {$spoolPath}");
+            }
+
+            try {
+                if (!ftruncate($fp, 0)) {
+                    throw new \RuntimeException("Não foi possível truncar spool em {$spoolPath}");
+                }
+                $this->writeCsvRowOrFail($fp, CltSchema::TITLES, "spool inicial {$spoolPath}");
+                if (!fflush($fp)) {
+                    throw new \RuntimeException("Não foi possível sincronizar spool em {$spoolPath}");
+                }
+            } finally {
                 flock($fp, LOCK_UN);
             }
         } finally {
@@ -646,8 +641,14 @@ class CltConsultController extends Controller
 
         $count = 0;
         try {
-            if (flock($fp2, LOCK_EX)) {
-                ftruncate($fp2, 0);
+            if (!flock($fp2, LOCK_EX)) {
+                throw new \RuntimeException("Não foi possível bloquear arquivo de CPFs em {$cpfsPath}");
+            }
+
+            try {
+                if (!ftruncate($fp2, 0)) {
+                    throw new \RuntimeException("Não foi possível truncar arquivo de CPFs em {$cpfsPath}");
+                }
                 foreach ($allCpfs as $raw) {
                     $norm = Cpf::normalize((string) $raw);
                     if ($norm === null)
@@ -655,10 +656,13 @@ class CltConsultController extends Controller
                     $digits = preg_replace('/\D+/', '', $norm);
                     if ($digits === '' || strlen($digits) !== 11)
                         continue;
-                    fwrite($fp2, $digits . "\n");
+                    $this->writeAllOrFail($fp2, $digits . "\n", "arquivo de CPFs {$cpfsPath}");
                     $count++;
                 }
-                fflush($fp2);
+                if (!fflush($fp2)) {
+                    throw new \RuntimeException("Não foi possível sincronizar arquivo de CPFs em {$cpfsPath}");
+                }
+            } finally {
                 flock($fp2, LOCK_UN);
             }
         } finally {
@@ -739,13 +743,15 @@ class CltConsultController extends Controller
                 throw new \RuntimeException("Não foi possível bloquear spool de destino para rerun.");
             }
 
-            @ftruncate($out, 0);
+            if (!@ftruncate($out, 0)) {
+                throw new \RuntimeException("Não foi possível truncar spool de destino para rerun.");
+            }
             $header = @fgetcsv($in, 0, ';');
             if ($header === false) {
                 throw new \RuntimeException("CSV final vazio, impossível reconstruir spool de rerun.");
             }
 
-            @fputcsv($out, CltSchema::TITLES, ';');
+            $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool de rerun {$targetPath}");
 
             while (($row = @fgetcsv($in, 0, ';')) !== false) {
                 if (count($row) < $colsCount) {
@@ -759,10 +765,12 @@ class CltConsultController extends Controller
                 }
 
                 $row = CltSchema::normalizeOrderedRowForCsv($row);
-                @fputcsv($out, $row, ';');
+                $this->writeCsvRowOrFail($out, $row, "spool de rerun {$targetPath}");
             }
 
-            @fflush($out);
+            if (!@fflush($out)) {
+                throw new \RuntimeException("Falha ao sincronizar spool de rerun em disco.");
+            }
             @flock($out, LOCK_UN);
         } finally {
             if (is_resource($in)) {
@@ -961,6 +969,29 @@ class CltConsultController extends Controller
             return fgetcsv($fh, 0, ';');
         } finally {
             @flock($fh, LOCK_UN);
+        }
+    }
+
+    private function writeCsvRowOrFail($handle, array $row, string $context): void
+    {
+        $written = fputcsv($handle, $row, ';');
+        if ($written === false) {
+            throw new \RuntimeException("Falha ao escrever linha CSV em {$context}.");
+        }
+    }
+
+    private function writeAllOrFail($handle, string $data, string $context): void
+    {
+        $length = strlen($data);
+        $offset = 0;
+
+        while ($offset < $length) {
+            $written = fwrite($handle, substr($data, $offset));
+            if ($written === false || $written <= 0) {
+                throw new \RuntimeException("Falha ao escrever dados em {$context}.");
+            }
+
+            $offset += $written;
         }
     }
 

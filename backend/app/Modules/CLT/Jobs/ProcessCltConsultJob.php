@@ -237,6 +237,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
 
             if (!$this->runCreditPhaseTwo($api, $job)) {
+                $statusAfterPhaseTwo = $this->currentStatusCached($job->id, true);
+                if ($statusAfterPhaseTwo === null || in_array($statusAfterPhaseTwo, ['cancelado', 'falhou', 'concluido'], true)) {
+                    return;
+                }
+
+                $this->failFinalize();
                 return;
             }
 
@@ -289,7 +295,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $this->failFinalize();
                 return;
             }
-            ftruncate($pf, 0);
+            if (!ftruncate($pf, 0)) {
+                fclose($pf);
+                $this->failFinalize();
+                return;
+            }
 
             $invCount = 0;
             $reader = fopen($disk->path($uniqRel), 'r');
@@ -327,7 +337,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $nowBr = date('d/m/Y H:i:s'); // Atualiza relógio a cada lote
                         }
                     } else {
-                        fwrite($pf, $cpf . "\n");
+                        $this->writeAllOrFail($pf, $cpf . "\n", 'pendência inicial da fase 1');
                     }
                 }
                 if (!empty($batch)) {
@@ -378,7 +388,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $this->failFinalize();
                     return;
                 }
-                ftruncate($nf, 0);
+                if (!ftruncate($nf, 0)) {
+                    fclose($nf);
+                    $this->failFinalize();
+                    return;
+                }
 
                 $retryAfterMaxSeen = 0;
                 $semRespTotal = 0;
@@ -855,10 +869,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             } catch (\Throwable $e) {
                 CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($onlineSlice as $cpf) {
-                    fwrite(
-                        $nextPendHandle,
-                        $this->encodePhaseOnePendingEntry($cpf, 'Exceção: ' . $e->getMessage())
-                    );
+                    $this->appendPhaseOnePendingEntryOrFail($nextPendHandle, $cpf, 'Exceção: ' . $e->getMessage());
                 }
                 $semRespTotal += count($onlineSlice);
                 $semRespInChunk += count($onlineSlice);
@@ -1195,7 +1206,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $rows[] = $row;
             $failTermCount++;
         } else {
-            fwrite($nextPendHandle, $this->encodePhaseOnePendingEntry($cpf, $msg));
+            $this->appendPhaseOnePendingEntryOrFail($nextPendHandle, $cpf, $msg);
         }
     }
 
@@ -1389,16 +1400,25 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         if (!is_resource($this->spoolFp))
             throw new \RuntimeException("Writer do spool não inicializado.");
-        if (flock($this->spoolFp, LOCK_EX)) {
+
+        if (!flock($this->spoolFp, LOCK_EX)) {
+            throw new \RuntimeException("Não foi possível bloquear o spool para escrita.");
+        }
+
+        try {
             foreach ($rows as $row) {
                 $row = CltSchema::normalizeAssocRowForCsv($row);
                 $ordered = [];
                 foreach (CltSchema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
                 }
-                fputcsv($this->spoolFp, $ordered, ';');
+                $this->writeCsvRowOrFail($this->spoolFp, $ordered, 'spool principal');
             }
-            fflush($this->spoolFp);
+
+            if (!fflush($this->spoolFp)) {
+                throw new \RuntimeException("Falha ao sincronizar o spool principal em disco.");
+            }
+        } finally {
             flock($this->spoolFp, LOCK_UN);
         }
 
@@ -2349,7 +2369,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             fgetcsv($in, 0, ';');
-            fputcsv($out, CltSchema::TITLES, ';');
+            $this->writeCsvRowOrFail($out, CltSchema::TITLES, 'spool consolidado da fase 2');
 
             $lineNo = 0;
             while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
@@ -2397,10 +2417,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $row = $this->applyPhase2PatchToAssocRow($row, $bestPatch);
                 }
 
-                fputcsv($out, $this->assocToCsvRow($row), ';');
+                $this->writeCsvRowOrFail($out, $this->assocToCsvRow($row), 'spool consolidado da fase 2');
             }
 
-            @fflush($out);
+            if (!fflush($out)) {
+                throw new \RuntimeException("Falha ao sincronizar spool consolidado da fase 2 em disco.");
+            }
             if (!@rename($tmpReal, $sourceReal)) {
                 throw new \RuntimeException("Falha ao promover spool consolidado da fase 2 (job {$this->jobId}).");
             }
@@ -2527,7 +2549,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             try {
                 fgetcsv($in, 0, ';');
-                fputcsv($out, CltSchema::TITLES, ';');
+                $this->writeCsvRowOrFail($out, CltSchema::TITLES, 'spool abortado da fase 2');
 
                 while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
                     if ($this->finishIfStopped($job)) {
@@ -2546,10 +2568,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $markedCount++;
                     }
 
-                    fputcsv($out, $this->assocToCsvRow($row), ';');
+                    $this->writeCsvRowOrFail($out, $this->assocToCsvRow($row), 'spool abortado da fase 2');
                 }
             } finally {
-                @fflush($out);
+                if (!@fflush($out)) {
+                    throw new \RuntimeException("Falha ao sincronizar spool abortado da fase 2 em disco.");
+                }
                 @fclose($in);
                 @fclose($out);
             }
@@ -3284,7 +3308,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if (count($chunks) === 1) {
             // move REAL -> REAL
-            @rename($chunks[0], $uniqReal);
+            if (!@rename($chunks[0], $uniqReal)) {
+                throw new \RuntimeException("Falha ao promover arquivo único de CPFs deduplicados.");
+            }
 
             // conta linhas usando REAL
             $cnt = 0;
@@ -3335,7 +3361,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 break;
 
             if ($minVal !== '' && $minVal !== $last) {
-                fwrite($w, $minVal . "\n");
+                $this->writeAllOrFail($w, $minVal . "\n", 'arquivo único de CPFs deduplicados');
                 $written++;
                 $last = $minVal;
             }
@@ -3372,11 +3398,44 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $w = fopen($real, 'w');
         if ($w !== false) {
             foreach ($block as $cpf => $_) {
-                fwrite($w, $cpf . "\n");
+                $this->writeAllOrFail($w, $cpf . "\n", 'chunk temporário de CPFs deduplicados');
             }
             fclose($w);
         }
         return $real; // sempre REAL
+    }
+
+    private function appendPhaseOnePendingEntryOrFail($handle, string $cpf, ?string $mensagem = null): void
+    {
+        $entry = $this->encodePhaseOnePendingEntry($cpf, $mensagem);
+        if ($entry === '') {
+            return;
+        }
+
+        $this->writeAllOrFail($handle, $entry, 'arquivo de pendências da fase 1');
+    }
+
+    private function writeCsvRowOrFail($handle, array $row, string $context): void
+    {
+        $written = fputcsv($handle, $row, ';');
+        if ($written === false) {
+            throw new \RuntimeException("Falha ao escrever linha CSV em {$context}.");
+        }
+    }
+
+    private function writeAllOrFail($handle, string $data, string $context): void
+    {
+        $length = strlen($data);
+        $offset = 0;
+
+        while ($offset < $length) {
+            $written = fwrite($handle, substr($data, $offset));
+            if ($written === false || $written <= 0) {
+                throw new \RuntimeException("Falha ao escrever dados em {$context}.");
+            }
+
+            $offset += $written;
+        }
     }
 
     private function shouldSpill(): bool
