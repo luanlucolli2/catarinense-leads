@@ -93,6 +93,13 @@ return [
             'retry_delay_ms'  => (int) env('CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
             'min_interval_ms' => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200),
         ],
+        'rate_limit' => [
+            'enabled'              => (bool) env('CLT_OFF_RATE_LIMIT_ENABLED', true),
+            'min_interval_ms'      => (int) env('CLT_OFF_MIN_INTERVAL_MS', 3200),
+            'lock_ttl'             => (int) env('CLT_OFF_RATE_LOCK_TTL', 10),
+            'lock_wait'            => (int) env('CLT_OFF_RATE_LOCK_WAIT', 5),
+            'retry_later_attempts' => (int) env('CLT_OFF_RETRY_LATER_ATTEMPTS', 2),
+        ],
     ],
 
     // ===== JOB =====
@@ -117,6 +124,10 @@ return [
         'subchunk_delay_ms'   => (int) env('CLT_JOB_SUBCHUNK_DELAY_MS', 0),
         // intervalo mínimo para reconsultar status do job no banco (reduz polling excessivo)
         'status_check_interval_ms' => (int) env('CLT_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
+        // Coordenação leve da fase 1: hybrid roda sozinho; online/offline podem coexistir entre si.
+        'phase1_coord_lock_ttl' => (int) env('CLT_PHASE1_COORD_LOCK_TTL', 10),
+        'phase1_coord_lock_wait' => (int) env('CLT_PHASE1_COORD_LOCK_WAIT', 5),
+        'phase1_coord_retry_delay_seconds' => (int) env('CLT_PHASE1_COORD_RETRY_DELAY_SECONDS', 15),
         // Checkpoint de progresso (fase 1) no banco; fase 2 respeita no mínimo este intervalo.
         'progress_flush_interval_seconds' => (int) env('CLT_JOB_PROGRESS_FLUSH_INTERVAL_SECONDS', 20),
         // Flush incremental dos buffers internos do job para reduzir pico de RAM.

@@ -7,12 +7,14 @@ use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -68,6 +70,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private bool $flushProgressLog;
     private float $semResponseChunkThreshold;
     private int $semResponseChunkCooldownSeconds;
+    private int $phaseOneCoordLockTtl;
+    private int $phaseOneCoordLockWait;
+    private int $phaseOneCoordRetryDelaySeconds;
 
     /** Guarda a variante (online|offline|hybrid) para a regra de snapshot */
     private string $variant = 'online';
@@ -131,6 +136,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
         $this->semResponseChunkThreshold = max(0.05, min(1.0, (float) config('cltfacta.job.sem_response_chunk_threshold', 0.5)));
         $this->semResponseChunkCooldownSeconds = max(0, (int) config('cltfacta.job.sem_response_chunk_cooldown_seconds', 10));
+        $this->phaseOneCoordLockTtl = max(1, (int) config('cltfacta.job.phase1_coord_lock_ttl', 10));
+        $this->phaseOneCoordLockWait = max(1, (int) config('cltfacta.job.phase1_coord_lock_wait', 5));
+        $this->phaseOneCoordRetryDelaySeconds = max(1, (int) config('cltfacta.job.phase1_coord_retry_delay_seconds', 15));
         $this->hybridOfflineMaxAgeDays = max(0, (int) config('cltfacta.hybrid.offline_max_age_days', 7));
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
@@ -238,16 +246,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $job->update([
-            'status' => 'em_progresso',
-            'phase' => $this->supportsCreditPhaseTwo() ? 'fase_1' : null,
-            'phase2_total' => 0,
-            'phase2_attempt' => 0,
-            'phase2_aprovado_count' => 0,
-            'phase2_nao_aprovado_count' => 0,
-            'started_at' => $job->started_at ?? Carbon::now(),
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
-        ]);
+        if (!$this->beginPhaseOneIfAllowed($job)) {
+            return;
+        }
+
         CltLog::warning($this->variant === 'online'
             ? '[CLT] Fase 1 iniciada (consulta de trabalhadores)'
             : ($this->variant === 'hybrid'
@@ -1026,7 +1028,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $row['sexo_descricao'] = $v['sexo_descricao'] ?? null;
 
                 $row['status_code'] = $v['status_code'] ?? null;
-                $row['mensagem'] = $res['mensagem'] ?? 'OK';
+                $row['mensagem'] = $this->normalizeConsultaMensagemForCsv($res['mensagem'] ?? 'OK') ?? 'OK';
                 $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
 
                 $rawUpdated = $v['updated_at'] ?? ($v['created_at'] ?? null);
@@ -1068,7 +1070,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         } else {
             $row = $this->baseRow($cpf);
             $row['numeroVinculos'] = 0;
-            $row['mensagem'] = $res['mensagem'] ?? 'Sem vínculos';
+            $row['mensagem'] = $this->normalizeConsultaMensagemForCsv($res['mensagem'] ?? 'Sem vínculos') ?? 'Sem vínculos';
             $row['consulted_at'] = $nowStr;
             $row['fonteConsulta'] = $this->formatConsultaSource($consultaSource);
             $rows[] = $row;
@@ -1092,7 +1094,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         int &$failTermCount,
         string $consultaSource
     ): void {
-        $msg = (string) ($res['mensagem'] ?? 'Falha na consulta');
+        $msg = $this->normalizeConsultaMensagemForCsv($res['mensagem'] ?? 'Falha na consulta') ?? 'Falha na consulta';
 
         if (!empty($res['not_found'])) {
             $row = $this->baseRow($cpf);
@@ -3108,6 +3110,24 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return in_array($this->variant, ['online', 'hybrid'], true);
     }
 
+    private function normalizeConsultaMensagemForCsv($mensagem): ?string
+    {
+        if ($mensagem === null) {
+            return null;
+        }
+
+        $texto = trim((string) $mensagem);
+        if ($texto === '') {
+            return null;
+        }
+
+        return match ($texto) {
+            'Dados retornados com sucesso!',
+            'CPF autorizado com sucesso' => 'Sucesso',
+            default => $texto,
+        };
+    }
+
     private function finalConsultaSourceForPendingFailures(): string
     {
         return $this->variant === 'offline' ? 'offline' : 'online';
@@ -3484,6 +3504,104 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $this->dispatchFinalize('falhou');
         $this->deletePendFiles();
+    }
+
+    private function beginPhaseOneIfAllowed(CltConsultJob $job): bool
+    {
+        $lock = Cache::lock('clt_phase1_coordination_lock', $this->phaseOneCoordLockTtl);
+
+        try {
+            $lock->block($this->phaseOneCoordLockWait);
+        } catch (LockTimeoutException) {
+            $this->requeuePhaseOneForCoordination($job);
+            return false;
+        }
+
+        try {
+            $job->refresh();
+            if ($job->status === 'cancelado') {
+                $this->cleanupSpool($job);
+                DB::table('clt_consult_jobs')
+                    ->where('id', $job->id)
+                    ->whereNull('finished_at')
+                    ->update([
+                        'phase' => null,
+                        'finished_at' => Carbon::now(),
+                    ]);
+                return false;
+            }
+
+            if ($this->hasPhaseOneConcurrencyConflict($job)) {
+                $this->requeuePhaseOneForCoordination($job);
+                return false;
+            }
+
+            $job->update([
+                'status' => 'em_progresso',
+                'phase' => $this->supportsCreditPhaseTwo() ? 'fase_1' : null,
+                'phase2_total' => 0,
+                'phase2_attempt' => 0,
+                'phase2_aprovado_count' => 0,
+                'phase2_nao_aprovado_count' => 0,
+                'started_at' => $job->started_at ?? Carbon::now(),
+                'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
+            ]);
+            $this->cachedStatus = 'em_progresso';
+
+            return true;
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private function hasPhaseOneConcurrencyConflict(CltConsultJob $job): bool
+    {
+        $query = CltConsultJob::query()
+            ->whereKeyNot($job->id)
+            ->where('status', 'em_progresso');
+
+        if ($this->variant === 'hybrid') {
+            return $query
+                ->where(function ($conflictQuery) {
+                    $conflictQuery
+                        ->where('variant', 'offline')
+                        ->orWhere(function ($phaseOneQuery) {
+                            $phaseOneQuery
+                                ->whereIn('variant', ['online', 'hybrid'])
+                                ->where('phase', 'fase_1');
+                        });
+                })
+                ->exists();
+        }
+
+        return $query
+            ->where('variant', 'hybrid')
+            ->where('phase', 'fase_1')
+            ->exists();
+    }
+
+    private function requeuePhaseOneForCoordination(CltConsultJob $job): void
+    {
+        if (!in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
+            $job->updateQuietly([
+                'status' => 'pendente',
+                'phase' => null,
+            ]);
+            $this->cachedStatus = 'pendente';
+        }
+
+        DispatchCltConsultJob::dispatch($job->id, self::STAGE_PHASE1)
+            ->delay(now()->addSeconds($this->phaseOneCoordRetryDelaySeconds))
+            ->onQueue($this->resolvePhaseOneQueue());
+    }
+
+    private function resolvePhaseOneQueue(): string
+    {
+        return match ($this->variant) {
+            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
+            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
+            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
+        };
     }
 
     private function dispatchPhaseTwo(CltConsultJob $job): void
