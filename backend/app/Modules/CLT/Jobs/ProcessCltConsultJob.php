@@ -399,8 +399,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         if ($this->finishIfStopped($job))
                             return;
 
-                        $cpf = preg_replace('/\D+/', '', (string) $line);
-                        if ($cpf === '' || strlen($cpf) !== 11)
+                        $pending = $this->decodePhaseOnePendingEntry((string) $line);
+                        $cpf = $pending['cpf'] ?? null;
+                        if (!is_string($cpf) || strlen($cpf) !== 11)
                             continue;
 
                         $buf[] = $cpf;
@@ -589,12 +590,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $nowBr = date('d/m/Y H:i:s');
 
                     while (($line = fgets($r)) !== false) {
-                        $cpf = preg_replace('/\D+/', '', (string) $line);
-                        if ($cpf === '' || strlen($cpf) !== 11)
+                        $pending = $this->decodePhaseOnePendingEntry((string) $line);
+                        $cpf = $pending['cpf'] ?? null;
+                        if (!is_string($cpf) || strlen($cpf) !== 11)
                             continue;
                         $row = $this->baseRow($cpf);
                         $row['numeroVinculos'] = 0;
-                        $row['mensagem'] = 'Não foi possível consultar após múltiplas tentativas';
+                        $row['mensagem'] = $this->buildExhaustedAttemptsMensagem($pending['mensagem'] ?? null);
                         $row['consulted_at'] = $nowBr;
                         $row['fonteConsulta'] = $this->formatConsultaSource($this->finalConsultaSourceForPendingFailures());
                         $rows[] = $row;
@@ -695,7 +697,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $appendCpf = function (string $rawCpf) use (&$rows, &$abortedCount, &$nowBr, $batchSize, $abortMessage, $job): void {
-            $cpf = preg_replace('/\D+/', '', $rawCpf);
+            $pending = $this->decodePhaseOnePendingEntry($rawCpf);
+            $cpf = $pending['cpf'] ?? null;
             if (!is_string($cpf) || strlen($cpf) !== 11) {
                 return;
             }
@@ -856,7 +859,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             } catch (\Throwable $e) {
                 CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($onlineSlice as $cpf) {
-                    fwrite($nextPendHandle, $cpf . "\n");
+                    fwrite(
+                        $nextPendHandle,
+                        $this->encodePhaseOnePendingEntry($cpf, 'Exceção: ' . $e->getMessage())
+                    );
                 }
                 $semRespTotal += count($onlineSlice);
                 $semRespInChunk += count($onlineSlice);
@@ -956,6 +962,78 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'http_status' => null,
             'retry_after' => null,
         ];
+    }
+
+    private function encodePhaseOnePendingEntry(string $cpf, ?string $mensagem = null): string
+    {
+        $digits = preg_replace('/\D+/', '', $cpf);
+        if (!is_string($digits) || strlen($digits) !== 11) {
+            return '';
+        }
+
+        $normalizedMensagem = $this->normalizePendingRetryMensagem($mensagem);
+        if ($normalizedMensagem === null) {
+            return $digits . "\n";
+        }
+
+        return $digits . "\t" . base64_encode($normalizedMensagem) . "\n";
+    }
+
+    /**
+     * @return array{cpf:?string,mensagem:?string}
+     */
+    private function decodePhaseOnePendingEntry(string $line): array
+    {
+        $raw = rtrim($line, "\r\n");
+        if ($raw === '') {
+            return ['cpf' => null, 'mensagem' => null];
+        }
+
+        [$cpfRaw, $encodedMensagem] = array_pad(explode("\t", $raw, 2), 2, null);
+        $cpf = preg_replace('/\D+/', '', (string) $cpfRaw);
+        if (!is_string($cpf) || strlen($cpf) !== 11) {
+            return ['cpf' => null, 'mensagem' => null];
+        }
+
+        $mensagem = null;
+        if (is_string($encodedMensagem) && $encodedMensagem !== '') {
+            $decoded = base64_decode($encodedMensagem, true);
+            if (is_string($decoded) && $decoded !== '') {
+                $mensagem = $this->normalizePendingRetryMensagem($decoded);
+            }
+        }
+
+        return ['cpf' => $cpf, 'mensagem' => $mensagem];
+    }
+
+    private function normalizePendingRetryMensagem(?string $mensagem): ?string
+    {
+        if (!is_string($mensagem)) {
+            return null;
+        }
+
+        $normalized = trim($mensagem);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $collapsed = preg_replace('/\s+/u', ' ', $normalized);
+        if (is_string($collapsed) && $collapsed !== '') {
+            $normalized = trim($collapsed);
+        }
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function buildExhaustedAttemptsMensagem(?string $ultimaMensagem): string
+    {
+        $base = 'Não foi possível consultar após múltiplas tentativas';
+        $normalized = $this->normalizePendingRetryMensagem($ultimaMensagem);
+        if ($normalized === null) {
+            return $base;
+        }
+
+        return $base . ' (' . $normalized . ')';
     }
 
     private function flushPhaseOneBuffers(CltConsultJob $job, array &$rows, array &$snapRows): void
@@ -1121,7 +1199,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $rows[] = $row;
             $failTermCount++;
         } else {
-            fwrite($nextPendHandle, $cpf . "\n");
+            fwrite($nextPendHandle, $this->encodePhaseOnePendingEntry($cpf, $msg));
         }
     }
 
