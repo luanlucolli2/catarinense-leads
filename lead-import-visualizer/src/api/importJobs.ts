@@ -62,7 +62,7 @@ export async function listActiveImports(): Promise<
   ActiveImportJobDto[]
 > {
   const { data } = await axiosClient.get("/imports", {
-    params: { status: "pendente,em_progresso" },
+    params: { status: "pendente,em_progresso", scope: "mine" },
   });
   return data as ActiveImportJobDto[];
 }
@@ -73,7 +73,9 @@ export async function rollbackImportJob(id: number): Promise<void> {
 
 /** GET /imports → lista completa (Histórico) */
 export async function listImportJobs(): Promise<ImportJob[]> {
-  const { data } = await axiosClient.get("/imports");
+  const { data } = await axiosClient.get("/imports", {
+    params: { scope: "all" },
+  });
   return (data as any[]).map((raw) => ({
     id: raw.id,
     type: raw.type,

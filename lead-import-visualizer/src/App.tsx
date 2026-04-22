@@ -6,13 +6,16 @@ import {
   BrowserRouter,
   Routes,
   Route,
-  Outlet,
 } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
 import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
+import FGTSOfflineConsultaPage from "./pages/FGTSOfflineConsultaPage"; // 👈 nova página FGTS OFF
+import C6LinksPage from "./pages/C6LinksPage";
+import ParceirosUY3Page from "./pages/ParceirosUY3Page";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -59,6 +62,28 @@ const App = () => (
                 <Route
                   path="importacoes/historico"
                   element={<HistoricoPage />}
+                />
+
+                {/* consulta CLT (Consignado em Folha) */}
+                <Route
+                  path="clt/consulta"
+                  element={<CLTConsultaPage />}
+                />
+
+                {/* consulta FGTS (Base Offline) */}
+                <Route
+                  path="fgts-off/consulta"
+                  element={<FGTSOfflineConsultaPage />}
+                />
+
+                <Route
+                  path="c6/links"
+                  element={<C6LinksPage />}
+                />
+
+                <Route
+                  path="parceiros/uy3"
+                  element={<ParceirosUY3Page />}
                 />
               </Route>
 

@@ -1,14 +1,32 @@
-# docker-compose.yml
 
-# Âncora para reutilizar a configuração de ambiente
 x-app-environment: &app-environment
   WWWUSER: '${WWWUSER}'
+  WWWGROUP: '${WWWGROUP:-1000}'
   LARAVEL_SAIL: 1
   XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
   XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
   IGNITION_LOCAL_SITES_PATH: '${PWD}'
+  # Variáveis Default (Fallback)
+  CLT_ON_JOB_QUEUE: 'clt-consulta-online'
+  CLT_PHASE2_JOB_QUEUE: 'clt-valida-politica-cred'
+  CLT_OFF_JOB_QUEUE: 'clt-off'
+  CLT_FACTA_LOG_RESPONSES: 'true'
+  CLT_FACTA_LOG_SUCCESS_RESPONSES: 'true'
+  FGTS_OFF_JOB_QUEUE: 'fgts'
+  CLT_PREVIEW_QUEUE: 'reports'
+  V8_JOB_QUEUE: 'v8'
+  URA_JOB_QUEUE: 'ura'
+  C6_JOB_QUEUE: 'c6-auth'
+  PRESENCA_JOB_QUEUE: 'presenca'
+  CLT_ON_JOB_TIMEOUT: '18000'
+  CLT_PHASE2_JOB_TIMEOUT: '18000'
+  CLT_OFF_JOB_TIMEOUT: '18000'
+  FGTS_OFF_JOB_TIMEOUT: '18000'
+  V8_JOB_TIMEOUT: '18000'
+  PRESENCA_JOB_TIMEOUT: '115200'
 
 services:
+  # ===== SERVIÇO APP (HTTP / API) =====
   laravel.test:
     build:
       context: ./vendor/laravel/sail/runtimes/8.4
@@ -24,26 +42,47 @@ services:
       <<: *app-environment
     volumes:
       - '.:/var/www/html'
-      - './docker/php.ini:/etc/php/8.4/cli/conf.d/99-custom.ini'
+      - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
     networks:
       - sail
     depends_on:
       - mysql
+      - redis
+    # Limitando para simular prod (mas deixando um pouco menos que prod para sobrar pra workers)
+    mem_limit: 384m 
 
-  queue:
+  # ==========================================================
+  # ✅ WORKER UNIFICADO (SUPERVISOR)
+  # ==========================================================
+  leads-workers:
     image: sail-8.4/app
-    command: php artisan queue:work --verbose --timeout=120 --memory=480 --tries=3
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -f /etc/apt/sources.list.d/yarn.list
+        apt-get update && apt-get install -y supervisor
+        supervisord -c /etc/supervisor/conf.d/supervisord.conf
     environment:
       <<: *app-environment
     volumes:
-      - .:/var/www/html
+      - '.:/var/www/html'
+      - ./docker/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
+      - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - sail
     restart: unless-stopped
+    # ⚠️ AQUI ESTÁ O GARGALO PROPOSITAL
+    # Prod soma > 3GB em limites teóricos. VPS tem 2GB.
+    # Travando container em ~900MB. Se todos workers subirem memória ao mesmo tempo,
+    # o OOM Killer do Linux vai matar esse container. É o teste de stress real.
+    mem_limit: 900m
 
-  # ===== SERVIÇO FRONTEND (Indentação Corrigida) =====
+  # ===== SERVIÇO FRONTEND =====
   frontend:
     build:
       context: ../lead-import-visualizer
@@ -59,12 +98,17 @@ services:
       - sail
     depends_on:
       - laravel.test
+    environment:
+      NODE_OPTIONS: '--max_old_space_size=256'
+    mem_limit: 256m
 
-  # ===== SERVIÇO MYSQL (Indentação Corrigida) =====
+  # ===== SERVIÇO MYSQL =====
   mysql:
     image: 'mysql/mysql-server:8.0'
     ports:
       - '${FORWARD_DB_PORT:-3306}:3306'
+    # Adicionado flag para desligar performance schema igual Prod
+    command: --performance-schema=0
     environment:
       MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
       MYSQL_ROOT_HOST: '%'
@@ -78,17 +122,35 @@ services:
     networks:
       - sail
     healthcheck:
-      test:
-        - CMD
-        - mysqladmin
-        - ping
-        - '-p${DB_PASSWORD}'
+      test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
       retries: 3
       timeout: 5s
+    mem_limit: 512m
+
+  # ===== SERVIÇO REDIS =====
+  redis:
+    image: redis:7-alpine
+    # Igual Prod: maxmemory policy
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - sail
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 160m
 
 networks:
   sail:
     driver: bridge
+
 volumes:
   sail-mysql:
+    driver: local
+  redis-data:
     driver: local

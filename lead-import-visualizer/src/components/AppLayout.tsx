@@ -6,8 +6,12 @@ import { Button } from "@/components/ui/button";
 
 export const AppLayout = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    const saved = localStorage.getItem("sidebar-collapsed");
-    return saved ? JSON.parse(saved) : false;
+    try {
+      const saved = localStorage.getItem("sidebar-collapsed");
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
@@ -40,7 +44,7 @@ export const AppLayout = () => {
               </Button>
 
               <h1 className="text-lg font-semibold text-gray-900">
-                Sistema de Leads
+                Catarinense Leads
               </h1>
             </div>
           </div>

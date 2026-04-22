@@ -1,0 +1,192 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\BankAuthorization;
+use App\Models\InovachatTriage;
+use App\Services\C6\C6AuthorizationService;
+use App\Services\Inovachat\InternalMessageService;
+use App\Services\Inovachat\TextMessageService;
+use App\Services\Inovachat\TicketService;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+class GenerateC6AuthorizationLinkJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout;
+    public int $tries   = 3;
+    public int $backoff = 10;
+
+    private string $trackingId;
+    private string $cpf;
+    private ?string $firstName;
+    private ?string $fullName;
+    private ?string $phone;
+    private string $openTicket;
+    private string $queueId;
+
+    private string $connectionToken;
+
+    public function __construct(
+        string $trackingId,
+        string $cpf,
+        ?string $firstName,
+        ?string $fullName,
+        ?string $phone,
+        string $openTicket = '0',
+        string $queueId = '0',
+        string $connectionToken = ''
+    ) {
+        $this->trackingId      = $trackingId;
+        $this->cpf             = $cpf;
+        $this->firstName       = $firstName;
+        $this->fullName        = $fullName;
+        $this->phone           = $phone;
+        $this->openTicket      = $openTicket;
+        $this->queueId         = $queueId;
+        $this->connectionToken = $connectionToken;
+
+        $queue          = config('c6bank.job.queue', 'c6-auth');
+        $timeoutSeconds = (int) config('c6bank.job.timeout', 60);
+
+        $this->onQueue($queue);
+        $this->timeout = $timeoutSeconds;
+    }
+
+    public function handle(C6AuthorizationService $c6, TextMessageService $texts): void
+    {
+        $name = $this->firstName ?: ($this->fullName ?: 'Cliente');
+        [$ddd, $localNumber] = $this->splitPhone($this->phone);
+
+        $link = $c6->generateLink($this->cpf, $name, $ddd, $localNumber);
+
+        $authorization = BankAuthorization::create([
+            'tracking_id'       => $this->trackingId,
+            'connection_token'  => $this->connectionToken ?: null, // ✅ lookup rápido no webhook
+            'bank'              => 'c6',
+            'step'              => 'authorization',
+            'cpf'               => $this->cpf,
+            'phone'             => $this->phone,
+            'link'              => $link,
+            'status'            => BankAuthorization::STATUS_PENDING,
+        ]);
+
+        $body =
+            "{$name}, preciso só da sua autorização no C6 pra eu simular seus valores ✅\n\n"
+            . "🔗 Autorize aqui:\n{$link}\n\n"
+            . "É seguro: não dá acesso à sua conta e não retira dinheiro.\n"
+            . "Se pedir foto do rosto, é só confirmação do C6.\n\n"
+            . "Quando concluir, me avise aqui que eu confiro na hora. ⏱️";
+
+        if ($this->phone) {
+            $texts->sendText(
+                number: $this->phone,
+                body: $body,
+                openTicket: '0',
+                queueId: '0',
+                connectionToken: $this->connectionToken
+            );
+        }
+
+        $firstDelaySeconds = (int) config('c6bank.authorization.first_poll_delay_seconds', 60);
+        $firstDelaySeconds = max(5, $firstDelaySeconds);
+
+        CheckC6AuthorizationStatusJob::dispatch($authorization->id)
+            ->delay(Carbon::now()->addSeconds($firstDelaySeconds));
+    }
+
+    public function failed(Throwable $e): void
+    {
+        $triage = InovachatTriage::where('tracking_id', $this->trackingId)->first();
+
+        $ticketId        = (string) ($triage?->ticket_id ?: '');
+        $connectionToken = (string) ($triage?->connection_token ?: $this->connectionToken);
+
+        $handoffQueueId = (string) config('inovachat.handoff.queue_id');
+        $handoffStatus  = (string) config('inovachat.handoff.status', 'pending');
+
+        $logFailures = (bool) config('inovachat.logging.log_failures', true);
+
+        $handoffOk = false;
+        if ($ticketId !== '' && $handoffQueueId !== '' && $connectionToken !== '') {
+            try {
+                $tickets = app(TicketService::class);
+                $handoffOk = (bool) $tickets->updateTicket(
+                    ticketId: $ticketId,
+                    status: $handoffStatus,
+                    queueId: $handoffQueueId,
+                    userId: null,
+                    typebotSessionId: null,
+                    customA: null,
+                    customB: null,
+                    connectionToken: $connectionToken
+                );
+            } catch (Throwable) {
+                // sem log aqui (reduz ruído); o erro final abaixo basta
+            }
+        }
+
+        $internalOk = false;
+        if ($ticketId !== '' && $connectionToken !== '') {
+            try {
+                $internal = app(InternalMessageService::class);
+
+                $msg =
+                    "C6 | FALHA AO GERAR LINK DE AUTORIZAÇÃO\n"
+                    . "Tracking: {$this->trackingId}\n"
+                    . "CPF: {$this->cpf}\n"
+                    . "Telefone: " . ($this->phone ?: '-') . "\n"
+                    . "Erro: {$e->getMessage()}\n"
+                    . "Handoff: " . ($handoffOk ? 'OK' : 'FALHOU/SKIPPED');
+
+                $internalOk = $internal->sendInternal(
+                    ticketId: $ticketId,
+                    body: $msg,
+                    connectionToken: $connectionToken
+                );
+            } catch (Throwable) {
+                // idem
+            }
+        }
+
+        if ($logFailures) {
+            Log::error('GenerateC6AuthorizationLinkJob failed permanently', [
+                'tracking_id' => $this->trackingId,
+                'ticket_id'   => $ticketId,
+                'handoff_ok'  => $handoffOk,
+                'internal_ok' => $internalOk,
+                'exception'   => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function splitPhone(?string $raw): array
+    {
+        if (! $raw) {
+            return [null, null];
+        }
+
+        $digits = preg_replace('/\D+/', '', $raw) ?: '';
+
+        if (str_starts_with($digits, '55')) {
+            $digits = substr($digits, 2);
+        }
+
+        if (strlen($digits) < 10) {
+            return [null, null];
+        }
+
+        $ddd    = substr($digits, 0, 2);
+        $number = substr($digits, 2);
+
+        return [$ddd, $number];
+    }
+}

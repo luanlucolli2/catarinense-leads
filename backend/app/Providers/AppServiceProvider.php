@@ -3,6 +3,9 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Http\Request;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -19,6 +22,77 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        /**
+         * Limite de tentativas de login.
+         * Combina IP e identificador do usuário/email para reduzir brute-force e enumeração.
+         * Ajuste os valores conforme sua necessidade.
+         */
+        RateLimiter::for('login', function (Request $request) {
+            $identifier = $request->user()?->getAuthIdentifier()
+                ?? (string) $request->input('email')
+                ?? $request->ip();
+
+            return [
+                // Máx. 5 por minuto por IP
+                Limit::perMinute(5)->by($request->ip())->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas tentativas. Tente novamente em instantes.'
+                    ], 429);
+                }),
+
+                // Máx. 5 por minuto por usuário/email
+                Limit::perMinute(5)->by('login:'.$identifier)->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas tentativas. Tente novamente em instantes.'
+                    ], 429);
+                }),
+            ];
+        });
+
+        /**
+         * Limites para endpoints C6 (leitura/listagem e escrita/geração).
+         * Protege a API em infraestrutura pequena (1 vCPU / 2GB) sem travar uso normal.
+         */
+        RateLimiter::for('c6-links-read', function (Request $request) {
+            $userIdentifier = (string) ($request->user()?->getAuthIdentifier() ?? 'guest');
+            $perMinuteUser = max(60, (int) config('c6bank.rate_limit.read_per_minute_user', 600));
+            $perMinuteIp = max($perMinuteUser, (int) config('c6bank.rate_limit.read_per_minute_ip', 1800));
+
+            return [
+                // Contenção principal por usuário autenticado (conta compartilhada).
+                Limit::perMinute($perMinuteUser)->by('c6-read:user:'.$userIdentifier)->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas consultas de links C6. Aguarde alguns segundos e tente novamente.'
+                    ], 429);
+                }),
+
+                // Cinto de segurança por IP em patamar mais alto para não punir operação corporativa em IP único.
+                Limit::perMinute($perMinuteIp)->by('c6-read:ip:'.$request->ip())->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas consultas de links C6 a partir deste IP. Aguarde alguns segundos.'
+                    ], 429);
+                }),
+            ];
+        });
+
+        RateLimiter::for('c6-links-write', function (Request $request) {
+            $userIdentifier = (string) ($request->user()?->getAuthIdentifier() ?? 'guest');
+            $perMinuteUser = max(20, (int) config('c6bank.rate_limit.write_per_minute_user', 90));
+            $perMinuteIp = max($perMinuteUser, (int) config('c6bank.rate_limit.write_per_minute_ip', 300));
+
+            return [
+                Limit::perMinute($perMinuteUser)->by('c6-write:user:'.$userIdentifier)->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas tentativas de geração de link C6. Aguarde alguns segundos.'
+                    ], 429);
+                }),
+
+                Limit::perMinute($perMinuteIp)->by('c6-write:ip:'.$request->ip())->response(function () {
+                    return response()->json([
+                        'message' => 'Muitas tentativas de geração de link C6 a partir deste IP. Aguarde alguns segundos.'
+                    ], 429);
+                }),
+            ];
+        });
     }
 }

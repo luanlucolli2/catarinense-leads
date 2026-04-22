@@ -14,13 +14,15 @@ interface ImportModalProps {
   onImportSuccess: () => void
 }
 
+type ImportType = "cadastral" | "higienizacao" | "mercantil"
+
 export const ImportModal = ({
   isOpen,
   onClose,
   onImportSuccess,
 }: ImportModalProps) => {
   const [importType, setImportType] =
-    useState<"cadastral" | "higienizacao">("cadastral")
+    useState<ImportType>("cadastral")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [origin, setOrigin] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -152,11 +154,11 @@ export const ImportModal = ({
             <label className="mb-3 block text-sm font-medium text-gray-700">
               Tipo de Importação
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Button
                 onClick={() => setImportType("cadastral")}
                 className={cn(
-                  "transition-colors duration-200",
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
                   importType === "cadastral"
                     ? "bg-blue-600 text-white hover:bg-blue-700"
                     : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
@@ -167,13 +169,24 @@ export const ImportModal = ({
               <Button
                 onClick={() => setImportType("higienizacao")}
                 className={cn(
-                  "transition-colors duration-200",
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
                   importType === "higienizacao"
                     ? "bg-blue-600 text-white hover:bg-blue-700"
                     : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
                 )}
               >
                 Dados de Higienização
+              </Button>
+              <Button
+                onClick={() => setImportType("mercantil")}
+                className={cn(
+                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
+                  importType === "mercantil"
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                )}
+              >
+                Mercantil (CSV)
               </Button>
             </div>
           </div>
@@ -200,33 +213,41 @@ export const ImportModal = ({
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="mb-1 text-sm font-medium text-blue-800">
-                  Planilha Modelo
+                  Template
                 </h4>
-                <p className="text-xs text-blue-600">
-                  Baixe o template do tipo selecionado.
-                </p>
+                {importType === "mercantil" ? (
+                  <p className="text-xs text-blue-600">
+                    Este tipo de importação não possui template.
+                  </p>
+                ) : (
+                  <p className="text-xs text-blue-600">
+                    Baixe o template do tipo selecionado.
+                  </p>
+                )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownloadTemplate(importType)}
-                className="border-blue-300 text-blue-700 hover:bg-blue-100"
-              >
-                <Download className="mr-1 h-4 w-4" /> Baixar
-              </Button>
+              {importType !== "mercantil" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadTemplate(importType)}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                >
+                  <Download className="mr-1 h-4 w-4" /> Baixar template
+                </Button>
+              )}
             </div>
           </div>
 
           {/* File input */}
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
-              Selecione o arquivo (.xlsx)
+              Selecione o arquivo ({importType === "mercantil" ? ".csv" : ".xlsx/.xls"})
             </label>
             <div className="rounded-lg border-2 border-dashed border-gray-300 p-4 text-center transition-colors duration-200 hover:border-blue-400">
               <input
                 id="file-upload"
                 type="file"
-                accept=".xlsx,.xls"
+                accept={importType === "mercantil" ? ".csv" : ".xlsx,.xls"}
                 className="hidden"
                 onChange={handleFileChange}
               />

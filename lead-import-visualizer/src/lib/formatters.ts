@@ -35,29 +35,57 @@ export const formatCurrency = (value: string | number | null | undefined): strin
 
 /**
  * Formata uma data para o padrão dd/MM/yyyy HH:mm.
+ * Regras:
+ * - "YYYY-MM-DD" => trata como data sem hora (usa formatDateOnly).
+ * - "YYYY-MM-DD HH:mm:ss" (sem timezone) => interpreta como UTC e converte para local.
+ * - Outras strings => delega para o Date nativo.
  */
-export const formatDate = (dateString: string | null | undefined): string => {
+export const formatDate = (dateString?: string | null): string => {
   if (!dateString) return '--';
+
+  // Apenas data (sem hora)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    return formatDateOnly(dateString);
+  }
+
+  // Padrão "YYYY-MM-DD HH:mm:ss" (sem timezone) → tratar como UTC
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateString)) {
+    try {
+      // Transforma em ISO UTC forçado (ex.: "2025-10-14T19:03:41Z")
+      const asUtcIso = dateString.replace(' ', 'T') + 'Z';
+      const d = new Date(asUtcIso);
+      return format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+    } catch {
+      // fallback abaixo
+    }
+  }
+
+  // Demais formatos: tenta usar o parser nativo
   try {
-    return format(new Date(dateString), "dd/MM/yyyy HH:mm", { locale: ptBR });
-  } catch (error) {
+    return format(new Date(dateString), 'dd/MM/yyyy HH:mm', { locale: ptBR });
+  } catch {
     return 'Data inválida';
   }
 };
 
+// src/lib/formatters.ts
 export const formatDateOnly = (
   iso: string | null | undefined,
   pattern: string = "dd/MM/yyyy",
 ): string => {
-  if (!iso) return "--"
+  if (!iso) return "--";
   try {
-    // corta só YYYY-MM-DD  ➜  parse não altera o dia
-    const date = parse(iso.slice(0, 10), "yyyy-MM-dd", new Date())
-    return format(date, pattern, { locale: ptBR })
+    // aceita "YYYY-MM-DD" ou "YYYY-MM-DD HH:mm[:ss][...]" e usa só a parte da data
+    const m = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+    const only = m ? m[1] : iso.slice(0, 10);
+    const date = parse(only, "yyyy-MM-dd", new Date());
+    return format(date, pattern, { locale: ptBR });
   } catch {
-    return "Data inválida"
+    return "Data inválida";
   }
-}
+};
+
+
 
 /**
  * Formata um número de telefone para os padrões brasileiros.
@@ -65,7 +93,7 @@ export const formatDateOnly = (
  */
 export const formatPhone = (phone: string | null | undefined): string => {
   if (!phone) return '--';
-  
+
   const phoneDigits = phone.replace(/\D/g, '');
 
   // A lógica inteligente: um número completo com DDI tem 12 ou 13 dígitos (55 + DDD + numero).
@@ -86,6 +114,6 @@ export const formatPhone = (phone: string | null | undefined): string => {
   if (phoneDigits.length === 10) {
     return phoneDigits.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
   }
-  
+
   return phone; // Retorna o original se não se encaixar
 };

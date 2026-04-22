@@ -1,20 +1,33 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { isC6OnlyUser } from "@/lib/access";
+import { Loader2 } from "lucide-react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { user } = useAuth();
+  const location = useLocation();
+  const { user, isAuthReady } = useAuth();
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Validando sessão...
+      </div>
+    );
+  }
 
   if (!user) {
-    // Se não há objeto de usuário, redireciona para a página de login.
-    // Usar o componente <Navigate> é a forma mais moderna no React Router v6.
     return <Navigate to="/login" replace />;
   }
 
-  // Se o usuário existir, renderiza a página filha.
+  if (isC6OnlyUser(user) && !location.pathname.startsWith("/c6/links")) {
+    return <Navigate to="/c6/links" replace />;
+  }
+
   return <>{children}</>;
 };
 
