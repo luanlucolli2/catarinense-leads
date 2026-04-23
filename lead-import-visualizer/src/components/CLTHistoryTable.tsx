@@ -514,6 +514,10 @@ export const CLTHistoryTable = ({
   const canCancel = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
 
+  const isCancelCleanupPending = (i: CltConsultJobListItem) =>
+    i.status === "cancelado" &&
+    (Boolean(i.spool_path || i.spool_cpfs_path) || Number(i.spool_bytes ?? 0) > 0);
+
   const canRerunPhase2 = (i: CltConsultJobListItem) => {
     const variant = resolveVariant(i);
     const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
@@ -521,7 +525,7 @@ export const CLTHistoryTable = ({
   };
 
   const canDelete = (i: CltConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso");
+    !(i.status === "pendente" || i.status === "em_progresso" || isCancelCleanupPending(i));
 
   const openCancelDialog = (i: CltConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -710,14 +714,14 @@ export const CLTHistoryTable = ({
                           <DropdownMenuItem
                             onClick={() => openDeleteDialog(i)}
                             className={
-                              i.status === "em_progresso" || i.status === "pendente"
+                              !canDelete(i)
                                 ? "text-muted-foreground cursor-not-allowed"
                                 : "text-destructive"
                             }
-                            disabled={i.status === "em_progresso" || i.status === "pendente"}
+                            disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -803,14 +807,14 @@ export const CLTHistoryTable = ({
                           <DropdownMenuItem
                             onClick={() => openDeleteDialog(i)}
                             className={
-                              i.status === "em_progresso" || i.status === "pendente"
+                              !canDelete(i)
                                 ? "text-muted-foreground cursor-not-allowed"
                                 : "text-destructive"
                             }
-                            disabled={i.status === "em_progresso" || i.status === "pendente"}
+                            disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

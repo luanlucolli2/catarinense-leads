@@ -71,6 +71,22 @@ function formatDateTimeBR(iso: string | null | undefined) {
   });
 }
 
+function apiErrorMessage(error: any, fallback: string) {
+  return error?.response?.data?.message || error?.message || fallback;
+}
+
+function deleteJobErrorMessage(error: any) {
+  const status = error?.response?.status ?? error?.status;
+  if (status === 409) {
+    return (
+      error?.response?.data?.message ||
+      "Cancelamento em finalização. Tente excluir novamente em alguns segundos."
+    );
+  }
+
+  return apiErrorMessage(error, "Não foi possível excluir");
+}
+
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
@@ -448,7 +464,7 @@ const CLTConsultaPage = () => {
       cancelCltConsultJob(id, reason),
     onSuccess: (_data, { id }) => {
       if (id === watchingJobId) setWatchingJobId(null);
-      toast.info(`Consulta "${titleOf(id)}" cancelada.`);
+      toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
       void qc.invalidateQueries({ queryKey: ["clt:job", id] });
     },
@@ -474,7 +490,7 @@ const CLTConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
       void qc.removeQueries({ queryKey: ["clt:job", id] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+    onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
 
   const requestPreviewMutation = useMutation({
@@ -531,7 +547,7 @@ const CLTConsultaPage = () => {
       cancelPresencaConsultJob(id, reason),
     onSuccess: (_data, { id }) => {
       if (id === watchingPresencaJobId) setWatchingPresencaJobId(null);
-      toast.info(`Consulta "${presencaTitleOf(id)}" cancelada.`);
+      toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
     },
@@ -546,7 +562,7 @@ const CLTConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       void qc.removeQueries({ queryKey: ["presenca:job", id] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+    onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
 
   // Mapear modo → variant esperado pelo backend

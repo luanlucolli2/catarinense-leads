@@ -215,8 +215,12 @@ export const PresencaHistoryTable = ({
   const canCancel = (i: PresencaConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
 
+  const isCancelCleanupPending = (i: PresencaConsultJobListItem) =>
+    i.status === "cancelado" &&
+    (Boolean(i.spool_path || i.spool_inputs_path) || Number(i.spool_bytes ?? 0) > 0);
+
   const canDelete = (i: PresencaConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso");
+    !(i.status === "pendente" || i.status === "em_progresso" || isCancelCleanupPending(i));
 
   const openCancelDialog = (i: PresencaConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -328,7 +332,7 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -392,7 +396,7 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

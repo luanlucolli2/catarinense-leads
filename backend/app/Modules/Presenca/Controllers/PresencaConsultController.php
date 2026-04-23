@@ -282,9 +282,12 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true)) {
+        $cancelCleanupInProgress = $job->status === 'cancelado'
+            && (!empty($job->spool_path) || !empty($job->spool_inputs_path));
+
+        if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
+                'message' => 'Não é possível excluir enquanto o job ainda está em andamento ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
