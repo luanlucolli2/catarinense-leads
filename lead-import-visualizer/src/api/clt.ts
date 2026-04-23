@@ -267,7 +267,7 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
   return data
 }
 
-/** Reprocessa a fase 2 de um job online/hibrido concluído */
+/** Reprocessa a fase 2 de um job online/hibrido concluído ou cancelado com spool preservado */
 export async function rerunCltConsultJobPhase2(id: number) {
   const { data } = await axiosClient.post<{
     id: number

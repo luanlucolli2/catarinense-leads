@@ -183,14 +183,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($this->isCancelled($job)) {
             if ($this->cachedStatus === 'cancelado') {
-                $this->cleanupSpool($job);
-                DB::table('clt_consult_jobs')
-                    ->where('id', $job->id)
-                    ->whereNull('finished_at')
-                    ->update([
-                        'phase' => null,
-                        'finished_at' => Carbon::now(),
-                    ]);
+                $this->finalizeCancelledJob($job);
             }
             return;
         }
@@ -3213,8 +3206,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->flushPhase2DeltaBuffer(true);
             $this->flushPhase2PendingBuffer(true);
             $this->closeSpoolWriter();
-            $this->cleanupSpool($job);
-            DB::table('clt_consult_jobs')->where('id', $job->id)->update(['phase' => null, 'finished_at' => Carbon::now()]);
+            $this->finalizeCancelledJob($job);
             CltLog::info("[CLT] Job {$this->jobId} cancelado.");
             return true;
         }
@@ -3288,6 +3280,57 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 }
             }
         }
+    }
+
+    private function shouldPreserveSpoolForPhaseTwoRerun(CltConsultJob $job): bool
+    {
+        return $this->stage === self::STAGE_PHASE2
+            && $this->supportsCreditPhaseTwo()
+            && is_string($job->spool_path ?? null)
+            && $job->spool_path !== '';
+    }
+
+    private function preservePhaseTwoSpoolForRerun(CltConsultJob $job): void
+    {
+        $disk = Storage::disk($this->disk);
+        $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
+        $spoolExists = is_string($spoolPath) && $spoolPath !== '' && $disk->exists($spoolPath);
+        $spoolBytes = $spoolExists ? $this->fileSizeSafe($this->disk, $spoolPath) : 0;
+
+        CltSpool::deletePhaseTwoAuxiliaryArtifacts(
+            $disk,
+            $spoolPath,
+            $job->spool_cpfs_path ?? null,
+            $this->phase2MaxAttempts
+        );
+
+        if (DB::table('clt_consult_jobs')->where('id', $job->id)->exists()) {
+            try {
+                $job->updateQuietly([
+                    'spool_path' => $spoolExists ? $spoolPath : null,
+                    'spool_cpfs_path' => null,
+                    'spool_bytes' => $spoolBytes,
+                    'phase' => $spoolExists ? 'fase_2' : null,
+                ]);
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    private function finalizeCancelledJob(CltConsultJob $job): void
+    {
+        if ($this->shouldPreserveSpoolForPhaseTwoRerun($job)) {
+            $this->preservePhaseTwoSpoolForRerun($job);
+        } else {
+            $this->cleanupSpool($job);
+        }
+
+        DB::table('clt_consult_jobs')
+            ->where('id', $job->id)
+            ->whereNull('finished_at')
+            ->update([
+                'finished_at' => Carbon::now(),
+            ]);
     }
 
     private function fileSizeSafe(string $diskName, string $rel): int
@@ -3636,7 +3679,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             if ($job->status === 'cancelado') {
                 $this->flushPhase2DeltaBuffer(true);
                 $this->flushPhase2PendingBuffer(true);
-                $this->cleanupSpool($job);
+                $this->finalizeCancelledJob($job);
                 $this->deletePendFiles();
                 return;
             }
@@ -3676,14 +3719,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         try {
             $job->refresh();
             if ($job->status === 'cancelado') {
-                $this->cleanupSpool($job);
-                DB::table('clt_consult_jobs')
-                    ->where('id', $job->id)
-                    ->whereNull('finished_at')
-                    ->update([
-                        'phase' => null,
-                        'finished_at' => Carbon::now(),
-                    ]);
+                $this->finalizeCancelledJob($job);
                 return false;
             }
 

@@ -6,6 +6,7 @@ use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
 use App\Modules\CLT\Support\CltSpool;
+use App\Modules\CLT\Support\CltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -36,7 +37,12 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         if (!$job)
             return;
         if ($job->status === 'cancelado') {
-            $this->finishWithoutFinal($job, $job->status);
+            if ($this->shouldPreservePhaseTwoSpoolOnCancel($job)) {
+                $this->preservePhaseTwoSpoolForRerun($job);
+                $this->finishWithoutFinal($job, $job->status, false);
+            } else {
+                $this->finishWithoutFinal($job, $job->status);
+            }
             return;
         }
 
@@ -203,6 +209,38 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         } finally {
             $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0, 'phase' => null]);
         }
+    }
+
+    private function shouldPreservePhaseTwoSpoolOnCancel(CltConsultJob $job): bool
+    {
+        return CltVariant::supportsCreditPhaseTwo($job->variant)
+            && is_string($job->spool_path ?? null)
+            && $job->spool_path !== '';
+    }
+
+    private function preservePhaseTwoSpoolForRerun(CltConsultJob $job): void
+    {
+        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $disk = Storage::disk($diskName);
+        $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
+        $spoolExists = is_string($spoolPath) && $spoolPath !== '' && $disk->exists($spoolPath);
+        $spoolBytes = 0;
+        if ($spoolExists) {
+            try {
+                $spoolBytes = (int) $disk->size($spoolPath);
+            } catch (Throwable) {
+                $spoolBytes = 0;
+            }
+        }
+
+        CltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path ?? null);
+
+        $job->updateQuietly([
+            'spool_path' => $spoolExists ? $spoolPath : null,
+            'spool_cpfs_path' => null,
+            'spool_bytes' => $spoolBytes,
+            'phase' => $spoolExists ? 'fase_2' : null,
+        ]);
     }
 
     private function writeAllOrFail($handle, string $data, string $context): void

@@ -305,10 +305,8 @@ class CltConsultController extends Controller
 
         $job->update([
             'status' => 'cancelado',
-            'phase' => null,
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
-            'finished_at' => now(),
         ]);
 
         return response()->json([
@@ -332,24 +330,15 @@ class CltConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        if ($job->status !== 'concluido') {
+        $canRerunFromFinishedCancel = $job->status === 'cancelado'
+            && $job->finished_at !== null
+            && !empty($job->spool_path);
+
+        if ($job->status !== 'concluido' && !$canRerunFromFinishedCancel) {
             return response()->json([
-                'message' => 'A fase 2 só pode ser reprocessada quando o job estiver concluído.',
+                'message' => 'A fase 2 só pode ser reprocessada quando o job estiver concluído ou cancelado com spool preservado.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
-        }
-
-        if (empty($job->file_disk) || empty($job->file_path)) {
-            return response()->json([
-                'message' => 'CSV final indisponível para reconstruir o spool da fase 2.',
-            ], Response::HTTP_CONFLICT);
-        }
-
-        $sourceDisk = Storage::disk($job->file_disk);
-        if (!$sourceDisk->exists($job->file_path)) {
-            return response()->json([
-                'message' => 'Arquivo final não encontrado.',
-            ], Response::HTTP_NOT_FOUND);
         }
 
         $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
@@ -362,14 +351,42 @@ class CltConsultController extends Controller
         $spoolPath = "{$dirSpool}/{$this->finalPrefix()}_{$job->id}.spool.csv";
 
         try {
-            $this->deleteSpoolArtifacts($reportsDisk, $job->spool_path, $job->spool_cpfs_path);
-            $this->deleteSpoolArtifacts($reportsDisk, $spoolPath, null);
-            $spoolBytes = $this->rebuildPhase2SpoolFromFinalCsv(
-                $sourceDisk,
-                (string) $job->file_path,
-                $reportsDisk,
-                $spoolPath
-            );
+            if ($canRerunFromFinishedCancel) {
+                $spoolPath = (string) $job->spool_path;
+                if (!$reportsDisk->exists($spoolPath)) {
+                    return response()->json([
+                        'message' => 'Spool preservado da fase 2 não encontrado.',
+                    ], Response::HTTP_NOT_FOUND);
+                }
+
+                $this->deletePhaseTwoAuxiliaryArtifacts($reportsDisk, $spoolPath, $job->spool_cpfs_path);
+                $spoolBytes = $this->resetPhase2ColumnsInExistingSpool(
+                    $reportsDisk,
+                    $spoolPath
+                );
+            } else {
+                if (empty($job->file_disk) || empty($job->file_path)) {
+                    return response()->json([
+                        'message' => 'CSV final indisponível para reconstruir o spool da fase 2.',
+                    ], Response::HTTP_CONFLICT);
+                }
+
+                $sourceDisk = Storage::disk($job->file_disk);
+                if (!$sourceDisk->exists($job->file_path)) {
+                    return response()->json([
+                        'message' => 'Arquivo final não encontrado.',
+                    ], Response::HTTP_NOT_FOUND);
+                }
+
+                $this->deleteSpoolArtifacts($reportsDisk, $job->spool_path, $job->spool_cpfs_path);
+                $this->deleteSpoolArtifacts($reportsDisk, $spoolPath, null);
+                $spoolBytes = $this->rebuildPhase2SpoolFromFinalCsv(
+                    $sourceDisk,
+                    (string) $job->file_path,
+                    $reportsDisk,
+                    $spoolPath
+                );
+            }
         } catch (\Throwable $e) {
             CltLog::error("[CLT] Falha ao preparar rerun da fase 2 (job {$job->id}): " . $e->getMessage(), [
                 'exception' => $e,
@@ -421,7 +438,7 @@ class CltConsultController extends Controller
             ->findOrFail($id);
 
         $cancelCleanupInProgress = $job->status === 'cancelado'
-            && (!empty($job->spool_path) || !empty($job->spool_cpfs_path));
+            && $job->finished_at === null;
 
         if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
             return response()->json([
@@ -955,6 +972,85 @@ class CltConsultController extends Controller
     private function deleteSpoolArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
     {
         CltSpool::deleteArtifacts($disk, $spoolPath, $cpfsPath);
+    }
+
+    private function deletePhaseTwoAuxiliaryArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
+    {
+        CltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $cpfsPath);
+    }
+
+    private function resetPhase2ColumnsInExistingSpool($disk, string $spoolPath): int
+    {
+        $sourceReal = $disk->path($spoolPath);
+        $tmpReal = "{$sourceReal}.phase2.rerun.tmp";
+        $cleanupTmp = true;
+        try {
+            $in = @fopen($sourceReal, 'rb');
+            $out = @fopen($tmpReal, 'wb');
+            if (!is_resource($in) || !is_resource($out)) {
+                if (is_resource($in)) {
+                    @fclose($in);
+                }
+                if (is_resource($out)) {
+                    @fclose($out);
+                }
+                throw new \RuntimeException("Falha ao abrir spool preservado para rerun: {$spoolPath}");
+            }
+
+            $phase2Indexes = $this->phase2ColumnsIndexesForReset();
+            $colsCount = count(CltSchema::COLS);
+
+            try {
+                $header = @fgetcsv($in, 0, ';');
+                if ($header === false) {
+                    throw new \RuntimeException("Spool preservado vazio, impossível reprocessar a fase 2.");
+                }
+
+                $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool preservado {$spoolPath}");
+
+                while (($row = @fgetcsv($in, 0, ';')) !== false) {
+                    if (count($row) < $colsCount) {
+                        $row = array_pad($row, $colsCount, null);
+                    } elseif (count($row) > $colsCount) {
+                        $row = array_slice($row, 0, $colsCount);
+                    }
+
+                    foreach ($phase2Indexes as $idx) {
+                        $row[$idx] = null;
+                    }
+
+                    $row = CltSchema::normalizeOrderedRowForCsv($row);
+                    $this->writeCsvRowOrFail($out, $row, "spool preservado {$spoolPath}");
+                }
+
+                if (!@fflush($out)) {
+                    throw new \RuntimeException("Falha ao sincronizar spool preservado em disco.");
+                }
+            } finally {
+                if (is_resource($in)) {
+                    @fclose($in);
+                }
+                if (is_resource($out)) {
+                    @fclose($out);
+                }
+            }
+
+            if (!@rename($tmpReal, $sourceReal)) {
+                throw new \RuntimeException("Falha ao promover spool preservado para rerun: {$spoolPath}");
+            }
+
+            $cleanupTmp = false;
+
+            try {
+                return (int) $disk->size($spoolPath);
+            } catch (\Throwable) {
+                return 0;
+            }
+        } finally {
+            if ($cleanupTmp && is_file($tmpReal)) {
+                @unlink($tmpReal);
+            }
+        }
     }
 
     /**
