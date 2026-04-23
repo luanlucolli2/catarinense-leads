@@ -1171,6 +1171,10 @@ class FactaApiService
                 }
 
                 $tableName = trim((string) ($tb['tabela'] ?? ''));
+                if (!$this->isAllowedCreditPolicyTableName($tableName)) {
+                    continue;
+                }
+
                 $prazo = isset($tb['prazo']) && is_numeric($tb['prazo']) ? (int) $tb['prazo'] : null;
                 $valorEmprestimo = $this->toMoneyString($tb['valor_liquido'] ?? null);
                 if ($prazo === null || $prazo <= 0 || $valorEmprestimo === null) {
@@ -1201,7 +1205,7 @@ class FactaApiService
                 return $attachCreditReqMeta([
                     'attempted' => true,
                     'aprovado' => false,
-                    'mensagem' => 'Nenhuma tabela elegível para política.',
+                    'mensagem' => 'Nenhuma tabela elegível para política (CLT NOVO GOLD 2PMT SB/3PMT SB).',
                     'valor_maximo_disponivel' => null,
                     'prazo_maximo_disponivel' => null,
                     'retriable' => false,
@@ -1663,9 +1667,10 @@ class FactaApiService
         if ($erro) {
             if ($mensagem === '') {
                 $mensagem = $this->isNenhumaTabelaMessage((string) $tabelasRaw)
-                    ? 'nenhuma tabela disponível'
+                    ? 'Nenhuma tabela disponível'
                     : 'Falha na consulta de operações disponíveis.';
             }
+            $mensagem = $this->normalizeNenhumaTabelaMessage($mensagem);
 
             return [
                 'ok' => true,
@@ -1689,8 +1694,9 @@ class FactaApiService
         }
 
         if ($mensagem === '') {
-            $mensagem = 'nenhuma tabela disponível';
+            $mensagem = 'Nenhuma tabela disponível';
         }
+        $mensagem = $this->normalizeNenhumaTabelaMessage($mensagem);
 
         return [
             'ok' => true,
@@ -3233,6 +3239,13 @@ class FactaApiService
         return str_contains($norm, 'nenhuma tabela disponivel');
     }
 
+    private function normalizeNenhumaTabelaMessage(string $mensagem): string
+    {
+        return $this->isNenhumaTabelaMessage($mensagem)
+            ? 'Nenhuma tabela disponível'
+            : $mensagem;
+    }
+
     private function isNaoEncontradoMessage(string $mensagem): bool
     {
         $msg = trim($mensagem);
@@ -3366,6 +3379,17 @@ class FactaApiService
         }
 
         return $valor > self::CREDIT_POLICY_INTERNAL_APPROVAL_MIN_VALUE;
+    }
+
+    private function isAllowedCreditPolicyTableName(string $tableName): bool
+    {
+        $normalizedTableName = $this->normalize($tableName);
+        if ($normalizedTableName === '') {
+            return false;
+        }
+
+        return str_ends_with($normalizedTableName, 'clt novo gold 2pmt sb')
+            || str_ends_with($normalizedTableName, 'clt novo gold 3pmt sb');
     }
 
     private function normalize(string $s): string
