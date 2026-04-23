@@ -26,6 +26,8 @@ export interface PresencaConsultJobListItem {
   file_name?: string | null
 
   spool_bytes?: number | null
+  spool_path?: string | null
+  spool_inputs_path?: string | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -47,6 +49,8 @@ export interface PresencaConsultJobShow {
 
   preview_running?: boolean
   spool_bytes?: number | null
+  spool_path?: string | null
+  spool_inputs_path?: string | null
 
   started_at?: string | null
   finished_at?: string | null

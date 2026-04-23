@@ -68,6 +68,7 @@ final class CltSchema
         'updated_at',
         'consulted_at',
         'fonteConsulta',
+        'politicaCreditoTabelaAprovada',
     ];
 
     /**
@@ -111,6 +112,7 @@ final class CltSchema
         'Data de Atualização (Origem)',
         'Data da Consulta',
         'Fonte da Consulta',
+        'Política de Crédito Tabela Aprovada',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string

@@ -48,6 +48,8 @@ export interface CltConsultJobListItem {
 
   /** telemetria opcional */
   spool_bytes?: number | null
+  spool_path?: string | null
+  spool_cpfs_path?: string | null
 
   /** modo/variante */
   variant?: 'online' | 'offline' | 'hybrid' | null

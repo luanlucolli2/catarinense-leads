@@ -806,6 +806,7 @@ class CltConsultController extends Controller
                 'politicaCreditoMensagem',
                 'politicaCreditoValorMaximoDisponivel',
                 'politicaCreditoPrazoMaximoDisponivel',
+                'politicaCreditoTabelaAprovada',
             ] as $col
         ) {
             if (array_key_exists($col, $lookup)) {
@@ -873,6 +874,7 @@ class CltConsultController extends Controller
                     1 => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
                     2 => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
                     3 => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
+                    4 => array_key_exists('ta', $decoded) ? $decoded['ta'] : null,
                 ];
                 if ($isNewLinePatch) {
                     $mapRows++;
@@ -907,6 +909,7 @@ class CltConsultController extends Controller
                 'politicaCreditoMensagem',
                 'politicaCreditoValorMaximoDisponivel',
                 'politicaCreditoPrazoMaximoDisponivel',
+                'politicaCreditoTabelaAprovada',
             ] as $col
         ) {
             if (array_key_exists($col, $lookup)) {
@@ -941,6 +944,9 @@ class CltConsultController extends Controller
         }
         if (isset($indexes['politicaCreditoPrazoMaximoDisponivel'])) {
             $csvRow[$indexes['politicaCreditoPrazoMaximoDisponivel']] = $patch[3] ?? null;
+        }
+        if (isset($indexes['politicaCreditoTabelaAprovada'])) {
+            $csvRow[$indexes['politicaCreditoTabelaAprovada']] = $patch[4] ?? null;
         }
 
         return $csvRow;
