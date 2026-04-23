@@ -2485,7 +2485,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /**
      * @param resource $fh
-     * @return array{line:int,patch:array{ap:mixed,mg:mixed,vm:mixed,pm:mixed}}|null
+     * @return array{line:int,patch:array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta:mixed}}|null
      */
     private function readNextPhase2DeltaAttemptPatch($fh): ?array
     {
@@ -2516,6 +2516,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'mg' => array_key_exists('mg', $decoded) ? $decoded['mg'] : null,
                     'vm' => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
                     'pm' => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
+                    'ta' => array_key_exists('ta', $decoded) ? $decoded['ta'] : null,
                 ],
             ];
         }
@@ -2545,7 +2546,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /**
      * @param array<string,mixed> $row
-     * @param array{ap:mixed,mg:mixed,vm:mixed,pm:mixed} $patch
+     * @param array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta?:mixed} $patch
      * @return array<string,mixed>
      */
     private function applyPhase2PatchToAssocRow(array $row, array $patch): array
@@ -2554,6 +2555,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $row['politicaCreditoMensagem'] = $patch['mg'] ?? null;
         $row['politicaCreditoValorMaximoDisponivel'] = $patch['vm'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $patch['pm'] ?? null;
+        $row['politicaCreditoTabelaAprovada'] = $patch['ta'] ?? null;
         return $row;
     }
 
@@ -2601,6 +2603,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         $row['politicaCreditoMensagem'] = $abortMessage;
                         $row['politicaCreditoValorMaximoDisponivel'] = null;
                         $row['politicaCreditoPrazoMaximoDisponivel'] = null;
+                        $row['politicaCreditoTabelaAprovada'] = null;
                         $markedCount++;
                     }
 
@@ -2711,6 +2714,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'mg' => $row['politicaCreditoMensagem'] ?? null,
             'vm' => $row['politicaCreditoValorMaximoDisponivel'] ?? null,
             'pm' => $row['politicaCreditoPrazoMaximoDisponivel'] ?? null,
+            'ta' => $row['politicaCreditoTabelaAprovada'] ?? null,
         ];
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -2998,7 +3002,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     /**
-     * @return array{row:array<string,mixed>,pending:bool,aborted:bool,phase2_request_count:int,phase2_operacoes_request_count:int,phase2_politica_request_count:int,phase2_approved_table:?array}
+     * @return array{row:array<string,mixed>,pending:bool,aborted:bool,phase2_request_count:int,phase2_operacoes_request_count:int,phase2_politica_request_count:int,phase2_approved_table:?array,phase2_approved_table_name:?string}
      */
     private function applyCreditPhaseToRow(
         \App\Modules\CLT\Services\FactaApiService $api,
@@ -3027,6 +3031,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $row['politicaCreditoMensagem'] = 'Dados insuficientes para continuação da análise de crédito.';
             $row['politicaCreditoValorMaximoDisponivel'] = null;
             $row['politicaCreditoPrazoMaximoDisponivel'] = null;
+            $row['politicaCreditoTabelaAprovada'] = null;
 
             return [
                 'row' => $row,
@@ -3036,6 +3041,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'phase2_operacoes_request_count' => 0,
                 'phase2_politica_request_count' => 0,
                 'phase2_approved_table' => null,
+                'phase2_approved_table_name' => null,
             ];
         }
 
@@ -3061,6 +3067,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'phase2_operacoes_request_count' => max(0, (int) ($credit['phase2_operacoes_request_count'] ?? 0)),
             'phase2_politica_request_count' => max(0, (int) ($credit['phase2_politica_request_count'] ?? 0)),
             'phase2_approved_table' => is_array($credit['phase2_approved_table'] ?? null) ? $credit['phase2_approved_table'] : null,
+            'phase2_approved_table_name' => is_string($credit['phase2_approved_table_name'] ?? null) ? $credit['phase2_approved_table_name'] : null,
         ];
     }
 
@@ -3161,6 +3168,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $row['politicaCreditoMensagem'] = $credit['mensagem'] ?? null;
         $row['politicaCreditoValorMaximoDisponivel'] = $credit['valor_maximo_disponivel'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $credit['prazo_maximo_disponivel'] ?? null;
+        $row['politicaCreditoTabelaAprovada'] = $credit['phase2_approved_table_name'] ?? null;
 
         return $row;
     }
