@@ -133,7 +133,7 @@ const CLTConsultaPage = () => {
   const inFlight = useRef<Set<number>>(new Set());
   const waitingPreview = useRef<Set<number>>(new Set());
   const previewToastById = useRef<Map<number, string | number>>(new Map());
-  const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null } | null>(null);
+  const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null; finishedAt?: string | null } | null>(null);
 
   const v8InFlight = useRef<Set<number>>(new Set());
   const lastV8Snapshot = useRef<{ id: number; status?: string | null } | null>(null);
@@ -204,7 +204,10 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as CltConsultJobShow | undefined;
       if (!job) return false;
-      const open = job.status === "pendente" || job.status === "em_progresso";
+      const open =
+        job.status === "pendente"
+        || job.status === "em_progresso"
+        || (job.status === "cancelado" && !job.finished_at);
       return open ? 5000 : false;
     },
   });
@@ -343,20 +346,26 @@ const CLTConsultaPage = () => {
     if (!watchedJob) return;
 
     const niceTitle = watchedJob.title ?? titleOf(watchedJob.id);
-    const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedJob.status);
+    const cancelCleanupPending = watchedJob.status === "cancelado" && !watchedJob.finished_at;
+    const isTerminal =
+      watchedJob.status === "concluido"
+      || watchedJob.status === "falhou"
+      || (watchedJob.status === "cancelado" && !cancelCleanupPending);
 
     const prev = lastWatchedSnapshot.current;
     const changed =
       !prev ||
       prev.id !== watchedJob.id ||
       prev.status !== watchedJob.status ||
-      prev.pstatus !== watchedJob.preview_status;
+      prev.pstatus !== watchedJob.preview_status ||
+      prev.finishedAt !== watchedJob.finished_at;
 
     if (!changed) return;
     lastWatchedSnapshot.current = {
       id: watchedJob.id,
       status: watchedJob.status,
       pstatus: watchedJob.preview_status,
+      finishedAt: watchedJob.finished_at,
     };
 
     if (waitingPreview.current.has(watchedJob.id)) {
@@ -389,7 +398,6 @@ const CLTConsultaPage = () => {
     if (isTerminal) {
       if (watchedJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
-      else if (watchedJob.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
 
       setWatchingJobId(null);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
@@ -463,7 +471,7 @@ const CLTConsultaPage = () => {
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelCltConsultJob(id, reason),
     onSuccess: (_data, { id }) => {
-      if (id === watchingJobId) setWatchingJobId(null);
+      setWatchingJobId(id);
       toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
       void qc.invalidateQueries({ queryKey: ["clt:job", id] });

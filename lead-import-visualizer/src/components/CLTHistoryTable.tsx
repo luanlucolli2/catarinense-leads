@@ -515,13 +515,22 @@ export const CLTHistoryTable = ({
     i.status === "pendente" || i.status === "em_progresso";
 
   const isCancelCleanupPending = (i: CltConsultJobListItem) =>
-    i.status === "cancelado" &&
-    (Boolean(i.spool_path || i.spool_cpfs_path) || Number(i.spool_bytes ?? 0) > 0);
+    i.status === "cancelado" && !i.finished_at;
 
   const canRerunPhase2 = (i: CltConsultJobListItem) => {
     const variant = resolveVariant(i);
     const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
-    return isTwoPhaseVariant(variant) && i.status === "concluido" && hasFinal;
+    const hasPreservedSpool = Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0;
+    const cancelledAfterPhase2 =
+      i.status === "cancelado"
+      && Boolean(i.finished_at)
+      && hasPreservedSpool
+      && (i.phase === "fase_2" || Number(i.phase2_total ?? 0) > 0 || Number(i.phase2_attempt ?? 0) > 0);
+
+    return isTwoPhaseVariant(variant) && (
+      (i.status === "concluido" && hasFinal) ||
+      cancelledAfterPhase2
+    );
   };
 
   const canDelete = (i: CltConsultJobListItem) =>
