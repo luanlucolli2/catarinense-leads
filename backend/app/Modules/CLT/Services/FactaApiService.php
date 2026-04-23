@@ -1303,7 +1303,7 @@ class FactaApiService
                     ], $operacoesReqCount, $politicaReqCount, is_array($candidate['sourceTable'] ?? null) ? $candidate['sourceTable'] : null, $useExperimentalPolicySource ? null : $sourceTableName);
                 }
 
-                if (!$useExperimentalPolicySource && $lockedPrazoFromMessage === null && empty($policy['aprovado'])) {
+                if ($lockedPrazoFromMessage === null && empty($policy['aprovado'])) {
                     $hintPrazo = $this->extractPrazoFromPolicyMessage($policyMensagem);
                     if ($hintPrazo !== null) {
                         $lockedPrazoFromMessage = $hintPrazo;
@@ -1314,6 +1314,17 @@ class FactaApiService
                                 continue;
                             }
                             $filteredQueue[] = $hintCandidate;
+                        }
+                        if ($useExperimentalPolicySource && empty($filteredQueue)) {
+                            $hintKey = $hintPrazo . '|' . $this->creditPolicyFixedValorEmprestimo;
+                            if (!isset($testedPolicyCandidates[$hintKey])) {
+                                $filteredQueue[] = [
+                                    'prazo' => $hintPrazo,
+                                    'valorEmprestimo' => $this->creditPolicyFixedValorEmprestimo,
+                                    'sourceTableName' => null,
+                                    'sourceTable' => null,
+                                ];
+                            }
                         }
                         $policyQueue = $filteredQueue;
                     }
