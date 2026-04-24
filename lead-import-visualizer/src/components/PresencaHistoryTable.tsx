@@ -11,6 +11,8 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Pause,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +41,8 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
+  onPause: (id: number) => Promise<void>;
+  onResume: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
 
@@ -64,6 +68,13 @@ function getStatusInfo(status: PresencaJobStatus) {
         className:
           "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
         label: "Em andamento",
+      };
+    case "pausado":
+      return {
+        icon: <Pause className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800",
+        label: "Pausado",
       };
     case "falhou":
       return {
@@ -193,6 +204,8 @@ export const PresencaHistoryTable = ({
   loading,
   onDownload,
   onCancel,
+  onPause,
+  onResume,
   onDelete,
   page,
   lastPage,
@@ -200,6 +213,8 @@ export const PresencaHistoryTable = ({
   formatDateTimeBR,
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
+  const [pausingId, setPausingId] = useState<number | null>(null);
+  const [resumingId, setResumingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<PresencaConsultJobListItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] =
@@ -210,17 +225,25 @@ export const PresencaHistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: PresencaConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso";
+    i.status === "pendente" ||
+    i.status === "em_progresso" ||
+    i.status === "pausado" ||
+    (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
 
   const canCancel = (i: PresencaConsultJobListItem) =>
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+
+  const canPause = (i: PresencaConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
 
-  const isCancelCleanupPending = (i: PresencaConsultJobListItem) =>
-    i.status === "cancelado" &&
-    (Boolean(i.spool_path || i.spool_inputs_path) || Number(i.spool_bytes ?? 0) > 0);
+  const canResume = (i: PresencaConsultJobListItem) =>
+    i.status === "pausado";
+
+  const isCancelStopPending = (i: PresencaConsultJobListItem) =>
+    i.status === "cancelado" && !i.finished_at;
 
   const canDelete = (i: PresencaConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || isCancelCleanupPending(i));
+    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelStopPending(i));
 
   const openCancelDialog = (i: PresencaConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -235,6 +258,26 @@ export const PresencaHistoryTable = ({
     } finally {
       setCancelingId(null);
       setConfirmJob(null);
+    }
+  };
+
+  const executePause = async (i: PresencaConsultJobListItem) => {
+    if (!canPause(i) || pausingId !== null) return;
+    try {
+      setPausingId(i.id);
+      await onPause(i.id);
+    } finally {
+      setPausingId(null);
+    }
+  };
+
+  const executeResume = async (i: PresencaConsultJobListItem) => {
+    if (!canResume(i) || resumingId !== null) return;
+    try {
+      setResumingId(i.id);
+      await onResume(i.id);
+    } finally {
+      setResumingId(null);
     }
   };
 
@@ -312,6 +355,34 @@ export const PresencaHistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-600 dark:text-amber-400"
+                              disabled={pausingId === i.id}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-600 dark:text-emerald-400"
+                              disabled={resumingId === i.id}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
                           {canCancel(i) && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
@@ -332,7 +403,7 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
+                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -344,74 +415,6 @@ export const PresencaHistoryTable = ({
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
                       </Badge>
 
-                      {i.status !== "cancelado" && (
-                        <Button
-                          onClick={() =>
-                            onDownload(i.id, { preview: !finalReady && previewReady })
-                          }
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Baixar prévia"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && (
-                            <span className="ml-1 hidden sm:inline">Prévia</span>
-                          )}
-                        </Button>
-                      )}
-
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Mais ações</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          {canCancel(i) && (
-                            <DropdownMenuItem
-                              onClick={() => setConfirmJob(i)}
-                              className="text-orange-600 dark:text-orange-400"
-                            >
-                              <X className="w-4 h-4 mr-2" />
-                              Cancelar
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => setConfirmDeleteJob(i)}
-                            className={
-                              !canDelete(i)
-                                ? "text-muted-foreground cursor-not-allowed"
-                                : "text-destructive"
-                            }
-                            disabled={!canDelete(i)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-
-                  <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
-                        {statusInfo.icon}
-                        <span className="whitespace-nowrap">{statusInfo.label}</span>
-                      </Badge>
-                    </div>
-
-                    {i.status !== "cancelado" && (
                       <Button
                         onClick={() =>
                           onDownload(i.id, { preview: !finalReady && previewReady })
@@ -429,8 +432,100 @@ export const PresencaHistoryTable = ({
                         }
                       >
                         <Download className="w-4 h-4" />
+                        {!finalReady && previewReady && (
+                          <span className="ml-1 hidden sm:inline">Prévia</span>
+                        )}
                       </Button>
-                    )}
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Mais ações</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-600 dark:text-amber-400"
+                              disabled={pausingId === i.id}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-600 dark:text-emerald-400"
+                              disabled={resumingId === i.id}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
+                          {canCancel(i) && (
+                            <DropdownMenuItem
+                              onClick={() => setConfirmJob(i)}
+                              className="text-orange-600 dark:text-orange-400"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              Cancelar
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setConfirmDeleteJob(i)}
+                            className={
+                              !canDelete(i)
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-destructive"
+                            }
+                            disabled={!canDelete(i)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+
+                  <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
+                        {statusInfo.icon}
+                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      </Badge>
+                    </div>
+
+                    <Button
+                      onClick={() =>
+                        onDownload(i.id, { preview: !finalReady && previewReady })
+                      }
+                      disabled={downloadDisabled}
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      title={
+                        finalReady
+                          ? "Baixar planilha final"
+                          : previewReady
+                            ? "Baixar prévia"
+                            : "Baixar indisponível"
+                      }
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -441,6 +536,7 @@ export const PresencaHistoryTable = ({
 
                   {(i.status === "concluido" ||
                     i.status === "em_progresso" ||
+                    i.status === "pausado" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
                     <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-2 border-t border-border">

@@ -4,6 +4,7 @@ export { ensureCsrfCookie } from './axiosClient'
 export type PresencaJobStatus =
   | 'pendente'
   | 'em_progresso'
+  | 'pausado'
   | 'concluido'
   | 'falhou'
   | 'cancelado'
@@ -32,6 +33,7 @@ export interface PresencaConsultJobListItem {
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
+  paused_at?: string | null
   cancel_reason?: string | null
   created_at: string
 }
@@ -55,6 +57,7 @@ export interface PresencaConsultJobShow {
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
+  paused_at?: string | null
   cancel_reason?: string | null
   created_at: string
 }
@@ -142,7 +145,27 @@ export async function cancelPresencaConsultJob(id: number, reason?: string) {
     phase?: PresencaJobPhase
     canceled_at?: string | null
     cancel_reason?: string | null
+    finished_at?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
+  return data
+}
+
+export async function pausePresencaConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: PresencaJobStatus
+    phase?: PresencaJobPhase
+    paused_at?: string | null
+  }>(`${BASE}/${id}/pause`)
+  return data
+}
+
+export async function resumePresencaConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: PresencaJobStatus
+    phase?: PresencaJobPhase
+  }>(`${BASE}/${id}/resume`)
   return data
 }
 

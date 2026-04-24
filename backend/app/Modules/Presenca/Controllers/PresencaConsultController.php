@@ -3,10 +3,12 @@
 namespace App\Modules\Presenca\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Presenca\Jobs\DispatchPresencaConsultJob;
 use App\Modules\Presenca\Jobs\ProcessPresencaConsultJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
+use App\Modules\Presenca\Support\PresencaSpool;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -35,6 +37,7 @@ class PresencaConsultController extends Controller
         $reportsDiskName = (string) config('presenca.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && PresencaSpool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
@@ -48,8 +51,9 @@ class PresencaConsultController extends Controller
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
+            'paused_at' => $job->paused_at,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => (int) ($job->spool_bytes ?? 0),
         ]);
     }
@@ -142,10 +146,11 @@ class PresencaConsultController extends Controller
 
         $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && PresencaSpool::hasDataRows($disk, $job->spool_path);
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
@@ -160,6 +165,10 @@ class PresencaConsultController extends Controller
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
+        }
+
+        if (!PresencaSpool::hasDataRows($disk, $job->spool_path)) {
+            return response()->json(['message' => 'Prévia indisponível: nenhum resultado gravado ainda.'], Response::HTTP_CONFLICT);
         }
 
         $real = $disk->path($job->spool_path);
@@ -259,13 +268,21 @@ class PresencaConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
+        $waitForWorkerToStop = $job->status === 'em_progresso';
+
         $job->update([
             'status' => 'cancelado',
             'phase' => null,
             'canceled_at' => now(),
+            'paused_at' => null,
             'cancel_reason' => $data['reason'] ?? null,
-            'finished_at' => now(),
+            'finished_at' => $waitForWorkerToStop ? null : now(),
         ]);
+
+        if (!$waitForWorkerToStop) {
+            $this->finalizeCancelledPreservingUsefulPreview($job);
+            $job->refresh();
+        }
 
         return response()->json([
             'id' => $job->id,
@@ -273,7 +290,87 @@ class PresencaConsultController extends Controller
             'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
+            'finished_at' => $job->finished_at,
         ]);
+    }
+
+    public function pause(int $id)
+    {
+        $job = PresencaConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status === 'pausado') {
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ]);
+        }
+
+        if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Job não pode ser pausado neste estado.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pausado',
+            'paused_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'paused_at' => $job->paused_at,
+        ]);
+    }
+
+    public function resume(int $id)
+    {
+        $job = PresencaConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Apenas jobs pausados podem ser retomados.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
+        if (
+            empty($job->spool_path)
+            || empty($job->spool_inputs_path)
+            || !$disk->exists($job->spool_path)
+            || !$disk->exists($job->spool_inputs_path)
+        ) {
+            return response()->json([
+                'message' => 'Spool indisponível para retomar o job.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pendente',
+            'paused_at' => null,
+            'finished_at' => null,
+            'canceled_at' => null,
+            'cancel_reason' => null,
+        ]);
+
+        DispatchPresencaConsultJob::dispatch($job->id)
+            ->delay(now()->addSeconds(2))
+            ->onQueue((string) config('presenca.job.queue', 'presenca'));
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+        ], Response::HTTP_ACCEPTED);
     }
 
     public function destroy(int $id)
@@ -282,12 +379,11 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $cancelCleanupInProgress = $job->status === 'cancelado'
-            && (!empty($job->spool_path) || !empty($job->spool_inputs_path));
+        $cancelStopPending = $job->status === 'cancelado' && empty($job->finished_at);
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
+        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelStopPending) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job ainda está em andamento ou finalizando o cancelamento.',
+                'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
@@ -323,6 +419,43 @@ class PresencaConsultController extends Controller
     private function finalPrefix(): string
     {
         return (string) config('presenca.storage.final_prefix', 'presenca-consulta');
+    }
+
+    private function finalizeCancelledPreservingUsefulPreview(PresencaConsultJob $job): void
+    {
+        $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = PresencaSpool::hasDataRows($disk, $spoolPath);
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+
+            if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+                $disk->delete($spoolPath);
+            }
+        } catch (\Throwable $e) {
+            PresencaLog::warning("[PRESENCA] Erro ao finalizar cancelamento preservando prévia (job {$job->id}): " . $e->getMessage());
+        }
+
+        $spoolBytes = 0;
+        if ($hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+            try {
+                $spoolBytes = (int) $disk->size($spoolPath);
+            } catch (\Throwable) {
+                $spoolBytes = 0;
+            }
+        }
+
+        $job->updateQuietly([
+            'spool_path' => $hasDataRows ? $spoolPath : null,
+            'spool_inputs_path' => null,
+            'spool_bytes' => $spoolBytes,
+            'phase' => null,
+            'finished_at' => $job->finished_at ?? now(),
+        ]);
     }
 
     private function tokenizeLinesLazy($lines): \Generator

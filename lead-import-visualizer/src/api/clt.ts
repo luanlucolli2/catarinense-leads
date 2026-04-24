@@ -6,6 +6,7 @@ export { ensureCsrfCookie } from './axiosClient'
 export type CltJobStatus =
   | 'pendente'
   | 'em_progresso'
+  | 'pausado'
   | 'concluido'
   | 'falhou'
   | 'cancelado'
@@ -56,6 +57,7 @@ export interface CltConsultJobListItem {
 
   started_at?: string | null
   finished_at?: string | null
+  paused_at?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
   created_at: string
@@ -98,6 +100,7 @@ export interface CltConsultJobShow {
   /** datas */
   started_at?: string | null
   finished_at?: string | null
+  paused_at?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
   created_at: string
@@ -150,7 +153,7 @@ export interface Paginated<T> {
 }
 
 const BASE = '/clt/consult-jobs'
-const CLT_JOB_STATUSES: CltJobStatus[] = ['pendente', 'em_progresso', 'concluido', 'falhou', 'cancelado']
+const CLT_JOB_STATUSES: CltJobStatus[] = ['pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
 const CLT_JOB_VARIANTS: Array<'online' | 'offline' | 'hybrid'> = ['online', 'offline', 'hybrid']
 
 /** Lista os jobs CLT com filtros opcionais */
@@ -264,6 +267,27 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
     canceled_at?: string | null
     cancel_reason?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
+  return data
+}
+
+/** Pausa um job CLT em andamento ou pendente */
+export async function pauseCltConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: CltJobStatus
+    phase?: CltJobPhase
+    paused_at?: string | null
+  }>(`${BASE}/${id}/pause`)
+  return data
+}
+
+/** Retoma um job CLT pausado */
+export async function resumeCltConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: CltJobStatus
+    phase?: CltJobPhase
+  }>(`${BASE}/${id}/resume`)
   return data
 }
 

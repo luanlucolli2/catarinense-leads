@@ -6,6 +6,8 @@ use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Services\PresencaApiService;
 use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
+use App\Modules\Presenca\Support\PresencaSpool;
+use App\Support\Cpf;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -79,8 +81,12 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        if ($this->isCancelled($job)) {
-            $this->cleanupSpool($job);
+        if ($job->status === 'cancelado') {
+            $this->finalizeCancelledPreservingPreview($job);
+            return;
+        }
+
+        if ($job->status === 'pausado') {
             return;
         }
 
@@ -98,19 +104,41 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $this->baseSuccess = (int) ($job->success_count ?? 0);
-        $this->basePolicyDeclined = (int) ($job->policy_declined_count ?? 0);
-        $this->baseFail = (int) ($job->fail_count ?? 0);
+        $processedState = $this->loadProcessedStateFromSpool($job->spool_path);
+        $processedCpfs = is_array($processedState['cpfs'] ?? null) ? $processedState['cpfs'] : [];
+
+        $this->baseSuccess = (int) ($processedState['success'] ?? 0);
+        $this->basePolicyDeclined = (int) ($processedState['policy_declined'] ?? 0);
+        $this->baseFail = (int) ($processedState['fail'] ?? 0);
         $this->spoolBytes = $this->fileSizeSafe($job->spool_path);
 
-        $job->update([
-            'status' => 'em_progresso',
-            'phase' => 'processando',
-            'started_at' => $job->started_at ?? Carbon::now(),
-            'spool_bytes' => $this->spoolBytes,
-        ]);
+        $claimed = DB::table('presenca_consult_jobs')
+            ->where('id', $job->id)
+            ->whereIn('status', ['pendente', 'em_progresso'])
+            ->update([
+                'status' => 'em_progresso',
+                'phase' => 'processando',
+                'started_at' => $job->started_at ?? Carbon::now(),
+                'spool_bytes' => $this->spoolBytes,
+                'success_count' => $this->baseSuccess,
+                'policy_declined_count' => $this->basePolicyDeclined,
+                'fail_count' => $this->baseFail,
+                'updated_at' => Carbon::now(),
+            ]);
 
-        $this->cachedStatus = $job->status;
+        if ($claimed === 0) {
+            $status = $this->currentStatusCached($job, true);
+            if ($status === null || $status === 'cancelado') {
+                if ($status === null) {
+                    $this->cleanupSpool($job);
+                } else {
+                    $this->finalizeCancelledPreservingPreview($job);
+                }
+            }
+            return;
+        }
+
+        $this->cachedStatus = 'em_progresso';
         $this->lastStatusCheckAt = microtime(true);
         $this->lastFlushAt = microtime(true);
 
@@ -170,7 +198,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
 
         try {
             while (($parts = fgetcsv($reader, 0, ';')) !== false) {
-                if ($this->finishIfCancelled($job)) {
+                if ($this->finishIfStopped($job, $rowsBuffer)) {
                     $this->closeSpool();
                     fclose($reader);
                     $this->cleanupTempRel($uniqInputsRel);
@@ -183,6 +211,10 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
 
                 [$cpf, $nome] = $this->parseInputColumns($parts);
                 if (!$cpf || !$nome) {
+                    continue;
+                }
+
+                if (isset($processedCpfs[$cpf])) {
                     continue;
                 }
 
@@ -207,6 +239,13 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                 }
             }
 
+            if ($this->finishIfStopped($job, $rowsBuffer)) {
+                $this->closeSpool();
+                fclose($reader);
+                $this->cleanupTempRel($uniqInputsRel);
+                return;
+            }
+
             if (!empty($rowsBuffer)) {
                 $this->flushRowsBuffer($rowsBuffer);
             }
@@ -215,8 +254,19 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             $this->closeSpool();
             fclose($reader);
 
-            if ($this->isCancelled($job)) {
-                $this->cleanupSpool($job);
+            $statusAfterFlush = $this->currentStatusCached($job, true);
+            if ($statusAfterFlush === null || $statusAfterFlush === 'cancelado') {
+                if ($statusAfterFlush === null) {
+                    $this->cleanupSpool($job);
+                } else {
+                    $this->finalizeCancelledPreservingPreview($job);
+                }
+                $this->cleanupTempRel($uniqInputsRel);
+                return;
+            }
+
+            if ($statusAfterFlush === 'pausado') {
+                $this->pauseCurrentJob($job);
                 $this->cleanupTempRel($uniqInputsRel);
                 return;
             }
@@ -281,7 +331,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         foreach ($inputBatch as $entry) {
-            if ($this->finishIfCancelled($job)) {
+            if ($this->finishIfStopped($job, $rowsBuffer)) {
                 return true;
             }
 
@@ -392,23 +442,52 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastFlushAt = microtime(true);
     }
 
-    private function finishIfCancelled(PresencaConsultJob $job): bool
+    private function finishIfStopped(PresencaConsultJob $job, &$rowsBuffer = null): bool
     {
-        if (!$this->isCancelled($job)) {
-            return false;
+        $status = $this->currentStatusCached($job);
+
+        if ($status === null) {
+            $this->cleanupSpool($job);
+            if (!$this->missingJobLogged) {
+                PresencaLog::warning("[PRESENCA] Job {$this->jobId} removido durante processamento; interrompendo execução.");
+                $this->missingJobLogged = true;
+            }
+            return true;
         }
 
-        PresencaLog::info("[PRESENCA] Job {$this->jobId} cancelado durante processamento.");
-        $this->cleanupSpool($job);
-        return true;
+        if ($status === 'cancelado') {
+            if (is_array($rowsBuffer) && !empty($rowsBuffer)) {
+                $this->flushRowsBuffer($rowsBuffer);
+                $rowsBuffer = [];
+                $this->flushProgress($job, true);
+            }
+
+            PresencaLog::info("[PRESENCA] Job {$this->jobId} cancelado durante processamento.");
+            $this->finalizeCancelledPreservingPreview($job);
+            return true;
+        }
+
+        if ($status === 'pausado') {
+            if (is_array($rowsBuffer) && !empty($rowsBuffer)) {
+                $this->flushRowsBuffer($rowsBuffer);
+                $rowsBuffer = [];
+                $this->flushProgress($job, true);
+            }
+
+            $this->pauseCurrentJob($job);
+            PresencaLog::info("[PRESENCA] Job {$this->jobId} pausado.");
+            return true;
+        }
+
+        return false;
     }
 
-    private function isCancelled(PresencaConsultJob $job): bool
+    private function currentStatusCached(PresencaConsultJob $job, bool $force = false): ?string
     {
         $now = microtime(true);
         $elapsedMs = (int) (($now - $this->lastStatusCheckAt) * 1000);
-        if ($this->cachedStatus !== null && $elapsedMs < $this->statusCheckIntervalMs) {
-            return $this->cachedStatus === 'cancelado';
+        if (!$force && $this->cachedStatus !== null && $elapsedMs < $this->statusCheckIntervalMs) {
+            return $this->cachedStatus;
         }
 
         $status = DB::table('presenca_consult_jobs')
@@ -416,21 +495,34 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             ->value('status');
 
         if (!is_string($status)) {
-            $this->cachedStatus = 'cancelado';
+            $this->cachedStatus = null;
             $this->lastStatusCheckAt = $now;
-
-            if (!$this->missingJobLogged) {
-                PresencaLog::warning("[PRESENCA] Job {$this->jobId} removido durante processamento; interrompendo execução.");
-                $this->missingJobLogged = true;
-            }
-
-            return true;
+            return null;
         }
 
         $this->cachedStatus = $status;
         $this->lastStatusCheckAt = $now;
 
-        return $this->cachedStatus === 'cancelado';
+        return $this->cachedStatus;
+    }
+
+    private function pauseCurrentJob(PresencaConsultJob $job): void
+    {
+        $this->closeSpool();
+
+        try {
+            $spoolBytes = $this->fileSizeSafe($job->spool_path ?? null);
+
+            DB::table('presenca_consult_jobs')
+                ->where('id', $job->id)
+                ->where('status', 'pausado')
+                ->update([
+                    'paused_at' => $job->paused_at ?? Carbon::now(),
+                    'spool_bytes' => $spoolBytes,
+                    'updated_at' => Carbon::now(),
+                ]);
+        } catch (Throwable) {
+        }
     }
 
     private function closeSpool(): void
@@ -452,6 +544,105 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             return (int) Storage::disk($this->disk)->size($relPath);
         } catch (Throwable) {
             return 0;
+        }
+    }
+
+    /**
+     * @return array{cpfs:array<string,bool>,success:int,policy_declined:int,fail:int}
+     */
+    private function loadProcessedStateFromSpool(?string $spoolPath): array
+    {
+        $state = [
+            'cpfs' => [],
+            'success' => 0,
+            'policy_declined' => 0,
+            'fail' => 0,
+        ];
+
+        if (!$spoolPath) {
+            return $state;
+        }
+
+        $cpfIndex = array_search('cpf', PresencaSchema::COLS, true);
+        $statusIndex = array_search('status', PresencaSchema::COLS, true);
+        if (!is_int($cpfIndex) || !is_int($statusIndex)) {
+            return $state;
+        }
+
+        $realPath = Storage::disk($this->disk)->path($spoolPath);
+        $reader = @fopen($realPath, 'rb');
+        if (!is_resource($reader)) {
+            return $state;
+        }
+
+        try {
+            flock($reader, LOCK_SH);
+            fgetcsv($reader, 0, ';'); // cabeçalho do spool
+
+            while (($parts = fgetcsv($reader, 0, ';')) !== false) {
+                if (!is_array($parts) || $parts === [null]) {
+                    continue;
+                }
+
+                $cpf = Cpf::normalize((string) ($parts[$cpfIndex] ?? ''));
+                if (!$cpf || isset($state['cpfs'][$cpf])) {
+                    continue;
+                }
+
+                $state['cpfs'][$cpf] = true;
+                $status = strtoupper(trim((string) ($parts[$statusIndex] ?? '')));
+
+                if ($status === 'SUCESSO') {
+                    $state['success']++;
+                } elseif ($status === 'RECUSA_POLITICA') {
+                    $state['policy_declined']++;
+                } else {
+                    $state['fail']++;
+                }
+            }
+        } finally {
+            flock($reader, LOCK_UN);
+            fclose($reader);
+        }
+
+        return $state;
+    }
+
+    private function finalizeCancelledPreservingPreview(PresencaConsultJob $job): void
+    {
+        $this->closeSpool();
+
+        $disk = Storage::disk($this->disk);
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = PresencaSpool::hasDataRows($disk, $spoolPath);
+        $spoolBytes = $hasDataRows ? $this->fileSizeSafe($spoolPath) : 0;
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+
+            if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+                $disk->delete($spoolPath);
+            }
+        } catch (Throwable) {
+        }
+
+        try {
+            DB::table('presenca_consult_jobs')
+                ->where('id', $job->id)
+                ->update([
+                    'status' => 'cancelado',
+                    'phase' => null,
+                    'paused_at' => null,
+                    'finished_at' => Carbon::now(),
+                    'spool_path' => $hasDataRows ? $spoolPath : null,
+                    'spool_inputs_path' => null,
+                    'spool_bytes' => $spoolBytes,
+                    'updated_at' => Carbon::now(),
+                ]);
+        } catch (Throwable) {
         }
     }
 
@@ -526,7 +717,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
             $block = [];
 
             while (($parts = fgetcsv($reader, 0, ';')) !== false) {
-                if ($this->finishIfCancelled($job)) {
+                if ($this->finishIfStopped($job)) {
                     foreach ($chunks as $chunk) {
                         $this->cleanupTempRel($chunk['rel'] ?? null);
                     }
