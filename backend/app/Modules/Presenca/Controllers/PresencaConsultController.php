@@ -12,6 +12,7 @@ use App\Modules\Presenca\Support\PresencaSpool;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -51,7 +52,10 @@ class PresencaConsultController extends Controller
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
+            'canceled_at' => $job->canceled_at,
             'paused_at' => $job->paused_at,
+            'cancel_reason' => $job->cancel_reason,
+            'scheduled_for' => $job->scheduled_for,
             'created_at' => $job->created_at,
             'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => (int) ($job->spool_bytes ?? 0),
@@ -68,10 +72,14 @@ class PresencaConsultController extends Controller
             'title' => $request->input('title'),
             'lines' => $rawLines,
             'file' => $uploadedFile,
+            'run_at' => $request->input('run_at'),
+            'timezone' => $request->input('timezone'),
         ], [
             'title' => ['required', 'string', 'max:191'],
             'lines' => ['required_without:file'],
             'file' => ['nullable', 'file'],
+            'run_at' => ['nullable', 'date'],
+            'timezone' => ['nullable', 'string', 'timezone:all'],
         ]);
 
         if ($validator->fails()) {
@@ -81,15 +89,25 @@ class PresencaConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        $timezone = (string) ($request->input('timezone') ?: 'America/Sao_Paulo');
+        $runAtRaw = $request->input('run_at');
+        $runAt = is_string($runAtRaw) && $runAtRaw !== ''
+            ? Carbon::parse($runAtRaw, $timezone)
+            : null;
+        $scheduledFor = $runAt && $runAt->greaterThan(Carbon::now($timezone))
+            ? $runAt->clone()->setTimezone('UTC')
+            : null;
+
         $job = PresencaConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => (string) $request->input('title'),
-            'status' => 'pendente',
+            'status' => $scheduledFor ? 'agendado' : 'pendente',
             'phase' => null,
             'total_cpfs' => 0,
             'success_count' => 0,
             'policy_declined_count' => 0,
             'fail_count' => 0,
+            'scheduled_for' => $scheduledFor,
         ]);
 
         try {
@@ -128,13 +146,16 @@ class PresencaConsultController extends Controller
             'total_cpfs' => $linesCount,
         ]);
 
-        ProcessPresencaConsultJob::dispatch($job->id)
-            ->onQueue((string) config('presenca.job.queue', 'presenca'));
+        if ($job->status === 'pendente') {
+            ProcessPresencaConsultJob::dispatch($job->id)
+                ->onQueue((string) config('presenca.job.queue', 'presenca'));
+        }
 
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
             'phase' => $job->phase,
+            'scheduled_for' => $job->scheduled_for,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -381,9 +402,9 @@ class PresencaConsultController extends Controller
 
         $cancelStopPending = $job->status === 'cancelado' && empty($job->finished_at);
 
-        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelStopPending) {
+        if (in_array($job->status, ['agendado', 'pendente', 'em_progresso', 'pausado'], true) || $cancelStopPending) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
+                'message' => 'Não é possível excluir enquanto o job ainda está agendado, em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }

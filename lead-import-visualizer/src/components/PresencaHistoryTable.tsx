@@ -55,6 +55,13 @@ type Props = {
 
 function getStatusInfo(status: PresencaJobStatus) {
   switch (status) {
+    case "agendado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
+        label: "Agendado",
+      };
     case "concluido":
       return {
         icon: <CheckCircle className="w-4 h-4" />,
@@ -124,6 +131,13 @@ function SegmentedProgressBar({ item }: { item: PresencaConsultJobListItem }) {
     total === 0 &&
     (item.status === "pendente" || item.status === "em_progresso");
 
+  let statusMessage = `${s.sum.toFixed(1)}% completo`;
+  if (item.status === "agendado") {
+    statusMessage = "Consulta agendada";
+  } else if (isCounting) {
+    statusMessage = "Preparando…";
+  }
+
   const pulseWidthPct = Math.min(
     5,
     Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8)
@@ -192,7 +206,7 @@ function SegmentedProgressBar({ item }: { item: PresencaConsultJobListItem }) {
           )}
         </div>
         <span className="text-muted-foreground">
-          {isCounting ? "Preparando…" : `${s.sum.toFixed(1)}% completo`}
+          {statusMessage}
         </span>
       </div>
     </div>
@@ -231,7 +245,7 @@ export const PresencaHistoryTable = ({
     (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
 
   const canCancel = (i: PresencaConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
   const canPause = (i: PresencaConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -243,7 +257,7 @@ export const PresencaHistoryTable = ({
     i.status === "cancelado" && !i.finished_at;
 
   const canDelete = (i: PresencaConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelStopPending(i));
+    !(i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelStopPending(i));
 
   const openCancelDialog = (i: PresencaConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -343,6 +357,9 @@ export const PresencaHistoryTable = ({
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        {i.scheduled_for && (
+                          <span>Agendado para {formatDateTimeBR(i.scheduled_for)}</span>
+                        )}
                       </div>
                     </div>
 
@@ -403,7 +420,13 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelStopPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -493,7 +516,13 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelStopPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -608,7 +637,7 @@ export const PresencaHistoryTable = ({
             </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <p>Essa ação interromperá o processamento:</p>
+            <p>{confirmJob?.status === "agendado" ? "Essa ação impedirá o início agendado:" : "Essa ação interromperá o processamento:"}</p>
             {confirmJob && (
               <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
                 {confirmJob.title} (#{confirmJob.id})

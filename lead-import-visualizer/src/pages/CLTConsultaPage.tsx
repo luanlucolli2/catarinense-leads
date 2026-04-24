@@ -242,6 +242,7 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as PresencaConsultJobShow | undefined;
       if (!job) return false;
+      if (job.status === "agendado") return 15000;
       const open =
         job.status === "pendente" ||
         job.status === "em_progresso" ||
@@ -344,6 +345,7 @@ const CLTConsultaPage = () => {
         fail_count: watchedPresencaJob.fail_count,
         spool_bytes: watchedPresencaJob.spool_bytes ?? i.spool_bytes,
         paused_at: watchedPresencaJob.paused_at ?? i.paused_at,
+        scheduled_for: watchedPresencaJob.scheduled_for ?? i.scheduled_for,
       };
     });
   }, [presencaItems, watchedPresencaJob]);
@@ -604,11 +606,11 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
   });
 
-  const createPresencaMutation = useMutation<any, any, { title: string; lines: string }>({
+  const createPresencaMutation = useMutation<any, any, { title: string; lines: string; run_at?: string; timezone?: string }>({
     mutationFn: (vars) => createPresencaConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingPresencaJobId(data.id);
-      toast.success(`Consulta "${vars.title}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${vars.title}" agendada.` : `Consulta "${vars.title}" criada.`);
       setPagePresenca(1);
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
     },
@@ -618,9 +620,13 @@ const CLTConsultaPage = () => {
   const cancelPresencaMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelPresencaConsultJob(id, reason),
-    onSuccess: (_data, { id }) => {
+    onSuccess: (data, { id }) => {
       setWatchingPresencaJobId(id);
-      toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      if (data.finished_at) {
+        toast.info(`Consulta "${presencaTitleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      }
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
     },
@@ -685,8 +691,17 @@ const CLTConsultaPage = () => {
     await createV8Mutation.mutateAsync({ title: titulo, lines });
   };
 
-  const handleNewPresencaConsult = async (titulo: string, lines: string) => {
-    await createPresencaMutation.mutateAsync({ title: titulo, lines });
+  const handleNewPresencaConsult = async (
+    titulo: string,
+    lines: string,
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => {
+    await createPresencaMutation.mutateAsync({
+      title: titulo,
+      lines,
+      ...(opts?.runAt ? { run_at: opts.runAt } : {}),
+      ...(opts?.timezone ? { timezone: opts.timezone } : {}),
+    });
   };
 
   const getOrCreatePreviewToast = (id: number) => {

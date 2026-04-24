@@ -4,13 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface NewPresencaConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (titulo: string, lines: string) => void;
+  onSubmit: (
+    titulo: string,
+    lines: string,
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => void;
 }
 
 export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresencaConsultModalProps) => {
@@ -18,6 +23,8 @@ export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresen
   const [lines, setLines] = useState("");
   const [lineCount, setLineCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [isAgendado, setIsAgendado] = useState(false);
+  const [runAtLocal, setRunAtLocal] = useState("");
 
   useEffect(() => {
     if (lines.trim()) {
@@ -37,13 +44,28 @@ export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresen
       toast.error("Adicione pelo menos uma linha");
       return;
     }
+    if (isAgendado && !runAtLocal) {
+      toast.error("Informe a data e hora do agendamento");
+      return;
+    }
 
     try {
       setSubmitting(true);
-      await onSubmit(titulo, lines);
+      await onSubmit(
+        titulo,
+        lines,
+        isAgendado
+          ? {
+              runAt: runAtLocal,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }
+          : undefined
+      );
       setTitulo("");
       setLines("");
       setLineCount(0);
+      setIsAgendado(false);
+      setRunAtLocal("");
       onClose();
     } finally {
       setSubmitting(false);
@@ -55,10 +77,13 @@ export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresen
     setTitulo("");
     setLines("");
     setLineCount(0);
+    setIsAgendado(false);
+    setRunAtLocal("");
     onClose();
   };
 
   const noFocus = "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0";
+  const minNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -101,6 +126,40 @@ export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresen
               </span>
             </div>
           </div>
+
+          <div className="space-y-3 border-t border-gray-100 pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="presenca-agendamento"
+                checked={isAgendado}
+                onCheckedChange={(checked) => setIsAgendado(!!checked)}
+                disabled={submitting}
+              />
+              <Label htmlFor="presenca-agendamento" className="cursor-pointer text-sm font-medium">
+                Agendar início
+              </Label>
+            </div>
+
+            {isAgendado && (
+              <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/70 p-3">
+                <Label htmlFor="presenca-run-at" className="text-sm font-medium">
+                  Iniciar em
+                </Label>
+                <Input
+                  id="presenca-run-at"
+                  type="datetime-local"
+                  value={runAtLocal}
+                  onChange={(e) => setRunAtLocal(e.target.value)}
+                  min={minNow}
+                  className={cn("max-w-xs", noFocus)}
+                  disabled={submitting}
+                />
+                <p className="text-xs leading-5 text-gray-600">
+                  O lote ficará agendado e entrará automaticamente na fila quando esse horário chegar.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
@@ -112,7 +171,7 @@ export const NewPresencaConsultModal = ({ isOpen, onClose, onSubmit }: NewPresen
             disabled={submitting}
             className={cn("bg-blue-600 hover:bg-blue-700", noFocus)}
           >
-            {submitting ? "Criando..." : "Criar consulta"}
+            {submitting ? "Criando..." : isAgendado ? "Agendar consulta" : "Criar consulta"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -28,6 +28,7 @@ class PresencaConsultJob extends Model
         'canceled_at',
         'paused_at',
         'cancel_reason',
+        'scheduled_for',
     ];
 
     protected $casts = [
@@ -35,6 +36,7 @@ class PresencaConsultJob extends Model
         'finished_at' => 'datetime',
         'canceled_at' => 'datetime',
         'paused_at' => 'datetime',
+        'scheduled_for' => 'datetime',
         'spool_bytes' => 'integer',
         'total_cpfs' => 'integer',
         'success_count' => 'integer',
