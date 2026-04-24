@@ -12,6 +12,7 @@ use App\Modules\CLT\Support\CltSpool;
 use App\Modules\CLT\Support\CltVariant;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -24,7 +25,7 @@ class CltConsultController extends Controller
     public function index(Request $request)
     {
         $data = Validator::make($request->query(), [
-            'status' => ['nullable', 'in:pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
+            'status' => ['nullable', 'in:agendado,pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
             'variant' => ['nullable', 'in:online,offline,hybrid,on,off,hyb,todos'],
         ])->validate();
 
@@ -88,6 +89,7 @@ class CltConsultController extends Controller
             'paused_at' => $job->paused_at,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
+            'scheduled_for' => $job->scheduled_for,
             'created_at' => $job->created_at,
             'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado','cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => $job->spool_bytes,
@@ -100,6 +102,8 @@ class CltConsultController extends Controller
             'title' => ['required', 'string', 'max:191'],
             'cpfs' => ['required'],
             'variant' => ['nullable', 'in:online,offline,hybrid'],
+            'run_at' => ['nullable', 'date'],
+            'timezone' => ['nullable', 'string', 'timezone:all'],
         ];
         $validator = Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -110,11 +114,16 @@ class CltConsultController extends Controller
         }
         $data = $validator->validated();
         $variant = $data['variant'] ?? 'online';
+        $timezone = $data['timezone'] ?? 'America/Sao_Paulo';
+        $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $timezone) : null;
+        $scheduledFor = $runAt && $runAt->greaterThan(Carbon::now($timezone))
+            ? $runAt->clone()->setTimezone('UTC')
+            : null;
 
         $job = CltConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
-            'status' => 'pendente',
+            'status' => $scheduledFor ? 'agendado' : 'pendente',
             'variant' => $variant,
             'total_cpfs' => 0,
             'phase2_aprovado_count' => 0,
@@ -123,6 +132,7 @@ class CltConsultController extends Controller
             'inelegivel_count' => 0,
             'not_found_count' => 0,
             'fail_count' => 0,
+            'scheduled_for' => $scheduledFor,
         ]);
 
         try {
@@ -149,13 +159,16 @@ class CltConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ]);
 
-        $queue = CltVariant::resolvePhaseOneQueue($variant);
-        ProcessCltConsultJob::dispatch($job->id, 'phase1')->onQueue($queue);
+        if ($job->status === 'pendente') {
+            $queue = CltVariant::resolvePhaseOneQueue($variant);
+            ProcessCltConsultJob::dispatch($job->id, 'phase1')->onQueue($queue);
+        }
 
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
             'phase' => $job->phase,
+            'scheduled_for' => $job->scheduled_for,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -313,13 +326,14 @@ class CltConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
-        if (in_array($job->status, ['pendente', 'pausado'], true)) {
+        if (in_array($job->status, ['agendado', 'pendente', 'pausado'], true)) {
             $this->cancelIdleJob($job, $data['reason'] ?? null);
 
             return response()->json([
                 'id' => $job->id,
                 'status' => $job->status,
                 'phase' => $job->phase,
+                'finished_at' => $job->finished_at,
                 'canceled_at' => $job->canceled_at,
                 'cancel_reason' => $job->cancel_reason,
             ]);
@@ -552,9 +566,9 @@ class CltConsultController extends Controller
         $cancelCleanupInProgress = $job->status === 'cancelado'
             && $job->finished_at === null;
 
-        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
+        if (in_array($job->status, ['agendado', 'pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
+                'message' => 'Não é possível excluir enquanto o job ainda está agendado, em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
@@ -1101,6 +1115,7 @@ class CltConsultController extends Controller
                 'cancel_reason' => $reason,
                 'paused_at' => null,
                 'finished_at' => now(),
+                'scheduled_for' => $job->scheduled_for,
                 'spool_path' => $spoolPath,
                 'spool_cpfs_path' => null,
                 'spool_bytes' => $spoolBytes,
@@ -1116,6 +1131,7 @@ class CltConsultController extends Controller
             'cancel_reason' => $reason,
             'paused_at' => null,
             'finished_at' => now(),
+            'scheduled_for' => $job->scheduled_for,
             'spool_path' => null,
             'spool_cpfs_path' => null,
             'spool_bytes' => 0,

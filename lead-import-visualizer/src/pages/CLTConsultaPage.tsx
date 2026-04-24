@@ -208,6 +208,7 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as CltConsultJobShow | undefined;
       if (!job) return false;
+      if (job.status === "agendado") return 15000;
       const open =
         job.status === "pendente"
         || job.status === "em_progresso"
@@ -293,6 +294,7 @@ const CLTConsultaPage = () => {
         not_found_count: watchedJob.not_found_count,
         fail_count: watchedJob.fail_count,
         paused_at: watchedJob.paused_at ?? i.paused_at,
+        scheduled_for: watchedJob.scheduled_for ?? i.scheduled_for,
         spool_bytes: watchedJob.spool_bytes ?? i.spool_bytes,
         preview_updated_at: watchedJob.preview_updated_at ?? i.preview_updated_at,
       };
@@ -497,7 +499,7 @@ const CLTConsultaPage = () => {
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
       const t = (vars as any).title;
-      toast.success(`Consulta "${t}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${t}" agendada.` : `Consulta "${t}" criada.`);
       setPage(1);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
     },
@@ -507,9 +509,13 @@ const CLTConsultaPage = () => {
   const cancelMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelCltConsultJob(id, reason),
-    onSuccess: (_data, { id }) => {
+    onSuccess: (data, { id }) => {
       setWatchingJobId(id);
-      toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
+      if (data.finished_at) {
+        toast.info(`Consulta "${titleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
+      }
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
       void qc.invalidateQueries({ queryKey: ["clt:job", id] });
     },
@@ -655,13 +661,24 @@ const CLTConsultaPage = () => {
   });
 
   // Mapear modo → variant esperado pelo backend
-  const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => {
+  const handleNewConsult = async (
+    titulo: string,
+    cpfs: string,
+    modo: "OFF" | "ONLINE" | "HYBRID",
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => {
     const variant = modo === "OFF"
       ? "offline"
       : modo === "HYBRID"
         ? "hybrid"
         : "online";
-    await createMutation.mutateAsync({ title: titulo, cpfs, variant });
+    await createMutation.mutateAsync({
+      title: titulo,
+      cpfs,
+      variant,
+      ...(opts?.runAt ? { run_at: opts.runAt } : {}),
+      ...(opts?.timezone ? { timezone: opts.timezone } : {}),
+    });
   };
 
   const handleNewV8Consult = async (titulo: string, lines: string) => {

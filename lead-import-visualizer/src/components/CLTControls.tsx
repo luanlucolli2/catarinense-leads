@@ -55,6 +55,7 @@ export const CLTControls = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos os status</SelectItem>
+                <SelectItem value="agendado">Agendado</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
                 <SelectItem value="em_progresso">Em andamento</SelectItem>
                 <SelectItem value="pausado">Pausado</SelectItem>

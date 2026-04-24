@@ -2,8 +2,9 @@
 import axiosClient from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
-/** Estados do job no backend (sem pausa e sem agendamento) */
+/** Estados do job no backend */
 export type CltJobStatus =
+  | 'agendado'
   | 'pendente'
   | 'em_progresso'
   | 'pausado'
@@ -60,6 +61,7 @@ export interface CltConsultJobListItem {
   paused_at?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -103,6 +105,7 @@ export interface CltConsultJobShow {
   paused_at?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -141,6 +144,8 @@ export interface CreateCltConsultInput {
   cpfs: string | string[]
   /** 'online' | 'offline' | 'hybrid' */
   variant?: 'online' | 'offline' | 'hybrid'
+  run_at?: string
+  timezone?: string
 }
 
 /** Resposta de paginação Laravel */
@@ -153,7 +158,7 @@ export interface Paginated<T> {
 }
 
 const BASE = '/clt/consult-jobs'
-const CLT_JOB_STATUSES: CltJobStatus[] = ['pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
+const CLT_JOB_STATUSES: CltJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
 const CLT_JOB_VARIANTS: Array<'online' | 'offline' | 'hybrid'> = ['online', 'offline', 'hybrid']
 
 /** Lista os jobs CLT com filtros opcionais */
@@ -188,7 +193,7 @@ export async function listCltConsultJobs(
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
 export async function createCltConsultJob(input: CreateCltConsultInput) {
-  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus; phase?: CltJobPhase }>(
+  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus; phase?: CltJobPhase; scheduled_for?: string | null }>(
     BASE,
     input
   )
@@ -264,6 +269,7 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
     id: number
     status: CltJobStatus
     phase?: CltJobPhase
+    finished_at?: string | null
     canceled_at?: string | null
     cancel_reason?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
