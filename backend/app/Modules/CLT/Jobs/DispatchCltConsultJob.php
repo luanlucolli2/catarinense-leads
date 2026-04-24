@@ -29,7 +29,11 @@ class DispatchCltConsultJob implements ShouldQueue
             return;
         }
 
+        $queue = $this->stage === 'phase2'
+            ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+            : CltVariant::resolvePhaseOneQueue($job->variant);
+
         ProcessCltConsultJob::dispatch($job->id, $this->stage)
-            ->onQueue(CltVariant::resolvePhaseOneQueue($job->variant));
+            ->onQueue($queue);
     }
 }

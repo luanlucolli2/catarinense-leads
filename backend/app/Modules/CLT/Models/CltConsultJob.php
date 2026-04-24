@@ -15,7 +15,7 @@ class CltConsultJob extends Model
         'phase2_aprovado_count','phase2_nao_aprovado_count',
         'total_cpfs','elegivel_count','inelegivel_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
-        'started_at','finished_at','canceled_at','cancel_reason',
+        'started_at','finished_at','canceled_at','paused_at','cancel_reason',
         // spool
         'spool_path','spool_cpfs_path','spool_bytes',
     ];
@@ -24,6 +24,7 @@ class CltConsultJob extends Model
         'started_at' => 'datetime',
         'finished_at'=> 'datetime',
         'canceled_at'=> 'datetime',
+        'paused_at'=> 'datetime',
         'phase2_total' => 'integer',
         'phase2_attempt' => 'integer',
         'phase2_aprovado_count' => 'integer',

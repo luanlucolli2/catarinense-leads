@@ -57,6 +57,7 @@ export const CLTControls = ({
                 <SelectItem value="todos">Todos os status</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
                 <SelectItem value="em_progresso">Em andamento</SelectItem>
+                <SelectItem value="pausado">Pausado</SelectItem>
                 <SelectItem value="concluido">Concluído</SelectItem>
                 <SelectItem value="falhou">Falhou</SelectItem>
                 <SelectItem value="cancelado">Cancelado</SelectItem>

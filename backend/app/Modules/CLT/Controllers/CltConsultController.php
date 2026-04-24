@@ -3,6 +3,7 @@
 namespace App\Modules\CLT\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\CLT\Jobs\DispatchCltConsultJob;
 use App\Modules\CLT\Jobs\ProcessCltConsultJob;
 use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
@@ -23,7 +24,7 @@ class CltConsultController extends Controller
     public function index(Request $request)
     {
         $data = Validator::make($request->query(), [
-            'status' => ['nullable', 'in:pendente,em_progresso,concluido,falhou,cancelado,todos'],
+            'status' => ['nullable', 'in:pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
             'variant' => ['nullable', 'in:online,offline,hybrid,on,off,hyb,todos'],
         ])->validate();
 
@@ -83,8 +84,11 @@ class CltConsultController extends Controller
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
+            'paused_at' => $job->paused_at,
+            'canceled_at' => $job->canceled_at,
+            'cancel_reason' => $job->cancel_reason,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado'], true) && $spoolExists,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -166,7 +170,7 @@ class CltConsultController extends Controller
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente','em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado'], true) && $spoolExists,
             'message' => 'Prévia espelha o spool e aplica progresso incremental da fase 2.',
         ], Response::HTTP_OK);
     }
@@ -303,6 +307,18 @@ class CltConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
+        if ($job->status === 'pausado') {
+            $this->cancelPausedJob($job, $data['reason'] ?? null);
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'canceled_at' => $job->canceled_at,
+                'cancel_reason' => $job->cancel_reason,
+            ]);
+        }
+
         $job->update([
             'status' => 'cancelado',
             'canceled_at' => now(),
@@ -316,6 +332,94 @@ class CltConsultController extends Controller
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);
+    }
+
+    public function pause(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status === 'pausado') {
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ]);
+        }
+
+        if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Job não pode ser pausado neste estado.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pausado',
+            'paused_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'paused_at' => $job->paused_at,
+        ]);
+    }
+
+    public function resume(int $id)
+    {
+        $job = CltConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Apenas jobs pausados podem ser retomados.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
+            return response()->json([
+                'message' => 'Spool indisponível para retomar o job.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $phase = $job->phase === 'fase_2' && CltVariant::supportsCreditPhaseTwo($job->variant)
+            ? 'phase2'
+            : 'phase1';
+
+        if ($phase === 'phase1' && (empty($job->spool_cpfs_path) || !$disk->exists($job->spool_cpfs_path))) {
+            return response()->json([
+                'message' => 'Arquivo de CPFs indisponível para retomar a fase 1.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pendente',
+            'paused_at' => null,
+            'finished_at' => null,
+            'canceled_at' => null,
+            'cancel_reason' => null,
+        ]);
+
+        $queue = $phase === 'phase2'
+            ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+            : CltVariant::resolvePhaseOneQueue($job->variant);
+
+        DispatchCltConsultJob::dispatch($job->id, $phase)
+            ->delay(now()->addSeconds(2))
+            ->onQueue($queue);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+        ], Response::HTTP_ACCEPTED);
     }
 
     public function rerunPhase2(int $id)
@@ -440,9 +544,9 @@ class CltConsultController extends Controller
         $cancelCleanupInProgress = $job->status === 'cancelado'
             && $job->finished_at === null;
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
+        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job ainda está em andamento ou finalizando o cancelamento.',
+                'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
@@ -837,7 +941,7 @@ class CltConsultController extends Controller
     private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
     {
         return CltVariant::supportsCreditPhaseTwo($job->variant)
-            && in_array($job->status, ['pendente', 'em_progresso', 'cancelado', 'falhou'], true)
+            && in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado', 'falhou'], true)
             && !empty($job->spool_path);
     }
 
@@ -967,6 +1071,52 @@ class CltConsultController extends Controller
         }
 
         return $csvRow;
+    }
+
+    private function cancelPausedJob(CltConsultJob $job, ?string $reason): void
+    {
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
+        $preservePhaseTwoSpool = $job->phase === 'fase_2'
+            && CltVariant::supportsCreditPhaseTwo($job->variant)
+            && is_string($spoolPath)
+            && $spoolPath !== ''
+            && $disk->exists($spoolPath);
+
+        if ($preservePhaseTwoSpool) {
+            $this->deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path);
+            try {
+                $spoolBytes = (int) $disk->size($spoolPath);
+            } catch (\Throwable) {
+                $spoolBytes = 0;
+            }
+
+            $job->update([
+                'status' => 'cancelado',
+                'canceled_at' => now(),
+                'cancel_reason' => $reason,
+                'paused_at' => null,
+                'finished_at' => now(),
+                'spool_path' => $spoolPath,
+                'spool_cpfs_path' => null,
+                'spool_bytes' => $spoolBytes,
+                'phase' => 'fase_2',
+            ]);
+            return;
+        }
+
+        $this->deleteSpoolArtifacts($disk, $job->spool_path, $job->spool_cpfs_path);
+        $job->update([
+            'status' => 'cancelado',
+            'canceled_at' => now(),
+            'cancel_reason' => $reason,
+            'paused_at' => null,
+            'finished_at' => now(),
+            'spool_path' => null,
+            'spool_cpfs_path' => null,
+            'spool_bytes' => 0,
+            'phase' => null,
+        ]);
     }
 
     private function deleteSpoolArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void

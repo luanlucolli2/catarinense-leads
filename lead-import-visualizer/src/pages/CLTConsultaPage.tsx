@@ -25,6 +25,8 @@ import {
   downloadCltReport,
   downloadCltPreview,
   cancelCltConsultJob,
+  pauseCltConsultJob,
+  resumeCltConsultJob,
   rerunCltConsultJobPhase2,
   deleteCltConsultJob,
   CltConsultJobListItem,
@@ -285,6 +287,7 @@ const CLTConsultaPage = () => {
         inelegivel_count: watchedJob.inelegivel_count,
         not_found_count: watchedJob.not_found_count,
         fail_count: watchedJob.fail_count,
+        paused_at: watchedJob.paused_at ?? i.paused_at,
         preview_updated_at: watchedJob.preview_updated_at ?? i.preview_updated_at,
       };
     });
@@ -395,6 +398,13 @@ const CLTConsultaPage = () => {
       }
     }
 
+    if (watchedJob.status === "pausado") {
+      toast.info(`Consulta "${niceTitle}" pausada.`);
+      setWatchingJobId(null);
+      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      return;
+    }
+
     if (isTerminal) {
       if (watchedJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
@@ -477,6 +487,28 @@ const CLTConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["clt:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: (id: number) => pauseCltConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingJobId(id);
+      toast.info(`Pausa solicitada para "${titleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar"),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: (id: number) => resumeCltConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingJobId(id);
+      toast.success(`Consulta "${titleOf(id)}" retomada.`);
+      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar"),
   });
 
   const rerunPhase2Mutation = useMutation({
@@ -681,6 +713,14 @@ const CLTConsultaPage = () => {
 
   const handleCancel = async (id: number, reason?: string) => {
     await cancelMutation.mutateAsync({ id, reason });
+  };
+
+  const handlePause = async (id: number) => {
+    await pauseMutation.mutateAsync(id);
+  };
+
+  const handleResume = async (id: number) => {
+    await resumeMutation.mutateAsync(id);
   };
 
   const handleRerunPhase2 = async (id: number) => {
@@ -911,6 +951,8 @@ const CLTConsultaPage = () => {
             loading={!!(listLoading && !jobsPage)}
             onDownload={handleDownload}
             onCancel={handleCancel}
+            onPause={handlePause}
+            onResume={handleResume}
             onRerunPhase2={handleRerunPhase2}
             onDelete={handleDelete}
             onViewHttpCounters={handleViewHttpCounters}

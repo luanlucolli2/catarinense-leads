@@ -36,6 +36,9 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         $job = CltConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job)
             return;
+        if ($job->status === 'pausado') {
+            return;
+        }
         if ($job->status === 'cancelado') {
             if ($this->shouldPreservePhaseTwoSpoolOnCancel($job)) {
                 $this->preservePhaseTwoSpoolForRerun($job);

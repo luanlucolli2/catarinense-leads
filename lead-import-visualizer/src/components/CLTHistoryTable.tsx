@@ -16,6 +16,8 @@ import {
   Database,
   BarChart3,
   RefreshCw,
+  Pause,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +46,8 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
+  onPause: (id: number) => Promise<void>;
+  onResume: (id: number) => Promise<void>;
   onRerunPhase2: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onViewHttpCounters?: (id: number) => void;
@@ -75,6 +79,13 @@ function getStatusInfo(status: CltJobStatus) {
         className:
           "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
         label: "Em andamento",
+      };
+    case "pausado":
+      return {
+        icon: <Pause className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800",
+        label: "Pausado",
       };
     case "falhou":
       return {
@@ -161,7 +172,7 @@ function calcSegments(i: CltConsultJobListItem) {
 }
 
 type CltVariant = "online" | "offline" | "hybrid" | undefined;
-type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Concluído" | "Falhou" | "Cancelada";
+type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Pausada" | "Concluído" | "Falhou" | "Cancelada";
 
 function resolveVariant(item: CltConsultJobListItem): CltVariant {
   if (item.variant === "online" || item.variant === "offline" || item.variant === "hybrid") {
@@ -196,6 +207,8 @@ function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {
       return <CheckCircle className="w-4 h-4 text-emerald-500" />;
     case "Em andamento":
       return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+    case "Pausada":
+      return <Pause className="w-4 h-4 text-amber-500" />;
     case "Falhou":
       return <XCircle className="w-4 h-4 text-red-500" />;
     case "Cancelada":
@@ -213,7 +226,9 @@ function resolveOnlinePhaseStatuses(
   phase2Resolved: number
 ): { phase1: OnlinePhaseStatus; phase2: OnlinePhaseStatus } {
   let phase1: OnlinePhaseStatus = "Aguardando";
-  if (item.phase === "fase_1" && (item.status === "pendente" || item.status === "em_progresso")) {
+  if (item.phase === "fase_1" && item.status === "pausado") {
+    phase1 = "Pausada";
+  } else if (item.phase === "fase_1" && (item.status === "pendente" || item.status === "em_progresso")) {
     phase1 = "Em andamento";
   } else if (item.phase === "fase_2" || item.status === "concluido" || (item.total_cpfs > 0 && phase1Processed >= item.total_cpfs)) {
     phase1 = "Concluído";
@@ -232,6 +247,8 @@ function resolveOnlinePhaseStatuses(
     phase2 = "Falhou";
   } else if (item.status === "cancelado" && (item.phase === "fase_2" || phase2Resolved > 0)) {
     phase2 = "Cancelada";
+  } else if (item.phase === "fase_2" && item.status === "pausado") {
+    phase2 = "Pausada";
   } else if (item.phase === "fase_2" && (item.status === "pendente" || item.status === "em_progresso")) {
     phase2 = "Em andamento";
   }
@@ -415,6 +432,11 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
     offlineMessage = "Consultas canceladas.";
   } else if (item.status === "falhou") {
     offlineMessage = "Consultas finalizadas com falhas.";
+  } else if (item.status === "pausado") {
+    offlineMessage =
+      total > 0
+        ? `Consultas pausadas (${processedConsultLabel}/${total.toLocaleString()} CPFs).`
+        : "Consultas pausadas.";
   } else if (item.status === "em_progresso" || item.status === "pendente") {
     offlineMessage =
       total > 0
@@ -487,6 +509,8 @@ export const CLTHistoryTable = ({
   loading,
   onDownload,
   onCancel,
+  onPause,
+  onResume,
   onRerunPhase2,
   onDelete,
   onViewHttpCounters,
@@ -496,6 +520,8 @@ export const CLTHistoryTable = ({
   formatDateTimeBR,
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
+  const [pausingId, setPausingId] = useState<number | null>(null);
+  const [resumingId, setResumingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
   const [rerunningId, setRerunningId] = useState<number | null>(null);
   const [confirmRerunJob, setConfirmRerunJob] = useState<CltConsultJobListItem | null>(null);
@@ -508,11 +534,17 @@ export const CLTHistoryTable = ({
     Boolean((i.has_file ?? null) || (i.file_path ?? null));
 
   const canDownloadPreview = (i: CltConsultJobListItem) =>
-    (i.status === "pendente" || i.status === "em_progresso" || i.status === "cancelado")
+    (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || i.status === "cancelado")
     && Number(i.spool_bytes ?? 0) > 0;
 
   const canCancel = (i: CltConsultJobListItem) =>
+    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+
+  const canPause = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
+
+  const canResume = (i: CltConsultJobListItem) =>
+    i.status === "pausado";
 
   const isCancelCleanupPending = (i: CltConsultJobListItem) =>
     i.status === "cancelado" && !i.finished_at;
@@ -534,11 +566,31 @@ export const CLTHistoryTable = ({
   };
 
   const canDelete = (i: CltConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || isCancelCleanupPending(i));
+    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelCleanupPending(i));
 
   const openCancelDialog = (i: CltConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
     setConfirmJob(i);
+  };
+
+  const executePause = async (i: CltConsultJobListItem) => {
+    if (!canPause(i) || pausingId !== null) return;
+    try {
+      setPausingId(i.id);
+      await onPause(i.id);
+    } finally {
+      setPausingId(null);
+    }
+  };
+
+  const executeResume = async (i: CltConsultJobListItem) => {
+    if (!canResume(i) || resumingId !== null) return;
+    try {
+      setResumingId(i.id);
+      await onResume(i.id);
+    } finally {
+      setResumingId(null);
+    }
   };
 
   const executeCancel = async () => {
@@ -608,7 +660,7 @@ export const CLTHistoryTable = ({
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as CltJobStatus);
           const phaseInfo =
-            i.phase && (i.status === "pendente" || i.status === "em_progresso")
+            i.phase && (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")
               ? getPhaseInfo(i.phase)
               : null;
           const finalReady = canDownloadFinal(i);
@@ -696,6 +748,34 @@ export const CLTHistoryTable = ({
                               Ver chamadas API
                             </DropdownMenuItem>
                           )}
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-700 dark:text-amber-400"
+                              disabled={pausingId !== null}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-700 dark:text-emerald-400"
+                              disabled={resumingId !== null}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
                           {canRerunPhase2(i) && (
                             <DropdownMenuItem
                               onClick={() => openRerunDialog(i)}
@@ -730,7 +810,7 @@ export const CLTHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -789,6 +869,34 @@ export const CLTHistoryTable = ({
                               Ver chamadas API
                             </DropdownMenuItem>
                           )}
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-700 dark:text-amber-400"
+                              disabled={pausingId !== null}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-700 dark:text-emerald-400"
+                              disabled={resumingId !== null}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
                           {canRerunPhase2(i) && (
                             <DropdownMenuItem
                               onClick={() => openRerunDialog(i)}
@@ -823,7 +931,7 @@ export const CLTHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : "Excluir"}
+                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -881,6 +989,7 @@ export const CLTHistoryTable = ({
 
                   {!isTwoPhase && (i.status === "concluido" ||
                     i.status === "em_progresso" ||
+                    i.status === "pausado" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 pt-2 border-t border-border">

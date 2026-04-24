@@ -99,6 +99,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clt/consult-jobs/{id}/download', [CltConsultController::class, 'download'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/preview/generate', [CltConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/clt/consult-jobs/{id}/preview', [CltConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/clt/consult-jobs/{id}/pause', [CltConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/clt/consult-jobs/{id}/resume', [CltConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/cancel', [CltConsultController::class, 'cancel'])->whereNumber('id');
     Route::post('/clt/consult-jobs/{id}/phase2/rerun', [CltConsultController::class, 'rerunPhase2'])->whereNumber('id');
     Route::delete('/clt/consult-jobs/{id}', [CltConsultController::class, 'destroy'])->whereNumber('id');
