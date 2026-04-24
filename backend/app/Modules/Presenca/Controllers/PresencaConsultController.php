@@ -3,6 +3,7 @@
 namespace App\Modules\Presenca\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Presenca\Jobs\DispatchPresencaConsultJob;
 use App\Modules\Presenca\Jobs\ProcessPresencaConsultJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Support\PresencaLog;
@@ -48,8 +49,9 @@ class PresencaConsultController extends Controller
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
+            'paused_at' => $job->paused_at,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
             'spool_bytes' => (int) ($job->spool_bytes ?? 0),
         ]);
     }
@@ -145,7 +147,7 @@ class PresencaConsultController extends Controller
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
@@ -263,9 +265,16 @@ class PresencaConsultController extends Controller
             'status' => 'cancelado',
             'phase' => null,
             'canceled_at' => now(),
+            'paused_at' => null,
             'cancel_reason' => $data['reason'] ?? null,
             'finished_at' => now(),
         ]);
+
+        if ($job->spool_path || $job->spool_inputs_path) {
+            ProcessPresencaConsultJob::dispatch($job->id)
+                ->delay(now()->addSeconds(2))
+                ->onQueue((string) config('presenca.job.queue', 'presenca'));
+        }
 
         return response()->json([
             'id' => $job->id,
@@ -274,6 +283,85 @@ class PresencaConsultController extends Controller
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
         ]);
+    }
+
+    public function pause(int $id)
+    {
+        $job = PresencaConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status === 'pausado') {
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ]);
+        }
+
+        if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Job não pode ser pausado neste estado.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pausado',
+            'paused_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'paused_at' => $job->paused_at,
+        ]);
+    }
+
+    public function resume(int $id)
+    {
+        $job = PresencaConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Apenas jobs pausados podem ser retomados.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
+        if (
+            empty($job->spool_path)
+            || empty($job->spool_inputs_path)
+            || !$disk->exists($job->spool_path)
+            || !$disk->exists($job->spool_inputs_path)
+        ) {
+            return response()->json([
+                'message' => 'Spool indisponível para retomar o job.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pendente',
+            'paused_at' => null,
+            'finished_at' => null,
+            'canceled_at' => null,
+            'cancel_reason' => null,
+        ]);
+
+        DispatchPresencaConsultJob::dispatch($job->id)
+            ->delay(now()->addSeconds(2))
+            ->onQueue((string) config('presenca.job.queue', 'presenca'));
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+        ], Response::HTTP_ACCEPTED);
     }
 
     public function destroy(int $id)
@@ -285,9 +373,9 @@ class PresencaConsultController extends Controller
         $cancelCleanupInProgress = $job->status === 'cancelado'
             && (!empty($job->spool_path) || !empty($job->spool_inputs_path));
 
-        if (in_array($job->status, ['pendente', 'em_progresso'], true) || $cancelCleanupInProgress) {
+        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job ainda está em andamento ou finalizando o cancelamento.',
+                'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }

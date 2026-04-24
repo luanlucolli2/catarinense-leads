@@ -132,6 +132,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/presenca/consult-jobs/{id}/download', [PresencaConsultController::class, 'download'])->whereNumber('id');
     Route::post('/presenca/consult-jobs/{id}/preview/generate', [PresencaConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/presenca/consult-jobs/{id}/preview', [PresencaConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/presenca/consult-jobs/{id}/pause', [PresencaConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/presenca/consult-jobs/{id}/resume', [PresencaConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/presenca/consult-jobs/{id}/cancel', [PresencaConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/presenca/consult-jobs/{id}', [PresencaConsultController::class, 'destroy'])->whereNumber('id');
 });

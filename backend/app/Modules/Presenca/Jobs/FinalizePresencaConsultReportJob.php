@@ -41,6 +41,10 @@ class FinalizePresencaConsultReportJob implements ShouldQueue
             return;
         }
 
+        if ($job->status === 'pausado') {
+            return;
+        }
+
         $diskName = (string) config('presenca.storage.reports_disk', 'local');
         /** @var FilesystemAdapter $disk */
         $disk = Storage::disk($diskName);

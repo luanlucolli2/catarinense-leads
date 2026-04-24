@@ -26,6 +26,7 @@ class PresencaConsultJob extends Model
         'started_at',
         'finished_at',
         'canceled_at',
+        'paused_at',
         'cancel_reason',
     ];
 
@@ -33,6 +34,7 @@ class PresencaConsultJob extends Model
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
         'canceled_at' => 'datetime',
+        'paused_at' => 'datetime',
         'spool_bytes' => 'integer',
         'total_cpfs' => 'integer',
         'success_count' => 'integer',

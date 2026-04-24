@@ -55,6 +55,8 @@ import {
   downloadPresencaReport,
   downloadPresencaPreview,
   cancelPresencaConsultJob,
+  pausePresencaConsultJob,
+  resumePresencaConsultJob,
   deletePresencaConsultJob,
   PresencaConsultJobListItem,
   PresencaConsultJobShow,
@@ -335,6 +337,7 @@ const CLTConsultaPage = () => {
         policy_declined_count: watchedPresencaJob.policy_declined_count,
         fail_count: watchedPresencaJob.fail_count,
         spool_bytes: watchedPresencaJob.spool_bytes ?? i.spool_bytes,
+        paused_at: watchedPresencaJob.paused_at ?? i.paused_at,
       };
     });
   }, [presencaItems, watchedPresencaJob]);
@@ -453,6 +456,13 @@ const CLTConsultaPage = () => {
 
     if (!changed) return;
     lastPresencaSnapshot.current = { id: watchedPresencaJob.id, status: watchedPresencaJob.status };
+
+    if (watchedPresencaJob.status === "pausado") {
+      toast.info(`Consulta "${niceTitle}" pausada.`);
+      setWatchingPresencaJobId(null);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      return;
+    }
 
     if (isTerminal) {
       if (watchedPresencaJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
@@ -592,6 +602,28 @@ const CLTConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const pausePresencaMutation = useMutation({
+    mutationFn: (id: number) => pausePresencaConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingPresencaJobId(id);
+      toast.info(`Pausa solicitada para "${presencaTitleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar"),
+  });
+
+  const resumePresencaMutation = useMutation({
+    mutationFn: (id: number) => resumePresencaConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingPresencaJobId(id);
+      toast.success(`Retomada solicitada para "${presencaTitleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar"),
   });
 
   const deletePresencaMutation = useMutation({
@@ -854,6 +886,14 @@ const CLTConsultaPage = () => {
     await cancelPresencaMutation.mutateAsync({ id, reason });
   };
 
+  const handlePausePresenca = async (id: number) => {
+    await pausePresencaMutation.mutateAsync(id);
+  };
+
+  const handleResumePresenca = async (id: number) => {
+    await resumePresencaMutation.mutateAsync(id);
+  };
+
   const handleDeletePresenca = async (id: number) => {
     await deletePresencaMutation.mutateAsync(id);
   };
@@ -997,6 +1037,8 @@ const CLTConsultaPage = () => {
             loading={!!(presencaListLoading && !presencaJobsPage)}
             onDownload={handleDownloadPresenca}
             onCancel={handleCancelPresenca}
+            onPause={handlePausePresenca}
+            onResume={handleResumePresenca}
             onDelete={handleDeletePresenca}
             onRefresh={() => refetchPresencaList()}
             page={pagePresenca}
