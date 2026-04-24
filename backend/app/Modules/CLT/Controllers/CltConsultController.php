@@ -65,6 +65,7 @@ class CltConsultController extends Controller
         $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && CltSpool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
@@ -88,7 +89,7 @@ class CltConsultController extends Controller
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado','cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -167,10 +168,11 @@ class CltConsultController extends Controller
 
         $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && CltSpool::hasDataRows($disk, $job->spool_path);
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado','cancelado'], true) && $spoolHasDataRows,
             'message' => 'Prévia espelha o spool e aplica progresso incremental da fase 2.',
         ], Response::HTTP_OK);
     }
@@ -186,6 +188,10 @@ class CltConsultController extends Controller
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
+        }
+
+        if (!CltSpool::hasDataRows($disk, $job->spool_path)) {
+            return response()->json(['message' => 'Prévia indisponível: nenhum resultado gravado ainda.'], Response::HTTP_CONFLICT);
         }
 
         $real = $disk->path($job->spool_path);
@@ -307,8 +313,8 @@ class CltConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
-        if ($job->status === 'pausado') {
-            $this->cancelPausedJob($job, $data['reason'] ?? null);
+        if (in_array($job->status, ['pendente', 'pausado'], true)) {
+            $this->cancelIdleJob($job, $data['reason'] ?? null);
 
             return response()->json([
                 'id' => $job->id,
@@ -323,6 +329,8 @@ class CltConsultController extends Controller
             'status' => 'cancelado',
             'canceled_at' => now(),
             'cancel_reason' => $data['reason'] ?? null,
+            'paused_at' => null,
+            'finished_at' => null,
         ]);
 
         return response()->json([
@@ -1073,17 +1081,13 @@ class CltConsultController extends Controller
         return $csvRow;
     }
 
-    private function cancelPausedJob(CltConsultJob $job, ?string $reason): void
+    private function cancelIdleJob(CltConsultJob $job, ?string $reason): void
     {
         $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $preservePhaseTwoSpool = $job->phase === 'fase_2'
-            && CltVariant::supportsCreditPhaseTwo($job->variant)
-            && is_string($spoolPath)
-            && $spoolPath !== ''
-            && $disk->exists($spoolPath);
+        $preserveSpool = CltSpool::hasDataRows($disk, $spoolPath);
 
-        if ($preservePhaseTwoSpool) {
+        if ($preserveSpool) {
             $this->deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path);
             try {
                 $spoolBytes = (int) $disk->size($spoolPath);
@@ -1100,7 +1104,7 @@ class CltConsultController extends Controller
                 'spool_path' => $spoolPath,
                 'spool_cpfs_path' => null,
                 'spool_bytes' => $spoolBytes,
-                'phase' => 'fase_2',
+                'phase' => $job->phase,
             ]);
             return;
         }

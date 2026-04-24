@@ -5,6 +5,7 @@ namespace App\Modules\Presenca\Jobs;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
+use App\Modules\Presenca\Support\PresencaSpool;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -37,10 +38,7 @@ class FinalizePresencaConsultReportJob implements ShouldQueue
         }
 
         if ($job->status === 'cancelado') {
-            $job->update([
-                'phase' => null,
-                'finished_at' => $job->finished_at ?? Carbon::now(),
-            ]);
+            $this->finishCancelledPreservingUsefulPreview($job);
             return;
         }
 
@@ -172,6 +170,45 @@ class FinalizePresencaConsultReportJob implements ShouldQueue
             'status' => $status,
             'phase' => null,
             'finished_at' => Carbon::now(),
+        ]);
+    }
+
+    private function finishCancelledPreservingUsefulPreview(PresencaConsultJob $job): void
+    {
+        $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = PresencaSpool::hasDataRows($disk, $spoolPath);
+
+        if (!$hasDataRows) {
+            $this->cleanupSpool($job);
+            $job->update([
+                'status' => 'cancelado',
+                'phase' => null,
+                'finished_at' => $job->finished_at ?? Carbon::now(),
+            ]);
+            return;
+        }
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+        } catch (Throwable) {
+        }
+
+        try {
+            $spoolBytes = $spoolPath && $disk->exists($spoolPath) ? (int) $disk->size($spoolPath) : 0;
+        } catch (Throwable) {
+            $spoolBytes = 0;
+        }
+
+        $job->update([
+            'status' => 'cancelado',
+            'phase' => null,
+            'finished_at' => $job->finished_at ?? Carbon::now(),
+            'spool_inputs_path' => null,
+            'spool_bytes' => $spoolBytes,
         ]);
     }
 

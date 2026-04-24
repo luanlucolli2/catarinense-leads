@@ -6,6 +6,7 @@ use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Services\PresencaApiService;
 use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
+use App\Modules\Presenca\Support\PresencaSpool;
 use App\Support\Cpf;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -611,13 +612,19 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $this->closeSpool();
 
-        $spoolBytes = $this->fileSizeSafe($job->spool_path ?? null);
+        $disk = Storage::disk($this->disk);
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = PresencaSpool::hasDataRows($disk, $spoolPath);
+        $spoolBytes = $hasDataRows ? $this->fileSizeSafe($spoolPath) : 0;
 
         try {
-            $disk = Storage::disk($this->disk);
             $inputsPath = $job->spool_inputs_path ?? null;
             if ($inputsPath && $disk->exists($inputsPath)) {
                 $disk->delete($inputsPath);
+            }
+
+            if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+                $disk->delete($spoolPath);
             }
         } catch (Throwable) {
         }
@@ -630,6 +637,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
                     'phase' => null,
                     'paused_at' => null,
                     'finished_at' => Carbon::now(),
+                    'spool_path' => $hasDataRows ? $spoolPath : null,
                     'spool_inputs_path' => null,
                     'spool_bytes' => $spoolBytes,
                     'updated_at' => Carbon::now(),

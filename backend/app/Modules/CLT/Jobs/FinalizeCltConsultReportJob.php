@@ -6,7 +6,6 @@ use App\Modules\CLT\Models\CltConsultJob;
 use App\Modules\CLT\Support\CltLog;
 use App\Modules\CLT\Support\CltSchema;
 use App\Modules\CLT\Support\CltSpool;
-use App\Modules\CLT\Support\CltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -40,8 +39,8 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             return;
         }
         if ($job->status === 'cancelado') {
-            if ($this->shouldPreservePhaseTwoSpoolOnCancel($job)) {
-                $this->preservePhaseTwoSpoolForRerun($job);
+            if ($this->shouldPreserveCancelledSpool($job)) {
+                $this->preserveCancelledSpool($job);
                 $this->finishWithoutFinal($job, $job->status, false);
             } else {
                 $this->finishWithoutFinal($job, $job->status);
@@ -214,19 +213,18 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         }
     }
 
-    private function shouldPreservePhaseTwoSpoolOnCancel(CltConsultJob $job): bool
+    private function shouldPreserveCancelledSpool(CltConsultJob $job): bool
     {
-        return CltVariant::supportsCreditPhaseTwo($job->variant)
-            && is_string($job->spool_path ?? null)
-            && $job->spool_path !== '';
+        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        return CltSpool::hasDataRows($disk, $job->spool_path ?? null);
     }
 
-    private function preservePhaseTwoSpoolForRerun(CltConsultJob $job): void
+    private function preserveCancelledSpool(CltConsultJob $job): void
     {
         $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
         $disk = Storage::disk($diskName);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $spoolExists = is_string($spoolPath) && $spoolPath !== '' && $disk->exists($spoolPath);
+        $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
         $spoolBytes = 0;
         if ($spoolExists) {
             try {
@@ -242,7 +240,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             'spool_path' => $spoolExists ? $spoolPath : null,
             'spool_cpfs_path' => null,
             'spool_bytes' => $spoolBytes,
-            'phase' => $spoolExists ? 'fase_2' : null,
+            'phase' => $spoolExists ? $job->phase : null,
         ]);
     }
 

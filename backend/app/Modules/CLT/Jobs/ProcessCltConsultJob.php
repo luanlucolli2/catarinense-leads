@@ -3427,19 +3427,33 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function shouldPreserveSpoolForPhaseTwoRerun(CltConsultJob $job): bool
+    private function shouldPreserveCancelledSpool(CltConsultJob $job): bool
     {
-        return $this->stage === self::STAGE_PHASE2
-            && $this->supportsCreditPhaseTwo()
-            && is_string($job->spool_path ?? null)
-            && $job->spool_path !== '';
+        $disk = Storage::disk($this->disk);
+        return CltSpool::hasDataRows($disk, $job->spool_path ?? null);
     }
 
-    private function preservePhaseTwoSpoolForRerun(CltConsultJob $job): void
+    private function preserveCancelledSpool(CltConsultJob $job): void
     {
         $disk = Storage::disk($this->disk);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $spoolExists = is_string($spoolPath) && $spoolPath !== '' && $disk->exists($spoolPath);
+        $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
+
+        if ($this->stage === self::STAGE_PHASE2 && $this->supportsCreditPhaseTwo()) {
+            try {
+                if ($this->applyPhase2DeltaToSpool($job, false)) {
+                    $this->removePhaseTwoDeltaFile();
+                    $this->removePhaseTwoPendingFiles();
+                }
+            } catch (Throwable $e) {
+                CltLog::error("[CLT] Falha ao consolidar fase 2 ao cancelar job {$this->jobId}: " . $e->getMessage(), [
+                    'exception' => $e,
+                ]);
+            }
+
+            $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
+        }
+
         $spoolBytes = $spoolExists ? $this->fileSizeSafe($this->disk, $spoolPath) : 0;
 
         CltSpool::deletePhaseTwoAuxiliaryArtifacts(
@@ -3455,7 +3469,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'spool_path' => $spoolExists ? $spoolPath : null,
                     'spool_cpfs_path' => null,
                     'spool_bytes' => $spoolBytes,
-                    'phase' => $spoolExists ? 'fase_2' : null,
+                    'phase' => $spoolExists ? $job->phase : null,
                 ]);
             } catch (Throwable) {
             }
@@ -3464,8 +3478,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finalizeCancelledJob(CltConsultJob $job): void
     {
-        if ($this->shouldPreserveSpoolForPhaseTwoRerun($job)) {
-            $this->preservePhaseTwoSpoolForRerun($job);
+        if ($this->shouldPreserveCancelledSpool($job)) {
+            $this->preserveCancelledSpool($job);
         } else {
             $this->cleanupSpool($job);
         }

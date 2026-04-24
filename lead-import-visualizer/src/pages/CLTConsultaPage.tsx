@@ -293,6 +293,7 @@ const CLTConsultaPage = () => {
         not_found_count: watchedJob.not_found_count,
         fail_count: watchedJob.fail_count,
         paused_at: watchedJob.paused_at ?? i.paused_at,
+        spool_bytes: watchedJob.spool_bytes ?? i.spool_bytes,
         preview_updated_at: watchedJob.preview_updated_at ?? i.preview_updated_at,
       };
     });
