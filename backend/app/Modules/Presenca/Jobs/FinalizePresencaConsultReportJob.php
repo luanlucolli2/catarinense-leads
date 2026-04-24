@@ -37,7 +37,10 @@ class FinalizePresencaConsultReportJob implements ShouldQueue
         }
 
         if ($job->status === 'cancelado') {
-            $this->finishWithoutFinal($job, 'cancelado');
+            $job->update([
+                'phase' => null,
+                'finished_at' => $job->finished_at ?? Carbon::now(),
+            ]);
             return;
         }
 

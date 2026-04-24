@@ -225,7 +225,10 @@ export const PresencaHistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: PresencaConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "pendente" ||
+    i.status === "em_progresso" ||
+    i.status === "pausado" ||
+    (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
 
   const canCancel = (i: PresencaConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
@@ -236,12 +239,11 @@ export const PresencaHistoryTable = ({
   const canResume = (i: PresencaConsultJobListItem) =>
     i.status === "pausado";
 
-  const isCancelCleanupPending = (i: PresencaConsultJobListItem) =>
-    i.status === "cancelado" &&
-    (Boolean(i.spool_path || i.spool_inputs_path) || Number(i.spool_bytes ?? 0) > 0);
+  const isCancelStopPending = (i: PresencaConsultJobListItem) =>
+    i.status === "cancelado" && !i.finished_at;
 
   const canDelete = (i: PresencaConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelCleanupPending(i));
+    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelStopPending(i));
 
   const openCancelDialog = (i: PresencaConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -401,7 +403,7 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -413,29 +415,27 @@ export const PresencaHistoryTable = ({
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
                       </Badge>
 
-                      {i.status !== "cancelado" && (
-                        <Button
-                          onClick={() =>
-                            onDownload(i.id, { preview: !finalReady && previewReady })
-                          }
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Baixar prévia"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && (
-                            <span className="ml-1 hidden sm:inline">Prévia</span>
-                          )}
-                        </Button>
-                      )}
+                      <Button
+                        onClick={() =>
+                          onDownload(i.id, { preview: !finalReady && previewReady })
+                        }
+                        disabled={downloadDisabled}
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        title={
+                          finalReady
+                            ? "Baixar planilha final"
+                            : previewReady
+                              ? "Baixar prévia"
+                              : "Baixar indisponível"
+                        }
+                      >
+                        <Download className="w-4 h-4" />
+                        {!finalReady && previewReady && (
+                          <span className="ml-1 hidden sm:inline">Prévia</span>
+                        )}
+                      </Button>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -493,7 +493,7 @@ export const PresencaHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelStopPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -508,26 +508,24 @@ export const PresencaHistoryTable = ({
                       </Badge>
                     </div>
 
-                    {i.status !== "cancelado" && (
-                      <Button
-                        onClick={() =>
-                          onDownload(i.id, { preview: !finalReady && previewReady })
-                        }
-                        disabled={downloadDisabled}
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        title={
-                          finalReady
-                            ? "Baixar planilha final"
-                            : previewReady
-                              ? "Baixar prévia"
-                              : "Baixar indisponível"
-                        }
-                      >
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <Button
+                      onClick={() =>
+                        onDownload(i.id, { preview: !finalReady && previewReady })
+                      }
+                      disabled={downloadDisabled}
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      title={
+                        finalReady
+                          ? "Baixar planilha final"
+                          : previewReady
+                            ? "Baixar prévia"
+                            : "Baixar indisponível"
+                      }
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>

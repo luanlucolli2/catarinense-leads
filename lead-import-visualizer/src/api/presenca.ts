@@ -145,6 +145,7 @@ export async function cancelPresencaConsultJob(id: number, reason?: string) {
     phase?: PresencaJobPhase
     canceled_at?: string | null
     cancel_reason?: string | null
+    finished_at?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
   return data
 }

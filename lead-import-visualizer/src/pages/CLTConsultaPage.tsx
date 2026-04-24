@@ -142,7 +142,7 @@ const CLTConsultaPage = () => {
   const v8InFlight = useRef<Set<number>>(new Set());
   const lastV8Snapshot = useRef<{ id: number; status?: string | null } | null>(null);
   const presencaInFlight = useRef<Set<number>>(new Set());
-  const lastPresencaSnapshot = useRef<{ id: number; status?: string | null } | null>(null);
+  const lastPresencaSnapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
 
   const {
     data: jobsPage,
@@ -241,7 +241,10 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as PresencaConsultJobShow | undefined;
       if (!job) return false;
-      const open = job.status === "pendente" || job.status === "em_progresso";
+      const open =
+        job.status === "pendente" ||
+        job.status === "em_progresso" ||
+        (job.status === "cancelado" && !job.finished_at);
       return open ? 5000 : false;
     },
   });
@@ -446,20 +449,33 @@ const CLTConsultaPage = () => {
     if (!watchedPresencaJob) return;
 
     const niceTitle = watchedPresencaJob.title ?? `#${watchedPresencaJob.id}`;
-    const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedPresencaJob.status);
+    const cancelStopPending = watchedPresencaJob.status === "cancelado" && !watchedPresencaJob.finished_at;
+    const isTerminal =
+      ["concluido", "falhou"].includes(watchedPresencaJob.status) ||
+      (watchedPresencaJob.status === "cancelado" && !cancelStopPending);
 
     const prev = lastPresencaSnapshot.current;
     const changed =
       !prev ||
       prev.id !== watchedPresencaJob.id ||
-      prev.status !== watchedPresencaJob.status;
+      prev.status !== watchedPresencaJob.status ||
+      prev.finishedAt !== watchedPresencaJob.finished_at;
 
     if (!changed) return;
-    lastPresencaSnapshot.current = { id: watchedPresencaJob.id, status: watchedPresencaJob.status };
+    lastPresencaSnapshot.current = {
+      id: watchedPresencaJob.id,
+      status: watchedPresencaJob.status,
+      finishedAt: watchedPresencaJob.finished_at,
+    };
 
     if (watchedPresencaJob.status === "pausado") {
       toast.info(`Consulta "${niceTitle}" pausada.`);
       setWatchingPresencaJobId(null);
+      void qc.invalidateQueries({ queryKey: ["presenca:list"] });
+      return;
+    }
+
+    if (cancelStopPending) {
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       return;
     }
@@ -596,8 +612,8 @@ const CLTConsultaPage = () => {
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelPresencaConsultJob(id, reason),
     onSuccess: (_data, { id }) => {
-      if (id === watchingPresencaJobId) setWatchingPresencaJobId(null);
-      toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
+      setWatchingPresencaJobId(id);
+      toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
     },

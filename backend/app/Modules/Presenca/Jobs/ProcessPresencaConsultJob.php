@@ -81,7 +81,7 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($job->status === 'cancelado') {
-            $this->cleanupSpool($job);
+            $this->finalizeCancelledPreservingPreview($job);
             return;
         }
 
@@ -128,7 +128,11 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         if ($claimed === 0) {
             $status = $this->currentStatusCached($job, true);
             if ($status === null || $status === 'cancelado') {
-                $this->cleanupSpool($job);
+                if ($status === null) {
+                    $this->cleanupSpool($job);
+                } else {
+                    $this->finalizeCancelledPreservingPreview($job);
+                }
             }
             return;
         }
@@ -251,7 +255,11 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
 
             $statusAfterFlush = $this->currentStatusCached($job, true);
             if ($statusAfterFlush === null || $statusAfterFlush === 'cancelado') {
-                $this->cleanupSpool($job);
+                if ($statusAfterFlush === null) {
+                    $this->cleanupSpool($job);
+                } else {
+                    $this->finalizeCancelledPreservingPreview($job);
+                }
                 $this->cleanupTempRel($uniqInputsRel);
                 return;
             }
@@ -447,8 +455,14 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($status === 'cancelado') {
+            if (is_array($rowsBuffer) && !empty($rowsBuffer)) {
+                $this->flushRowsBuffer($rowsBuffer);
+                $rowsBuffer = [];
+                $this->flushProgress($job, true);
+            }
+
             PresencaLog::info("[PRESENCA] Job {$this->jobId} cancelado durante processamento.");
-            $this->cleanupSpool($job);
+            $this->finalizeCancelledPreservingPreview($job);
             return true;
         }
 
@@ -591,6 +605,37 @@ class ProcessPresencaConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         return $state;
+    }
+
+    private function finalizeCancelledPreservingPreview(PresencaConsultJob $job): void
+    {
+        $this->closeSpool();
+
+        $spoolBytes = $this->fileSizeSafe($job->spool_path ?? null);
+
+        try {
+            $disk = Storage::disk($this->disk);
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+        } catch (Throwable) {
+        }
+
+        try {
+            DB::table('presenca_consult_jobs')
+                ->where('id', $job->id)
+                ->update([
+                    'status' => 'cancelado',
+                    'phase' => null,
+                    'paused_at' => null,
+                    'finished_at' => Carbon::now(),
+                    'spool_inputs_path' => null,
+                    'spool_bytes' => $spoolBytes,
+                    'updated_at' => Carbon::now(),
+                ]);
+        } catch (Throwable) {
+        }
     }
 
     private function cleanupSpool(PresencaConsultJob $job): void

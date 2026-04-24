@@ -51,7 +51,7 @@ class PresencaConsultController extends Controller
             'finished_at' => $job->finished_at,
             'paused_at' => $job->paused_at,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolExists,
             'spool_bytes' => (int) ($job->spool_bytes ?? 0),
         ]);
     }
@@ -147,7 +147,7 @@ class PresencaConsultController extends Controller
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolExists,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
@@ -261,20 +261,16 @@ class PresencaConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
+        $waitForWorkerToStop = $job->status === 'em_progresso';
+
         $job->update([
             'status' => 'cancelado',
             'phase' => null,
             'canceled_at' => now(),
             'paused_at' => null,
             'cancel_reason' => $data['reason'] ?? null,
-            'finished_at' => now(),
+            'finished_at' => $waitForWorkerToStop ? null : now(),
         ]);
-
-        if ($job->spool_path || $job->spool_inputs_path) {
-            ProcessPresencaConsultJob::dispatch($job->id)
-                ->delay(now()->addSeconds(2))
-                ->onQueue((string) config('presenca.job.queue', 'presenca'));
-        }
 
         return response()->json([
             'id' => $job->id,
@@ -282,6 +278,7 @@ class PresencaConsultController extends Controller
             'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
+            'finished_at' => $job->finished_at,
         ]);
     }
 
@@ -370,10 +367,9 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $cancelCleanupInProgress = $job->status === 'cancelado'
-            && (!empty($job->spool_path) || !empty($job->spool_inputs_path));
+        $cancelStopPending = $job->status === 'cancelado' && empty($job->finished_at);
 
-        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
+        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) || $cancelStopPending) {
             return response()->json([
                 'message' => 'Não é possível excluir enquanto o job ainda está em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
