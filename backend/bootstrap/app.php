@@ -29,6 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
             ->timezone('America/Sao_Paulo')
             ->runInBackground();
 
+        $schedule->command('clt:dispatch-scheduled-consult-jobs')
+            ->name('clt-dispatch-scheduled-consult-jobs')
+            ->everyTenSeconds()
+            ->withoutOverlapping(1);
+
+        $schedule->command('presenca:dispatch-scheduled-consult-jobs')
+            ->name('presenca-dispatch-scheduled-consult-jobs')
+            ->everyTenSeconds()
+            ->withoutOverlapping(1);
+
         $schedule->command('c6:purge-expired-links')
             ->everyThirtyMinutes()
             ->timezone('America/Sao_Paulo')

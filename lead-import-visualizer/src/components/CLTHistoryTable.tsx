@@ -66,6 +66,13 @@ type CltJobStatus = CltConsultJobListItem["status"];
 
 function getStatusInfo(status: CltJobStatus) {
   switch (status) {
+    case "agendado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
+        label: "Agendado",
+      };
     case "concluido":
       return {
         icon: <CheckCircle className="w-4 h-4" />,
@@ -426,7 +433,9 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
   );
 
   let offlineMessage = "Aguardando início das consultas.";
-  if (item.status === "concluido") {
+  if (item.status === "agendado") {
+    offlineMessage = "Consulta agendada para iniciar automaticamente.";
+  } else if (item.status === "concluido") {
     offlineMessage = "Consultas concluídas.";
   } else if (item.status === "cancelado") {
     offlineMessage = "Consultas canceladas.";
@@ -538,7 +547,7 @@ export const CLTHistoryTable = ({
     && Number(i.spool_bytes ?? 0) > 0;
 
   const canCancel = (i: CltConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
   const canPause = (i: CltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
@@ -566,7 +575,7 @@ export const CLTHistoryTable = ({
   };
 
   const canDelete = (i: CltConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelCleanupPending(i));
+    !(i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelCleanupPending(i));
 
   const openCancelDialog = (i: CltConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -729,6 +738,9 @@ export const CLTHistoryTable = ({
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        {i.scheduled_for && (
+                          <span>Agendado para {formatDateTimeBR(i.scheduled_for)}</span>
+                        )}
                       </div>
                     </div>
 
@@ -810,7 +822,13 @@ export const CLTHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelCleanupPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -931,7 +949,13 @@ export const CLTHistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            {isCancelCleanupPending(i) ? "Finalizando cancelamento" : i.status === "pausado" ? "Retome ou cancele para excluir" : "Excluir"}
+                            {isCancelCleanupPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1113,7 +1137,7 @@ export const CLTHistoryTable = ({
             </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <p>Essa ação interromperá o processamento:</p>
+            <p>{confirmJob?.status === "agendado" ? "Essa ação impedirá o início agendado:" : "Essa ação interromperá o processamento:"}</p>
             {confirmJob && (
               <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
                 {confirmJob.title} (#{confirmJob.id})

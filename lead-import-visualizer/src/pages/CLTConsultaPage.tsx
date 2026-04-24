@@ -208,6 +208,7 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as CltConsultJobShow | undefined;
       if (!job) return false;
+      if (job.status === "agendado") return 15000;
       const open =
         job.status === "pendente"
         || job.status === "em_progresso"
@@ -241,6 +242,7 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as PresencaConsultJobShow | undefined;
       if (!job) return false;
+      if (job.status === "agendado") return 15000;
       const open =
         job.status === "pendente" ||
         job.status === "em_progresso" ||
@@ -293,6 +295,7 @@ const CLTConsultaPage = () => {
         not_found_count: watchedJob.not_found_count,
         fail_count: watchedJob.fail_count,
         paused_at: watchedJob.paused_at ?? i.paused_at,
+        scheduled_for: watchedJob.scheduled_for ?? i.scheduled_for,
         spool_bytes: watchedJob.spool_bytes ?? i.spool_bytes,
         preview_updated_at: watchedJob.preview_updated_at ?? i.preview_updated_at,
       };
@@ -342,6 +345,7 @@ const CLTConsultaPage = () => {
         fail_count: watchedPresencaJob.fail_count,
         spool_bytes: watchedPresencaJob.spool_bytes ?? i.spool_bytes,
         paused_at: watchedPresencaJob.paused_at ?? i.paused_at,
+        scheduled_for: watchedPresencaJob.scheduled_for ?? i.scheduled_for,
       };
     });
   }, [presencaItems, watchedPresencaJob]);
@@ -497,7 +501,7 @@ const CLTConsultaPage = () => {
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
       const t = (vars as any).title;
-      toast.success(`Consulta "${t}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${t}" agendada.` : `Consulta "${t}" criada.`);
       setPage(1);
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
     },
@@ -507,9 +511,13 @@ const CLTConsultaPage = () => {
   const cancelMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelCltConsultJob(id, reason),
-    onSuccess: (_data, { id }) => {
+    onSuccess: (data, { id }) => {
       setWatchingJobId(id);
-      toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
+      if (data.finished_at) {
+        toast.info(`Consulta "${titleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
+      }
       void qc.invalidateQueries({ queryKey: ["clt:list"] });
       void qc.invalidateQueries({ queryKey: ["clt:job", id] });
     },
@@ -598,11 +606,11 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
   });
 
-  const createPresencaMutation = useMutation<any, any, { title: string; lines: string }>({
+  const createPresencaMutation = useMutation<any, any, { title: string; lines: string; run_at?: string; timezone?: string }>({
     mutationFn: (vars) => createPresencaConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingPresencaJobId(data.id);
-      toast.success(`Consulta "${vars.title}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${vars.title}" agendada.` : `Consulta "${vars.title}" criada.`);
       setPagePresenca(1);
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
     },
@@ -612,9 +620,13 @@ const CLTConsultaPage = () => {
   const cancelPresencaMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelPresencaConsultJob(id, reason),
-    onSuccess: (_data, { id }) => {
+    onSuccess: (data, { id }) => {
       setWatchingPresencaJobId(id);
-      toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      if (data.finished_at) {
+        toast.info(`Consulta "${presencaTitleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${presencaTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      }
       void qc.invalidateQueries({ queryKey: ["presenca:list"] });
       void qc.invalidateQueries({ queryKey: ["presenca:job", id] });
     },
@@ -655,21 +667,41 @@ const CLTConsultaPage = () => {
   });
 
   // Mapear modo → variant esperado pelo backend
-  const handleNewConsult = async (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => {
+  const handleNewConsult = async (
+    titulo: string,
+    cpfs: string,
+    modo: "OFF" | "ONLINE" | "HYBRID",
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => {
     const variant = modo === "OFF"
       ? "offline"
       : modo === "HYBRID"
         ? "hybrid"
         : "online";
-    await createMutation.mutateAsync({ title: titulo, cpfs, variant });
+    await createMutation.mutateAsync({
+      title: titulo,
+      cpfs,
+      variant,
+      ...(opts?.runAt ? { run_at: opts.runAt } : {}),
+      ...(opts?.timezone ? { timezone: opts.timezone } : {}),
+    });
   };
 
   const handleNewV8Consult = async (titulo: string, lines: string) => {
     await createV8Mutation.mutateAsync({ title: titulo, lines });
   };
 
-  const handleNewPresencaConsult = async (titulo: string, lines: string) => {
-    await createPresencaMutation.mutateAsync({ title: titulo, lines });
+  const handleNewPresencaConsult = async (
+    titulo: string,
+    lines: string,
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => {
+    await createPresencaMutation.mutateAsync({
+      title: titulo,
+      lines,
+      ...(opts?.runAt ? { run_at: opts.runAt } : {}),
+      ...(opts?.timezone ? { timezone: opts.timezone } : {}),
+    });
   };
 
   const getOrCreatePreviewToast = (id: number) => {

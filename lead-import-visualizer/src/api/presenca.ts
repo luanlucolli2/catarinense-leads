@@ -2,6 +2,7 @@ import axiosClient from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 export type PresencaJobStatus =
+  | 'agendado'
   | 'pendente'
   | 'em_progresso'
   | 'pausado'
@@ -35,6 +36,7 @@ export interface PresencaConsultJobListItem {
   canceled_at?: string | null
   paused_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -59,6 +61,7 @@ export interface PresencaConsultJobShow {
   canceled_at?: string | null
   paused_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -79,8 +82,13 @@ export async function listPresencaConsultJobs(page = 1): Promise<Paginated<Prese
   return data
 }
 
-export async function createPresencaConsultJob(input: { title: string; lines: string }) {
-  const { data } = await axiosClient.post<{ id: number; status: PresencaJobStatus; phase?: PresencaJobPhase }>(
+export async function createPresencaConsultJob(input: {
+  title: string
+  lines: string
+  run_at?: string
+  timezone?: string
+}) {
+  const { data } = await axiosClient.post<{ id: number; status: PresencaJobStatus; phase?: PresencaJobPhase; scheduled_for?: string | null }>(
     BASE,
     input
   )

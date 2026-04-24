@@ -5,13 +5,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface NewCLTConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (titulo: string, cpfs: string, modo: "OFF" | "ONLINE" | "HYBRID") => void;
+  onSubmit: (
+    titulo: string,
+    cpfs: string,
+    modo: "OFF" | "ONLINE" | "HYBRID",
+    opts?: { runAt?: string | null; timezone?: string | null }
+  ) => void;
 }
 
 const MODE_OPTIONS = [
@@ -45,6 +51,8 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
   const [cpfCount, setCpfCount] = useState(0);
   const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "">("");
   const [submitting, setSubmitting] = useState(false);
+  const [isAgendado, setIsAgendado] = useState(false);
+  const [runAtLocal, setRunAtLocal] = useState("");
 
   useEffect(() => {
     if (cpfs.trim()) {
@@ -68,14 +76,30 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
       toast.error("Adicione pelo menos um CPF");
       return;
     }
+    if (isAgendado && !runAtLocal) {
+      toast.error("Informe a data e hora do agendamento");
+      return;
+    }
 
     try {
       setSubmitting(true);
-      await onSubmit(titulo, cpfs, modo as "OFF" | "ONLINE" | "HYBRID");
+      await onSubmit(
+        titulo,
+        cpfs,
+        modo as "OFF" | "ONLINE" | "HYBRID",
+        isAgendado
+          ? {
+              runAt: runAtLocal,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }
+          : undefined
+      );
       setTitulo("");
       setCpfs("");
       setCpfCount(0);
       setModo("");
+      setIsAgendado(false);
+      setRunAtLocal("");
       onClose();
     } finally {
       setSubmitting(false);
@@ -88,11 +112,14 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
     setCpfs("");
     setCpfCount(0);
     setModo("");
+    setIsAgendado(false);
+    setRunAtLocal("");
     onClose();
   };
 
   const noFocus = "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0";
   const selectedMode = MODE_OPTIONS.find((option) => option.value === modo);
+  const minNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -178,6 +205,40 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
               </span>
             </div>
           </div>
+
+          <div className="space-y-3 border-t border-gray-100 pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="clt-agendamento"
+                checked={isAgendado}
+                onCheckedChange={(checked) => setIsAgendado(!!checked)}
+                disabled={submitting}
+              />
+              <Label htmlFor="clt-agendamento" className="cursor-pointer text-sm font-medium">
+                Agendar início
+              </Label>
+            </div>
+
+            {isAgendado && (
+              <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/70 p-3">
+                <Label htmlFor="clt-run-at" className="text-sm font-medium">
+                  Iniciar em
+                </Label>
+                <Input
+                  id="clt-run-at"
+                  type="datetime-local"
+                  value={runAtLocal}
+                  onChange={(e) => setRunAtLocal(e.target.value)}
+                  min={minNow}
+                  className={cn("max-w-xs", noFocus)}
+                  disabled={submitting}
+                />
+                <p className="text-xs leading-5 text-gray-600">
+                  O lote ficará como agendado e entrará automaticamente na fila quando esse horário chegar.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 border-t pt-4">
@@ -189,7 +250,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
             disabled={submitting || !modo}
             className={cn("bg-blue-600 hover:bg-blue-700 text-white shadow-sm", noFocus)}
           >
-            {submitting ? "Criando..." : "Criar consulta"}
+            {submitting ? "Criando..." : isAgendado ? "Agendar consulta" : "Criar consulta"}
           </Button>
         </DialogFooter>
       </DialogContent>
