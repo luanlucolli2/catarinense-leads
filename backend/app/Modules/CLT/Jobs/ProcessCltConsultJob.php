@@ -3250,7 +3250,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $row['politicaCreditoPrazoMaximoDisponivel'] = $credit['prazo_maximo_disponivel'] ?? null;
         $row['politicaCreditoTabelaAprovada'] = $credit['phase2_approved_table_name'] ?? null;
         if (max(0, (int) ($credit['phase2_politica_request_count'] ?? 0)) > 0) {
-            $row['politicaCreditoDataConsulta'] = Carbon::now()->format('Y-m-d H:i:s');
+            $row['politicaCreditoDataConsulta'] = Carbon::now('America/Sao_Paulo')->format('Y-m-d H:i:s');
         }
 
         return $row;
