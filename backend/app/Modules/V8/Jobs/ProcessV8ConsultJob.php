@@ -364,6 +364,17 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             continue;
                         }
 
+                        if ($mode === 'reused' && $consultId) {
+                            $this->logReuseRecent('CPF reaproveitado enviado direto para simulação na fase 2.', [
+                                'cpf' => $cpf,
+                                'consult_id' => $consultId,
+                            ]);
+                            $this->finalizeFromStatus($api, $job, $cpf, $nome, $nasc, $consultId, [
+                                'status' => 'SUCCESS',
+                            ], false, true);
+                            continue;
+                        }
+
                         if ($consultId) {
                             $this->writePendingLine($pendingRegularFp, $cpf, $nome, $nasc, $consultId, 0, 0, $reused);
                             $pendingRegularCount++;

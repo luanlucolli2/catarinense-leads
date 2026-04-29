@@ -92,12 +92,12 @@ return [
     ],
 
     'logging' => [
-        'enabled' => (bool) env('V8_LOG_ENABLED', true),
+        'enabled' => (bool) env('V8_LOG_ENABLED', false),
         'cpf_failure_enabled' => (bool) env('V8_LOG_CPF_FAILURE', false),
-        'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', true),
+        'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', false),
         'api_log_success_responses' => (bool) env('V8_API_LOG_SUCCESS_RESPONSES', false),
-        'api_log_429' => (bool) env('V8_API_LOG_429', true),
-        'reuse_recent_enabled' => (bool) env('V8_REUSE_RECENT_LOG_ENABLED', true),
-        'reuse_recent_api_responses' => (bool) env('V8_REUSE_RECENT_LOG_API_RESPONSES', true),
+        'api_log_429' => (bool) env('V8_API_LOG_429', false),
+        'reuse_recent_enabled' => (bool) env('V8_REUSE_RECENT_LOG_ENABLED', false),
+        'reuse_recent_api_responses' => (bool) env('V8_REUSE_RECENT_LOG_API_RESPONSES', false),
     ],
 ];

@@ -173,14 +173,14 @@ return [
     // ===== LOG =====
     'logging' => [
         // Chave mestre de logs do módulo CLT (online + offline)
-        'enabled' => (bool) env('CLT_LOG_ENABLED', true),
+        'enabled' => (bool) env('CLT_LOG_ENABLED', false),
         // Logs detalhados de resposta FACTA (/solicita e /autoriza)
-        'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', true),
+        'facta_log_responses' => (bool) env('CLT_FACTA_LOG_RESPONSES', false),
         // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
         // Mantemos por padrão apenas respostas com erro (>=400).
         'facta_log_success_responses' => (bool) env('CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
         // Contadores HTTP por job (auditoria por endpoint sem depender de parse de logs).
-        'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', true),
+        'facta_job_http_counters_enabled' => (bool) env('CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', false),
         'facta_job_http_counters_flush_every' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
         'facta_job_http_counters_flush_interval_ms' => (int) env('CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
         // Auditoria opcional da fase 2 (1 linha por CPF validado com total de requests usadas).
