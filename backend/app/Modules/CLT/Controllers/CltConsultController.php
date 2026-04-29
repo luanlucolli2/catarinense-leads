@@ -893,15 +893,12 @@ class CltConsultController extends Controller
             if ($header === false) {
                 throw new \RuntimeException("CSV final vazio, impossível reconstruir spool de rerun.");
             }
+            $inputIndexes = $this->schemaIndexesFromCsvHeader($header);
 
             $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool de rerun {$targetPath}");
 
             while (($row = @fgetcsv($in, 0, ';')) !== false) {
-                if (count($row) < $colsCount) {
-                    $row = array_pad($row, $colsCount, null);
-                } elseif (count($row) > $colsCount) {
-                    $row = array_slice($row, 0, $colsCount);
-                }
+                $row = $this->normalizeCsvRowToCurrentSchema($row, $inputIndexes, $colsCount);
 
                 foreach ($phase2Indexes as $idx) {
                     $row[$idx] = null;
@@ -959,6 +956,64 @@ class CltConsultController extends Controller
         }
 
         return $indexes;
+    }
+
+    /**
+     * @param array<int,mixed> $header
+     * @return array<string,int>
+     */
+    private function schemaIndexesFromCsvHeader(array $header): array
+    {
+        static $aliases = null;
+        if (!is_array($aliases)) {
+            $aliases = [];
+            foreach (CltSchema::COLS as $idx => $col) {
+                $aliases[$this->normalizeCsvHeaderToken($col)] = $col;
+                $aliases[$this->normalizeCsvHeaderToken(CltSchema::TITLES[$idx] ?? '')] = $col;
+            }
+        }
+
+        $indexes = [];
+        foreach ($header as $idx => $title) {
+            $key = $aliases[$this->normalizeCsvHeaderToken((string) $title)] ?? null;
+            if ($key !== null && !isset($indexes[$key])) {
+                $indexes[$key] = (int) $idx;
+            }
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * @param array<int,mixed> $row
+     * @param array<string,int> $inputIndexes
+     * @return array<int,mixed>
+     */
+    private function normalizeCsvRowToCurrentSchema(array $row, array $inputIndexes, int $colsCount): array
+    {
+        if (empty($inputIndexes)) {
+            if (count($row) < $colsCount) {
+                return array_pad($row, $colsCount, null);
+            }
+
+            return count($row) > $colsCount ? array_slice($row, 0, $colsCount) : $row;
+        }
+
+        $normalized = [];
+        foreach (CltSchema::COLS as $col) {
+            $idx = $inputIndexes[$col] ?? null;
+            $normalized[] = $idx !== null ? ($row[$idx] ?? null) : null;
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeCsvHeaderToken(string $value): string
+    {
+        $value = trim(preg_replace('/^\xEF\xBB\xBF/', '', $value) ?? $value);
+        return function_exists('mb_strtolower')
+            ? mb_strtolower($value, 'UTF-8')
+            : strtolower($value);
     }
 
     private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
@@ -1181,15 +1236,12 @@ class CltConsultController extends Controller
                 if ($header === false) {
                     throw new \RuntimeException("Spool preservado vazio, impossível reprocessar a fase 2.");
                 }
+                $inputIndexes = $this->schemaIndexesFromCsvHeader($header);
 
                 $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool preservado {$spoolPath}");
 
                 while (($row = @fgetcsv($in, 0, ';')) !== false) {
-                    if (count($row) < $colsCount) {
-                        $row = array_pad($row, $colsCount, null);
-                    } elseif (count($row) > $colsCount) {
-                        $row = array_slice($row, 0, $colsCount);
-                    }
+                    $row = $this->normalizeCsvRowToCurrentSchema($row, $inputIndexes, $colsCount);
 
                     foreach ($phase2Indexes as $idx) {
                         $row[$idx] = null;
