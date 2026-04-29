@@ -59,6 +59,11 @@ return [
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 12),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
+        'reuse_recent_limit'         => (int) env('V8_REUSE_RECENT_LIMIT', 1000),
+        'reuse_recent_statuses'      => array_values(array_filter(array_map(
+            static fn ($status) => strtoupper(trim((string) $status)),
+            explode(',', (string) env('V8_REUSE_RECENT_STATUSES', 'SUCCESS,WAITING_CONSULT,CONSENT_APPROVED,WAITING_CREDIT_ANALYSIS,WAITING_CONSENT'))
+        ), static fn ($status) => $status !== '')),
         'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 50),
         'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 3600),
         'reconsent_blocked_max'      => (int) env('V8_RECONSENT_BLOCKED_MAX', 1),
