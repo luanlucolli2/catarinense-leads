@@ -62,6 +62,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $httpMinIntervalPhase2Simulation;
     private int $phase1PoolSize;
     private int $phase1BatchDelaySeconds;
+    private int $reuseRecentLimit;
+    private array $reuseRecentStatuses;
     private int $httpRateLimitSleepSeconds;
     private int $pendingLowThreshold;
     private int $pendingLowSeconds;
@@ -83,6 +85,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private bool $logApiResponses;
     private bool $logApiSuccessResponses;
     private bool $logApi429;
+    private bool $reuseRecentLogEnabled;
+    private bool $reuseRecentLogApiResponses;
 
     public function __construct(int $jobId)
     {
@@ -114,6 +118,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             ?? config('v8.http.min_interval_ms', 2000));
         $this->phase1PoolSize = max(1, (int) config('v8.job.phase1_pool_size', 9));
         $this->phase1BatchDelaySeconds = max(0, (int) config('v8.job.phase1_batch_delay_seconds', 1));
+        $this->reuseRecentLimit = max(1, (int) config('v8.job.reuse_recent_limit', 1000));
+        $this->reuseRecentStatuses = array_values(array_filter(array_map(
+            static fn ($status) => strtoupper(trim((string) $status)),
+            (array) config('v8.job.reuse_recent_statuses', [])
+        ), static fn ($status) => $status !== ''));
         $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
         $this->pendingLowThreshold = max(0, (int) config('v8.job.pending_low_threshold', 50));
         $this->pendingLowSeconds = max(0, (int) config('v8.job.pending_low_seconds', 3600));
@@ -129,6 +138,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->logApiResponses = (bool) config('v8.logging.api_log_responses', true);
         $this->logApiSuccessResponses = (bool) config('v8.logging.api_log_success_responses', false);
         $this->logApi429 = (bool) config('v8.logging.api_log_429', true);
+        $this->reuseRecentLogEnabled = (bool) config('v8.logging.reuse_recent_enabled', true);
+        $this->reuseRecentLogApiResponses = (bool) config('v8.logging.reuse_recent_api_responses', true);
     }
 
     public function uniqueId(): string
@@ -211,6 +222,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
+            $reusedConsultsByCpf = $this->buildReusableRecentConsultsMap($api, $disk->path($uniqRel), $job);
+            if ($reusedConsultsByCpf === null) {
+                return;
+            }
+            $this->logReuseRecent('Mapa de reaproveitamento carregado.', [
+                'matches' => count($reusedConsultsByCpf),
+            ]);
+
             // ===== FASE 1: criar + autorizar consentimento para todos =====
             $consentsRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.consents.txt";
             $this->pendFiles[] = $consentsRel;
@@ -248,6 +267,18 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         $this->logCpfFailure('parse', $cpf, null, 'Linha inválida após normalização.', [
                             'raw' => $this->truncate($line),
                         ]);
+                        continue;
+                    }
+
+                    if (isset($reusedConsultsByCpf[$cpf])) {
+                        $this->logReuseRecent('CPF reaproveitado na fase 1.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $reusedConsultsByCpf[$cpf]['consult_id'] ?? null,
+                            'status' => $reusedConsultsByCpf[$cpf]['status'] ?? null,
+                        ]);
+                        $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $reusedConsultsByCpf[$cpf]['consult_id'] ?? null, 'reused', true);
+                        $consentCount++;
+                        unset($reusedConsultsByCpf[$cpf]);
                         continue;
                     }
 
@@ -324,7 +355,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             continue;
                         }
 
-                        [$cpf, $nome, $nasc, $consultId, $mode] = $this->splitConsentLine($line);
+                        [$cpf, $nome, $nasc, $consultId, $mode, $reused] = $this->splitConsentLine($line);
                         if (!$cpf || !$nome || !$nasc) {
                             $this->appendErrorRow($job, $cpf, $nome, $nasc, 'Linha inválida após normalização.');
                             $this->logCpfFailure('parse', $cpf, null, 'Linha inválida após normalização.', [
@@ -333,14 +364,25 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             continue;
                         }
 
+                        if ($mode === 'reused' && $consultId) {
+                            $this->logReuseRecent('CPF reaproveitado enviado direto para simulação na fase 2.', [
+                                'cpf' => $cpf,
+                                'consult_id' => $consultId,
+                            ]);
+                            $this->finalizeFromStatus($api, $job, $cpf, $nome, $nasc, $consultId, [
+                                'status' => 'SUCCESS',
+                            ], false, true);
+                            continue;
+                        }
+
                         if ($consultId) {
-                            fputcsv($pendingRegularFp, [$cpf, $nome, $nasc, $consultId, 0], ';');
+                            $this->writePendingLine($pendingRegularFp, $cpf, $nome, $nasc, $consultId, 0, 0, $reused);
                             $pendingRegularCount++;
                             continue;
                         }
 
                         if ($mode === 'existing') {
-                            fputcsv($pendingExistingFp, [$cpf, $nome, $nasc, '', 0], ';');
+                            $this->writePendingLine($pendingExistingFp, $cpf, $nome, $nasc, null, 0, 0, false);
                             $pendingExistingCount++;
                             continue;
                         }
@@ -360,7 +402,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
                     $stopEarly = false;
                     if ($pendingRegularCount > 0) {
-                        $startDate = ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))->copy()->setTimezone('UTC')->startOfDay();
+                        $startDate = $this->resolveRegularPendingStartDate($job);
                         $endDate = Carbon::now('UTC')->endOfDay();
                         $this->runBatchStatusFile($api, $job, $pendingRegularRel, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
                     } else {
@@ -551,9 +593,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         if (!$consultResp['ok']) {
             if (($consultResp['type'] ?? null) === 'consult_already_exists_by_user_and_document_number') {
-                if (is_resource($consentsFp)) {
-                    fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
-                }
+                $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, null, 'existing', false);
                 $this->logCpfFailure('consult', $cpf, null, 'Consentimento já existe; seguirá por CPF.', $this->logContextFromApi($consultResp));
                 return true;
             }
@@ -587,9 +627,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
         }
 
-        if (is_resource($consentsFp)) {
-            fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-        }
+        $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
 
         return true;
     }
@@ -683,9 +721,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 if (!$resp['ok']) {
                     $row = $this->baseRow($cpf, $nome, $nasc);
                     if (($resp['type'] ?? null) === 'consult_already_exists_by_user_and_document_number') {
-                        if (is_resource($consentsFp)) {
-                            fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
-                        }
+                        $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, null, 'existing', false);
                         $createdCount++;
                         continue;
                     }
@@ -741,9 +777,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 if (($retryResp['type'] ?? null) === 'consult_already_exists_by_user_and_document_number') {
-                    if (is_resource($consentsFp)) {
-                        fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
-                    }
+                    $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, null, 'existing', false);
                     $createdCount++;
                     continue;
                 }
@@ -758,9 +792,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
             $err = $this->extractHttpError($resp);
             if ($err['type'] === 'consult_already_exists_by_user_and_document_number') {
-                if (is_resource($consentsFp)) {
-                    fputcsv($consentsFp, [$cpf, $nome, $nasc, '', 'existing'], ';');
-                }
+                $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, null, 'existing', false);
                 $createdCount++;
                 continue;
             }
@@ -819,9 +851,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     }
                     $this->logCpfFailure('authorize', $cpf, $consultId, 'Consentimento já aprovado (confirmado).', $this->logContextFromApi($authResp));
                 }
-                if (is_resource($consentsFp)) {
-                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-                }
+                $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
                 $authorizedCount++;
                 continue;
             }
@@ -831,18 +861,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($resp->ok()) {
-                if (is_resource($consentsFp)) {
-                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-                }
+                $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
                 $authorizedCount++;
                 continue;
             }
 
             $err = $this->extractHttpError($resp);
             if ($this->isAuthorizeAlreadyApproved($err, $consultId)) {
-                if (is_resource($consentsFp)) {
-                    fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-                }
+                $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
                 $authorizedCount++;
                 continue;
             }
@@ -850,17 +876,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             if ($resp->status() === 429 || $resp->status() >= 500) {
                 $authResp = $api->authorizeConsult($consultId);
                 if ($authResp['ok']) {
-                    if (is_resource($consentsFp)) {
-                        fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-                    }
+                    $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
                     $authorizedCount++;
                     continue;
                 }
 
                 if ($this->isAuthorizeAlreadyApproved($authResp, $consultId)) {
-                    if (is_resource($consentsFp)) {
-                        fputcsv($consentsFp, [$cpf, $nome, $nasc, $consultId], ';');
-                    }
+                    $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $consultId, 'current', false);
                     $authorizedCount++;
                     continue;
                 }
@@ -959,10 +981,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         string $nasc,
         ?string $consultId,
         array $statusResp,
-        bool $existing
+        bool $existing,
+        bool $reused = false
     ): void {
         $row = $this->baseRow($cpf, $nome, $nasc);
         $row['consult_id'] = $consultId;
+        $row['consentimento_reaproveitado'] = $reused ? 'SIM' : 'NAO';
         $row['available_margin_value'] = $statusResp['available_margin_value'] ?? null;
 
         $status = $statusResp['status'] ?? null;
@@ -1282,14 +1306,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
 
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts] = $parsed;
+                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
                 $key = $mode === 'existing'
                     ? $this->normalizeCpfKey($cpf)
                     : (string) $consultId;
 
                 $statusResp = $matches[$key] ?? null;
                 if (!$statusResp) {
-                    fputcsv($writer, [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts], ';');
+                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused);
                     $written++;
                     continue;
                 }
@@ -1297,7 +1321,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 $status = $statusResp['status'] ?? null;
                 if ($this->shouldReconsentBlocked($statusResp)) {
                     if ($this->reconsentBlockedMax > 0 && $reconsentAttempts >= $this->reconsentBlockedMax) {
-                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts), $mode, $statusResp['error'] ?? 'Consulta de margem bloqueada pelo trabalhador');
+                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $statusResp['error'] ?? 'Consulta de margem bloqueada pelo trabalhador');
                         continue;
                     }
 
@@ -1310,14 +1334,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     $reconsentResult = $this->attemptReconsentBlocked($api, $job, $cpf, $nome, $nasc, $consultId);
                     if ($reconsentResult['status'] === 'ok') {
                         $newConsultId = $reconsentResult['consult_id'] ?? '';
-                        fputcsv($writer, [$cpf, $nome, $nasc, $newConsultId, 0, $reconsentAttempts], ';');
+                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $newConsultId, 0, $reconsentAttempts, $reused);
                         $written++;
                         continue;
                     }
 
                     if ($reconsentResult['status'] === 'existing') {
                         if ($mode === 'existing') {
-                            fputcsv($writer, [$cpf, $nome, $nasc, '', 0, $reconsentAttempts], ';');
+                            $this->writePendingLine($writer, $cpf, $nome, $nasc, null, 0, $reconsentAttempts, $reused);
                             $written++;
                             continue;
                         }
@@ -1326,21 +1350,21 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         if ($fallbackConsultId === '') {
                             $this->finalizePendingError(
                                 $job,
-                                $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts),
+                                $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused),
                                 $mode,
                                 'Consulta existente sem consult_id disponível.'
                             );
                             continue;
                         }
 
-                        fputcsv($writer, [$cpf, $nome, $nasc, $fallbackConsultId, 0, $reconsentAttempts], ';');
+                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $fallbackConsultId, 0, $reconsentAttempts, $reused);
                         $written++;
                         continue;
                     }
 
                     $this->finalizePendingError(
                         $job,
-                        $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts),
+                        $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused),
                         $mode,
                         $reconsentResult['error'] ?? 'Falha ao reprocessar consentimento.'
                     );
@@ -1355,19 +1379,19 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             && !($authResp['retriable'] ?? false)
                             && !$this->isAuthorizeAlreadyApproved($authResp, $useConsultId)
                         ) {
-                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts), $mode, $this->formatApiError($authResp));
+                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $this->formatApiError($authResp));
                             continue;
                         }
                     }
 
                     $attempts++;
                     if ($attempts >= $maxAttempts) {
-                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts), $mode);
+                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode);
                         continue;
                     }
 
                     $consultId = $statusResp['consult_id'] ?? $consultId;
-                    fputcsv($writer, [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts], ';');
+                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused);
                     $written++;
                     continue;
                 }
@@ -1384,7 +1408,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     $nasc,
                     $finalConsultId,
                     $statusResp,
-                    $mode === 'existing'
+                    $mode === 'existing',
+                    $reused
                 );
             }
         } finally {
@@ -1473,8 +1498,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $consultId = $parts[3] ?? '';
         $attempts = isset($parts[4]) ? (int) $parts[4] : 0;
         $reconsentAttempts = isset($parts[5]) ? (int) $parts[5] : 0;
+        $reused = $this->parseCsvBooleanFlag($parts[6] ?? null);
 
-        return [$cpf, $nome, $nasc, $consultId !== '' ? $consultId : null, $attempts, $reconsentAttempts];
+        return [$cpf, $nome, $nasc, $consultId !== '' ? $consultId : null, $attempts, $reconsentAttempts, $reused];
     }
 
     private function entryFromParsed(
@@ -1483,7 +1509,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         string $nasc,
         ?string $consultId,
         int $attempts,
-        int $reconsentAttempts = 0
+        int $reconsentAttempts = 0,
+        bool $reused = false
     ): array
     {
         return [
@@ -1493,6 +1520,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             'consult_id' => $consultId,
             'attempts' => $attempts,
             'reconsent_attempts' => $reconsentAttempts,
+            'reused' => $reused,
         ];
     }
 
@@ -1514,8 +1542,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 if (!$parsed) {
                     continue;
                 }
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts] = $parsed;
-                $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts), $mode);
+                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
+                $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode);
             }
         } finally {
             fclose($fh);
@@ -1540,8 +1568,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 if (!$parsed) {
                     continue;
                 }
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts] = $parsed;
-                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts), $mode, $message);
+                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
+                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $message);
             }
         } finally {
             fclose($fh);
@@ -1642,9 +1670,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $nome = (string) ($entry['nome'] ?? '');
         $nasc = (string) ($entry['nasc'] ?? '');
         $consultId = $entry['consult_id'] ?? null;
+        $reused = (bool) ($entry['reused'] ?? false);
 
         $row = $this->baseRow($cpf, $nome, $nasc);
         $row['consult_id'] = $consultId;
+        $row['consentimento_reaproveitado'] = $reused ? 'SIM' : 'NAO';
 
         if ($mode === 'existing') {
             $row['status'] = 'FALHOU';
@@ -1665,9 +1695,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $nome = (string) ($entry['nome'] ?? '');
         $nasc = (string) ($entry['nasc'] ?? '');
         $consultId = $entry['consult_id'] ?? null;
+        $reused = (bool) ($entry['reused'] ?? false);
 
         $row = $this->baseRow($cpf, $nome, $nasc);
         $row['consult_id'] = $consultId;
+        $row['consentimento_reaproveitado'] = $reused ? 'SIM' : 'NAO';
 
         if ($mode === 'existing') {
             $row['status'] = 'FALHOU';
@@ -2233,6 +2265,266 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return $this->formatApiError($resp);
     }
 
+    private function shouldReuseRecentConsults(V8ConsultJob $job): bool
+    {
+        return (bool) ($job->reuse_recent_consults ?? false)
+            && $this->reuseRecentLimit > 0
+            && !empty($this->reuseRecentStatuses);
+    }
+
+    private function resolveReuseRecentConsultsDays(V8ConsultJob $job): int
+    {
+        return max(1, min(90, (int) ($job->reuse_recent_consults_days ?? 30)));
+    }
+
+    private function resolveRegularPendingStartDate(V8ConsultJob $job): Carbon
+    {
+        $startDate = ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))->copy()->setTimezone('UTC')->startOfDay();
+        if (!$this->shouldReuseRecentConsults($job)) {
+            return $startDate;
+        }
+
+        $reuseStartDate = Carbon::now('UTC')->subDays($this->resolveReuseRecentConsultsDays($job))->startOfDay();
+        return $reuseStartDate->lt($startDate) ? $reuseStartDate : $startDate;
+    }
+
+    private function buildReusableRecentConsultsMap(V8ApiService $api, string $uniqReal, V8ConsultJob $job): ?array
+    {
+        if (!$this->shouldReuseRecentConsults($job)) {
+            $this->logReuseRecent('Reaproveitamento recente desabilitado para o job.');
+            return [];
+        }
+
+        $pendingCpfs = $this->loadUniqueCpfKeysFromFile($uniqReal, $job);
+        if ($pendingCpfs === null) {
+            return null;
+        }
+        if (empty($pendingCpfs)) {
+            $this->logReuseRecent('Nenhum CPF elegível encontrado para reaproveitamento.');
+            return [];
+        }
+
+        $limit = max(1, $this->reuseRecentLimit);
+        $startDate = Carbon::now('UTC')->subDays($this->resolveReuseRecentConsultsDays($job))->startOfDay();
+        $endDate = Carbon::now('UTC')->endOfDay();
+        $statuses = in_array('SUCCESS', $this->reuseRecentStatuses, true) ? ['SUCCESS'] : ['SUCCESS'];
+        $matches = [];
+        $this->logReuseRecent('Iniciando varredura de reaproveitamento.', [
+            'cpfs' => count($pendingCpfs),
+            'statuses' => $statuses,
+            'limit' => $limit,
+            'start_date' => $startDate->format('Y-m-d\TH:i:s\Z'),
+            'end_date' => $endDate->format('Y-m-d\TH:i:s\Z'),
+        ]);
+
+        foreach ($statuses as $status) {
+            $page = 1;
+            $totalPages = 1;
+            $hasNext = true;
+            $this->logReuseRecent('Consultando status de reaproveitamento.', [
+                'status' => $status,
+                'remaining_cpfs' => count($pendingCpfs),
+            ]);
+
+            while ($hasNext && $page <= $totalPages && !empty($pendingCpfs)) {
+                if ($this->finishIfStopped($job)) {
+                    return null;
+                }
+
+                $resp = $api->listConsults([
+                    'startDate' => $startDate->format('Y-m-d\\TH:i:s\\Z'),
+                    'endDate' => $endDate->format('Y-m-d\\TH:i:s\\Z'),
+                    'limit' => $limit,
+                    'page' => $page,
+                    'provider' => (string) config('v8.bff.provider', 'QI'),
+                    'status' => $status,
+                ]);
+                $this->logReuseRecentListConsultsResponse($resp, [
+                    'status' => $status,
+                    'page' => $page,
+                    'limit' => $limit,
+                    'remaining_cpfs' => count($pendingCpfs),
+                ]);
+
+                if (!$resp['ok']) {
+                    $this->logReuseRecent('Reaproveitamento recente indisponível.', [
+                        'status' => $status,
+                        'page' => $page,
+                        'retriable' => (bool) ($resp['retriable'] ?? false),
+                        'error' => $this->truncate($this->formatApiError($resp), 180),
+                    ], 'warning');
+                    return [];
+                }
+
+                $pages = $resp['data']['pages'] ?? [];
+                if (is_array($pages) && isset($pages['totalPages']) && is_numeric($pages['totalPages'])) {
+                    $totalPages = max(1, (int) $pages['totalPages']);
+                } else {
+                    $totalPages = $page;
+                }
+
+                $data = $resp['data']['data'] ?? [];
+                if (!is_array($data) || empty($data)) {
+                    $this->logReuseRecent('Página sem itens para reaproveitamento.', [
+                        'status' => $status,
+                        'page' => $page,
+                        'total_pages' => $totalPages,
+                    ]);
+                    break;
+                }
+
+                foreach ($data as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+
+                    $cpf = $this->normalizeCpfKey((string) ($item['documentNumber'] ?? ''));
+                    $consultId = trim((string) ($item['id'] ?? ''));
+                    if ($cpf === '' || $consultId === '' || (!isset($pendingCpfs[$cpf]) && !isset($matches[$cpf]))) {
+                        continue;
+                    }
+
+                    $candidate = [
+                        'consult_id' => $consultId,
+                        'status' => is_string($item['status'] ?? null) ? $item['status'] : null,
+                        'available_margin_value' => $item['availableMarginValue'] ?? null,
+                        'reused' => true,
+                    ];
+
+                    $shouldReplace = !isset($matches[$cpf]) || $this->shouldReplaceReusableConsultCandidate($matches[$cpf], $candidate);
+                    if ($shouldReplace) {
+                        $matches[$cpf] = $candidate;
+                        $this->logReuseRecent('Candidato selecionado para CPF.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $consultId,
+                            'status' => $candidate['status'],
+                            'available_margin_value' => $candidate['available_margin_value'],
+                        ]);
+                    }
+
+                    if (($matches[$cpf]['status'] ?? null) === 'SUCCESS') {
+                        unset($pendingCpfs[$cpf]);
+                        $this->logReuseRecent('CPF removido da busca por já possuir SUCCESS.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $matches[$cpf]['consult_id'] ?? null,
+                        ]);
+                    }
+                }
+
+                $hasNext = is_array($pages)
+                    ? (bool) ($pages['hasNext'] ?? ($page < $totalPages))
+                    : false;
+
+                if (!$hasNext || $page >= $totalPages) {
+                    break;
+                }
+
+                $page++;
+            }
+        }
+
+        $this->logReuseRecent('Varredura de reaproveitamento finalizada.', [
+            'matches' => count($matches),
+            'remaining_cpfs' => count($pendingCpfs),
+        ]);
+
+        return $matches;
+    }
+
+    private function loadUniqueCpfKeysFromFile(string $uniqReal, V8ConsultJob $job): ?array
+    {
+        $reader = @fopen($uniqReal, 'r');
+        if ($reader === false) {
+            return [];
+        }
+
+        $cpfs = [];
+        try {
+            while (($line = fgets($reader)) !== false) {
+                if ($this->finishIfStopped($job)) {
+                    return null;
+                }
+
+                [$cpf] = $this->splitEntryLine(trim($line));
+                if ($cpf) {
+                    $cpfs[$cpf] = true;
+                }
+            }
+        } finally {
+            fclose($reader);
+        }
+
+        return $cpfs;
+    }
+
+    private function shouldReplaceReusableConsultCandidate(array $current, array $candidate): bool
+    {
+        return $this->reusableConsultStatusPriority((string) ($candidate['status'] ?? ''))
+            > $this->reusableConsultStatusPriority((string) ($current['status'] ?? ''));
+    }
+
+    private function logReuseRecent(string $message, array $context = [], string $level = 'info'): void
+    {
+        if (!$this->logEnabled || !$this->reuseRecentLogEnabled) {
+            return;
+        }
+
+        $payload = array_merge([
+            'job_id' => $this->jobId,
+        ], $context);
+
+        if ($level === 'warning') {
+            Log::warning("[V8] Reuse recent: {$message}", $payload);
+            return;
+        }
+
+        Log::info("[V8] Reuse recent: {$message}", $payload);
+    }
+
+    private function logReuseRecentListConsultsResponse(array $resp, array $context = []): void
+    {
+        if (!$this->logEnabled || !$this->reuseRecentLogEnabled || !$this->reuseRecentLogApiResponses) {
+            return;
+        }
+
+        $data = $resp['data']['data'] ?? null;
+        $pages = $resp['data']['pages'] ?? null;
+        $excerpt = [];
+
+        if (is_array($data)) {
+            foreach (array_slice($data, 0, 5) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $excerpt[] = [
+                    'id' => $item['id'] ?? null,
+                    'documentNumber' => $item['documentNumber'] ?? null,
+                    'status' => $item['status'] ?? null,
+                    'availableMarginValue' => $item['availableMarginValue'] ?? null,
+                ];
+            }
+        }
+
+        $this->logReuseRecent('Resposta listConsults recebida.', array_merge($context, [
+            'ok' => (bool) ($resp['ok'] ?? false),
+            'http_status' => $resp['status'] ?? null,
+            'retriable' => (bool) ($resp['retriable'] ?? false),
+            'error' => isset($resp['error']) ? $this->truncate((string) $resp['error'], 180) : null,
+            'pages' => is_array($pages) ? $pages : null,
+            'items_count' => is_array($data) ? count($data) : 0,
+            'items_excerpt' => $excerpt,
+        ]));
+    }
+
+    private function reusableConsultStatusPriority(string $status): int
+    {
+        if ($status === 'SUCCESS') {
+            return 2;
+        }
+
+        return $this->isWaitingStatus($status) ? 1 : 0;
+    }
 
     private function splitEntryLine(string $line): array
     {
@@ -2245,13 +2537,26 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function splitConsentLine(string $line): array
     {
-        $parts = explode(';', $line);
+        $parts = str_getcsv($line, ';');
         $cpf = Cpf::normalize($parts[0] ?? null);
         $nome = $this->cleanName($parts[1] ?? '');
         $nasc = trim($parts[2] ?? '');
         $consultId = trim($parts[3] ?? '');
-        $mode = trim($parts[4] ?? '');
-        return [$cpf, $nome, $nasc, $consultId, $mode];
+        $mode = strtolower(trim((string) ($parts[4] ?? '')));
+        $reused = false;
+
+        if (!isset($parts[5]) && !in_array($mode, ['', 'existing', 'current', 'reused'], true)) {
+            $reused = $this->parseCsvBooleanFlag($mode);
+            $mode = '';
+        } else {
+            $reused = $this->parseCsvBooleanFlag($parts[5] ?? null);
+        }
+
+        if ($mode === 'reused') {
+            $reused = true;
+        }
+
+        return [$cpf, $nome, $nasc, $consultId, $mode, $reused];
     }
 
     private function baseRow(string $cpf, ?string $nome, ?string $nasc): array
@@ -2260,7 +2565,32 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $row['cpf'] = $cpf;
         $row['nome'] = $this->cleanName($nome);
         $row['data_nascimento'] = $nasc;
+        $row['consentimento_reaproveitado'] = 'NAO';
         return $row;
+    }
+
+    private function writeConsentLine($handle, string $cpf, string $nome, string $nasc, ?string $consultId = null, string $mode = '', bool $reused = false): void
+    {
+        if (!is_resource($handle)) {
+            return;
+        }
+
+        fputcsv($handle, [$cpf, $nome, $nasc, $consultId ?? '', $mode, $reused ? 1 : 0], ';');
+    }
+
+    private function writePendingLine($handle, string $cpf, string $nome, string $nasc, ?string $consultId = null, int $attempts = 0, int $reconsentAttempts = 0, bool $reused = false): void
+    {
+        if (!is_resource($handle)) {
+            return;
+        }
+
+        fputcsv($handle, [$cpf, $nome, $nasc, $consultId ?? '', $attempts, $reconsentAttempts, $reused ? 1 : 0], ';');
+    }
+
+    private function parseCsvBooleanFlag($value): bool
+    {
+        $normalized = strtolower(trim((string) $value));
+        return in_array($normalized, ['1', 'true', 'sim', 'yes'], true);
     }
 
     private function appendErrorRow(V8ConsultJob $job, ?string $cpf, ?string $nome, ?string $nasc, string $error): void

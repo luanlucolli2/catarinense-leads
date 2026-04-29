@@ -59,6 +59,11 @@ return [
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 12),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
+        'reuse_recent_limit'         => (int) env('V8_REUSE_RECENT_LIMIT', 1000),
+        'reuse_recent_statuses'      => array_values(array_filter(array_map(
+            static fn ($status) => strtoupper(trim((string) $status)),
+            explode(',', (string) env('V8_REUSE_RECENT_STATUSES', 'SUCCESS,WAITING_CONSULT,CONSENT_APPROVED,WAITING_CREDIT_ANALYSIS,WAITING_CONSENT'))
+        ), static fn ($status) => $status !== '')),
         'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 50),
         'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 3600),
         'reconsent_blocked_max'      => (int) env('V8_RECONSENT_BLOCKED_MAX', 1),
@@ -87,10 +92,12 @@ return [
     ],
 
     'logging' => [
-        'enabled' => (bool) env('V8_LOG_ENABLED', true),
+        'enabled' => (bool) env('V8_LOG_ENABLED', false),
         'cpf_failure_enabled' => (bool) env('V8_LOG_CPF_FAILURE', false),
-        'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', true),
+        'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', false),
         'api_log_success_responses' => (bool) env('V8_API_LOG_SUCCESS_RESPONSES', false),
-        'api_log_429' => (bool) env('V8_API_LOG_429', true),
+        'api_log_429' => (bool) env('V8_API_LOG_429', false),
+        'reuse_recent_enabled' => (bool) env('V8_REUSE_RECENT_LOG_ENABLED', false),
+        'reuse_recent_api_responses' => (bool) env('V8_REUSE_RECENT_LOG_API_RESPONSES', false),
     ],
 ];

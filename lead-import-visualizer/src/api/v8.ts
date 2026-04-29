@@ -40,6 +40,8 @@ export interface V8ConsultJobShow {
   title: string
   status: V8JobStatus
   phase?: V8JobPhase
+  reuse_recent_consults?: boolean
+  reuse_recent_consults_days?: number
   total_cpfs: number
   success_count: number
   nao_elegivel_count: number
@@ -73,7 +75,12 @@ export async function listV8ConsultJobs(page = 1): Promise<Paginated<V8ConsultJo
   return data
 }
 
-export async function createV8ConsultJob(input: { title: string; lines: string }) {
+export async function createV8ConsultJob(input: {
+  title: string
+  lines: string
+  reuse_recent_consults?: boolean
+  reuse_recent_consults_days?: number
+}) {
   const { data } = await axiosClient.post<{ id: number; status: V8JobStatus; phase?: V8JobPhase }>(
     BASE,
     input

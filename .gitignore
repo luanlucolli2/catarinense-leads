@@ -122,3 +122,7 @@ backend/.env.staging
 lead-import-visualizer/public/catarinenseicon.png:Zone.Identifier
 lead-import-visualizer/src/catainenseLogo.png:Zone.Identifier
 dist-codex
+
+# Codex local overrides
+.codex/*.local.toml
+.codex/AGENTS.override.md

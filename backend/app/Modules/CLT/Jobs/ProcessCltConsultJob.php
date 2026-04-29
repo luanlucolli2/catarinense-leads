@@ -78,7 +78,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /** Guarda a variante (online|offline|hybrid) para a regra de snapshot */
     private string $variant = 'online';
-    private int $hybridOfflineMaxAgeDays;
     private array $baseRowTemplate = [];
     private int $phase2MaxAttempts;
     private int $phase2RetryDelaySeconds;
@@ -141,7 +140,6 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phaseOneCoordLockTtl = max(1, (int) config('cltfacta.job.phase1_coord_lock_ttl', 10));
         $this->phaseOneCoordLockWait = max(1, (int) config('cltfacta.job.phase1_coord_lock_wait', 5));
         $this->phaseOneCoordRetryDelaySeconds = max(1, (int) config('cltfacta.job.phase1_coord_retry_delay_seconds', 15));
-        $this->hybridOfflineMaxAgeDays = max(0, (int) config('cltfacta.hybrid.offline_max_age_days', 7));
         $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
         $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
         $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
@@ -1267,17 +1265,24 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return false;
         }
 
-        if ($this->hybridOfflineMaxAgeDays > 0) {
-            $cutoff = Carbon::now('UTC')
-                ->subDays($this->hybridOfflineMaxAgeDays)
-                ->format('Y-m-d H:i:s');
-
-            if (strcmp($latestUpdatedAt, $cutoff) < 0) {
-                return false;
-            }
+        $cutoff = $this->hybridOfflineReuseCutoff();
+        if (strcmp($latestUpdatedAt, $cutoff) < 0) {
+            return false;
         }
 
         return $this->hybridOfflineEligibleRowsHaveRequiredFields($vinculos);
+    }
+
+    private function hybridOfflineReuseCutoff(): string
+    {
+        $now = Carbon::now('UTC');
+        $cutoff = $now->copy()->day(23)->startOfDay();
+
+        if ($now->day < 23) {
+            $cutoff->subMonthNoOverflow();
+        }
+
+        return $cutoff->format('Y-m-d H:i:s');
     }
 
     private function latestHybridOfflineUpdatedAt(array $vinculos): ?string
@@ -2505,7 +2510,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /**
      * @param resource $fh
-     * @return array{line:int,patch:array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta:mixed}}|null
+     * @return array{line:int,patch:array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta:mixed,dc:mixed}}|null
      */
     private function readNextPhase2DeltaAttemptPatch($fh): ?array
     {
@@ -2537,6 +2542,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'vm' => array_key_exists('vm', $decoded) ? $decoded['vm'] : null,
                     'pm' => array_key_exists('pm', $decoded) ? $decoded['pm'] : null,
                     'ta' => array_key_exists('ta', $decoded) ? $decoded['ta'] : null,
+                    'dc' => array_key_exists('dc', $decoded) ? $decoded['dc'] : null,
                 ],
             ];
         }
@@ -2566,7 +2572,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /**
      * @param array<string,mixed> $row
-     * @param array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta?:mixed} $patch
+     * @param array{ap:mixed,mg:mixed,vm:mixed,pm:mixed,ta?:mixed,dc?:mixed} $patch
      * @return array<string,mixed>
      */
     private function applyPhase2PatchToAssocRow(array $row, array $patch): array
@@ -2576,6 +2582,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $row['politicaCreditoValorMaximoDisponivel'] = $patch['vm'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $patch['pm'] ?? null;
         $row['politicaCreditoTabelaAprovada'] = $patch['ta'] ?? null;
+        $row['politicaCreditoDataConsulta'] = $patch['dc'] ?? null;
         return $row;
     }
 
@@ -2786,6 +2793,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'vm' => $row['politicaCreditoValorMaximoDisponivel'] ?? null,
             'pm' => $row['politicaCreditoPrazoMaximoDisponivel'] ?? null,
             'ta' => $row['politicaCreditoTabelaAprovada'] ?? null,
+            'dc' => $row['politicaCreditoDataConsulta'] ?? null,
         ];
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -3246,6 +3254,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $row['politicaCreditoValorMaximoDisponivel'] = $credit['valor_maximo_disponivel'] ?? null;
         $row['politicaCreditoPrazoMaximoDisponivel'] = $credit['prazo_maximo_disponivel'] ?? null;
         $row['politicaCreditoTabelaAprovada'] = $credit['phase2_approved_table_name'] ?? null;
+        if (max(0, (int) ($credit['phase2_politica_request_count'] ?? 0)) > 0) {
+            $row['politicaCreditoDataConsulta'] = Carbon::now('America/Sao_Paulo')->format('Y-m-d H:i:s');
+        }
 
         return $row;
     }

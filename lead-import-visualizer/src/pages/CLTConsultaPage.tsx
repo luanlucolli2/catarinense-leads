@@ -572,7 +572,12 @@ const CLTConsultaPage = () => {
     mutationFn: (id: number) => requestCltPreview(id),
   });
 
-  const createV8Mutation = useMutation<any, any, { title: string; lines: string }>({
+  const createV8Mutation = useMutation<any, any, {
+    title: string;
+    lines: string;
+    reuse_recent_consults?: boolean;
+    reuse_recent_consults_days?: number;
+  }>({
     mutationFn: (vars) => createV8ConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingV8JobId(data.id);
@@ -687,8 +692,19 @@ const CLTConsultaPage = () => {
     });
   };
 
-  const handleNewV8Consult = async (titulo: string, lines: string) => {
-    await createV8Mutation.mutateAsync({ title: titulo, lines });
+  const handleNewV8Consult = async (
+    titulo: string,
+    lines: string,
+    opts?: { reuseRecentConsults?: boolean }
+  ) => {
+    await createV8Mutation.mutateAsync({
+      title: titulo,
+      lines,
+      ...(opts?.reuseRecentConsults ? {
+        reuse_recent_consults: true,
+        reuse_recent_consults_days: 30,
+      } : {}),
+    });
   };
 
   const handleNewPresencaConsult = async (

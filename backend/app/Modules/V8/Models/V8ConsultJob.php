@@ -27,6 +27,8 @@ class V8ConsultJob extends Model
         'spool_path',
         'spool_inputs_path',
         'spool_bytes',
+        'reuse_recent_consults',
+        'reuse_recent_consults_days',
     ];
 
     protected $casts = [
@@ -34,6 +36,8 @@ class V8ConsultJob extends Model
         'finished_at' => 'datetime',
         'canceled_at' => 'datetime',
         'spool_bytes' => 'integer',
+        'reuse_recent_consults' => 'boolean',
+        'reuse_recent_consults_days' => 'integer',
     ];
 
     public function getHasFileAttribute(): bool

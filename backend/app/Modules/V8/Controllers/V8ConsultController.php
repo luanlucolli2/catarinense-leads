@@ -40,6 +40,8 @@ class V8ConsultController extends Controller
             'title' => $job->title,
             'status' => $job->status,
             'phase' => $job->phase,
+            'reuse_recent_consults' => (bool) $job->reuse_recent_consults,
+            'reuse_recent_consults_days' => (int) ($job->reuse_recent_consults_days ?? 30),
             'total_cpfs' => $job->total_cpfs,
             'success_count' => $job->success_count,
             'nao_elegivel_count' => $job->nao_elegivel_count,
@@ -60,9 +62,13 @@ class V8ConsultController extends Controller
         $validator = Validator::make([
             'title' => $request->input('title'),
             'lines' => $rawLines,
+            'reuse_recent_consults' => $request->input('reuse_recent_consults'),
+            'reuse_recent_consults_days' => $request->input('reuse_recent_consults_days'),
         ], [
             'title' => ['required', 'string', 'max:191'],
             'lines' => ['required'],
+            'reuse_recent_consults' => ['nullable', 'boolean'],
+            'reuse_recent_consults_days' => ['nullable', 'integer', 'min:1', 'max:90'],
         ]);
 
         if ($validator->fails()) {
@@ -72,6 +78,9 @@ class V8ConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        $reuseRecentConsults = filter_var($request->input('reuse_recent_consults', false), FILTER_VALIDATE_BOOL);
+        $reuseRecentConsultsDays = max(1, min(90, (int) $request->input('reuse_recent_consults_days', 30)));
+
         $job = V8ConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => (string) $request->input('title'),
@@ -80,6 +89,8 @@ class V8ConsultController extends Controller
             'success_count' => 0,
             'nao_elegivel_count' => 0,
             'fail_count' => 0,
+            'reuse_recent_consults' => $reuseRecentConsults,
+            'reuse_recent_consults_days' => $reuseRecentConsultsDays,
         ]);
 
         try {

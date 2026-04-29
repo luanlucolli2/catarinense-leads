@@ -1,0 +1,18 @@
+# Configuração local do Codex para este repositório.
+# Foco: economizar limite, reduzir output e evitar ações caras.
+
+model_verbosity = "low"
+model_reasoning_summary = "none"
+hide_agent_reasoning = true
+
+# Mantém o Codex pedindo permissão para ações fora do básico.
+approval_policy = "on-request"
+
+# Permite editar arquivos do workspace, mas evita acesso total ao sistema.
+sandbox_mode = "workspace-write"
+
+# Evita excesso de agentes/subtarefas paralelas.
+agents.max_threads = 1
+
+# Mantém o AGENTS.md como fonte principal de instruções do projeto.
+project_doc_max_bytes = 20000

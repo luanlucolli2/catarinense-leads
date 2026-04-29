@@ -80,11 +80,11 @@ return [
     ],
 
     'logging' => [
-        'enabled' => (bool) env('PRESENCA_LOG_ENABLED', true),
-        'api_log_responses' => (bool) env('PRESENCA_API_LOG_RESPONSES', true),
+        'enabled' => (bool) env('PRESENCA_LOG_ENABLED', false),
+        'api_log_responses' => (bool) env('PRESENCA_API_LOG_RESPONSES', false),
         'api_log_success_responses' => (bool) env('PRESENCA_API_LOG_SUCCESS_RESPONSES', false),
-        'api_log_429' => (bool) env('PRESENCA_API_LOG_429', true),
-        'api_log_slow_requests' => (bool) env('PRESENCA_API_LOG_SLOW_REQUESTS', true),
+        'api_log_429' => (bool) env('PRESENCA_API_LOG_429', false),
+        'api_log_slow_requests' => (bool) env('PRESENCA_API_LOG_SLOW_REQUESTS', false),
         'api_slow_request_threshold_ms' => (int) env('PRESENCA_API_SLOW_REQUEST_THRESHOLD_MS', 10000),
     ],
 ];

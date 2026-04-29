@@ -4,19 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface NewV8ConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (titulo: string, lines: string) => void;
+  onSubmit: (titulo: string, lines: string, opts?: { reuseRecentConsults?: boolean }) => void;
 }
 
 export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
   const [lines, setLines] = useState("");
   const [lineCount, setLineCount] = useState(0);
+  const [reuseRecentConsults, setReuseRecentConsults] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -40,10 +42,11 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
 
     try {
       setSubmitting(true);
-      await onSubmit(titulo, lines);
+      await onSubmit(titulo, lines, { reuseRecentConsults });
       setTitulo("");
       setLines("");
       setLineCount(0);
+      setReuseRecentConsults(false);
       onClose();
     } finally {
       setSubmitting(false);
@@ -55,6 +58,7 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
     setTitulo("");
     setLines("");
     setLineCount(0);
+    setReuseRecentConsults(false);
     onClose();
   };
 
@@ -100,6 +104,18 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
                 Detectadas: {lineCount} linhas
               </span>
             </div>
+          </div>
+
+          <div className="flex items-center space-x-2 border-t border-gray-100 pt-4">
+            <Checkbox
+              id="v8-reuse-recent-consults"
+              checked={reuseRecentConsults}
+              onCheckedChange={(checked) => setReuseRecentConsults(!!checked)}
+              disabled={submitting}
+            />
+            <Label htmlFor="v8-reuse-recent-consults" className="cursor-pointer text-sm font-medium">
+              Reaproveitar consentimentos recentes
+            </Label>
           </div>
         </div>
 

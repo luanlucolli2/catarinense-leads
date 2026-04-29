@@ -25,6 +25,7 @@ final class V8Schema
         'insurance_amount',
         'finished_at',
         'mensagem',
+        'consentimento_reaproveitado',
     ];
 
     public const TITLES = [
@@ -48,6 +49,7 @@ final class V8Schema
         'Valor do Seguro',
         'Finalizado em',
         'Mensagem',
+        'Consentimento reaproveitado',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string
