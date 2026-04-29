@@ -97,5 +97,7 @@ return [
         'api_log_responses' => (bool) env('V8_API_LOG_RESPONSES', true),
         'api_log_success_responses' => (bool) env('V8_API_LOG_SUCCESS_RESPONSES', false),
         'api_log_429' => (bool) env('V8_API_LOG_429', true),
+        'reuse_recent_enabled' => (bool) env('V8_REUSE_RECENT_LOG_ENABLED', true),
+        'reuse_recent_api_responses' => (bool) env('V8_REUSE_RECENT_LOG_API_RESPONSES', true),
     ],
 ];

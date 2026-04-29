@@ -85,6 +85,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private bool $logApiResponses;
     private bool $logApiSuccessResponses;
     private bool $logApi429;
+    private bool $reuseRecentLogEnabled;
+    private bool $reuseRecentLogApiResponses;
 
     public function __construct(int $jobId)
     {
@@ -136,6 +138,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->logApiResponses = (bool) config('v8.logging.api_log_responses', true);
         $this->logApiSuccessResponses = (bool) config('v8.logging.api_log_success_responses', false);
         $this->logApi429 = (bool) config('v8.logging.api_log_429', true);
+        $this->reuseRecentLogEnabled = (bool) config('v8.logging.reuse_recent_enabled', true);
+        $this->reuseRecentLogApiResponses = (bool) config('v8.logging.reuse_recent_api_responses', true);
     }
 
     public function uniqueId(): string
@@ -222,6 +226,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             if ($reusedConsultsByCpf === null) {
                 return;
             }
+            $this->logReuseRecent('Mapa de reaproveitamento carregado.', [
+                'matches' => count($reusedConsultsByCpf),
+            ]);
 
             // ===== FASE 1: criar + autorizar consentimento para todos =====
             $consentsRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.consents.txt";
@@ -264,6 +271,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     if (isset($reusedConsultsByCpf[$cpf])) {
+                        $this->logReuseRecent('CPF reaproveitado na fase 1.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $reusedConsultsByCpf[$cpf]['consult_id'] ?? null,
+                            'status' => $reusedConsultsByCpf[$cpf]['status'] ?? null,
+                        ]);
                         $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $reusedConsultsByCpf[$cpf]['consult_id'] ?? null, 'reused', true);
                         $consentCount++;
                         unset($reusedConsultsByCpf[$cpf]);
@@ -2268,6 +2280,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private function buildReusableRecentConsultsMap(V8ApiService $api, string $uniqReal, V8ConsultJob $job): ?array
     {
         if (!$this->shouldReuseRecentConsults($job)) {
+            $this->logReuseRecent('Reaproveitamento recente desabilitado para o job.');
             return [];
         }
 
@@ -2276,18 +2289,31 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return null;
         }
         if (empty($pendingCpfs)) {
+            $this->logReuseRecent('Nenhum CPF elegível encontrado para reaproveitamento.');
             return [];
         }
 
         $limit = max(1, $this->reuseRecentLimit);
         $startDate = Carbon::now('UTC')->subDays($this->resolveReuseRecentConsultsDays($job))->startOfDay();
         $endDate = Carbon::now('UTC')->endOfDay();
+        $statuses = in_array('SUCCESS', $this->reuseRecentStatuses, true) ? ['SUCCESS'] : ['SUCCESS'];
         $matches = [];
+        $this->logReuseRecent('Iniciando varredura de reaproveitamento.', [
+            'cpfs' => count($pendingCpfs),
+            'statuses' => $statuses,
+            'limit' => $limit,
+            'start_date' => $startDate->format('Y-m-d\TH:i:s\Z'),
+            'end_date' => $endDate->format('Y-m-d\TH:i:s\Z'),
+        ]);
 
-        foreach ($this->reuseRecentStatuses as $status) {
+        foreach ($statuses as $status) {
             $page = 1;
             $totalPages = 1;
             $hasNext = true;
+            $this->logReuseRecent('Consultando status de reaproveitamento.', [
+                'status' => $status,
+                'remaining_cpfs' => count($pendingCpfs),
+            ]);
 
             while ($hasNext && $page <= $totalPages && !empty($pendingCpfs)) {
                 if ($this->finishIfStopped($job)) {
@@ -2302,15 +2328,20 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     'provider' => (string) config('v8.bff.provider', 'QI'),
                     'status' => $status,
                 ]);
+                $this->logReuseRecentListConsultsResponse($resp, [
+                    'status' => $status,
+                    'page' => $page,
+                    'limit' => $limit,
+                    'remaining_cpfs' => count($pendingCpfs),
+                ]);
 
                 if (!$resp['ok']) {
-                    Log::warning('[V8] Reaproveitamento recente indisponível.', [
-                        'job_id' => $this->jobId,
+                    $this->logReuseRecent('Reaproveitamento recente indisponível.', [
                         'status' => $status,
                         'page' => $page,
                         'retriable' => (bool) ($resp['retriable'] ?? false),
                         'error' => $this->truncate($this->formatApiError($resp), 180),
-                    ]);
+                    ], 'warning');
                     return [];
                 }
 
@@ -2323,6 +2354,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $data = $resp['data']['data'] ?? [];
                 if (!is_array($data) || empty($data)) {
+                    $this->logReuseRecent('Página sem itens para reaproveitamento.', [
+                        'status' => $status,
+                        'page' => $page,
+                        'total_pages' => $totalPages,
+                    ]);
                     break;
                 }
 
@@ -2344,12 +2380,23 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         'reused' => true,
                     ];
 
-                    if (!isset($matches[$cpf]) || $this->shouldReplaceReusableConsultCandidate($matches[$cpf], $candidate)) {
+                    $shouldReplace = !isset($matches[$cpf]) || $this->shouldReplaceReusableConsultCandidate($matches[$cpf], $candidate);
+                    if ($shouldReplace) {
                         $matches[$cpf] = $candidate;
+                        $this->logReuseRecent('Candidato selecionado para CPF.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $consultId,
+                            'status' => $candidate['status'],
+                            'available_margin_value' => $candidate['available_margin_value'],
+                        ]);
                     }
 
                     if (($matches[$cpf]['status'] ?? null) === 'SUCCESS') {
                         unset($pendingCpfs[$cpf]);
+                        $this->logReuseRecent('CPF removido da busca por já possuir SUCCESS.', [
+                            'cpf' => $cpf,
+                            'consult_id' => $matches[$cpf]['consult_id'] ?? null,
+                        ]);
                     }
                 }
 
@@ -2364,6 +2411,11 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 $page++;
             }
         }
+
+        $this->logReuseRecent('Varredura de reaproveitamento finalizada.', [
+            'matches' => count($matches),
+            'remaining_cpfs' => count($pendingCpfs),
+        ]);
 
         return $matches;
     }
@@ -2398,6 +2450,60 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     {
         return $this->reusableConsultStatusPriority((string) ($candidate['status'] ?? ''))
             > $this->reusableConsultStatusPriority((string) ($current['status'] ?? ''));
+    }
+
+    private function logReuseRecent(string $message, array $context = [], string $level = 'info'): void
+    {
+        if (!$this->logEnabled || !$this->reuseRecentLogEnabled) {
+            return;
+        }
+
+        $payload = array_merge([
+            'job_id' => $this->jobId,
+        ], $context);
+
+        if ($level === 'warning') {
+            Log::warning("[V8] Reuse recent: {$message}", $payload);
+            return;
+        }
+
+        Log::info("[V8] Reuse recent: {$message}", $payload);
+    }
+
+    private function logReuseRecentListConsultsResponse(array $resp, array $context = []): void
+    {
+        if (!$this->logEnabled || !$this->reuseRecentLogEnabled || !$this->reuseRecentLogApiResponses) {
+            return;
+        }
+
+        $data = $resp['data']['data'] ?? null;
+        $pages = $resp['data']['pages'] ?? null;
+        $excerpt = [];
+
+        if (is_array($data)) {
+            foreach (array_slice($data, 0, 5) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $excerpt[] = [
+                    'id' => $item['id'] ?? null,
+                    'documentNumber' => $item['documentNumber'] ?? null,
+                    'status' => $item['status'] ?? null,
+                    'availableMarginValue' => $item['availableMarginValue'] ?? null,
+                ];
+            }
+        }
+
+        $this->logReuseRecent('Resposta listConsults recebida.', array_merge($context, [
+            'ok' => (bool) ($resp['ok'] ?? false),
+            'http_status' => $resp['status'] ?? null,
+            'retriable' => (bool) ($resp['retriable'] ?? false),
+            'error' => isset($resp['error']) ? $this->truncate((string) $resp['error'], 180) : null,
+            'pages' => is_array($pages) ? $pages : null,
+            'items_count' => is_array($data) ? count($data) : 0,
+            'items_excerpt' => $excerpt,
+        ]));
     }
 
     private function reusableConsultStatusPriority(string $status): int
