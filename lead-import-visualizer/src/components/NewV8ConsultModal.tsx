@@ -11,7 +11,11 @@ import { cn } from "@/lib/utils";
 interface NewV8ConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (titulo: string, lines: string, opts?: { reuseRecentConsults?: boolean }) => void;
+  onSubmit: (
+    titulo: string,
+    lines: string,
+    opts?: { reuseRecentConsults?: boolean; runAt?: string | null; timezone?: string | null }
+  ) => void;
 }
 
 export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultModalProps) => {
@@ -20,6 +24,8 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
   const [lineCount, setLineCount] = useState(0);
   const [reuseRecentConsults, setReuseRecentConsults] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isAgendado, setIsAgendado] = useState(false);
+  const [runAtLocal, setRunAtLocal] = useState("");
 
   useEffect(() => {
     if (lines.trim()) {
@@ -39,14 +45,30 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
       toast.error("Adicione pelo menos uma linha");
       return;
     }
+    if (isAgendado && !runAtLocal) {
+      toast.error("Informe a data e hora do agendamento");
+      return;
+    }
 
     try {
       setSubmitting(true);
-      await onSubmit(titulo, lines, { reuseRecentConsults });
+      await onSubmit(
+        titulo,
+        lines,
+        isAgendado
+          ? {
+              reuseRecentConsults,
+              runAt: runAtLocal,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }
+          : { reuseRecentConsults }
+      );
       setTitulo("");
       setLines("");
       setLineCount(0);
       setReuseRecentConsults(false);
+      setIsAgendado(false);
+      setRunAtLocal("");
       onClose();
     } finally {
       setSubmitting(false);
@@ -59,10 +81,13 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
     setLines("");
     setLineCount(0);
     setReuseRecentConsults(false);
+    setIsAgendado(false);
+    setRunAtLocal("");
     onClose();
   };
 
   const noFocus = "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0";
+  const minNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -106,16 +131,50 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 border-t border-gray-100 pt-4">
-            <Checkbox
-              id="v8-reuse-recent-consults"
-              checked={reuseRecentConsults}
-              onCheckedChange={(checked) => setReuseRecentConsults(!!checked)}
-              disabled={submitting}
-            />
-            <Label htmlFor="v8-reuse-recent-consults" className="cursor-pointer text-sm font-medium">
-              Reaproveitar consentimentos recentes
-            </Label>
+          <div className="space-y-3 border-t border-gray-100 pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="v8-reuse-recent-consults"
+                checked={reuseRecentConsults}
+                onCheckedChange={(checked) => setReuseRecentConsults(!!checked)}
+                disabled={submitting}
+              />
+              <Label htmlFor="v8-reuse-recent-consults" className="cursor-pointer text-sm font-medium">
+                Reaproveitar consentimentos recentes
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="v8-agendamento"
+                checked={isAgendado}
+                onCheckedChange={(checked) => setIsAgendado(!!checked)}
+                disabled={submitting}
+              />
+              <Label htmlFor="v8-agendamento" className="cursor-pointer text-sm font-medium">
+                Agendar início
+              </Label>
+            </div>
+
+            {isAgendado && (
+              <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/70 p-3">
+                <Label htmlFor="v8-run-at" className="text-sm font-medium">
+                  Iniciar em
+                </Label>
+                <Input
+                  id="v8-run-at"
+                  type="datetime-local"
+                  value={runAtLocal}
+                  onChange={(e) => setRunAtLocal(e.target.value)}
+                  min={minNow}
+                  className={cn("max-w-xs", noFocus)}
+                  disabled={submitting}
+                />
+                <p className="text-xs leading-5 text-gray-600">
+                  O lote ficará agendado e entrará automaticamente na fila quando esse horário chegar.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -128,7 +187,7 @@ export const NewV8ConsultModal = ({ isOpen, onClose, onSubmit }: NewV8ConsultMod
             disabled={submitting}
             className={cn("bg-blue-600 hover:bg-blue-700", noFocus)}
           >
-            {submitting ? "Criando..." : "Criar consulta"}
+            {submitting ? "Criando..." : isAgendado ? "Agendar consulta" : "Criar consulta"}
           </Button>
         </DialogFooter>
       </DialogContent>

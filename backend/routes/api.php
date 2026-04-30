@@ -112,6 +112,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/v8/consult-jobs/{id}/download', [V8ConsultController::class, 'download'])->whereNumber('id');
     Route::post('/v8/consult-jobs/{id}/preview/generate', [V8ConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/v8/consult-jobs/{id}/preview', [V8ConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/v8/consult-jobs/{id}/pause', [V8ConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/v8/consult-jobs/{id}/resume', [V8ConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/v8/consult-jobs/{id}/cancel', [V8ConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/v8/consult-jobs/{id}', [V8ConsultController::class, 'destroy'])->whereNumber('id');
 

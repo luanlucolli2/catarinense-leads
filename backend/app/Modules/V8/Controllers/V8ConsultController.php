@@ -3,10 +3,12 @@
 namespace App\Modules\V8\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\V8\Jobs\ProcessV8ConsultJob;
+use App\Modules\V8\Jobs\DispatchV8ConsultJob;
 use App\Modules\V8\Models\V8ConsultJob;
 use App\Modules\V8\Support\V8Schema;
+use App\Modules\V8\Support\V8Spool;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -34,6 +36,7 @@ class V8ConsultController extends Controller
         $reportsDiskName = (string) config('v8.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && V8Spool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
@@ -49,9 +52,15 @@ class V8ConsultController extends Controller
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
+            'canceled_at' => $job->canceled_at,
+            'paused_at' => $job->paused_at,
+            'cancel_reason' => $job->cancel_reason,
+            'scheduled_for' => $job->scheduled_for,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => $job->spool_bytes,
+            'spool_path' => $job->spool_path,
+            'spool_inputs_path' => $job->spool_inputs_path,
         ]);
     }
 
@@ -62,11 +71,15 @@ class V8ConsultController extends Controller
         $validator = Validator::make([
             'title' => $request->input('title'),
             'lines' => $rawLines,
+            'run_at' => $request->input('run_at'),
+            'timezone' => $request->input('timezone'),
             'reuse_recent_consults' => $request->input('reuse_recent_consults'),
             'reuse_recent_consults_days' => $request->input('reuse_recent_consults_days'),
         ], [
             'title' => ['required', 'string', 'max:191'],
             'lines' => ['required'],
+            'run_at' => ['nullable', 'date'],
+            'timezone' => ['nullable', 'string', 'timezone:all'],
             'reuse_recent_consults' => ['nullable', 'boolean'],
             'reuse_recent_consults_days' => ['nullable', 'integer', 'min:1', 'max:90'],
         ]);
@@ -80,15 +93,24 @@ class V8ConsultController extends Controller
 
         $reuseRecentConsults = filter_var($request->input('reuse_recent_consults', false), FILTER_VALIDATE_BOOL);
         $reuseRecentConsultsDays = max(1, min(90, (int) $request->input('reuse_recent_consults_days', 30)));
+        $timezone = (string) ($request->input('timezone') ?: 'America/Sao_Paulo');
+        $runAtRaw = $request->input('run_at');
+        $runAt = is_string($runAtRaw) && $runAtRaw !== ''
+            ? Carbon::parse($runAtRaw, $timezone)
+            : null;
+        $scheduledFor = $runAt && $runAt->greaterThan(Carbon::now($timezone))
+            ? $runAt->clone()->setTimezone('UTC')
+            : null;
 
         $job = V8ConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => (string) $request->input('title'),
-            'status' => 'pendente',
+            'status' => $scheduledFor ? 'agendado' : 'pendente',
             'total_cpfs' => 0,
             'success_count' => 0,
             'nao_elegivel_count' => 0,
             'fail_count' => 0,
+            'scheduled_for' => $scheduledFor,
             'reuse_recent_consults' => $reuseRecentConsults,
             'reuse_recent_consults_days' => $reuseRecentConsultsDays,
         ]);
@@ -117,13 +139,16 @@ class V8ConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ]);
 
-        $queue = (string) config('v8.job.queue', 'v8');
-        ProcessV8ConsultJob::dispatch($job->id)->onQueue($queue);
+        if ($job->status === 'pendente') {
+            DispatchV8ConsultJob::dispatch($job->id)
+                ->onQueue((string) config('v8.job.queue', 'v8'));
+        }
 
         return response()->json([
             'id' => $job->id,
             'status' => $job->status,
             'phase' => $job->phase,
+            'scheduled_for' => $job->scheduled_for,
         ], Response::HTTP_ACCEPTED);
     }
 
@@ -135,10 +160,11 @@ class V8ConsultController extends Controller
 
         $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
+        $spoolHasDataRows = $spoolExists && V8Spool::hasDataRows($disk, $job->spool_path);
 
         return response()->json([
             'queued' => false,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true) && $spoolExists,
+            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'message' => 'Prévia espelha o spool no momento da leitura.',
         ], Response::HTTP_OK);
     }
@@ -252,31 +278,21 @@ class V8ConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
+        $waitForWorkerToStop = $job->status === 'em_progresso';
+
         $job->update([
             'status' => 'cancelado',
             'phase' => null,
             'canceled_at' => now(),
+            'paused_at' => null,
             'cancel_reason' => $data['reason'] ?? null,
+            'finished_at' => $waitForWorkerToStop ? null : now(),
         ]);
 
-        try {
-            $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_inputs_path'] as $field) {
-                $p = $job->{$field};
-                if ($p && $disk->exists($p)) {
-                    $disk->delete($p);
-                }
-            }
-            $this->cleanupSpoolArtifacts($disk, $job->id);
-        } catch (\Throwable $e) {
-            Log::warning("[V8] Erro ao apagar spool no cancel (job {$job->id}): " . $e->getMessage());
+        if (!$waitForWorkerToStop) {
+            $this->finalizeCancelledPreservingUsefulPreview($job);
+            $job->refresh();
         }
-
-        $job->update([
-            'spool_path' => null,
-            'spool_inputs_path' => null,
-            'spool_bytes' => 0,
-        ]);
 
         return response()->json([
             'id' => $job->id,
@@ -284,10 +300,90 @@ class V8ConsultController extends Controller
             'phase' => $job->phase,
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
+            'finished_at' => $job->finished_at,
         ]);
     }
 
-    private function cleanupSpoolArtifacts($disk, int $jobId): void
+    public function pause(int $id)
+    {
+        $job = V8ConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status === 'pausado') {
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ]);
+        }
+
+        if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Job não pode ser pausado neste estado.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pausado',
+            'paused_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'paused_at' => $job->paused_at,
+        ]);
+    }
+
+    public function resume(int $id)
+    {
+        $job = V8ConsultJob::query()
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Apenas jobs pausados podem ser retomados.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+        if (
+            empty($job->spool_path)
+            || empty($job->spool_inputs_path)
+            || !$disk->exists($job->spool_path)
+            || !$disk->exists($job->spool_inputs_path)
+        ) {
+            return response()->json([
+                'message' => 'Spool indisponível para retomar o job.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $job->update([
+            'status' => 'pendente',
+            'paused_at' => null,
+            'finished_at' => null,
+            'canceled_at' => null,
+            'cancel_reason' => null,
+        ]);
+
+        DispatchV8ConsultJob::dispatch($job->id)
+            ->delay(now()->addSeconds(2))
+            ->onQueue((string) config('v8.job.queue', 'v8'));
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+        ], Response::HTTP_ACCEPTED);
+    }
+
+    private function cleanupSpoolArtifacts($disk, int $jobId, ?string $preserveRel = null): void
     {
         try {
             $dirSpool = (string) config('v8.storage.dir_spool', 'v8-spool');
@@ -300,6 +396,9 @@ class V8ConsultController extends Controller
 
             foreach ($disk->files($dirSpool) as $rel) {
                 $base = basename($rel);
+                if ($preserveRel !== null && $rel === $preserveRel) {
+                    continue;
+                }
                 if (str_starts_with($base, $prefix)) {
                     try {
                         $disk->delete($rel);
@@ -317,9 +416,11 @@ class V8ConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true)) {
+        $cancelStopPending = $job->status === 'cancelado' && empty($job->finished_at);
+
+        if (in_array($job->status, ['agendado', 'pendente', 'em_progresso', 'pausado'], true) || $cancelStopPending) {
             return response()->json([
-                'message' => 'Não é possível excluir enquanto o job está em andamento. Cancele primeiro.',
+                'message' => 'Não é possível excluir enquanto o job ainda está agendado, em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
         }
@@ -356,6 +457,43 @@ class V8ConsultController extends Controller
     private function finalPrefix(): string
     {
         return (string) config('v8.storage.final_prefix', 'v8-consulta');
+    }
+
+    private function finalizeCancelledPreservingUsefulPreview(V8ConsultJob $job): void
+    {
+        $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = V8Spool::hasDataRows($disk, $spoolPath);
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+
+            $this->cleanupSpoolArtifacts($disk, $job->id, $hasDataRows ? $spoolPath : null);
+
+            if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+                $disk->delete($spoolPath);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[V8] Erro ao finalizar cancelamento (job {$job->id}): " . $e->getMessage());
+        }
+
+        $spoolBytes = 0;
+        if ($hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+            try {
+                $spoolBytes = (int) $disk->size($spoolPath);
+            } catch (\Throwable) {
+                $spoolBytes = 0;
+            }
+        }
+
+        $job->update([
+            'spool_path' => $hasDataRows ? $spoolPath : null,
+            'spool_inputs_path' => null,
+            'spool_bytes' => $spoolBytes,
+        ]);
     }
 
     private function tokenizeLinesLazy($lines): \Generator

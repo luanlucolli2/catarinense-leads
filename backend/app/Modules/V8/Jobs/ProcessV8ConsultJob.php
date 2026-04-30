@@ -6,6 +6,7 @@ use App\Modules\V8\Models\IbgeName;
 use App\Modules\V8\Models\V8ConsultJob;
 use App\Modules\V8\Services\V8ApiService;
 use App\Modules\V8\Support\V8Schema;
+use App\Modules\V8\Support\V8Spool;
 use App\Support\Cpf;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -40,10 +41,17 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private int $flushEverySecs = 10;
     private float $lastFlushAt = 0.0;
+    private int $statusCheckIntervalMs;
+    private float $lastStatusCheckAt = 0.0;
+    private ?string $cachedStatus = null;
+    private bool $missingJobLogged = false;
 
     private int $accSuccess = 0;
     private int $accNaoElegivel = 0;
     private int $accFail = 0;
+    private int $baseSuccess = 0;
+    private int $baseNaoElegivel = 0;
+    private int $baseFail = 0;
 
     private int $statusMaxAttempts;
     private int $statusRetryDelay;
@@ -69,13 +77,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private string $currentPhase = 'FASE 1';
     private int $reconsentBlockedMax;
     private int $reconsentBlockedDelaySeconds;
-    private bool $pauseEnabled;
-    private string $pauseStart;
-    private string $pauseEnd;
-    private string $pauseTimezone;
-    private int $pauseCheckIntervalSeconds;
-    private float $lastPauseCheckAt = 0.0;
-    private bool $isPaused = false;
     private bool $logEnabled;
     private bool $logCpfFailureEnabled;
     private bool $logApiResponses;
@@ -90,6 +91,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->timeout = (int) config('v8.job.timeout_seconds', 115200);
         $this->disk = (string) config('v8.storage.reports_disk', 'local');
+        $this->statusCheckIntervalMs = max(100, (int) config('v8.job.status_check_interval_ms', 1000));
         $this->dirReports = (string) config('v8.storage.dir_reports', 'v8-reports');
         $this->dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
         $this->finalPrefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
@@ -123,11 +125,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->statusPendingTimeoutSeconds = max(60, (int) config('v8.job.status_pending_timeout_seconds', 9000));
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
         $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 4));
-        $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);
-        $this->pauseStart = $this->normalizePauseTimeValue((string) config('v8.job.pause_start', '16:27'));
-        $this->pauseEnd = $this->normalizePauseTimeValue((string) config('v8.job.pause_end', '16:30'));
-        $this->pauseTimezone = (string) config('v8.job.pause_timezone', 'America/Sao_Paulo');
-        $this->pauseCheckIntervalSeconds = max(1, (int) config('v8.job.pause_check_interval_seconds', 15));
         $this->logEnabled = (bool) config('v8.logging.enabled', true);
         $this->logCpfFailureEnabled = (bool) config('v8.logging.cpf_failure_enabled', false);
         $this->logApiResponses = (bool) config('v8.logging.api_log_responses', true);
@@ -149,12 +146,15 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         /** @var V8ConsultJob|null $job */
         $job = V8ConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job) {
-            $this->deletePendFiles();
             return;
         }
 
-        if ($this->isCancelled($job)) {
-            $this->cleanupSpool($job);
+        if ($job->status === 'cancelado') {
+            $this->finalizeCancelledPreservingPreview($job);
+            return;
+        }
+
+        if (in_array($job->status, ['pausado', 'agendado'], true)) {
             return;
         }
 
@@ -162,186 +162,128 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         if (empty($job->spool_path) || empty($job->spool_inputs_path) || !$disk->exists($job->spool_path) || !$disk->exists($job->spool_inputs_path)) {
             Log::error("[V8] Job {$this->jobId} sem spool pré-criado.");
             $this->failFinalize($job);
-            $this->deletePendFiles();
             return;
         }
 
-        if ($this->pauseIfNeeded($job)) {
+        $processedState = $this->loadProcessedStateFromSpool($job->spool_path);
+        $processedCpfs = is_array($processedState['cpfs'] ?? null) ? $processedState['cpfs'] : [];
+        $this->baseSuccess = (int) ($processedState['success'] ?? 0);
+        $this->baseNaoElegivel = (int) ($processedState['nao_elegivel'] ?? 0);
+        $this->baseFail = (int) ($processedState['fail'] ?? 0);
+
+        $resumePhase = in_array($job->phase, ['fase_1', 'fase_2'], true) ? $job->phase : 'fase_1';
+        $claimed = DB::table('v8_consult_jobs')
+            ->where('id', $job->id)
+            ->whereIn('status', ['pendente', 'em_progresso'])
+            ->update([
+                'status' => 'em_progresso',
+                'phase' => $resumePhase,
+                'started_at' => $job->started_at ?? Carbon::now(),
+                'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
+                'success_count' => $this->baseSuccess,
+                'nao_elegivel_count' => $this->baseNaoElegivel,
+                'fail_count' => $this->baseFail,
+                'updated_at' => Carbon::now(),
+            ]);
+
+        if ($claimed === 0) {
+            $status = $this->currentStatusCached($job, true);
+            if ($status === null) {
+                $this->cleanupSpool($job);
+            } elseif ($status === 'cancelado') {
+                $this->finalizeCancelledPreservingPreview($job);
+            }
             return;
         }
 
-        $job->update([
-            'status' => 'em_progresso',
-            'phase' => 'fase_1',
-            'started_at' => $job->started_at ?? Carbon::now(),
-            'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
-        ]);
-        $this->currentPhase = 'FASE 1';
+        $this->cachedStatus = 'em_progresso';
+        $this->lastStatusCheckAt = microtime(true);
+        $this->lastFlushAt = microtime(true);
+        $this->currentPhase = $resumePhase === 'fase_2' ? 'FASE 2' : 'FASE 1';
 
         $this->spoolReal = $disk->path($job->spool_path);
         $this->spoolFp = @fopen($this->spoolReal, 'a');
         if (!is_resource($this->spoolFp)) {
             $this->failFinalize($job);
-            $this->deletePendFiles();
             return;
         }
-
-        $this->lastFlushAt = microtime(true);
 
         try {
             $inputsReal = $disk->path($job->spool_inputs_path);
             $uniqRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.inputs.uniq.txt";
             $this->pendFiles[] = $uniqRel;
-
-            [$uniqueCount, $invalidCount] = $this->buildUniqueEntriesFile($inputsReal, $uniqRel, $job);
-            $totalCount = $uniqueCount + $invalidCount;
-            if ($totalCount === 0) {
-                $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
-                    'inputs_path' => $job->spool_inputs_path,
-                    'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
-                ]);
-                $this->updateTotalsThrottled($job, [], true);
-                $this->failFinalize($job);
-                return;
-            }
-
-            $this->updateTotalsThrottled($job, ['total_cpfs' => $totalCount], true);
-
-            if ($uniqueCount === 0) {
-                $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
-                    'inputs_path' => $job->spool_inputs_path,
-                    'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
-                ]);
-                $this->updateTotalsThrottled($job, [], true);
-                $this->failFinalize($job);
-                return;
-            }
-
-            $reusedConsultsByCpf = $this->buildReusableRecentConsultsMap($api, $disk->path($uniqRel), $job);
-            if ($reusedConsultsByCpf === null) {
-                return;
-            }
-            $this->logReuseRecent('Mapa de reaproveitamento carregado.', [
-                'matches' => count($reusedConsultsByCpf),
-            ]);
-
-            // ===== FASE 1: criar + autorizar consentimento para todos =====
             $consentsRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.consents.txt";
             $this->pendFiles[] = $consentsRel;
             $consentsReal = $disk->path($consentsRel);
-            $consentsFp = fopen($consentsReal, 'c+');
-            if ($consentsFp === false) {
-                $this->failFinalize($job);
+
+            if (!$disk->exists($uniqRel)) {
+                [$uniqueCount, $invalidCount] = $this->buildUniqueEntriesFile($inputsReal, $uniqRel, $job);
+                if ($uniqueCount < 0) {
+                    return;
+                }
+
+                $totalCount = $uniqueCount + $invalidCount;
+                if ($totalCount === 0) {
+                    $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
+                        'inputs_path' => $job->spool_inputs_path,
+                        'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
+                    ]);
+                    $this->updateTotalsThrottled($job, [], true);
+                    $this->failFinalize($job);
+                    return;
+                }
+
+                $this->updateTotalsThrottled($job, ['total_cpfs' => $totalCount], true);
+
+                if ($uniqueCount === 0) {
+                    $this->logCpfFailure('inputs', null, null, 'Nenhuma linha válida encontrada.', [
+                        'inputs_path' => $job->spool_inputs_path,
+                        'inputs_size' => $this->fileSizeSafe($this->disk, $job->spool_inputs_path ?? ''),
+                    ]);
+                    $this->updateTotalsThrottled($job, [], true);
+                    $this->failFinalize($job);
+                    return;
+                }
+            } elseif ((int) ($job->total_cpfs ?? 0) === 0) {
+                $this->updateTotalsThrottled($job, ['total_cpfs' => $this->countLines($disk->path($uniqRel))], true);
+            }
+
+            if ($this->finishIfStopped($job)) {
                 return;
             }
 
-            $consentCount = 0;
-            $reader = fopen($disk->path($uniqRel), 'r');
-            if ($reader === false) {
-                fclose($consentsFp);
-                $this->failFinalize($job);
-                return;
-            }
+            if ($resumePhase !== 'fase_2') {
+                $reusedConsultsByCpf = $this->buildReusableRecentConsultsMap($api, $disk->path($uniqRel), $job);
+                if ($reusedConsultsByCpf === null) {
+                    return;
+                }
+                $this->logReuseRecent('Mapa de reaproveitamento carregado.', [
+                    'matches' => count($reusedConsultsByCpf),
+                ]);
 
-            try {
-                $api->setRateLimitMs($this->httpMinIntervalPhase1);
-                $phase1Batch = [];
-                while (($line = fgets($reader)) !== false) {
-                    if ($this->finishIfStopped($job)) {
-                        return;
-                    }
+                $consentedCpfs = $disk->exists($consentsRel)
+                    ? $this->loadConsentCpfKeys($consentsReal)
+                    : [];
 
-                    $line = trim($line);
-                    if ($line === '') {
-                        continue;
-                    }
-
-                    [$cpf, $nome, $nasc] = $this->splitEntryLine($line);
-                    if (!$cpf || !$nome || !$nasc) {
-                        $this->appendErrorRow($job, $cpf, $nome, $nasc, 'Linha inválida após normalização.');
-                        $this->logCpfFailure('parse', $cpf, null, 'Linha inválida após normalização.', [
-                            'raw' => $this->truncate($line),
-                        ]);
-                        continue;
-                    }
-
-                    if (isset($reusedConsultsByCpf[$cpf])) {
-                        $this->logReuseRecent('CPF reaproveitado na fase 1.', [
-                            'cpf' => $cpf,
-                            'consult_id' => $reusedConsultsByCpf[$cpf]['consult_id'] ?? null,
-                            'status' => $reusedConsultsByCpf[$cpf]['status'] ?? null,
-                        ]);
-                        $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $reusedConsultsByCpf[$cpf]['consult_id'] ?? null, 'reused', true);
-                        $consentCount++;
-                        unset($reusedConsultsByCpf[$cpf]);
-                        continue;
-                    }
-
-                    $phase1Batch[] = [$cpf, $nome, $nasc];
-                    if (count($phase1Batch) >= $this->phase1PoolSize) {
-                        $consentCount += $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
-                        $phase1Batch = [];
-                        if ($this->phase1BatchDelaySeconds > 0) {
-                            sleep($this->phase1BatchDelaySeconds);
-                        }
-                    }
+                $consentsFp = fopen($consentsReal, 'c+');
+                if ($consentsFp === false) {
+                    $this->failFinalize($job);
+                    return;
                 }
 
-                if (!empty($phase1Batch)) {
-                    $consentCount += $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
-                }
-            } finally {
-                fclose($reader);
-                fflush($consentsFp);
-                fclose($consentsFp);
-            }
-
-            // ===== FASE 2: polling + simulação =====
-            if ($consentCount > 0) {
-                $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
-                $job->update(['phase' => 'fase_2']);
-                $this->currentPhase = 'FASE 2';
-                $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
-                if ($prePhase2Delay > 0) {
-                    if (!$this->sleepWithCancel($job, $prePhase2Delay)) {
-                        return;
-                    }
-                }
-                $reader2 = fopen($consentsReal, 'r');
-                if ($reader2 === false) {
+                $reader = fopen($disk->path($uniqRel), 'r');
+                if ($reader === false) {
+                    fclose($consentsFp);
                     $this->failFinalize($job);
                     return;
                 }
 
                 try {
-                    $pendingRegularRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.regular.csv";
-                    $pendingExistingRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.existing.csv";
-                    $this->pendFiles[] = $pendingRegularRel;
-                    $this->pendFiles[] = $pendingExistingRel;
-
-                    $pendingRegularCount = 0;
-                    $pendingExistingCount = 0;
-
-                    $pendingRegularFp = fopen($disk->path($pendingRegularRel), 'c+');
-                    $pendingExistingFp = fopen($disk->path($pendingExistingRel), 'c+');
-                    if ($pendingRegularFp === false || $pendingExistingFp === false) {
-                        if (is_resource($pendingRegularFp)) {
-                            fclose($pendingRegularFp);
-                        }
-                        if (is_resource($pendingExistingFp)) {
-                            fclose($pendingExistingFp);
-                        }
-                        $this->failFinalize($job);
-                        return;
-                    }
-
-                    ftruncate($pendingRegularFp, 0);
-                    ftruncate($pendingExistingFp, 0);
-
-                    while (($line = fgets($reader2)) !== false) {
+                    fseek($consentsFp, 0, SEEK_END);
+                    $api->setRateLimitMs($this->httpMinIntervalPhase1);
+                    $phase1Batch = [];
+                    while (($line = fgets($reader)) !== false) {
                         if ($this->finishIfStopped($job)) {
-                            fclose($pendingRegularFp);
-                            fclose($pendingExistingFp);
                             return;
                         }
 
@@ -350,7 +292,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             continue;
                         }
 
-                        [$cpf, $nome, $nasc, $consultId, $mode, $reused] = $this->splitConsentLine($line);
+                        [$cpf, $nome, $nasc] = $this->splitEntryLine($line);
                         if (!$cpf || !$nome || !$nasc) {
                             $this->appendErrorRow($job, $cpf, $nome, $nasc, 'Linha inválida após normalização.');
                             $this->logCpfFailure('parse', $cpf, null, 'Linha inválida após normalização.', [
@@ -359,69 +301,109 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             continue;
                         }
 
-                        if ($mode === 'reused' && $consultId) {
-                            $this->logReuseRecent('CPF reaproveitado enviado direto para simulação na fase 2.', [
+                        if (isset($processedCpfs[$cpf]) || isset($consentedCpfs[$cpf])) {
+                            continue;
+                        }
+
+                        if (isset($reusedConsultsByCpf[$cpf])) {
+                            $this->logReuseRecent('CPF reaproveitado na fase 1.', [
                                 'cpf' => $cpf,
-                                'consult_id' => $consultId,
+                                'consult_id' => $reusedConsultsByCpf[$cpf]['consult_id'] ?? null,
+                                'status' => $reusedConsultsByCpf[$cpf]['status'] ?? null,
                             ]);
-                            $this->finalizeFromStatus($api, $job, $cpf, $nome, $nasc, $consultId, [
-                                'status' => 'SUCCESS',
-                            ], false, true);
+                            $this->writeConsentLine($consentsFp, $cpf, $nome, $nasc, $reusedConsultsByCpf[$cpf]['consult_id'] ?? null, 'reused', true);
+                            $consentedCpfs[$cpf] = true;
+                            unset($reusedConsultsByCpf[$cpf]);
                             continue;
                         }
 
-                        if ($consultId) {
-                            $this->writePendingLine($pendingRegularFp, $cpf, $nome, $nasc, $consultId, 0, 0, $reused);
-                            $pendingRegularCount++;
-                            continue;
+                        $phase1Batch[] = [$cpf, $nome, $nasc];
+                        if (count($phase1Batch) >= $this->phase1PoolSize) {
+                            $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
+                            $phase1Batch = [];
+                            if ($this->phase1BatchDelaySeconds > 0 && !$this->sleepWithCancel($job, $this->phase1BatchDelaySeconds)) {
+                                return;
+                            }
                         }
-
-                        if ($mode === 'existing') {
-                            $this->writePendingLine($pendingExistingFp, $cpf, $nome, $nasc, null, 0, 0, false);
-                            $pendingExistingCount++;
-                            continue;
-                        }
-
-                        $this->appendErrorRow($job, $cpf, $nome, $nasc, 'Linha inválida após normalização.');
-                        $this->logCpfFailure('parse', $cpf, null, 'Linha inválida após normalização.', [
-                            'raw' => $this->truncate($line),
-                        ]);
                     }
 
-                    fclose($pendingRegularFp);
-                    fclose($pendingExistingFp);
-
-                    if ($pendingRegularCount > 0) {
-                        $startDate = $this->resolveRegularPendingStartDate($job);
-                        $endDate = Carbon::now('UTC')->endOfDay();
-                        $this->runBatchStatusFile($api, $job, $pendingRegularRel, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
-                    } else {
-                        $disk->delete($pendingRegularRel);
-                    }
-
-                    if ($this->finishIfStopped($job)) {
-                        return;
-                    }
-
-                    if ($pendingExistingCount > 0) {
-                        $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
-                        $endDate = Carbon::now('UTC')->endOfDay();
-                        $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
-                    } else {
-                        $disk->delete($pendingExistingRel);
+                    if (!empty($phase1Batch)) {
+                        $this->processPhase1Batch($api, $job, $phase1Batch, $consentsFp);
                     }
                 } finally {
-                    fclose($reader2);
+                    fclose($reader);
+                    fflush($consentsFp);
+                    fclose($consentsFp);
+                }
+            } elseif (!$disk->exists($consentsRel)) {
+                $this->failFinalize($job);
+                return;
+            }
+
+            if ($this->finishIfStopped($job)) {
+                return;
+            }
+
+            $job->update(['phase' => 'fase_2']);
+            $this->currentPhase = 'FASE 2';
+
+            if ($resumePhase !== 'fase_2') {
+                $prePhase2Delay = max(0, (int) config('v8.job.phase2_start_delay_seconds', 30));
+                if ($prePhase2Delay > 0 && !$this->sleepWithCancel($job, $prePhase2Delay)) {
+                    return;
                 }
             }
-        } finally {
-            if (is_resource($this->spoolFp)) {
-                @fflush($this->spoolFp);
-                @fclose($this->spoolFp);
+
+            $pendingCounts = $this->rebuildPendingFilesFromConsents($api, $job, $consentsRel, $processedCpfs);
+            if ($pendingCounts === null) {
+                return;
             }
+
+            $pendingRegularRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.regular.csv";
+            $pendingExistingRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.existing.csv";
+
+            if (($pendingCounts['regular'] ?? 0) > 0) {
+                $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+                $startDate = $this->resolveRegularPendingStartDate($job);
+                $endDate = Carbon::now('UTC')->endOfDay();
+                $this->runBatchStatusFile($api, $job, $pendingRegularRel, 'regular', $startDate, $endDate, $this->statusMaxAttempts);
+            } else {
+                $disk->delete($pendingRegularRel);
+            }
+
+            if ($this->finishIfStopped($job)) {
+                return;
+            }
+
+            if (($pendingCounts['existing'] ?? 0) > 0) {
+                $api->setRateLimitMs($this->httpMinIntervalPhase2Status);
+                $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
+                $endDate = Carbon::now('UTC')->endOfDay();
+                $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
+            } else {
+                $disk->delete($pendingExistingRel);
+            }
+        } finally {
+            $this->closeSpool();
         }
 
         $this->updateTotalsThrottled($job, [], true);
+        $statusAfterFlush = $this->currentStatusCached($job, true);
+        if ($statusAfterFlush === null) {
+            $this->cleanupSpool($job);
+            return;
+        }
+
+        if ($statusAfterFlush === 'cancelado') {
+            $this->finalizeCancelledPreservingPreview($job);
+            return;
+        }
+
+        if ($statusAfterFlush === 'pausado') {
+            $this->pauseCurrentJob($job);
+            return;
+        }
+
         dispatch(new FinalizeV8ConsultReportJob($this->jobId, 'concluido'))
             ->onQueue((string) config('v8.preview.queue', 'reports'));
 
@@ -896,6 +878,183 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return $authorizedCount;
     }
 
+    /**
+     * @return array{cpfs:array<string,bool>,success:int,nao_elegivel:int,fail:int}
+     */
+    private function loadProcessedStateFromSpool(?string $spoolPath): array
+    {
+        $state = [
+            'cpfs' => [],
+            'success' => 0,
+            'nao_elegivel' => 0,
+            'fail' => 0,
+        ];
+
+        if (!$spoolPath) {
+            return $state;
+        }
+
+        $cpfIndex = array_search('cpf', V8Schema::COLS, true);
+        $statusIndex = array_search('status', V8Schema::COLS, true);
+        if (!is_int($cpfIndex) || !is_int($statusIndex)) {
+            return $state;
+        }
+
+        $realPath = Storage::disk($this->disk)->path($spoolPath);
+        $reader = @fopen($realPath, 'rb');
+        if (!is_resource($reader)) {
+            return $state;
+        }
+
+        try {
+            flock($reader, LOCK_SH);
+            fgetcsv($reader, 0, ';');
+
+            while (($parts = fgetcsv($reader, 0, ';')) !== false) {
+                if (!is_array($parts) || $parts === [null]) {
+                    continue;
+                }
+
+                $cpf = Cpf::normalize((string) ($parts[$cpfIndex] ?? ''));
+                if ($cpf) {
+                    if (isset($state['cpfs'][$cpf])) {
+                        continue;
+                    }
+                    $state['cpfs'][$cpf] = true;
+                }
+                $status = strtoupper(trim((string) ($parts[$statusIndex] ?? '')));
+
+                if ($status === 'SUCESSO') {
+                    $state['success']++;
+                } elseif ($status === 'NAO_ELEGIVEL') {
+                    $state['nao_elegivel']++;
+                } else {
+                    $state['fail']++;
+                }
+            }
+        } finally {
+            flock($reader, LOCK_UN);
+            fclose($reader);
+        }
+
+        return $state;
+    }
+
+    /** @return array<string,bool> */
+    private function loadConsentCpfKeys(string $consentsReal): array
+    {
+        $reader = @fopen($consentsReal, 'r');
+        if (!is_resource($reader)) {
+            return [];
+        }
+
+        $cpfs = [];
+        try {
+            while (($line = fgets($reader)) !== false) {
+                [$cpf] = $this->splitConsentLine(trim($line));
+                if ($cpf) {
+                    $cpfs[$cpf] = true;
+                }
+            }
+        } finally {
+            fclose($reader);
+        }
+
+        return $cpfs;
+    }
+
+    /** @param array<string,bool> $processedCpfs */
+    private function rebuildPendingFilesFromConsents(
+        V8ApiService $api,
+        V8ConsultJob $job,
+        string $consentsRel,
+        array $processedCpfs
+    ): ?array {
+        $disk = Storage::disk($this->disk);
+        if (!$disk->exists($consentsRel)) {
+            return ['regular' => 0, 'existing' => 0];
+        }
+
+        $pendingRegularRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.regular.csv";
+        $pendingExistingRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.existing.csv";
+        $this->pendFiles[] = $pendingRegularRel;
+        $this->pendFiles[] = $pendingExistingRel;
+
+        $reader = fopen($disk->path($consentsRel), 'r');
+        $pendingRegularFp = fopen($disk->path($pendingRegularRel), 'c+');
+        $pendingExistingFp = fopen($disk->path($pendingExistingRel), 'c+');
+        if ($reader === false || $pendingRegularFp === false || $pendingExistingFp === false) {
+            if (is_resource($reader)) {
+                fclose($reader);
+            }
+            if (is_resource($pendingRegularFp)) {
+                fclose($pendingRegularFp);
+            }
+            if (is_resource($pendingExistingFp)) {
+                fclose($pendingExistingFp);
+            }
+            $this->failFinalize($job);
+            return null;
+        }
+
+        $pendingRegularCount = 0;
+        $pendingExistingCount = 0;
+        $seen = $processedCpfs;
+
+        try {
+            ftruncate($pendingRegularFp, 0);
+            ftruncate($pendingExistingFp, 0);
+
+            while (($line = fgets($reader)) !== false) {
+                if ($this->finishIfStopped($job)) {
+                    return null;
+                }
+
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
+                }
+
+                [$cpf, $nome, $nasc, $consultId, $mode, $reused] = $this->splitConsentLine($line);
+                if (!$cpf || !$nome || !$nasc || isset($seen[$cpf])) {
+                    continue;
+                }
+
+                if ($mode === 'reused' && $consultId) {
+                    $this->finalizeFromStatus($api, $job, $cpf, $nome, $nasc, $consultId, [
+                        'status' => 'SUCCESS',
+                    ], false, true);
+                    $seen[$cpf] = true;
+                    continue;
+                }
+
+                if ($consultId) {
+                    $this->writePendingLine($pendingRegularFp, $cpf, $nome, $nasc, $consultId, 0, 0, $reused);
+                    $seen[$cpf] = true;
+                    $pendingRegularCount++;
+                    continue;
+                }
+
+                if ($mode === 'existing') {
+                    $this->writePendingLine($pendingExistingFp, $cpf, $nome, $nasc, null, 0, 0, false);
+                    $seen[$cpf] = true;
+                    $pendingExistingCount++;
+                }
+            }
+        } finally {
+            fclose($reader);
+            fflush($pendingRegularFp);
+            fflush($pendingExistingFp);
+            fclose($pendingRegularFp);
+            fclose($pendingExistingFp);
+        }
+
+        return [
+            'regular' => $pendingRegularCount,
+            'existing' => $pendingExistingCount,
+        ];
+    }
+
     private function processConsent(
         V8ApiService $api,
         V8ConsultJob $job,
@@ -1049,6 +1208,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             unset($pendingKeys);
 
             if (!$batch['ok']) {
+                if (!empty($batch['stopped'])) {
+                    return;
+                }
                 if (!empty($batch['cancelled'])) {
                     $this->cleanupSpool($job);
                     return;
@@ -1072,10 +1234,18 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $nextRel = "{$baseRel}.next";
             $this->pendFiles[] = $nextRel;
 
-            $written = $this->processPendingFileRound($api, $job, $disk->path($currentRel), $disk->path($nextRel), $mode, $matches, $maxAttempts);
-
-            $disk->delete($currentRel);
+            $roundResult = $this->processPendingFileRound($api, $job, $disk->path($currentRel), $disk->path($nextRel), $mode, $matches, $maxAttempts);
             unset($matches);
+
+            if (!empty($roundResult['stopped'])) {
+                if ($disk->exists($nextRel)) {
+                    $disk->delete($nextRel);
+                }
+                return;
+            }
+
+            $written = (int) ($roundResult['written'] ?? 0);
+            $disk->delete($currentRel);
 
             if ($written === 0) {
                 if ($disk->exists($nextRel)) {
@@ -1150,16 +1320,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $totalPages = 1;
 
         while ($page <= $totalPages && !empty($pendingKeys)) {
-            if ($job && $this->isCancelled($job)) {
+            if ($job && $this->finishIfStopped($job)) {
                 return [
                     'ok' => false,
-                    'cancelled' => true,
-                ];
-            }
-            if ($job && $this->pauseIfNeeded($job)) {
-                return [
-                    'ok' => false,
-                    'cancelled' => true,
+                    'stopped' => true,
                 ];
             }
 
@@ -1250,7 +1414,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         string $mode,
         array $matches,
         int $maxAttempts
-    ): int {
+    ): array {
         $reader = fopen($currentReal, 'r');
         $writer = fopen($nextReal, 'w');
         if ($reader === false || $writer === false) {
@@ -1260,18 +1424,31 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             if (is_resource($writer)) {
                 fclose($writer);
             }
-            return 0;
+            return ['written' => 0, 'stopped' => false];
         }
 
         $written = 0;
         $checked = 0;
-        $cancelled = false;
+        $stopped = false;
         try {
             while (($line = fgets($reader)) !== false) {
                 $checked++;
-                if ($checked % 200 === 0 && $this->isCancelled($job)) {
-                    $this->cleanupSpool($job);
-                    $cancelled = true;
+                if ($checked % 200 === 0) {
+                    $status = $this->currentStatusCached($job);
+                    if ($status === null) {
+                        $this->cleanupSpool($job);
+                        $stopped = true;
+                        break;
+                    }
+                    if ($status === 'cancelado') {
+                        $this->updateTotalsThrottled($job, [], true);
+                        $this->finalizeCancelledPreservingPreview($job);
+                        $stopped = true;
+                        break;
+                    }
+                }
+                if ($this->finishIfStopped($job)) {
+                    $stopped = true;
                     break;
                 }
                 $parsed = $this->parsePendingLine($line);
@@ -1305,7 +1482,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
                     $reconsentAttempts++;
                     if ($this->reconsentBlockedDelaySeconds > 0 && !$this->sleepWithCancel($job, $this->reconsentBlockedDelaySeconds)) {
-                        $cancelled = true;
+                        $stopped = true;
                         break;
                     }
 
@@ -1357,7 +1534,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             && !($authResp['retriable'] ?? false)
                             && !$this->isAuthorizeAlreadyApproved($authResp, $useConsultId)
                         ) {
-                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $this->formatApiError($authResp));
+                            $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $this->formatApiError($authResp));
                             continue;
                         }
                     }
@@ -1396,11 +1573,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             fclose($writer);
         }
 
-        if ($cancelled) {
-            return 0;
-        }
-
-        return $written;
+        return ['written' => $written, 'stopped' => $stopped];
     }
 
     private function isPendingTimedOut(int $pendingSinceTs): bool
@@ -2817,8 +2990,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         try {
             $block = [];
             while (($line = fgets($r)) !== false) {
-                if ($this->finishIfStopped($job)) {
-                    return [0, $invalidCount];
+                if ($this->shouldAbortUniqueBuild($job)) {
+                    return [-1, $invalidCount];
                 }
 
                 $parsed = $this->parseRawLine($line);
@@ -3119,142 +3292,140 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function finishIfStopped(V8ConsultJob $job): bool
     {
-        if ($this->isCancelled($job)) {
+        $status = $this->currentStatusCached($job);
+
+        if ($status === null) {
+            $this->cleanupSpool($job);
+            if (!$this->missingJobLogged) {
+                Log::warning("[V8] Job {$this->jobId} removido durante processamento; interrompendo execução.");
+                $this->missingJobLogged = true;
+            }
+            return true;
+        }
+
+        if ($status === 'cancelado') {
+            $this->updateTotalsThrottled($job, [], true);
+            $this->finalizeCancelledPreservingPreview($job);
+            return true;
+        }
+
+        if ($status === 'pausado') {
+            $this->updateTotalsThrottled($job, [], true);
+            $this->pauseCurrentJob($job);
+            return true;
+        }
+
+        return false;
+    }
+
+    private function shouldAbortUniqueBuild(V8ConsultJob $job): bool
+    {
+        $status = $this->currentStatusCached($job);
+
+        if ($status === null) {
             $this->cleanupSpool($job);
             return true;
         }
-        if ($this->pauseIfNeeded($job)) {
+
+        if ($status === 'cancelado') {
+            $this->updateTotalsThrottled($job, [], true);
+            $this->finalizeCancelledPreservingPreview($job);
             return true;
         }
+
         return false;
     }
 
-    private function isCancelled(V8ConsultJob $job): bool
+    private function currentStatusCached(V8ConsultJob $job, bool $force = false): ?string
     {
-        $status = DB::table('v8_consult_jobs')->where('id', $job->id)->value('status');
-        return $status === 'cancelado';
-    }
-
-    private function pauseIfNeeded(V8ConsultJob $job): bool
-    {
-        if (!$this->pauseEnabled || !$this->pauseWindowConfigured()) {
-            return false;
-        }
-
         $now = microtime(true);
-        if (!$this->isPaused && ($now - $this->lastPauseCheckAt) < $this->pauseCheckIntervalSeconds) {
-            return false;
-        }
-        $this->lastPauseCheckAt = $now;
-
-        $resumeAt = $this->pauseResumeAt();
-        if (!$resumeAt) {
-            if ($this->isPaused) {
-                $this->setJobStatus($job, 'em_progresso');
-                $this->isPaused = false;
-            }
-            return false;
+        $elapsedMs = (int) (($now - $this->lastStatusCheckAt) * 1000);
+        if (!$force && $this->cachedStatus !== null && $elapsedMs < $this->statusCheckIntervalMs) {
+            return $this->cachedStatus;
         }
 
-        if (!$this->isPaused) {
-            $this->setJobStatus($job, 'pausado');
-            $this->isPaused = true;
-        }
+        $status = DB::table('v8_consult_jobs')
+            ->where('id', $job->id)
+            ->value('status');
 
-        if (!$this->sleepUntil($job, $resumeAt)) {
-            return true;
-        }
-
-        $this->setJobStatus($job, 'em_progresso');
-        $this->isPaused = false;
-        return false;
-    }
-
-    private function pauseWindowConfigured(): bool
-    {
-        return preg_match('/^\\d{2}:\\d{2}$/', $this->pauseStart) === 1
-            && preg_match('/^\\d{2}:\\d{2}$/', $this->pauseEnd) === 1
-            && $this->pauseStart !== $this->pauseEnd;
-    }
-
-    private function normalizePauseTimeValue(string $value): string
-    {
-        $value = trim($value);
-        if (preg_match('/^(\\d{1,2}):(\\d{1,2})$/', $value, $m) !== 1) {
-            return $value;
-        }
-
-        $hour = (int) $m[1];
-        $minute = (int) $m[2];
-        if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
-            return $value;
-        }
-
-        return sprintf('%02d:%02d', $hour, $minute);
-    }
-
-    private function pauseResumeAt(): ?Carbon
-    {
-        $tz = $this->pauseTimezone !== '' ? $this->pauseTimezone : 'America/Sao_Paulo';
-        $now = Carbon::now($tz);
-        $start = $now->copy()->setTimeFromTimeString($this->pauseStart);
-        $end = $now->copy()->setTimeFromTimeString($this->pauseEnd);
-
-        if ($start->eq($end)) {
+        if (!is_string($status)) {
+            $this->cachedStatus = null;
+            $this->lastStatusCheckAt = $now;
             return null;
         }
 
-        if ($start->lt($end)) {
-            if ($now->gte($start) && $now->lt($end)) {
-                return $end;
-            }
-            return null;
-        }
+        $this->cachedStatus = $status;
+        $this->lastStatusCheckAt = $now;
 
-        if ($now->gte($start)) {
-            return $end->addDay();
-        }
-
-        if ($now->lt($end)) {
-            return $end;
-        }
-
-        return null;
+        return $this->cachedStatus;
     }
 
-    private function sleepUntil(V8ConsultJob $job, Carbon $resumeAt): bool
+    private function pauseCurrentJob(V8ConsultJob $job): void
     {
-        $tz = $this->pauseTimezone !== '' ? $this->pauseTimezone : 'America/Sao_Paulo';
-        $now = Carbon::now($tz);
-        if ($resumeAt->lte($now)) {
-            return true;
+        $this->closeSpool();
+
+        try {
+            DB::table('v8_consult_jobs')
+                ->where('id', $job->id)
+                ->where('status', 'pausado')
+                ->update([
+                    'paused_at' => $job->paused_at ?? Carbon::now(),
+                    'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path ?? ''),
+                    'updated_at' => Carbon::now(),
+                ]);
+        } catch (Throwable) {
         }
-
-        while ($resumeAt->gt($now)) {
-            if ($this->isCancelled($job)) {
-                $this->cleanupSpool($job);
-                return false;
-            }
-
-            $remaining = $resumeAt->diffInSeconds($now);
-            $sleepFor = min(60, max(1, $remaining));
-            sleep($sleepFor);
-            $now = Carbon::now($tz);
-        }
-
-        return true;
     }
 
-    private function setJobStatus(V8ConsultJob $job, string $status): void
+    private function closeSpool(): void
     {
-        if ($job->status === $status) {
-            return;
+        if (is_resource($this->spoolFp)) {
+            @fflush($this->spoolFp);
+            fclose($this->spoolFp);
         }
 
-        $job->status = $status;
+        $this->spoolFp = null;
+    }
+
+    private function finalizeCancelledPreservingPreview(V8ConsultJob $job): void
+    {
+        $this->closeSpool();
+
+        $disk = Storage::disk($this->disk);
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = V8Spool::hasDataRows($disk, $spoolPath);
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+
+            $this->cleanupSpoolArtifacts($job, $disk, $hasDataRows ? $spoolPath : null);
+
+            if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+                $disk->delete($spoolPath);
+            }
+        } catch (Throwable) {
+        }
+
+        $spoolBytes = 0;
+        if ($hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
+            try {
+                $spoolBytes = (int) $disk->size($spoolPath);
+            } catch (Throwable) {
+                $spoolBytes = 0;
+            }
+        }
+
         try {
             DB::table('v8_consult_jobs')->where('id', $job->id)->update([
-                'status' => $status,
+                'status' => 'cancelado',
+                'phase' => null,
+                'finished_at' => $job->finished_at ?? Carbon::now(),
+                'spool_path' => $hasDataRows ? $spoolPath : null,
+                'spool_inputs_path' => null,
+                'spool_bytes' => $spoolBytes,
                 'updated_at' => Carbon::now(),
             ]);
         } catch (Throwable) {
@@ -3264,6 +3435,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private function cleanupSpool(V8ConsultJob $job): void
     {
         try {
+            $this->closeSpool();
             $disk = Storage::disk($this->disk);
             foreach (['spool_path', 'spool_inputs_path'] as $f) {
                 $p = $job->{$f} ?? null;
@@ -3281,7 +3453,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function cleanupSpoolArtifacts(V8ConsultJob $job, $disk): void
+    private function cleanupSpoolArtifacts(V8ConsultJob $job, $disk, ?string $preserveRel = null): void
     {
         try {
             $dirSpool = (string) (config('v8.storage.dir_spool') ?? 'v8-spool');
@@ -3294,6 +3466,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
             foreach ($disk->files($dirSpool) as $rel) {
                 $base = basename($rel);
+                if ($preserveRel !== null && $rel === $preserveRel) {
+                    continue;
+                }
                 if (str_starts_with($base, $prefix)) {
                     try {
                         $disk->delete($rel);
@@ -3312,8 +3487,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return true;
         }
         for ($i = 0; $i < $seconds; $i++) {
-            if ($this->isCancelled($job)) {
-                $this->cleanupSpool($job);
+            if ($this->finishIfStopped($job)) {
                 return false;
             }
             sleep(1);
@@ -3333,6 +3507,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function failFinalize(V8ConsultJob $job): void
     {
+        $this->closeSpool();
         dispatch(new FinalizeV8ConsultReportJob($this->jobId, 'falhou'))
             ->onQueue((string) config('v8.preview.queue', 'reports'));
         $this->deletePendFiles();

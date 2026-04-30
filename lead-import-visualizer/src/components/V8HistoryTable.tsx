@@ -11,6 +11,8 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Pause,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +41,8 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
+  onPause: (id: number) => Promise<void>;
+  onResume: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
 
@@ -51,6 +55,13 @@ type Props = {
 
 function getStatusInfo(status: V8JobStatus) {
   switch (status) {
+    case "agendado":
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        className:
+          "pointer-events-none select-none bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
+        label: "Agendado",
+      };
     case "concluido":
       return {
         icon: <CheckCircle className="w-4 h-4" />,
@@ -67,7 +78,7 @@ function getStatusInfo(status: V8JobStatus) {
       };
     case "pausado":
       return {
-        icon: <Clock className="w-4 h-4" />,
+        icon: <Pause className="w-4 h-4" />,
         className:
           "pointer-events-none select-none bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800",
         label: "Pausado",
@@ -138,6 +149,13 @@ function SegmentedProgressBar({ item }: { item: V8ConsultJobListItem }) {
     total === 0 &&
     (item.status === "pendente" || item.status === "em_progresso");
 
+  let statusMessage = `${s.sum.toFixed(1)}% completo`;
+  if (item.status === "agendado") {
+    statusMessage = "Consulta agendada";
+  } else if (isCounting) {
+    statusMessage = "Preparando…";
+  }
+
   const pulseWidthPct = Math.min(
     5,
     Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8)
@@ -206,7 +224,7 @@ function SegmentedProgressBar({ item }: { item: V8ConsultJobListItem }) {
           )}
         </div>
         <span className="text-muted-foreground">
-          {isCounting ? "Preparando…" : `${s.sum.toFixed(1)}% completo`}
+          {statusMessage}
         </span>
       </div>
     </div>
@@ -218,6 +236,8 @@ export const V8HistoryTable = ({
   loading,
   onDownload,
   onCancel,
+  onPause,
+  onResume,
   onDelete,
   page,
   lastPage,
@@ -225,6 +245,8 @@ export const V8HistoryTable = ({
   formatDateTimeBR,
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
+  const [pausingId, setPausingId] = useState<number | null>(null);
+  const [resumingId, setResumingId] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<V8ConsultJobListItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] =
@@ -235,13 +257,25 @@ export const V8HistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: V8ConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "pendente" ||
+    i.status === "em_progresso" ||
+    i.status === "pausado" ||
+    (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
 
   const canCancel = (i: V8ConsultJobListItem) =>
-    i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+    i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
+
+  const canPause = (i: V8ConsultJobListItem) =>
+    i.status === "pendente" || i.status === "em_progresso";
+
+  const canResume = (i: V8ConsultJobListItem) =>
+    i.status === "pausado";
+
+  const isCancelStopPending = (i: V8ConsultJobListItem) =>
+    i.status === "cancelado" && !i.finished_at;
 
   const canDelete = (i: V8ConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado");
+    !(i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelStopPending(i));
 
   const openCancelDialog = (i: V8ConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
@@ -256,6 +290,26 @@ export const V8HistoryTable = ({
     } finally {
       setCancelingId(null);
       setConfirmJob(null);
+    }
+  };
+
+  const executePause = async (i: V8ConsultJobListItem) => {
+    if (!canPause(i) || pausingId !== null) return;
+    try {
+      setPausingId(i.id);
+      await onPause(i.id);
+    } finally {
+      setPausingId(null);
+    }
+  };
+
+  const executeResume = async (i: V8ConsultJobListItem) => {
+    if (!canResume(i) || resumingId !== null) return;
+    try {
+      setResumingId(i.id);
+      await onResume(i.id);
+    } finally {
+      setResumingId(null);
     }
   };
 
@@ -324,6 +378,9 @@ export const V8HistoryTable = ({
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        {i.scheduled_for && (
+                          <span>Agendado para {formatDateTimeBR(i.scheduled_for)}</span>
+                        )}
                       </div>
                     </div>
 
@@ -336,6 +393,34 @@ export const V8HistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-600 dark:text-amber-400"
+                              disabled={pausingId === i.id}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-600 dark:text-emerald-400"
+                              disabled={resumingId === i.id}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
                           {canCancel(i) && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
@@ -356,7 +441,13 @@ export const V8HistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelStopPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -379,29 +470,27 @@ export const V8HistoryTable = ({
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
                       </Badge>
 
-                      {i.status !== "cancelado" && (
-                        <Button
-                          onClick={() =>
-                            onDownload(i.id, { preview: !finalReady && previewReady })
-                          }
-                          disabled={downloadDisabled}
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          title={
-                            finalReady
-                              ? "Baixar planilha final"
-                              : previewReady
-                                ? "Baixar prévia"
-                                : "Baixar indisponível"
-                          }
-                        >
-                          <Download className="w-4 h-4" />
-                          {!finalReady && previewReady && (
-                            <span className="ml-1 hidden sm:inline">Prévia</span>
-                          )}
-                        </Button>
-                      )}
+                      <Button
+                        onClick={() =>
+                          onDownload(i.id, { preview: !finalReady && previewReady })
+                        }
+                        disabled={downloadDisabled}
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        title={
+                          finalReady
+                            ? "Baixar planilha final"
+                            : previewReady
+                              ? "Baixar prévia"
+                              : "Baixar indisponível"
+                        }
+                      >
+                        <Download className="w-4 h-4" />
+                        {!finalReady && previewReady && (
+                          <span className="ml-1 hidden sm:inline">Prévia</span>
+                        )}
+                      </Button>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -411,6 +500,34 @@ export const V8HistoryTable = ({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                          {canPause(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executePause(i)}
+                              className="text-amber-600 dark:text-amber-400"
+                              disabled={pausingId === i.id}
+                            >
+                              {pausingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              Pausar
+                            </DropdownMenuItem>
+                          )}
+                          {canResume(i) && (
+                            <DropdownMenuItem
+                              onClick={() => void executeResume(i)}
+                              className="text-emerald-600 dark:text-emerald-400"
+                              disabled={resumingId === i.id}
+                            >
+                              {resumingId === i.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Retomar
+                            </DropdownMenuItem>
+                          )}
                           {canCancel(i) && (
                             <DropdownMenuItem
                               onClick={() => setConfirmJob(i)}
@@ -431,7 +548,13 @@ export const V8HistoryTable = ({
                             disabled={!canDelete(i)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
+                            {isCancelStopPending(i)
+                              ? "Finalizando cancelamento"
+                              : i.status === "pausado"
+                                ? "Retome ou cancele para excluir"
+                                : i.status === "agendado"
+                                  ? "Cancele para excluir"
+                                  : "Excluir"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -457,26 +580,24 @@ export const V8HistoryTable = ({
                       </Badge>
                     </div>
 
-                    {i.status !== "cancelado" && (
-                      <Button
-                        onClick={() =>
-                          onDownload(i.id, { preview: !finalReady && previewReady })
-                        }
-                        disabled={downloadDisabled}
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        title={
-                          finalReady
-                            ? "Baixar planilha final"
-                            : previewReady
-                              ? "Baixar prévia"
-                              : "Baixar indisponível"
-                        }
-                      >
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <Button
+                      onClick={() =>
+                        onDownload(i.id, { preview: !finalReady && previewReady })
+                      }
+                      disabled={downloadDisabled}
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      title={
+                        finalReady
+                          ? "Baixar planilha final"
+                          : previewReady
+                            ? "Baixar prévia"
+                            : "Baixar indisponível"
+                      }
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -559,7 +680,7 @@ export const V8HistoryTable = ({
             </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <p>Essa ação interromperá o processamento:</p>
+            <p>{confirmJob?.status === "agendado" ? "Essa ação impedirá o início agendado:" : "Essa ação interromperá o processamento:"}</p>
             {confirmJob && (
               <p className="font-semibold my-2 bg-gray-100 dark:bg-neutral-800 p-2 rounded break-words">
                 {confirmJob.title} (#{confirmJob.id})
