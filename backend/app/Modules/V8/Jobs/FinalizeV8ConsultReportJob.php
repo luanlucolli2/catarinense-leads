@@ -4,6 +4,7 @@ namespace App\Modules\V8\Jobs;
 
 use App\Modules\V8\Models\V8ConsultJob;
 use App\Modules\V8\Support\V8Schema;
+use App\Modules\V8\Support\V8Spool;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -35,7 +36,11 @@ class FinalizeV8ConsultReportJob implements ShouldQueue
             return;
         }
         if ($job->status === 'cancelado') {
-            $this->finishWithoutFinal($job, $job->status);
+            $this->finishCancelledPreservingUsefulPreview($job);
+            return;
+        }
+
+        if ($job->status === 'pausado') {
             return;
         }
 
@@ -134,6 +139,63 @@ class FinalizeV8ConsultReportJob implements ShouldQueue
     {
         $this->cleanupSpool($job);
         $job->update(['status' => $status, 'phase' => null, 'finished_at' => Carbon::now()]);
+    }
+
+    private function finishCancelledPreservingUsefulPreview(V8ConsultJob $job): void
+    {
+        $disk = Storage::disk((string) config('v8.storage.reports_disk', 'local'));
+        $spoolPath = $job->spool_path ?? null;
+        $hasDataRows = V8Spool::hasDataRows($disk, $spoolPath);
+
+        if (!$hasDataRows) {
+            $this->cleanupSpool($job);
+            $job->update([
+                'status' => 'cancelado',
+                'phase' => null,
+                'finished_at' => $job->finished_at ?? Carbon::now(),
+            ]);
+            return;
+        }
+
+        try {
+            $inputsPath = $job->spool_inputs_path ?? null;
+            if ($inputsPath && $disk->exists($inputsPath)) {
+                $disk->delete($inputsPath);
+            }
+
+            $dirSpool = (string) config('v8.storage.dir_spool', 'v8-spool');
+            $prefix = (string) config('v8.storage.final_prefix', 'v8-consulta');
+            $prefix = $prefix . '_' . $job->id;
+            if ($disk->exists($dirSpool)) {
+                foreach ($disk->files($dirSpool) as $rel) {
+                    $base = basename($rel);
+                    if ($rel === $spoolPath) {
+                        continue;
+                    }
+                    if (str_starts_with($base, $prefix)) {
+                        try {
+                            $disk->delete($rel);
+                        } catch (Throwable) {
+                        }
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        try {
+            $spoolBytes = $spoolPath && $disk->exists($spoolPath) ? (int) $disk->size($spoolPath) : 0;
+        } catch (Throwable) {
+            $spoolBytes = 0;
+        }
+
+        $job->update([
+            'status' => 'cancelado',
+            'phase' => null,
+            'finished_at' => $job->finished_at ?? Carbon::now(),
+            'spool_inputs_path' => null,
+            'spool_bytes' => $spoolBytes,
+        ]);
     }
 
     private function cleanupSpool(V8ConsultJob $job): void

@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use App\Modules\CLT\Services\DispatchScheduledCltConsultJobs;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
+use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
 use App\Models\C6AuthorizationLink;
 
 Artisan::command('inspire', function () {
@@ -60,6 +61,21 @@ Artisan::command('presenca:dispatch-scheduled-consult-jobs', function () {
         (int) ($result['failed'] ?? 0),
     ));
 })->purpose('Despacha jobs Presença agendados cujo horário já venceu');
+
+Artisan::command('v8:dispatch-scheduled-consult-jobs', function () {
+    $result = app(DispatchScheduledV8ConsultJobs::class)->handle();
+
+    if (($result['scanned'] ?? 0) === 0) {
+        return;
+    }
+
+    $this->info(sprintf(
+        'V8 agendado: %d verificado(s), %d despachado(s), %d falha(s).',
+        (int) ($result['scanned'] ?? 0),
+        (int) ($result['dispatched'] ?? 0),
+        (int) ($result['failed'] ?? 0),
+    ));
+})->purpose('Despacha jobs V8 agendados cujo horário já venceu');
 
 Artisan::command('c6:purge-expired-links', function () {
     $updated = C6AuthorizationLink::markExpired();

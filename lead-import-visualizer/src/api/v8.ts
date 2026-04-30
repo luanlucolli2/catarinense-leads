@@ -2,6 +2,7 @@ import axiosClient from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 export type V8JobStatus =
+  | 'agendado'
   | 'pendente'
   | 'em_progresso'
   | 'pausado'
@@ -27,11 +28,15 @@ export interface V8ConsultJobListItem {
   file_name?: string | null
 
   spool_bytes?: number | null
+  spool_path?: string | null
+  spool_inputs_path?: string | null
 
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
+  paused_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -50,11 +55,15 @@ export interface V8ConsultJobShow {
 
   preview_running?: boolean
   spool_bytes?: number | null
+  spool_path?: string | null
+  spool_inputs_path?: string | null
 
   started_at?: string | null
   finished_at?: string | null
   canceled_at?: string | null
+  paused_at?: string | null
   cancel_reason?: string | null
+  scheduled_for?: string | null
   created_at: string
 }
 
@@ -78,10 +87,12 @@ export async function listV8ConsultJobs(page = 1): Promise<Paginated<V8ConsultJo
 export async function createV8ConsultJob(input: {
   title: string
   lines: string
+  run_at?: string
+  timezone?: string
   reuse_recent_consults?: boolean
   reuse_recent_consults_days?: number
 }) {
-  const { data } = await axiosClient.post<{ id: number; status: V8JobStatus; phase?: V8JobPhase }>(
+  const { data } = await axiosClient.post<{ id: number; status: V8JobStatus; phase?: V8JobPhase; scheduled_for?: string | null }>(
     BASE,
     input
   )
@@ -146,7 +157,27 @@ export async function cancelV8ConsultJob(id: number, reason?: string) {
     phase?: V8JobPhase
     canceled_at?: string | null
     cancel_reason?: string | null
+    finished_at?: string | null
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {})
+  return data
+}
+
+export async function pauseV8ConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: V8JobStatus
+    phase?: V8JobPhase
+    paused_at?: string | null
+  }>(`${BASE}/${id}/pause`)
+  return data
+}
+
+export async function resumeV8ConsultJob(id: number) {
+  const { data } = await axiosClient.post<{
+    id: number
+    status: V8JobStatus
+    phase?: V8JobPhase
+  }>(`${BASE}/${id}/resume`)
   return data
 }
 

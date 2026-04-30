@@ -44,6 +44,8 @@ import {
   downloadV8Report,
   downloadV8Preview,
   cancelV8ConsultJob,
+  pauseV8ConsultJob,
+  resumeV8ConsultJob,
   deleteV8ConsultJob,
   V8ConsultJobListItem,
   V8ConsultJobShow,
@@ -140,7 +142,7 @@ const CLTConsultaPage = () => {
   const lastWatchedSnapshot = useRef<{ id: number; status?: string | null; pstatus?: string | null; finishedAt?: string | null } | null>(null);
 
   const v8InFlight = useRef<Set<number>>(new Set());
-  const lastV8Snapshot = useRef<{ id: number; status?: string | null } | null>(null);
+  const lastV8Snapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
   const presencaInFlight = useRef<Set<number>>(new Set());
   const lastPresencaSnapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
 
@@ -227,7 +229,11 @@ const CLTConsultaPage = () => {
     refetchInterval: (query) => {
       const job = query.state.data as V8ConsultJobShow | undefined;
       if (!job) return false;
-      const open = job.status === "pendente" || job.status === "em_progresso";
+      if (job.status === "agendado") return 15000;
+      const open =
+        job.status === "pendente" ||
+        job.status === "em_progresso" ||
+        (job.status === "cancelado" && !job.finished_at);
       return open ? 5000 : false;
     },
   });
@@ -321,6 +327,10 @@ const CLTConsultaPage = () => {
         nao_elegivel_count: watchedV8Job.nao_elegivel_count,
         fail_count: watchedV8Job.fail_count,
         spool_bytes: watchedV8Job.spool_bytes ?? i.spool_bytes,
+        paused_at: watchedV8Job.paused_at ?? i.paused_at,
+        scheduled_for: watchedV8Job.scheduled_for ?? i.scheduled_for,
+        spool_path: watchedV8Job.spool_path ?? i.spool_path,
+        spool_inputs_path: watchedV8Job.spool_inputs_path ?? i.spool_inputs_path,
       };
     });
   }, [v8Items, watchedV8Job]);
@@ -429,16 +439,36 @@ const CLTConsultaPage = () => {
     if (!watchedV8Job) return;
 
     const niceTitle = watchedV8Job.title ?? `#${watchedV8Job.id}`;
-    const isTerminal = ["concluido", "falhou", "cancelado"].includes(watchedV8Job.status);
+    const cancelStopPending = watchedV8Job.status === "cancelado" && !watchedV8Job.finished_at;
+    const isTerminal =
+      ["concluido", "falhou"].includes(watchedV8Job.status) ||
+      (watchedV8Job.status === "cancelado" && !cancelStopPending);
 
     const prev = lastV8Snapshot.current;
     const changed =
       !prev ||
       prev.id !== watchedV8Job.id ||
-      prev.status !== watchedV8Job.status;
+      prev.status !== watchedV8Job.status ||
+      prev.finishedAt !== watchedV8Job.finished_at;
 
     if (!changed) return;
-    lastV8Snapshot.current = { id: watchedV8Job.id, status: watchedV8Job.status };
+    lastV8Snapshot.current = {
+      id: watchedV8Job.id,
+      status: watchedV8Job.status,
+      finishedAt: watchedV8Job.finished_at,
+    };
+
+    if (watchedV8Job.status === "pausado") {
+      toast.info(`Consulta "${niceTitle}" pausada.`);
+      setWatchingV8JobId(null);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      return;
+    }
+
+    if (cancelStopPending) {
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      return;
+    }
 
     if (isTerminal) {
       if (watchedV8Job.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
@@ -575,13 +605,15 @@ const CLTConsultaPage = () => {
   const createV8Mutation = useMutation<any, any, {
     title: string;
     lines: string;
+    run_at?: string;
+    timezone?: string;
     reuse_recent_consults?: boolean;
     reuse_recent_consults_days?: number;
   }>({
     mutationFn: (vars) => createV8ConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingV8JobId(data.id);
-      toast.success(`Consulta "${vars.title}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${vars.title}" agendada.` : `Consulta "${vars.title}" criada.`);
       setPageV8(1);
       void qc.invalidateQueries({ queryKey: ["v8:list"] });
     },
@@ -591,13 +623,39 @@ const CLTConsultaPage = () => {
   const cancelV8Mutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       cancelV8ConsultJob(id, reason),
-    onSuccess: (_data, { id }) => {
-      if (id === watchingV8JobId) setWatchingV8JobId(null);
-      toast.info(`Consulta "${v8TitleOf(id)}" cancelada.`);
+    onSuccess: (data, { id }) => {
+      setWatchingV8JobId(id);
+      if (data.finished_at) {
+        toast.info(`Consulta "${v8TitleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${v8TitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      }
       void qc.invalidateQueries({ queryKey: ["v8:list"] });
       void qc.invalidateQueries({ queryKey: ["v8:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const pauseV8Mutation = useMutation({
+    mutationFn: (id: number) => pauseV8ConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingV8JobId(id);
+      toast.info(`Pausa solicitada para "${v8TitleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      void qc.invalidateQueries({ queryKey: ["v8:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar"),
+  });
+
+  const resumeV8Mutation = useMutation({
+    mutationFn: (id: number) => resumeV8ConsultJob(id),
+    onSuccess: (_data, id) => {
+      setWatchingV8JobId(id);
+      toast.success(`Retomada solicitada para "${v8TitleOf(id)}".`);
+      void qc.invalidateQueries({ queryKey: ["v8:list"] });
+      void qc.invalidateQueries({ queryKey: ["v8:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar"),
   });
 
   const deleteV8Mutation = useMutation({
@@ -695,11 +753,13 @@ const CLTConsultaPage = () => {
   const handleNewV8Consult = async (
     titulo: string,
     lines: string,
-    opts?: { reuseRecentConsults?: boolean }
+    opts?: { reuseRecentConsults?: boolean; runAt?: string | null; timezone?: string | null }
   ) => {
     await createV8Mutation.mutateAsync({
       title: titulo,
       lines,
+      ...(opts?.runAt ? { run_at: opts.runAt } : {}),
+      ...(opts?.timezone ? { timezone: opts.timezone } : {}),
       ...(opts?.reuseRecentConsults ? {
         reuse_recent_consults: true,
         reuse_recent_consults_days: 30,
@@ -904,6 +964,14 @@ const CLTConsultaPage = () => {
     await cancelV8Mutation.mutateAsync({ id, reason });
   };
 
+  const handlePauseV8 = async (id: number) => {
+    await pauseV8Mutation.mutateAsync(id);
+  };
+
+  const handleResumeV8 = async (id: number) => {
+    await resumeV8Mutation.mutateAsync(id);
+  };
+
   const handleDeleteV8 = async (id: number) => {
     await deleteV8Mutation.mutateAsync(id);
   };
@@ -1081,6 +1149,8 @@ const CLTConsultaPage = () => {
             loading={!!(v8ListLoading && !v8JobsPage)}
             onDownload={handleDownloadV8}
             onCancel={handleCancelV8}
+            onPause={handlePauseV8}
+            onResume={handleResumeV8}
             onDelete={handleDeleteV8}
             onRefresh={() => refetchV8List()}
             page={pageV8}
