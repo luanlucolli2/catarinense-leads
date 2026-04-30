@@ -120,7 +120,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             (array) config('v8.job.reuse_recent_statuses', [])
         ), static fn ($status) => $status !== ''));
         $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
-        $this->statusPendingTimeoutSeconds = max(60, (int) config('v8.job.status_pending_timeout_seconds', 5400));
+        $this->statusPendingTimeoutSeconds = max(60, (int) config('v8.job.status_pending_timeout_seconds', 9000));
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
         $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 4));
         $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);

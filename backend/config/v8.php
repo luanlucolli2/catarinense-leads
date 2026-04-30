@@ -56,7 +56,7 @@ return [
         'status_batch_limit_round_step'  => (int) env('V8_STATUS_BATCH_LIMIT_ROUND_STEP', 50),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
         'status_lookback_existing_hours' => (int) env('V8_STATUS_LOOKBACK_EXISTING_HOURS', 168),
-        'status_pending_timeout_seconds' => (int) env('V8_STATUS_PENDING_TIMEOUT_SECONDS', 5400),
+        'status_pending_timeout_seconds' => (int) env('V8_STATUS_PENDING_TIMEOUT_SECONDS', 9000),
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 12),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
