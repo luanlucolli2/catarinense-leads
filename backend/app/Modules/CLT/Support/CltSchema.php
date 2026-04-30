@@ -37,7 +37,6 @@ final class CltSchema
         'politicaCreditoMensagem',
         'politicaCreditoValorMaximoDisponivel',
         'politicaCreditoPrazoMaximoDisponivel',
-        'politicaCreditoDataConsulta',
         'dataNascimento',
         'idade',
         'sexo_descricao',
@@ -68,6 +67,7 @@ final class CltSchema
         // NOVAS COLUNAS DE DATA
         'updated_at',
         'consulted_at',
+        'politicaCreditoDataConsulta',
         'fonteConsulta',
         'politicaCreditoTabelaAprovada',
     ];
@@ -83,7 +83,6 @@ final class CltSchema
         'Política de Crédito Mensagem',
         'Política de Crédito Valor Máximo Disponível',
         'Política de Crédito Prazo Máximo Disponível',
-        'Política de Crédito Data da Consulta',
         'Data de Nascimento',
         'Idade (anos)',
         'Sexo',
@@ -113,6 +112,7 @@ final class CltSchema
         'Mensagem',
         'Data de Atualização (Origem)',
         'Data da Consulta',
+        'Política de Crédito Data da Consulta',
         'Fonte da Consulta',
         'Política de Crédito Tabela Aprovada',
     ];
