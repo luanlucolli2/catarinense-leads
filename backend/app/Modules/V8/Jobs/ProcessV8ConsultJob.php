@@ -56,6 +56,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $statusBatchLimitRoundStep;
     private int $statusLookbackHours;
     private int $statusLookbackExistingHours;
+    private int $statusPendingTimeoutSeconds;
     private int $statusMaxAttemptsExisting = 5;
     private int $httpMinIntervalPhase1;
     private int $httpMinIntervalPhase2Status;
@@ -65,11 +66,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private int $reuseRecentLimit;
     private array $reuseRecentStatuses;
     private int $httpRateLimitSleepSeconds;
-    private int $pendingLowThreshold;
-    private int $pendingLowSeconds;
-    private ?int $pendingLowSince = null;
-    private array $pendingCounts = ['regular' => 0, 'existing' => 0];
-    private bool $forceFinish = false;
     private string $currentPhase = 'FASE 1';
     private int $reconsentBlockedMax;
     private int $reconsentBlockedDelaySeconds;
@@ -124,8 +120,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             (array) config('v8.job.reuse_recent_statuses', [])
         ), static fn ($status) => $status !== ''));
         $this->httpRateLimitSleepSeconds = max(0, (int) config('v8.http.rate_limit_sleep_seconds', 15));
-        $this->pendingLowThreshold = max(0, (int) config('v8.job.pending_low_threshold', 50));
-        $this->pendingLowSeconds = max(0, (int) config('v8.job.pending_low_seconds', 3600));
+        $this->statusPendingTimeoutSeconds = max(60, (int) config('v8.job.status_pending_timeout_seconds', 5400));
         $this->reconsentBlockedMax = max(0, (int) config('v8.job.reconsent_blocked_max', 1));
         $this->reconsentBlockedDelaySeconds = max(0, (int) config('v8.job.reconsent_blocked_delay_seconds', 4));
         $this->pauseEnabled = (bool) config('v8.job.pause_enabled', true);
@@ -396,11 +391,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     fclose($pendingRegularFp);
                     fclose($pendingExistingFp);
 
-                    $this->pendingCounts['regular'] = $pendingRegularCount;
-                    $this->pendingCounts['existing'] = $pendingExistingCount;
-                    $this->touchPendingLowTimer();
-
-                    $stopEarly = false;
                     if ($pendingRegularCount > 0) {
                         $startDate = $this->resolveRegularPendingStartDate($job);
                         $endDate = Carbon::now('UTC')->endOfDay();
@@ -409,22 +399,16 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         $disk->delete($pendingRegularRel);
                     }
 
-                    if ($this->forceFinish) {
-                        $stopEarly = true;
+                    if ($this->finishIfStopped($job)) {
+                        return;
                     }
 
-                    if (!$stopEarly) {
-                        if ($this->finishIfStopped($job)) {
-                            return;
-                        }
-
-                        if ($pendingExistingCount > 0) {
-                            $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
-                            $endDate = Carbon::now('UTC')->endOfDay();
-                            $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
-                        } else {
-                            $disk->delete($pendingExistingRel);
-                        }
+                    if ($pendingExistingCount > 0) {
+                        $startDate = Carbon::now('UTC')->subHours($this->statusLookbackExistingHours)->startOfDay();
+                        $endDate = Carbon::now('UTC')->endOfDay();
+                        $this->runBatchStatusFile($api, $job, $pendingExistingRel, 'existing', $startDate, $endDate, $this->statusMaxAttemptsExisting);
+                    } else {
+                        $disk->delete($pendingExistingRel);
                     }
                 } finally {
                     fclose($reader2);
@@ -1093,21 +1077,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             $disk->delete($currentRel);
             unset($matches);
 
-            $this->pendingCounts[$mode] = $written;
-            if ($this->maybeFinalizeOnLowPending($job)) {
-                return;
-            }
-
             if ($written === 0) {
                 if ($disk->exists($nextRel)) {
                     $disk->delete($nextRel);
                 }
-                return;
-            }
-
-            if ($round >= $maxAttempts) {
-                $this->finalizePendingFileTimeout($job, $nextRel, $mode);
-                $disk->delete($nextRel);
                 return;
             }
 
@@ -1306,14 +1279,19 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
 
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
+                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs] = $parsed;
                 $key = $mode === 'existing'
                     ? $this->normalizeCpfKey($cpf)
                     : (string) $consultId;
 
                 $statusResp = $matches[$key] ?? null;
                 if (!$statusResp) {
-                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused);
+                    if ($this->isPendingTimedOut($pendingSinceTs)) {
+                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode);
+                        continue;
+                    }
+
+                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs);
                     $written++;
                     continue;
                 }
@@ -1321,7 +1299,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 $status = $statusResp['status'] ?? null;
                 if ($this->shouldReconsentBlocked($statusResp)) {
                     if ($this->reconsentBlockedMax > 0 && $reconsentAttempts >= $this->reconsentBlockedMax) {
-                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $statusResp['error'] ?? 'Consulta de margem bloqueada pelo trabalhador');
+                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $statusResp['error'] ?? 'Consulta de margem bloqueada pelo trabalhador');
                         continue;
                     }
 
@@ -1334,14 +1312,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     $reconsentResult = $this->attemptReconsentBlocked($api, $job, $cpf, $nome, $nasc, $consultId);
                     if ($reconsentResult['status'] === 'ok') {
                         $newConsultId = $reconsentResult['consult_id'] ?? '';
-                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $newConsultId, 0, $reconsentAttempts, $reused);
+                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $newConsultId, 0, $reconsentAttempts, $reused, time());
                         $written++;
                         continue;
                     }
 
                     if ($reconsentResult['status'] === 'existing') {
                         if ($mode === 'existing') {
-                            $this->writePendingLine($writer, $cpf, $nome, $nasc, null, 0, $reconsentAttempts, $reused);
+                            $this->writePendingLine($writer, $cpf, $nome, $nasc, null, 0, $reconsentAttempts, $reused, $pendingSinceTs);
                             $written++;
                             continue;
                         }
@@ -1350,21 +1328,21 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                         if ($fallbackConsultId === '') {
                             $this->finalizePendingError(
                                 $job,
-                                $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused),
+                                $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs),
                                 $mode,
                                 'Consulta existente sem consult_id disponível.'
                             );
                             continue;
                         }
 
-                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $fallbackConsultId, 0, $reconsentAttempts, $reused);
+                        $this->writePendingLine($writer, $cpf, $nome, $nasc, $fallbackConsultId, 0, $reconsentAttempts, $reused, $pendingSinceTs);
                         $written++;
                         continue;
                     }
 
                     $this->finalizePendingError(
                         $job,
-                        $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused),
+                        $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs),
                         $mode,
                         $reconsentResult['error'] ?? 'Falha ao reprocessar consentimento.'
                     );
@@ -1379,19 +1357,19 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                             && !($authResp['retriable'] ?? false)
                             && !$this->isAuthorizeAlreadyApproved($authResp, $useConsultId)
                         ) {
-                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $this->formatApiError($authResp));
+                        $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $this->formatApiError($authResp));
                             continue;
                         }
                     }
 
                     $attempts++;
-                    if ($attempts >= $maxAttempts) {
-                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode);
+                    if ($this->isPendingTimedOut($pendingSinceTs)) {
+                        $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode);
                         continue;
                     }
 
                     $consultId = $statusResp['consult_id'] ?? $consultId;
-                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused);
+                    $this->writePendingLine($writer, $cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs);
                     $written++;
                     continue;
                 }
@@ -1425,61 +1403,9 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         return $written;
     }
 
-    private function touchPendingLowTimer(): void
+    private function isPendingTimedOut(int $pendingSinceTs): bool
     {
-        if ($this->pendingLowThreshold <= 0 || $this->pendingLowSeconds <= 0) {
-            return;
-        }
-
-        $total = ($this->pendingCounts['regular'] ?? 0) + ($this->pendingCounts['existing'] ?? 0);
-        if ($total < $this->pendingLowThreshold) {
-            if ($this->pendingLowSince === null) {
-                $this->pendingLowSince = time();
-            }
-            return;
-        }
-
-        $this->pendingLowSince = null;
-    }
-
-    private function maybeFinalizeOnLowPending(V8ConsultJob $job): bool
-    {
-        $this->touchPendingLowTimer();
-        if ($this->pendingLowSince === null) {
-            return false;
-        }
-
-        if ((time() - $this->pendingLowSince) < $this->pendingLowSeconds) {
-            return false;
-        }
-
-        $this->finalizePendingFilesLowPending($job);
-        $this->forceFinish = true;
-        return true;
-    }
-
-    private function finalizePendingFilesLowPending(V8ConsultJob $job): void
-    {
-        $disk = Storage::disk($this->disk);
-        $message = sprintf(
-            'Encerrado: pendências abaixo de %d por mais de %d segundos.',
-            $this->pendingLowThreshold,
-            $this->pendingLowSeconds
-        );
-
-        $prefix = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.";
-        foreach ($disk->files($this->dirSpool) as $file) {
-            if (strpos($file, $prefix) !== 0) {
-                continue;
-            }
-
-            $mode = str_contains($file, '.pending.existing') ? 'existing' : 'regular';
-            $this->finalizePendingFileError($job, $file, $mode, $message);
-            $disk->delete($file);
-        }
-
-        $this->pendingCounts['regular'] = 0;
-        $this->pendingCounts['existing'] = 0;
+        return (time() - max(0, $pendingSinceTs)) >= $this->statusPendingTimeoutSeconds;
     }
 
     private function parsePendingLine(string $line): ?array
@@ -1499,8 +1425,12 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $attempts = isset($parts[4]) ? (int) $parts[4] : 0;
         $reconsentAttempts = isset($parts[5]) ? (int) $parts[5] : 0;
         $reused = $this->parseCsvBooleanFlag($parts[6] ?? null);
+        $pendingSinceTs = isset($parts[7]) ? (int) $parts[7] : time();
+        if ($pendingSinceTs <= 0) {
+            $pendingSinceTs = time();
+        }
 
-        return [$cpf, $nome, $nasc, $consultId !== '' ? $consultId : null, $attempts, $reconsentAttempts, $reused];
+        return [$cpf, $nome, $nasc, $consultId !== '' ? $consultId : null, $attempts, $reconsentAttempts, $reused, $pendingSinceTs];
     }
 
     private function entryFromParsed(
@@ -1510,7 +1440,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         ?string $consultId,
         int $attempts,
         int $reconsentAttempts = 0,
-        bool $reused = false
+        bool $reused = false,
+        ?int $pendingSinceTs = null
     ): array
     {
         return [
@@ -1521,33 +1452,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             'attempts' => $attempts,
             'reconsent_attempts' => $reconsentAttempts,
             'reused' => $reused,
+            'pending_since_ts' => $pendingSinceTs,
         ];
-    }
-
-    private function finalizePendingFileTimeout(V8ConsultJob $job, string $pendingRel, string $mode): void
-    {
-        $disk = Storage::disk($this->disk);
-        if (!$disk->exists($pendingRel)) {
-            return;
-        }
-
-        $fh = fopen($disk->path($pendingRel), 'r');
-        if ($fh === false) {
-            return;
-        }
-
-        try {
-            while (($line = fgets($fh)) !== false) {
-                $parsed = $this->parsePendingLine($line);
-                if (!$parsed) {
-                    continue;
-                }
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
-                $this->finalizePendingTimeout($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode);
-            }
-        } finally {
-            fclose($fh);
-        }
     }
 
     private function finalizePendingFileError(V8ConsultJob $job, string $pendingRel, string $mode, string $message): void
@@ -1568,8 +1474,8 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                 if (!$parsed) {
                     continue;
                 }
-                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused] = $parsed;
-                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused), $mode, $message);
+                [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs] = $parsed;
+                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $message);
             }
         } finally {
             fclose($fh);
@@ -2279,13 +2185,10 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function resolveRegularPendingStartDate(V8ConsultJob $job): Carbon
     {
-        $startDate = ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))->copy()->setTimezone('UTC')->startOfDay();
-        if (!$this->shouldReuseRecentConsults($job)) {
-            return $startDate;
-        }
-
-        $reuseStartDate = Carbon::now('UTC')->subDays($this->resolveReuseRecentConsultsDays($job))->startOfDay();
-        return $reuseStartDate->lt($startDate) ? $reuseStartDate : $startDate;
+        return ($job->started_at ?? $job->created_at ?? Carbon::now('UTC'))
+            ->copy()
+            ->setTimezone('UTC')
+            ->startOfDay();
     }
 
     private function buildReusableRecentConsultsMap(V8ApiService $api, string $uniqReal, V8ConsultJob $job): ?array
@@ -2578,13 +2481,14 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         fputcsv($handle, [$cpf, $nome, $nasc, $consultId ?? '', $mode, $reused ? 1 : 0], ';');
     }
 
-    private function writePendingLine($handle, string $cpf, string $nome, string $nasc, ?string $consultId = null, int $attempts = 0, int $reconsentAttempts = 0, bool $reused = false): void
+    private function writePendingLine($handle, string $cpf, string $nome, string $nasc, ?string $consultId = null, int $attempts = 0, int $reconsentAttempts = 0, bool $reused = false, ?int $pendingSinceTs = null): void
     {
         if (!is_resource($handle)) {
             return;
         }
 
-        fputcsv($handle, [$cpf, $nome, $nasc, $consultId ?? '', $attempts, $reconsentAttempts, $reused ? 1 : 0], ';');
+        $pendingSinceTs = $pendingSinceTs && $pendingSinceTs > 0 ? $pendingSinceTs : time();
+        fputcsv($handle, [$cpf, $nome, $nasc, $consultId ?? '', $attempts, $reconsentAttempts, $reused ? 1 : 0, $pendingSinceTs], ';');
     }
 
     private function parseCsvBooleanFlag($value): bool

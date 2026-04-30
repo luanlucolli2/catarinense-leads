@@ -56,6 +56,7 @@ return [
         'status_batch_limit_round_step'  => (int) env('V8_STATUS_BATCH_LIMIT_ROUND_STEP', 50),
         'status_lookback_hours'      => (int) env('V8_STATUS_LOOKBACK_HOURS', 48),
         'status_lookback_existing_hours' => (int) env('V8_STATUS_LOOKBACK_EXISTING_HOURS', 168),
+        'status_pending_timeout_seconds' => (int) env('V8_STATUS_PENDING_TIMEOUT_SECONDS', 5400),
         'phase1_pool_size'           => (int) env('V8_PHASE1_POOL_SIZE', 12),
         'phase1_batch_delay_seconds' => (int) env('V8_PHASE1_BATCH_DELAY_SECONDS', 1),
         'phase2_start_delay_seconds' => (int) env('V8_PHASE2_START_DELAY_SECONDS', 30),
@@ -64,8 +65,8 @@ return [
             static fn ($status) => strtoupper(trim((string) $status)),
             explode(',', (string) env('V8_REUSE_RECENT_STATUSES', 'SUCCESS,WAITING_CONSULT,CONSENT_APPROVED,WAITING_CREDIT_ANALYSIS,WAITING_CONSENT'))
         ), static fn ($status) => $status !== '')),
-        'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 50),
-        'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 3600),
+        'pending_low_threshold'      => (int) env('V8_PENDING_LOW_THRESHOLD', 0),
+        'pending_low_seconds'        => (int) env('V8_PENDING_LOW_SECONDS', 0),
         'reconsent_blocked_max'      => (int) env('V8_RECONSENT_BLOCKED_MAX', 1),
         'reconsent_blocked_delay_seconds' => (int) env('V8_RECONSENT_BLOCKED_DELAY_SECONDS', 4),
         'pause_enabled'              => (bool) env('V8_PAUSE_ENABLED', true),
