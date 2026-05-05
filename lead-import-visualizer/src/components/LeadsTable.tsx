@@ -665,6 +665,12 @@ export interface ProcessedLeadCLT {
 
   elegivel: boolean | null;
   not_found: boolean;
+  politica_credito_aprovado: boolean | null;
+  politica_credito_mensagem: string;
+  politica_credito_valor_maximo_disponivel: string;
+  politica_credito_prazo_maximo_disponivel: number | string | null;
+  politica_credito_data_consulta: string;
+  politica_credito_tabela_aprovada: string;
   clt_consultado_em: string;
   clt_dados_atualizados_em: string; // 🆕
 
@@ -687,6 +693,9 @@ export interface ProcessedLeadCLT {
 type SortFieldCLT =
   | "cpf" | "nome" | "data_nascimento" | "idade" | "sexo"
   | "ultima_origem_cadastral" | "elegivel"
+  | "politica_credito_aprovado" | "politica_credito_mensagem"
+  | "politica_credito_valor_maximo_disponivel" | "politica_credito_prazo_maximo_disponivel"
+  | "politica_credito_data_consulta" | "politica_credito_tabela_aprovada"
   | "clt_consultado_em"
   | "clt_dados_atualizados_em"
   | "data_admissao" | "meses_admissao"
@@ -739,6 +748,7 @@ export const LeadsTableCLT = ({
     switch (field) {
       case "clt_consultado_em":
       case "clt_dados_atualizados_em":
+      case "politica_credito_data_consulta":
       case "data_admissao":
       case "data_nascimento":
         return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
@@ -746,8 +756,11 @@ export const LeadsTableCLT = ({
     switch (field) {
       case "elegivel":
         return x.elegivel === true ? 0 : x.elegivel === false ? 1 : 2;
+      case "politica_credito_aprovado":
+        return x.politica_credito_aprovado === true ? 0 : x.politica_credito_aprovado === false ? 1 : 2;
       case "idade":
       case "meses_admissao":
+      case "politica_credito_prazo_maximo_disponivel":
       case "qtd_emprestimos_ativos_suspensos":
       case "emprestimos_legados":
         return (x as any)[field] ?? -1;
@@ -897,6 +910,36 @@ export const LeadsTableCLT = ({
     { id: "valor_base_margem", header: <Th align="right"><SortButton field="valor_base_margem" align="right">Base margem</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_base_margem)}</td>) },
     { id: "margem_disponivel", header: <Th align="right"><SortButton field="margem_disponivel" align="right">Margem disp.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.margem_disponivel)}</td>) },
     { id: "valor_max_prestacao", header: <Th align="right"><SortButton field="valor_max_prestacao" align="right">Prestação máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_max_prestacao)}</td>) },
+    {
+      id: "politica_credito_aprovado",
+      header: <Th align="center"><SortButton field="politica_credito_aprovado" align="center">Política aprovada</SortButton></Th>,
+      cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">
+        {lead.politica_credito_aprovado === true ? (
+          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Aprovada</span>
+        ) : lead.politica_credito_aprovado === false ? (
+          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">Reprovada</span>
+        ) : (
+          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>
+        )}
+      </td>)
+    },
+    { id: "politica_credito_mensagem", header: <Th><SortButton field="politica_credito_mensagem">Política mensagem</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 text-left min-w-[220px] max-w-[320px]"><span className="inline-block max-w-[320px] truncate text-sm text-gray-900">{display(lead.politica_credito_mensagem)}</span></td>) },
+    { id: "politica_credito_valor_maximo_disponivel", header: <Th align="right"><SortButton field="politica_credito_valor_maximo_disponivel" align="right">Política valor máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[130px]">{display(lead.politica_credito_valor_maximo_disponivel)}</td>) },
+    { id: "politica_credito_prazo_maximo_disponivel", header: <Th align="center"><SortButton field="politica_credito_prazo_maximo_disponivel" align="center">Política prazo máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_prazo_maximo_disponivel)}</td>) },
+    {
+      id: "politica_credito_data_consulta",
+      header: <Th align="center"><SortButton field="politica_credito_data_consulta" align="center">Política data</SortButton></Th>,
+      cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">
+        {lead.politica_credito_data_consulta ? (
+          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+            {lead.politica_credito_data_consulta}
+          </span>
+        ) : (
+          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">--</span>
+        )}
+      </td>)
+    },
+    { id: "politica_credito_tabela_aprovada", header: <Th align="center"><SortButton field="politica_credito_tabela_aprovada" align="center">Política tabela</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_tabela_aprovada)}</td>) },
 
     { id: "qtd_emprestimos_ativos_suspensos", header: <Th align="center"><SortButton field="qtd_emprestimos_ativos_suspensos" align="center">Empréstimos ativos</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.qtd_emprestimos_ativos_suspensos)}</td>) },
     {
@@ -941,19 +984,20 @@ export const LeadsTableCLT = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (["data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em"].includes(c.id))
+        if (["data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em", "politica_credito_data_consulta"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
         if (
           [
             "classe_1", "classe_2", "classe_3", "classe_4",
-            "idade", "sexo", "categoria_trabalhador_codigo",
+            "idade", "sexo", "categoria_trabalhador_codigo", "politica_credito_aprovado",
+            "politica_credito_prazo_maximo_disponivel", "politica_credito_tabela_aprovada",
             "qtd_emprestimos_ativos_suspensos", "emprestimos_legados",
             "ultima_origem_cadastral", "elegivel", "inicio_atividade_empregador"
           ].includes(c.id)
         )
           return <SkeletonCell key={idx} w="w-24" align="center" />;
-        if (["valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao"].includes(c.id))
+        if (["valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao", "politica_credito_valor_maximo_disponivel"].includes(c.id))
           return <SkeletonCell key={idx} w="w-16" align="right" />;
         return <SkeletonCell key={idx} w="w-32" align="left" />;
       })}
@@ -1022,6 +1066,15 @@ export const LeadsTableCLT = ({
       "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao"
     ]);
 
+    const sectionPoliticaCreditoVisible = hasAnyVisible([
+      "politica_credito_aprovado",
+      "politica_credito_mensagem",
+      "politica_credito_valor_maximo_disponivel",
+      "politica_credito_prazo_maximo_disponivel",
+      "politica_credito_data_consulta",
+      "politica_credito_tabela_aprovada",
+    ]);
+
     const sectionEmprestimosVisible = hasAnyVisible([
       "qtd_emprestimos_ativos_suspensos", "emprestimos_legados"
     ]);
@@ -1040,6 +1093,21 @@ export const LeadsTableCLT = ({
       ) : lead.elegivel === false ? (
         <span className="inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-800 border border-rose-200">
           Não elegível
+        </span>
+      ) : (
+        <span className="inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">
+          Sem dados
+        </span>
+      );
+
+    const PoliticaCreditoBadge = () =>
+      lead.politica_credito_aprovado === true ? (
+        <span className="inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+          Aprovada
+        </span>
+      ) : lead.politica_credito_aprovado === false ? (
+        <span className="inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+          Reprovada
         </span>
       ) : (
         <span className="inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">
@@ -1128,6 +1196,18 @@ export const LeadsTableCLT = ({
             {isVisible("valor_base_margem") && <DataRow label="Base margem" value={display(lead.valor_base_margem)} />}
             {isVisible("margem_disponivel") && <DataRow label="Margem disponível" value={display(lead.margem_disponivel)} />}
             {isVisible("valor_max_prestacao") && <DataRow label="Prestação máx." value={display(lead.valor_max_prestacao)} />}
+          </Section>
+        </>}
+
+        {sectionPoliticaCreditoVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Política de crédito" icon={Database}>
+            {isVisible("politica_credito_aprovado") && <div className="flex flex-wrap gap-2"><PoliticaCreditoBadge /></div>}
+            {isVisible("politica_credito_mensagem") && <DataRow label="Mensagem" value={display(lead.politica_credito_mensagem)} alignRight={false} />}
+            {isVisible("politica_credito_valor_maximo_disponivel") && <DataRow label="Valor máx." value={display(lead.politica_credito_valor_maximo_disponivel)} />}
+            {isVisible("politica_credito_prazo_maximo_disponivel") && <DataRow label="Prazo máx." value={display(lead.politica_credito_prazo_maximo_disponivel)} />}
+            {isVisible("politica_credito_data_consulta") && <DataRow label="Data consulta" value={lead.politica_credito_data_consulta || EMPTY} />}
+            {isVisible("politica_credito_tabela_aprovada") && <DataRow label="Tabela" value={display(lead.politica_credito_tabela_aprovada)} />}
           </Section>
         </>}
 

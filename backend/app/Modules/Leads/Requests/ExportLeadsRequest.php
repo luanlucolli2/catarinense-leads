@@ -34,6 +34,7 @@ class ExportLeadsRequest extends FormRequest
             'cpf' => ['nullable'],
             'names' => ['nullable'],
             'phones' => ['nullable'],
+            'without_phones' => ['nullable', 'boolean'],
             'birth_month' => ['nullable'],
 
             // FGTS OFF

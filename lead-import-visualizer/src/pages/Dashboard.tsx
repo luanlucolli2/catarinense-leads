@@ -75,6 +75,9 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "clt_dados_atualizados_em", // 🆕
   "data_admissao", "meses_admissao", "categoria_trabalhador_codigo",
   "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao",
+  "politica_credito_aprovado", "politica_credito_mensagem",
+  "politica_credito_valor_maximo_disponivel", "politica_credito_prazo_maximo_disponivel",
+  "politica_credito_data_consulta", "politica_credito_tabela_aprovada",
   "qtd_emprestimos_ativos_suspensos", "emprestimos_legados", "ultima_origem_cadastral",
 ];
 
@@ -109,7 +112,7 @@ const Dashboard = () => {
     FGTS_COLUMNS_DEFAULT
   )
   const [cltVisibleColumns, setCltVisibleColumns] = usePersistedState<string[]>(
-    "leadstable:clt:visibleColumns:v1",
+    "leadstable:clt:visibleColumns:v2",
     CLT_COLUMNS_DEFAULT
   )
   const [mercantilVisibleColumns, setMercantilVisibleColumns] = usePersistedState<string[]>(
@@ -130,6 +133,7 @@ const Dashboard = () => {
   const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>("dashboard:cpfMassFilter", "")
   const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>("dashboard:namesMassFilter", "")
   const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
+  const [noPhonesFilter, setNoPhonesFilter] = usePersistedState<boolean>("dashboard:noPhonesFilter", false)
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
 
@@ -154,6 +158,7 @@ const Dashboard = () => {
   const [cltCpfMassFilter, setCltCpfMassFilter] = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
   const [cltNamesMassFilter, setCltNamesMassFilter] = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
   const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-clt:phonesMassFilter", "")
+  const [cltNoPhonesFilter, setCltNoPhonesFilter] = usePersistedState<boolean>("dashboard-clt:noPhonesFilter", false)
   const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
   const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
 
@@ -189,6 +194,7 @@ const Dashboard = () => {
   const [mercantilCpfMassFilter, setMercantilCpfMassFilter] = usePersistedState<string>("dashboard-mercantil:cpfMassFilter", "")
   const [mercantilNamesMassFilter, setMercantilNamesMassFilter] = usePersistedState<string>("dashboard-mercantil:namesMassFilter", "")
   const [mercantilPhonesMassFilter, setMercantilPhonesMassFilter] = usePersistedState<string>("dashboard-mercantil:phonesMassFilter", "")
+  const [mercantilNoPhonesFilter, setMercantilNoPhonesFilter] = usePersistedState<boolean>("dashboard-mercantil:noPhonesFilter", false)
   const [mercantilBirthMonthFilter, setMercantilBirthMonthFilter] = usePersistedState<string[]>("dashboard-mercantil:birthMonthFilter", [])
   const [mercantilSituacao, setMercantilSituacao] = usePersistedState<"todos" | "consultado" | "sem_consulta">(
     "dashboard-mercantil:situacao",
@@ -414,6 +420,13 @@ const Dashboard = () => {
           : rawElegivel === false || rawElegivel === 0 || rawElegivel === "0"
             ? false
             : null
+      const rawPoliticaAprovado: any = lead.politica_credito_aprovado
+      const politicaCreditoAprovado: boolean | null =
+        rawPoliticaAprovado === true || rawPoliticaAprovado === 1 || rawPoliticaAprovado === "1"
+          ? true
+          : rawPoliticaAprovado === false || rawPoliticaAprovado === 0 || rawPoliticaAprovado === "0"
+            ? false
+            : null
 
       return {
         id: lead.id,
@@ -424,6 +437,17 @@ const Dashboard = () => {
         ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
         elegivel,
         not_found: !!lead.not_found,
+        politica_credito_aprovado: politicaCreditoAprovado,
+        politica_credito_mensagem: lead.politica_credito_mensagem || "",
+        politica_credito_valor_maximo_disponivel: formatCurrency(lead.politica_credito_valor_maximo_disponivel as any),
+        politica_credito_prazo_maximo_disponivel:
+          lead.politica_credito_prazo_maximo_disponivel === null ||
+          lead.politica_credito_prazo_maximo_disponivel === undefined ||
+          lead.politica_credito_prazo_maximo_disponivel === ""
+            ? null
+            : Number(lead.politica_credito_prazo_maximo_disponivel),
+        politica_credito_data_consulta: lead.politica_credito_data_consulta ? formatDate(lead.politica_credito_data_consulta) : "",
+        politica_credito_tabela_aprovada: lead.politica_credito_tabela_aprovada || "",
         clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
         // 🆕
         clt_dados_atualizados_em: lead.clt_dados_atualizados_em ? formatDate(lead.clt_dados_atualizados_em) : "",
@@ -536,6 +560,7 @@ const Dashboard = () => {
     setCpfMassFilter("")
     setNamesMassFilter("")
     setPhonesMassFilter("")
+    setNoPhonesFilter(false)
     setVendorsFilter([])
     setBirthMonthFilter([])
     setFgtsAuthorizedFilter("todos")
@@ -556,6 +581,7 @@ const Dashboard = () => {
     setCltCpfMassFilter("")
     setCltNamesMassFilter("")
     setCltPhonesMassFilter("")
+    setCltNoPhonesFilter(false)
     setCltVendorsFilter([])
     setCltBirthMonthFilter([])
     setCltConsultado("todos")
@@ -592,6 +618,7 @@ const Dashboard = () => {
     setMercantilCpfMassFilter("")
     setMercantilNamesMassFilter("")
     setMercantilPhonesMassFilter("")
+    setMercantilNoPhonesFilter(false)
     setMercantilBirthMonthFilter([])
     setMercantilSituacao("todos")
     setMercantilStatusFilter([])
@@ -629,6 +656,7 @@ const Dashboard = () => {
     cpfMassFilter ||
     namesMassFilter ||
     phonesMassFilter ||
+    noPhonesFilter ||
     higienizacaoFilter.length ||
     vendorsFilter.length ||
     birthMonthFilter.length ||
@@ -643,6 +671,7 @@ const Dashboard = () => {
     cltCpfMassFilter ||
     cltNamesMassFilter ||
     cltPhonesMassFilter ||
+    cltNoPhonesFilter ||
     cltBirthMonthFilter.length ||
     cltConsultado !== "todos" ||
     cltSituacao !== "todos" ||
@@ -671,6 +700,7 @@ const Dashboard = () => {
     mercantilCpfMassFilter ||
     mercantilNamesMassFilter ||
     mercantilPhonesMassFilter ||
+    mercantilNoPhonesFilter ||
     mercantilBirthMonthFilter.length ||
     mercantilSituacao !== "todos" ||
     mercantilStatusEffective.length ||
@@ -706,6 +736,7 @@ const Dashboard = () => {
         cpf: cpfMassFilter || undefined,
         names: namesMassFilter || undefined,
         phones: phonesMassFilter || undefined,
+        without_phones: noPhonesFilter || undefined,
         vendors: vendorsFilter.length ? vendorsFilter : undefined,
         birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
         fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
@@ -726,6 +757,7 @@ const Dashboard = () => {
         cpf: cltCpfMassFilter || undefined,
         names: cltNamesMassFilter || undefined,
         phones: cltPhonesMassFilter || undefined,
+        without_phones: cltNoPhonesFilter || undefined,
         birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
         clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
         clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
@@ -762,6 +794,7 @@ const Dashboard = () => {
       cpf: mercantilCpfMassFilter || undefined,
       names: mercantilNamesMassFilter || undefined,
       phones: mercantilPhonesMassFilter || undefined,
+      without_phones: mercantilNoPhonesFilter || undefined,
       birth_month: mercantilBirthMonthFilter.length ? mercantilBirthMonthFilter : undefined,
       mercantil_situacao:
         mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
@@ -856,6 +889,7 @@ const Dashboard = () => {
       cpfMassFilter, setCpfMassFilter,
       namesMassFilter, setNamesMassFilter,
       phonesMassFilter, setPhonesMassFilter,
+      noPhonesFilter, setNoPhonesFilter,
       vendorsFilter, setVendorsFilter,
       birthMonthFilter, setBirthMonthFilter,
       fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
@@ -877,6 +911,7 @@ const Dashboard = () => {
         cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
         namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
         phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
+        noPhonesFilter: cltNoPhonesFilter, setNoPhonesFilter: setCltNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
         fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
@@ -897,6 +932,7 @@ const Dashboard = () => {
         cpfMassFilter: mercantilCpfMassFilter, setCpfMassFilter: setMercantilCpfMassFilter,
         namesMassFilter: mercantilNamesMassFilter, setNamesMassFilter: setMercantilNamesMassFilter,
         phonesMassFilter: mercantilPhonesMassFilter, setPhonesMassFilter: setMercantilPhonesMassFilter,
+        noPhonesFilter: mercantilNoPhonesFilter, setNoPhonesFilter: setMercantilNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: mercantilBirthMonthFilter, setBirthMonthFilter: setMercantilBirthMonthFilter,
         fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
@@ -996,6 +1032,8 @@ const Dashboard = () => {
         onNamesMassFilterChange={ui.setNamesMassFilter}
         phonesMassFilter={ui.phonesMassFilter}
         onPhonesMassFilterChange={ui.setPhonesMassFilter}
+        noPhonesFilter={ui.noPhonesFilter}
+        onNoPhonesFilterChange={ui.setNoPhonesFilter}
         birthMonthFilter={ui.birthMonthFilter}
         onBirthMonthFilterChange={ui.setBirthMonthFilter}
         onApplyFilters={handleApplyFilters}

@@ -49,6 +49,12 @@ final class LeadExportColumns
             'not_found' => ['label' => 'CLT Não Encontrado', 'formatter' => 'bool_ptbr'],
             'clt_consultado_em' => ['label' => 'CLT Data consulta', 'formatter' => 'date_only'],
             'clt_dados_atualizados_em' => ['label' => 'CLT Data dados', 'formatter' => 'date_only'],
+            'politica_credito_aprovado' => ['label' => 'CLT Política de crédito aprovada', 'formatter' => 'bool_ptbr'],
+            'politica_credito_mensagem' => ['label' => 'CLT Política de crédito mensagem', 'formatter' => 'raw'],
+            'politica_credito_valor_maximo_disponivel' => ['label' => 'CLT Política de crédito valor máximo disponível (R$)', 'formatter' => 'float'],
+            'politica_credito_prazo_maximo_disponivel' => ['label' => 'CLT Política de crédito prazo máximo disponível', 'formatter' => 'int'],
+            'politica_credito_data_consulta' => ['label' => 'CLT Política de crédito data consulta', 'formatter' => 'date'],
+            'politica_credito_tabela_aprovada' => ['label' => 'CLT Política de crédito tabela aprovada', 'formatter' => 'raw'],
 
             'mercantil_status' => ['label' => 'Mercantil Status', 'formatter' => 'raw'],
             'mercantil_mensagem_erro' => ['label' => 'Mercantil Mensagem', 'formatter' => 'raw'],

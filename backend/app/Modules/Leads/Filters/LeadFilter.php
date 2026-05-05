@@ -31,7 +31,13 @@ class LeadFilter
             'inicio_atividade_empregador',
             'qtd_emprestimos_ativos_suspensos',
             'emprestimos_legados',
-            'not_found'
+            'not_found',
+            'politica_credito_aprovado',
+            'politica_credito_mensagem',
+            'politica_credito_valor_maximo_disponivel',
+            'politica_credito_prazo_maximo_disponivel',
+            'politica_credito_data_consulta',
+            'politica_credito_tabela_aprovada',
         ];
 
         $mercantilFields = [
@@ -306,6 +312,12 @@ class LeadFilter
                     DB::raw('cs.qtd_emprestimos_ativos_suspensos as qtd_emprestimos_ativos_suspensos'),
                     DB::raw('cs.emprestimos_legados as emprestimos_legados'),
                     DB::raw('cs.not_found as not_found'),
+                    DB::raw('cs.politica_credito_aprovado as politica_credito_aprovado'),
+                    DB::raw('cs.politica_credito_mensagem as politica_credito_mensagem'),
+                    DB::raw('cs.politica_credito_valor_maximo_disponivel as politica_credito_valor_maximo_disponivel'),
+                    DB::raw('cs.politica_credito_prazo_maximo_disponivel as politica_credito_prazo_maximo_disponivel'),
+                    DB::raw('cs.politica_credito_data_consulta as politica_credito_data_consulta'),
+                    DB::raw('cs.politica_credito_tabela_aprovada as politica_credito_tabela_aprovada'),
                     DB::raw('cs.consulted_at as clt_consultado_em'),
                     DB::raw('cs.updated_at as clt_dados_atualizados_em'),
 
@@ -397,6 +409,16 @@ class LeadFilter
         self::applyMassFilter($query, $r, 'cpf', ['leads.cpf']);
         self::applyMassFilter($query, $r, 'names', ['leads.nome']);
         self::applyMassFilter($query, $r, 'phones', ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4']);
+        if ($r->boolean('without_phones')) {
+            $query->whereRaw("
+                COALESCE(
+                    NULLIF(TRIM(leads.fone1), ''),
+                    NULLIF(TRIM(leads.fone2), ''),
+                    NULLIF(TRIM(leads.fone3), ''),
+                    NULLIF(TRIM(leads.fone4), '')
+                ) IS NULL
+            ");
+        }
 
         $birth = self::requestList($r, 'birth_month');
         self::applyBirthMonthFilter($query, $birth);

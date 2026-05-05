@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { X, Filter, Check, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -28,6 +29,7 @@ interface FiltersModalProps {
   cpfMassFilter: string
   namesMassFilter: string
   phonesMassFilter: string
+  noPhonesFilter: boolean
   dateFromFilter: string
   dateToFilter: string
   higienizacaoFilter: string[]
@@ -46,6 +48,7 @@ interface FiltersModalProps {
   onCpfMassFilterChange: (v: string) => void
   onNamesMassFilterChange: (v: string) => void
   onPhonesMassFilterChange: (v: string) => void
+  onNoPhonesFilterChange: (v: boolean) => void
   onDateFromFilterChange: (v: string) => void
   onDateToFilterChange: (v: string) => void
   onHigienizacaoFilterChange: (values: string[]) => void
@@ -276,6 +279,7 @@ export const FiltersModal = ({
   cpfMassFilter,
   namesMassFilter,
   phonesMassFilter,
+  noPhonesFilter,
   dateFromFilter,
   dateToFilter,
   higienizacaoFilter,
@@ -293,6 +297,7 @@ export const FiltersModal = ({
   onCpfMassFilterChange,
   onNamesMassFilterChange,
   onPhonesMassFilterChange,
+  onNoPhonesFilterChange,
   onDateFromFilterChange,
   onDateToFilterChange,
   onHigienizacaoFilterChange,
@@ -395,6 +400,7 @@ export const FiltersModal = ({
   const [localCpfMass, setLocalCpfMass] = useState(cpfMassFilter)
   const [localNamesMass, setLocalNamesMass] = useState(namesMassFilter)
   const [localPhonesMass, setLocalPhonesMass] = useState(phonesMassFilter)
+  const [localNoPhones, setLocalNoPhones] = useState(noPhonesFilter)
   const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
@@ -456,6 +462,7 @@ export const FiltersModal = ({
     setLocalCpfMass(cpfMassFilter)
     setLocalNamesMass(namesMassFilter)
     setLocalPhonesMass(phonesMassFilter)
+    setLocalNoPhones(noPhonesFilter)
     setLocalDateFrom(dateFromFilter)
     setLocalDateTo(dateToFilter)
     setLocalHigienizacao(higienizacaoFilter)
@@ -515,6 +522,7 @@ export const FiltersModal = ({
     cpfMassFilter,
     namesMassFilter,
     phonesMassFilter,
+    noPhonesFilter,
     dateFromFilter,
     dateToFilter,
     higienizacaoFilter,
@@ -558,6 +566,7 @@ export const FiltersModal = ({
     onCpfMassFilterChange(localCpfMass.trim())
     onNamesMassFilterChange(localNamesMass.trim())
     onPhonesMassFilterChange(localPhonesMass.trim())
+    onNoPhonesFilterChange(localNoPhones)
     onDateFromFilterChange(localDateFrom)
     onDateToFilterChange(localDateTo)
     onHigienizacaoFilterChange(localHigienizacao)
@@ -633,6 +642,7 @@ export const FiltersModal = ({
   const isFgtsStatusActive = localFgtsAuthorized !== "todos"
   const isFgtsPeriodActive = any([localFgtsFrom, localFgtsTo])
   const isMassActive = any([localCpfMass, localNamesMass, localPhonesMass])
+  const isNoPhonesActive = localNoPhones
 
   // CLT actives
   const actCltSituacao =
@@ -670,6 +680,7 @@ export const FiltersModal = ({
   const chips: string[] = []
   if (isSearchActive) chips.push("Pesquisa")
   if (isOrigensActive) chips.push(`Origem (${localOrigens.length})`)
+  if (isNoPhonesActive) chips.push("Sem telefone")
   if (mode === "FGTS") {
     if (isMotivosActive) chips.push(`Motivos (${localMotivos.length})`)
     if (isHigienizacaoActive) chips.push(`Higienização (${localHigienizacao.length})`)
@@ -784,6 +795,24 @@ export const FiltersModal = ({
             </div>
 
             {/* Aniversário */}
+            <div>
+              <Section title="Telefones" description="Mostra só leads sem nenhum telefone cadastrado." active={isNoPhonesActive}>
+                <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
+                  <Checkbox
+                    checked={localNoPhones}
+                    onCheckedChange={(checked) => setLocalNoPhones(!!checked)}
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-1">
+                    <div className={cn("text-sm font-medium", isNoPhonesActive ? "text-blue-700" : "text-gray-800")}>
+                      Sem nenhum telefone
+                    </div>
+                    <p className="text-xs text-gray-500">Considera `fone1` a `fone4` vazios.</p>
+                  </div>
+                </label>
+              </Section>
+            </div>
+
             <div>
               <Section title="Aniversário" description="Selecione um ou mais meses." active={isBirthActive}>
                 <div>

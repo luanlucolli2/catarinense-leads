@@ -83,6 +83,12 @@ const COLUMNS_CLT: ColumnDef[] = [
   { id: "qtd_emprestimos_ativos_suspensos", label: "Empréstimos ativos/suspensos", selected: true, group: "Produto" },
   { id: "emprestimos_legados", label: "Empréstimos legados", selected: true, group: "Produto" },
   { id: "not_found", label: "Não encontrado", selected: true, group: "Produto" },
+  { id: "politica_credito_aprovado", label: "Política de crédito aprovada", selected: true, group: "Produto" },
+  { id: "politica_credito_mensagem", label: "Política de crédito mensagem", selected: true, group: "Produto" },
+  { id: "politica_credito_valor_maximo_disponivel", label: "Política de crédito valor máximo disponível", selected: true, group: "Produto" },
+  { id: "politica_credito_prazo_maximo_disponivel", label: "Política de crédito prazo máximo disponível", selected: true, group: "Produto" },
+  { id: "politica_credito_data_consulta", label: "Política de crédito data consulta", selected: true, group: "Produto" },
+  { id: "politica_credito_tabela_aprovada", label: "Política de crédito tabela aprovada", selected: true, group: "Produto" },
 
   // Registro
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },

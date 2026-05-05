@@ -1775,20 +1775,57 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             if (empty($payload))
                 return;
 
+            $uniqueCpfs = array_values(array_unique($cpfs));
+            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
+
             $leadMap = DB::table('leads')
-                ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->pluck('id', 'cpf');
+                ->whereIn('cpf', $uniqueCpfs)
+                ->pluck('id', 'cpf')
+                ->all();
+
+            $leadsToInsert = [];
+            foreach ($payload as $row) {
+                if (!empty($row['not_found'])) {
+                    continue;
+                }
+
+                $cpf = (string) ($row['cpf'] ?? '');
+                if ($cpf === '' || isset($leadMap[$cpf]) || isset($leadsToInsert[$cpf])) {
+                    continue;
+                }
+
+                $nome = trim((string) ($row['nome'] ?? ''));
+                $leadsToInsert[$cpf] = [
+                    'cpf' => $cpf,
+                    'nome' => $nome !== '' ? $nome : null,
+                    'data_nascimento' => $row['data_nascimento'] ?? null,
+                    'created_at' => $nowUtc,
+                    'updated_at' => $nowUtc,
+                ];
+            }
+
+            if (!empty($leadsToInsert)) {
+                DB::table('leads')->insertOrIgnore(array_values($leadsToInsert));
+
+                foreach (
+                    DB::table('leads')
+                        ->whereIn('cpf', array_keys($leadsToInsert))
+                        ->pluck('id', 'cpf')
+                        ->all() as $leadCpf => $leadId
+                ) {
+                    $leadMap[$leadCpf] = $leadId;
+                }
+            }
 
             foreach ($payload as &$row) {
                 $row['lead_id'] = $leadMap[$row['cpf']] ?? null;
             }
             unset($row);
 
-            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
             $existing = collect();
             if ($needsExistingLookup) {
                 $existing = DB::table('clt_snapshots')
-                    ->whereIn('cpf', array_values(array_unique($cpfs)))
+                    ->whereIn('cpf', $uniqueCpfs)
                     ->select('cpf', 'updated_at', 'not_found')
                     ->get()
                     ->keyBy('cpf');
