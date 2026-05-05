@@ -1137,6 +1137,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'sexo' => $best['sexo_descricao'] ?? null,
                     'data_adm' => $this->parseDateFlexible($best['dataAdmissao'] ?? null),
                     'meses_adm' => $this->computeTempoAdmissaoMeses($best['dataAdmissao'] ?? null, $best['dataDesligamento'] ?? null),
+                    'matricula' => $best['matricula'] ?? null,
                     'valor_renda' => $this->toFloatSmart($best['valorTotalVencimentos'] ?? null),
                     'valor_base' => $this->toFloatSmart($best['valorBaseMargem'] ?? null),
                     'margem_disp' => $margemFloat,
@@ -1747,6 +1748,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                     'data_admissao' => $r['data_adm'] ?? null,
                     'meses_admissao' => $r['meses_adm'] ?? null,
+                    'matricula' => $r['matricula'] ?? null,
 
                     'valor_renda' => $r['valor_renda'] ?? null,
                     'valor_base_margem' => $r['valor_base'] ?? null,
@@ -1858,6 +1860,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         'sexo',
                         'data_admissao',
                         'meses_admissao',
+                        'matricula',
                         'valor_renda',
                         'valor_base_margem',
                         'margem_disponivel',
@@ -3078,7 +3081,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return false;
         }
 
-        return $this->simNaoToBool($row['elegivel'] ?? null) === true;
+        return $this->simNaoToBool($row['elegivel'] ?? null) === true
+            && $this->hasCreditPhaseMinimumAvailableMargin($row);
+    }
+
+    private function hasCreditPhaseMinimumAvailableMargin(array $row): bool
+    {
+        $margemDisponivel = $this->toFloatSmart($row['valorMargemDisponivel'] ?? null);
+
+        return $margemDisponivel !== null && $margemDisponivel > 30.0;
     }
 
     private function isCreditApprovedFlag($val): bool

@@ -23,6 +23,7 @@ class CltSnapshot extends Model
         'sexo',
         'data_admissao',
         'meses_admissao',
+        'matricula',
         'valor_renda',
         'valor_base_margem',
         'margem_disponivel',
