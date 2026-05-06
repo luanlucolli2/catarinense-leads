@@ -92,6 +92,12 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "valor_base_margem", label: "Base de margem", group: "Produto" },
     { id: "margem_disponivel", label: "Margem disponível", group: "Produto" },
     { id: "valor_max_prestacao", label: "Prestação máxima", group: "Produto" },
+    { id: "politica_credito_aprovado", label: "Política crédito aprovada", group: "Produto" },
+    { id: "politica_credito_mensagem", label: "Política crédito mensagem", group: "Produto" },
+    { id: "politica_credito_valor_maximo_disponivel", label: "Política crédito valor máx.", group: "Produto" },
+    { id: "politica_credito_prazo_maximo_disponivel", label: "Política crédito prazo máx.", group: "Produto" },
+    { id: "politica_credito_data_consulta", label: "Política crédito data consulta", group: "Produto" },
+    { id: "politica_credito_tabela_aprovada", label: "Política crédito tabela", group: "Produto" },
     { id: "qtd_emprestimos_ativos_suspensos", label: "Empréstimos ativos/suspensos", group: "Produto" },
     { id: "emprestimos_legados", label: "Empréstimos legados", group: "Produto" },
 

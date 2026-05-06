@@ -53,6 +53,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $statusCheckIntervalMs;
     private float $lastStatusCheckAt = 0.0;
     private ?string $cachedStatus = null;
+    private ?int $cachedRunToken = null;
+    private int $runToken = 1;
 
     private int $accEligible = 0;
     private int $accIneligible = 0;
@@ -100,7 +102,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase2PendingFlushEveryRows;
     /** @var array<int,string> */
     private array $phase2PendingBuffer = [];
+    /** @var array<string,array<string,mixed>> */
+    private array $phase2SnapshotBuffer = [];
     private bool $phase2CpfValidationAuditLogEnabled;
+    private bool $stoppedByRunTokenHandoff = false;
     /**
      * Acumulador de requests por linha da fase 2.
      *
@@ -167,6 +172,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // variante para snapshots
         $this->variant = CltVariant::normalizeStored($job->variant);
         $this->cachedStatus = $job->status;
+        $this->cachedRunToken = (int) ($job->run_token ?? 1);
+        $this->runToken = (int) ($job->run_token ?? 1);
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $this->variant === 'offline'
@@ -232,6 +239,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
 
             if (!$this->runCreditPhaseTwo($api, $job)) {
+                if ($this->stoppedByRunTokenHandoff) {
+                    return;
+                }
+
                 $statusAfterPhaseTwo = $this->currentStatusCached($job->id, true);
                 if ($statusAfterPhaseTwo === null || in_array($statusAfterPhaseTwo, ['pausado', 'cancelado', 'falhou', 'concluido'], true)) {
                     return;
@@ -1137,6 +1148,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     'sexo' => $best['sexo_descricao'] ?? null,
                     'data_adm' => $this->parseDateFlexible($best['dataAdmissao'] ?? null),
                     'meses_adm' => $this->computeTempoAdmissaoMeses($best['dataAdmissao'] ?? null, $best['dataDesligamento'] ?? null),
+                    'matricula' => $best['matricula'] ?? null,
                     'valor_renda' => $this->toFloatSmart($best['valorTotalVencimentos'] ?? null),
                     'valor_base' => $this->toFloatSmart($best['valorBaseMargem'] ?? null),
                     'margem_disp' => $margemFloat,
@@ -1747,6 +1759,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
                     'data_admissao' => $r['data_adm'] ?? null,
                     'meses_admissao' => $r['meses_adm'] ?? null,
+                    'matricula' => $r['matricula'] ?? null,
 
                     'valor_renda' => $r['valor_renda'] ?? null,
                     'valor_base_margem' => $r['valor_base'] ?? null,
@@ -1771,20 +1784,57 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             if (empty($payload))
                 return;
 
+            $uniqueCpfs = array_values(array_unique($cpfs));
+            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
+
             $leadMap = DB::table('leads')
-                ->whereIn('cpf', array_values(array_unique($cpfs)))
-                ->pluck('id', 'cpf');
+                ->whereIn('cpf', $uniqueCpfs)
+                ->pluck('id', 'cpf')
+                ->all();
+
+            $leadsToInsert = [];
+            foreach ($payload as $row) {
+                if (!empty($row['not_found'])) {
+                    continue;
+                }
+
+                $cpf = (string) ($row['cpf'] ?? '');
+                if ($cpf === '' || isset($leadMap[$cpf]) || isset($leadsToInsert[$cpf])) {
+                    continue;
+                }
+
+                $nome = trim((string) ($row['nome'] ?? ''));
+                $leadsToInsert[$cpf] = [
+                    'cpf' => $cpf,
+                    'nome' => $nome !== '' ? $nome : null,
+                    'data_nascimento' => $row['data_nascimento'] ?? null,
+                    'created_at' => $nowUtc,
+                    'updated_at' => $nowUtc,
+                ];
+            }
+
+            if (!empty($leadsToInsert)) {
+                DB::table('leads')->insertOrIgnore(array_values($leadsToInsert));
+
+                foreach (
+                    DB::table('leads')
+                        ->whereIn('cpf', array_keys($leadsToInsert))
+                        ->pluck('id', 'cpf')
+                        ->all() as $leadCpf => $leadId
+                ) {
+                    $leadMap[$leadCpf] = $leadId;
+                }
+            }
 
             foreach ($payload as &$row) {
                 $row['lead_id'] = $leadMap[$row['cpf']] ?? null;
             }
             unset($row);
 
-            $nowUtc = Carbon::now('UTC')->format('Y-m-d H:i:s');
             $existing = collect();
             if ($needsExistingLookup) {
                 $existing = DB::table('clt_snapshots')
-                    ->whereIn('cpf', array_values(array_unique($cpfs)))
+                    ->whereIn('cpf', $uniqueCpfs)
                     ->select('cpf', 'updated_at', 'not_found')
                     ->get()
                     ->keyBy('cpf');
@@ -1858,6 +1908,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                         'sexo',
                         'data_admissao',
                         'meses_admissao',
+                        'matricula',
                         'valor_renda',
                         'valor_base_margem',
                         'margem_disponivel',
@@ -1973,6 +2024,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2DeltaBuffer = [];
         $this->resetPhaseTwoDeltaFile();
         $this->resetPhaseTwoPendingFiles();
+        $this->phase2SnapshotBuffer = [];
         $this->phase2LastAttemptProcessed = 0;
         $this->phase2CpfValidationAuditReqByLine = [];
 
@@ -1985,6 +2037,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         if ($phase2PendingCount === 0) {
+            $this->flushPhase2SnapshotBuffer(true);
             $this->flushPhaseTwoProgress($job, 0, $phase2Total, $phase2ApprovedCount, $phase2NotApprovedCount, true);
             $this->removePhaseTwoDeltaFile();
             $this->removePhaseTwoPendingFiles();
@@ -2040,6 +2093,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $phase2NotApprovedCount += $markedAsAborted;
                 }
 
+                $this->flushPhase2SnapshotBuffer(true);
                 $this->flushPhaseTwoProgress(
                     $job,
                     $attempt,
@@ -2071,6 +2125,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->updateTotalsThrottled($job, [], true);
 
             if ($pendingCount === 0) {
+                $this->flushPhase2SnapshotBuffer(true);
                 if (!$this->applyPhase2DeltaToSpool($job)) {
                     return false;
                 }
@@ -2080,6 +2135,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($attempt >= $this->phase2MaxAttempts) {
+                $this->flushPhase2SnapshotBuffer(true);
                 if (!$this->applyPhase2DeltaToSpool($job)) {
                     return false;
                 }
@@ -2088,12 +2144,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 return true;
             }
 
+            $this->flushPhase2SnapshotBuffer(true);
             if ($this->cooperativeSleep($this->phase2RetryDelaySeconds, $job)) {
                 return false;
             }
             $usePendingSource = true;
         }
 
+        $this->flushPhase2SnapshotBuffer(true);
         $this->removePhaseTwoDeltaFile();
         $this->removePhaseTwoPendingFiles();
         return true;
@@ -2182,6 +2240,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     $row = $creditOutcome['row'];
+                    $this->queuePhase2SnapshotRow($row);
                     $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
@@ -2283,6 +2342,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     $row = $creditOutcome['row'];
+                    $this->queuePhase2SnapshotRow($row);
                     $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
@@ -3024,6 +3084,107 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     /**
+     * @param array<string,mixed> $row
+     */
+    private function queuePhase2SnapshotRow(array $row): void
+    {
+        if ($this->isPhaseTwoRowPending($row)) {
+            return;
+        }
+
+        $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
+        if (!is_string($cpf) || strlen($cpf) !== 11) {
+            return;
+        }
+
+        $mensagem = $row['politicaCreditoMensagem'] ?? null;
+        $mensagem = is_string($mensagem) ? trim($mensagem) : ($mensagem !== null ? trim((string) $mensagem) : null);
+        if ($mensagem === '') {
+            $mensagem = null;
+        }
+
+        $tabelaAprovada = $row['politicaCreditoTabelaAprovada'] ?? null;
+        $tabelaAprovada = is_string($tabelaAprovada) ? trim($tabelaAprovada) : ($tabelaAprovada !== null ? trim((string) $tabelaAprovada) : null);
+        if ($tabelaAprovada === '') {
+            $tabelaAprovada = null;
+        }
+
+        $dataConsulta = $row['politicaCreditoDataConsulta'] ?? null;
+        $dataConsulta = is_string($dataConsulta) ? trim($dataConsulta) : ($dataConsulta !== null ? trim((string) $dataConsulta) : null);
+        if ($dataConsulta === '') {
+            $dataConsulta = null;
+        }
+
+        $prazoMaximo = null;
+        $prazoRaw = $row['politicaCreditoPrazoMaximoDisponivel'] ?? null;
+        if ($prazoRaw !== null) {
+            $prazoStr = preg_replace('/[^\d\-+]/', '', trim((string) $prazoRaw));
+            if (is_string($prazoStr) && $prazoStr !== '' && is_numeric($prazoStr)) {
+                $prazoInt = (int) $prazoStr;
+                if ($prazoInt >= 0) {
+                    $prazoMaximo = $prazoInt;
+                }
+            }
+        }
+
+        $this->phase2SnapshotBuffer[$cpf] = [
+            'cpf' => $cpf,
+            'politica_credito_aprovado' => $this->simNaoToBool($row['politicaCreditoAprovado'] ?? null),
+            'politica_credito_mensagem' => $mensagem,
+            'politica_credito_valor_maximo_disponivel' => $this->toFloatSmart($row['politicaCreditoValorMaximoDisponivel'] ?? null),
+            'politica_credito_prazo_maximo_disponivel' => $prazoMaximo,
+            'politica_credito_data_consulta' => $dataConsulta,
+            'politica_credito_tabela_aprovada' => $tabelaAprovada,
+            'job_id' => $this->jobId,
+        ];
+
+        $this->flushPhase2SnapshotBuffer(false);
+    }
+
+    private function flushPhase2SnapshotBuffer(bool $force): void
+    {
+        if (empty($this->phase2SnapshotBuffer)) {
+            return;
+        }
+
+        if (!$force && count($this->phase2SnapshotBuffer) < $this->snapBufferFlush) {
+            return;
+        }
+
+        try {
+            $rows = array_values($this->phase2SnapshotBuffer);
+            $cpfs = array_values(array_unique(array_column($rows, 'cpf')));
+
+            $leadMap = DB::table('leads')
+                ->whereIn('cpf', $cpfs)
+                ->pluck('id', 'cpf');
+
+            foreach ($rows as &$row) {
+                $row['lead_id'] = $leadMap[$row['cpf']] ?? null;
+            }
+            unset($row);
+
+            DB::table('clt_snapshots')->upsert(
+                $rows,
+                ['cpf'],
+                [
+                    'politica_credito_aprovado',
+                    'politica_credito_mensagem',
+                    'politica_credito_valor_maximo_disponivel',
+                    'politica_credito_prazo_maximo_disponivel',
+                    'politica_credito_data_consulta',
+                    'politica_credito_tabela_aprovada',
+                    'job_id',
+                ]
+            );
+
+            $this->phase2SnapshotBuffer = [];
+        } catch (\Throwable $e) {
+            CltLog::warning("[CLT] Upsert snapshots da fase 2 falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
+        }
+    }
+
+    /**
      * @param array<string,mixed> $decoded
      * @return array<string,mixed>|null
      */
@@ -3078,7 +3239,15 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return false;
         }
 
-        return $this->simNaoToBool($row['elegivel'] ?? null) === true;
+        return $this->simNaoToBool($row['elegivel'] ?? null) === true
+            && $this->hasCreditPhaseMinimumAvailableMargin($row);
+    }
+
+    private function hasCreditPhaseMinimumAvailableMargin(array $row): bool
+    {
+        $margemDisponivel = $this->toFloatSmart($row['valorMargemDisponivel'] ?? null);
+
+        return $margemDisponivel !== null && $margemDisponivel > 30.0;
     }
 
     private function isCreditApprovedFlag($val): bool
@@ -3297,7 +3466,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true;
         }
 
+        if (($this->cachedRunToken ?? $this->runToken) !== $this->runToken) {
+            $this->handleRunTokenChanged($job, $status);
+            return true;
+        }
+
         if ($status === 'cancelado') {
+            $this->flushPhase2SnapshotBuffer(true);
             $this->flushPhase2DeltaBuffer(true);
             $this->flushPhase2PendingBuffer(true);
             $this->closeSpoolWriter();
@@ -3315,9 +3490,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return false;
     }
 
-    private function currentStatus(int $id): ?string
+    private function currentControl(int $id): ?object
     {
-        return DB::table('clt_consult_jobs')->where('id', $id)->value('status');
+        return DB::table('clt_consult_jobs')
+            ->where('id', $id)
+            ->select('status', 'run_token')
+            ->first();
     }
 
     private function currentStatusCached(int $id, bool $force = false): ?string
@@ -3327,11 +3505,55 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $expired = ($now - $this->lastStatusCheckAt) >= $intervalSecs;
 
         if ($force || $this->lastStatusCheckAt <= 0.0 || $expired) {
-            $this->cachedStatus = $this->currentStatus($id);
+            $control = $this->currentControl($id);
+            $this->cachedStatus = is_object($control) ? ($control->status ?? null) : null;
+            $this->cachedRunToken = is_object($control) ? (int) ($control->run_token ?? 1) : null;
             $this->lastStatusCheckAt = $now;
         }
 
         return $this->cachedStatus;
+    }
+
+    private function handleRunTokenChanged(CltConsultJob $job, ?string $status): void
+    {
+        if (in_array($status, ['pendente', 'em_progresso'], true)) {
+            $this->stopSupersededExecution($job, $status);
+            return;
+        }
+
+        $this->pauseCurrentJob($job);
+
+        CltLog::info("[CLT] Job {$this->jobId} interrompido por troca de token.", [
+            'stage' => $this->stage,
+            'status' => $status,
+            'from_token' => $this->runToken,
+            'to_token' => $this->cachedRunToken,
+        ]);
+    }
+
+    private function stopSupersededExecution(CltConsultJob $job, ?string $status): void
+    {
+        $this->stoppedByRunTokenHandoff = true;
+        $this->flushPhase2SnapshotBuffer(true);
+        $this->flushPhase2DeltaBuffer(true);
+        $this->flushPhase2PendingBuffer(true);
+        $this->closeSpoolWriter();
+
+        if ($status === 'pendente') {
+            DispatchCltConsultJob::dispatch($job->id, $this->stage)
+                ->delay(now()->addSeconds(2))
+                ->onQueue($this->stage === self::STAGE_PHASE2
+                    ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+                    : $this->resolvePhaseOneQueue());
+        }
+
+        CltLog::info("[CLT] Job {$this->jobId} interrompido por execução mais nova.", [
+            'stage' => $this->stage,
+            'status' => $status,
+            'from_token' => $this->runToken,
+            'to_token' => $this->cachedRunToken,
+            'redispatched' => $status === 'pendente',
+        ]);
     }
 
     private function isCancelled(CltConsultJob $job): bool
@@ -3390,6 +3612,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function pauseCurrentJob(CltConsultJob $job): void
     {
+        $this->flushPhase2SnapshotBuffer(true);
         $this->flushPhase2DeltaBuffer(true);
         $this->flushPhase2PendingBuffer(true);
         $this->closeSpoolWriter();
@@ -3446,6 +3669,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function preserveCancelledSpool(CltConsultJob $job): void
     {
+        $this->flushPhase2SnapshotBuffer(true);
         $disk = Storage::disk($this->disk);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
         $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
@@ -3865,16 +4089,33 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     public function failed(Throwable $e): void
     {
-        CltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
-            'exception' => $e,
-        ]);
-
         try {
             $job = CltConsultJob::query()->whereKey($this->jobId)->first();
             if ($job === null) {
                 $this->deletePendFiles();
                 return;
             }
+
+            if ((int) ($job->run_token ?? 1) !== $this->runToken) {
+                $this->flushPhase2SnapshotBuffer(true);
+                $this->flushPhase2DeltaBuffer(true);
+                $this->flushPhase2PendingBuffer(true);
+                $this->closeSpoolWriter();
+                $this->deletePendFiles();
+
+                CltLog::info("[CLT] Failed ignorado em execução substituída por token mais novo.", [
+                    'job_id' => $this->jobId,
+                    'stage' => $this->stage,
+                    'from_token' => $this->runToken,
+                    'to_token' => (int) ($job->run_token ?? 1),
+                    'status' => $job->status,
+                ]);
+                return;
+            }
+
+            CltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
 
             if ($job->status === 'cancelado') {
                 $this->flushPhase2DeltaBuffer(true);
@@ -3951,6 +4192,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
             ]);
             $this->cachedStatus = 'em_progresso';
+            $this->cachedRunToken = (int) ($job->run_token ?? $this->runToken);
+            $this->runToken = (int) ($job->run_token ?? $this->runToken);
 
             return true;
         } finally {

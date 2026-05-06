@@ -35,6 +35,8 @@ interface LeadsControlsProps {
   onNamesMassFilterChange: (value: string) => void;
   phonesMassFilter: string;
   onPhonesMassFilterChange: (value: string) => void;
+  noPhonesFilter: boolean;
+  onNoPhonesFilterChange: (value: boolean) => void;
 
   dateFromFilter: string;
   onDateFromFilterChange: (value: string) => void;
@@ -192,6 +194,8 @@ export const LeadsControls = ({
   onNamesMassFilterChange,
   phonesMassFilter,
   onPhonesMassFilterChange,
+  noPhonesFilter,
+  onNoPhonesFilterChange,
   dateFromFilter,
   onDateFromFilterChange,
   dateToFilter,
@@ -458,6 +462,8 @@ export const LeadsControls = ({
         onNamesMassFilterChange={onNamesMassFilterChange}
         phonesMassFilter={phonesMassFilter}
         onPhonesMassFilterChange={onPhonesMassFilterChange}
+        noPhonesFilter={noPhonesFilter}
+        onNoPhonesFilterChange={onNoPhonesFilterChange}
         dateFromFilter={dateFromFilter}
         onDateFromFilterChange={onDateFromFilterChange}
         dateToFilter={dateToFilter}
