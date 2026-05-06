@@ -378,10 +378,16 @@ class CltConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        $job->update([
-            'status' => 'pausado',
-            'paused_at' => now(),
-        ]);
+        DB::table('clt_consult_jobs')
+            ->where('id', $job->id)
+            ->update([
+                'status' => 'pausado',
+                'paused_at' => now(),
+                'run_token' => DB::raw('COALESCE(run_token, 0) + 1'),
+                'updated_at' => now(),
+            ]);
+
+        $job->refresh();
 
         return response()->json([
             'id' => $job->id,

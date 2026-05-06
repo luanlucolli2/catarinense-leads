@@ -11,6 +11,7 @@ class CltConsultJob extends Model
     protected $fillable = [
         'user_id','title','status','variant',
         'phase',
+        'run_token',
         'phase2_total','phase2_attempt',
         'phase2_aprovado_count','phase2_nao_aprovado_count',
         'total_cpfs','elegivel_count','inelegivel_count','not_found_count','fail_count',
@@ -28,6 +29,7 @@ class CltConsultJob extends Model
         'scheduled_for'=> 'datetime',
         'phase2_total' => 'integer',
         'phase2_attempt' => 'integer',
+        'run_token' => 'integer',
         'phase2_aprovado_count' => 'integer',
         'phase2_nao_aprovado_count' => 'integer',
         'elegivel_count' => 'integer',

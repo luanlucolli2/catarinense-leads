@@ -53,6 +53,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $statusCheckIntervalMs;
     private float $lastStatusCheckAt = 0.0;
     private ?string $cachedStatus = null;
+    private ?int $cachedRunToken = null;
+    private int $runToken = 1;
 
     private int $accEligible = 0;
     private int $accIneligible = 0;
@@ -103,6 +105,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /** @var array<string,array<string,mixed>> */
     private array $phase2SnapshotBuffer = [];
     private bool $phase2CpfValidationAuditLogEnabled;
+    private bool $stoppedByRunTokenHandoff = false;
     /**
      * Acumulador de requests por linha da fase 2.
      *
@@ -169,6 +172,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // variante para snapshots
         $this->variant = CltVariant::normalizeStored($job->variant);
         $this->cachedStatus = $job->status;
+        $this->cachedRunToken = (int) ($job->run_token ?? 1);
+        $this->runToken = (int) ($job->run_token ?? 1);
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $this->variant === 'offline'
@@ -234,6 +239,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
 
             if (!$this->runCreditPhaseTwo($api, $job)) {
+                if ($this->stoppedByRunTokenHandoff) {
+                    return;
+                }
+
                 $statusAfterPhaseTwo = $this->currentStatusCached($job->id, true);
                 if ($statusAfterPhaseTwo === null || in_array($statusAfterPhaseTwo, ['pausado', 'cancelado', 'falhou', 'concluido'], true)) {
                     return;
@@ -3457,6 +3466,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true;
         }
 
+        if (($this->cachedRunToken ?? $this->runToken) !== $this->runToken) {
+            $this->handleRunTokenChanged($job, $status);
+            return true;
+        }
+
         if ($status === 'cancelado') {
             $this->flushPhase2SnapshotBuffer(true);
             $this->flushPhase2DeltaBuffer(true);
@@ -3476,9 +3490,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return false;
     }
 
-    private function currentStatus(int $id): ?string
+    private function currentControl(int $id): ?object
     {
-        return DB::table('clt_consult_jobs')->where('id', $id)->value('status');
+        return DB::table('clt_consult_jobs')
+            ->where('id', $id)
+            ->select('status', 'run_token')
+            ->first();
     }
 
     private function currentStatusCached(int $id, bool $force = false): ?string
@@ -3488,11 +3505,55 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $expired = ($now - $this->lastStatusCheckAt) >= $intervalSecs;
 
         if ($force || $this->lastStatusCheckAt <= 0.0 || $expired) {
-            $this->cachedStatus = $this->currentStatus($id);
+            $control = $this->currentControl($id);
+            $this->cachedStatus = is_object($control) ? ($control->status ?? null) : null;
+            $this->cachedRunToken = is_object($control) ? (int) ($control->run_token ?? 1) : null;
             $this->lastStatusCheckAt = $now;
         }
 
         return $this->cachedStatus;
+    }
+
+    private function handleRunTokenChanged(CltConsultJob $job, ?string $status): void
+    {
+        if (in_array($status, ['pendente', 'em_progresso'], true)) {
+            $this->stopSupersededExecution($job, $status);
+            return;
+        }
+
+        $this->pauseCurrentJob($job);
+
+        CltLog::info("[CLT] Job {$this->jobId} interrompido por troca de token.", [
+            'stage' => $this->stage,
+            'status' => $status,
+            'from_token' => $this->runToken,
+            'to_token' => $this->cachedRunToken,
+        ]);
+    }
+
+    private function stopSupersededExecution(CltConsultJob $job, ?string $status): void
+    {
+        $this->stoppedByRunTokenHandoff = true;
+        $this->flushPhase2SnapshotBuffer(true);
+        $this->flushPhase2DeltaBuffer(true);
+        $this->flushPhase2PendingBuffer(true);
+        $this->closeSpoolWriter();
+
+        if ($status === 'pendente') {
+            DispatchCltConsultJob::dispatch($job->id, $this->stage)
+                ->delay(now()->addSeconds(2))
+                ->onQueue($this->stage === self::STAGE_PHASE2
+                    ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+                    : $this->resolvePhaseOneQueue());
+        }
+
+        CltLog::info("[CLT] Job {$this->jobId} interrompido por execução mais nova.", [
+            'stage' => $this->stage,
+            'status' => $status,
+            'from_token' => $this->runToken,
+            'to_token' => $this->cachedRunToken,
+            'redispatched' => $status === 'pendente',
+        ]);
     }
 
     private function isCancelled(CltConsultJob $job): bool
@@ -4028,16 +4089,33 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     public function failed(Throwable $e): void
     {
-        CltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
-            'exception' => $e,
-        ]);
-
         try {
             $job = CltConsultJob::query()->whereKey($this->jobId)->first();
             if ($job === null) {
                 $this->deletePendFiles();
                 return;
             }
+
+            if ((int) ($job->run_token ?? 1) !== $this->runToken) {
+                $this->flushPhase2SnapshotBuffer(true);
+                $this->flushPhase2DeltaBuffer(true);
+                $this->flushPhase2PendingBuffer(true);
+                $this->closeSpoolWriter();
+                $this->deletePendFiles();
+
+                CltLog::info("[CLT] Failed ignorado em execução substituída por token mais novo.", [
+                    'job_id' => $this->jobId,
+                    'stage' => $this->stage,
+                    'from_token' => $this->runToken,
+                    'to_token' => (int) ($job->run_token ?? 1),
+                    'status' => $job->status,
+                ]);
+                return;
+            }
+
+            CltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
 
             if ($job->status === 'cancelado') {
                 $this->flushPhase2DeltaBuffer(true);
@@ -4114,6 +4192,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
             ]);
             $this->cachedStatus = 'em_progresso';
+            $this->cachedRunToken = (int) ($job->run_token ?? $this->runToken);
+            $this->runToken = (int) ($job->run_token ?? $this->runToken);
 
             return true;
         } finally {
