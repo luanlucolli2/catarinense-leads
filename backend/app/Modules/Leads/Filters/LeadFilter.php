@@ -410,14 +410,13 @@ class LeadFilter
         self::applyMassFilter($query, $r, 'names', ['leads.nome']);
         self::applyMassFilter($query, $r, 'phones', ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4']);
         if ($r->boolean('without_phones')) {
-            $query->whereRaw("
-                COALESCE(
-                    NULLIF(TRIM(leads.fone1), ''),
-                    NULLIF(TRIM(leads.fone2), ''),
-                    NULLIF(TRIM(leads.fone3), ''),
-                    NULLIF(TRIM(leads.fone4), '')
-                ) IS NULL
-            ");
+            foreach (['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'] as $phoneColumn) {
+                $query->where(function (Builder $phoneQuery) use ($phoneColumn) {
+                    $phoneQuery
+                        ->whereNull($phoneColumn)
+                        ->orWhereRaw("TRIM({$phoneColumn}) = ''");
+                });
+            }
         }
 
         $birth = self::requestList($r, 'birth_month');
