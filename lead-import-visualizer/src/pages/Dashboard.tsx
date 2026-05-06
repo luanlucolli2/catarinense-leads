@@ -241,12 +241,12 @@ const Dashboard = () => {
       // FGTS
       searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
       dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
-      cpfMassFilter, namesMassFilter, phonesMassFilter, vendorsFilter, birthMonthFilter,
+      cpfMassFilter, namesMassFilter, phonesMassFilter, noPhonesFilter, vendorsFilter, birthMonthFilter,
       fgtsAuthorizedFilter, fgtsConsultaFromFilter, fgtsConsultaToFilter,
       // CLT
       cltSearchValue, cltStatusFilter, cltMotivosFilter, cltOrigemFilter, cltHigienizacaoFilter,
       cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
-      cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltVendorsFilter, cltBirthMonthFilter,
+      cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltNoPhonesFilter, cltVendorsFilter, cltBirthMonthFilter,
       cltConsultado, cltSituacao,
       cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
@@ -255,7 +255,7 @@ const Dashboard = () => {
       // MERCANTIL
       mercantilSearchValue,
       mercantilOrigemFilter,
-      mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter,
+      mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter, mercantilNoPhonesFilter,
       mercantilBirthMonthFilter,
       mercantilSituacao, mercantilStatusEffective,
       mercantilConsultaFrom, mercantilConsultaTo,
@@ -280,6 +280,7 @@ const Dashboard = () => {
           cpf: cpfMassFilter,
           names: namesMassFilter,
           phones: phonesMassFilter,
+          without_phones: noPhonesFilter || undefined,
           vendors: vendorsFilter,
           birth_month: birthMonthFilter,
           fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
@@ -300,6 +301,7 @@ const Dashboard = () => {
           cpf: cltCpfMassFilter,
           names: cltNamesMassFilter,
           phones: cltPhonesMassFilter,
+          without_phones: cltNoPhonesFilter || undefined,
           birth_month: cltBirthMonthFilter,
           clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
           clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
@@ -337,6 +339,7 @@ const Dashboard = () => {
         cpf: mercantilCpfMassFilter,
         names: mercantilNamesMassFilter,
         phones: mercantilPhonesMassFilter,
+        without_phones: mercantilNoPhonesFilter || undefined,
         birth_month: mercantilBirthMonthFilter,
         mercantil_situacao:
           mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
