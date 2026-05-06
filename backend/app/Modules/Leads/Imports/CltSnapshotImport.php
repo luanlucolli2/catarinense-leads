@@ -24,6 +24,8 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
     /** buffer por CPF com melhor vínculo e/ou not_found */
     private array $buf = []; // cpf => ['best' => [...], 'not_found' => bool]
     private int $rowsInCurrentChunk = 0;
+    private bool $cancelled = false;
+    private int $cancelCheckCounter = 0;
 
     public function __construct(ImportJob $importJob)
     {
@@ -32,6 +34,10 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
 
     public function onRow(Row $row)
     {
+        if ($this->shouldStopImport()) {
+            return;
+        }
+
         $r = $row->toArray();
         $this->rowsInCurrentChunk++;
 
@@ -114,6 +120,8 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             BeforeImport::class => function () {
                 $this->rowsInCurrentChunk = 0;
                 $this->buf = [];
+                $this->cancelled = false;
+                $this->cancelCheckCounter = 0;
             },
             AfterChunk::class => function () {
                 $this->flushBuffer();
@@ -125,10 +133,17 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
                         ]);
                     $this->rowsInCurrentChunk = 0;
                 }
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                }
             },
             AfterImport::class => function () {
                 $this->flushBuffer();
                 $this->rowsInCurrentChunk = 0;
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                    return;
+                }
                 $this->importJob->update([
                     'processed_rows' => $this->importJob->total_rows,
                     'status'         => 'concluido',
@@ -221,6 +236,44 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
         }
 
         $this->buf = [];
+    }
+
+    private function shouldStopImport(): bool
+    {
+        if ($this->cancelled) {
+            return true;
+        }
+
+        $this->cancelCheckCounter++;
+        if (($this->cancelCheckCounter % 50) !== 0) {
+            return false;
+        }
+
+        return $this->refreshImportCancelledFlag(true);
+    }
+
+    private function refreshImportCancelledFlag(bool $force = false): bool
+    {
+        if ($this->cancelled && !$force) {
+            return true;
+        }
+
+        $status = DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->value('status');
+
+        $this->cancelled = ($status === 'cancelado');
+        return $this->cancelled;
+    }
+
+    private function finalizeImportJobAsCancelled(): void
+    {
+        DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->where('status', 'cancelado')
+            ->update([
+                'finished_at' => DB::raw('COALESCE(finished_at, NOW())'),
+            ]);
     }
 
     private function upsertVinculosConditional(array $rows): void

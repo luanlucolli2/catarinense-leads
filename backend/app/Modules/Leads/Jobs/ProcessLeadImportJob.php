@@ -37,10 +37,19 @@ class ProcessLeadImportJob implements ShouldQueue
 
     public function handle(): void
     {
+        $this->importJob->refresh();
+        if ($this->importJob->status === 'cancelado') {
+            return;
+        }
+
         $this->importJob->update([
             'status'     => 'em_progresso',
-            'started_at' => now(),
+            'started_at' => $this->importJob->started_at ?? now(),
         ]);
+        $this->importJob->refresh();
+        if ($this->importJob->status === 'cancelado') {
+            return;
+        }
 
         // caminho relativo salvo no job (ex.: "imports/abc.xlsx")
         $uploadPath = $this->importJob->file_path;
@@ -150,6 +159,11 @@ class ProcessLeadImportJob implements ShouldQueue
             Excel::import($importer, $fullPath, null, $readerType);
 
         } catch (Throwable $e) {
+            $this->importJob->refresh();
+            if ($this->importJob->status === 'cancelado') {
+                return;
+            }
+
             $this->importJob->update([
                 'status'      => 'falhou',
                 'finished_at' => now(),
