@@ -469,7 +469,7 @@ function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
           <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${approvedPct}%`, width: `${notApprovedPct}%` }} />
         )}
         {discardedPct > 0 && (
-          <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${approvedPct + notApprovedPct}%`, width: `${discardedPct}%` }} />
+          <div className="absolute top-0 h-full bg-orange-500 transition-all duration-500" style={{ left: `${approvedPct + notApprovedPct}%`, width: `${discardedPct}%` }} />
         )}
         {status === "Em andamento" && totalPct < 100 && (
           <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${totalPct}%`, width: `${Math.min(8, 100 - totalPct)}%` }} />
@@ -488,7 +488,7 @@ function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
           <span className="font-semibold text-foreground">{notApproved.toLocaleString()}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          <div className="w-2 h-2 rounded-full bg-orange-500" />
           <span className="text-muted-foreground">Descartados</span>
           <span className="font-semibold text-foreground">{discarded.toLocaleString()}</span>
         </div>
