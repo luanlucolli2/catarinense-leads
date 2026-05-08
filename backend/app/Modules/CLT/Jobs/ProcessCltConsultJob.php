@@ -2035,6 +2035,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $inputCount = 0;
         $processableCount = 0;
         $discardedCount = 0;
+        $seen = [];
         $cleanupTmp = true;
 
         try {
@@ -2062,6 +2063,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     if ($cpf === '' || strlen($cpf) !== 11) {
                         continue;
                     }
+                    if (isset($seen[$cpf])) {
+                        continue;
+                    }
+                    $seen[$cpf] = true;
 
                     $inputCount++;
                     $chunk[] = $cpf;

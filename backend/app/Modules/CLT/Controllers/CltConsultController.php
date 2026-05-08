@@ -806,6 +806,7 @@ class CltConsultController extends Controller
             throw new \RuntimeException("Não foi possível criar cpfs em {$cpfsPath}");
 
         $count = 0;
+        $seen = [];
         try {
             if (!flock($fp2, LOCK_EX)) {
                 throw new \RuntimeException("Não foi possível bloquear arquivo de CPFs em {$cpfsPath}");
@@ -822,6 +823,10 @@ class CltConsultController extends Controller
                     $digits = preg_replace('/\D+/', '', $norm);
                     if ($digits === '' || strlen($digits) !== 11)
                         continue;
+                    if (isset($seen[$digits])) {
+                        continue;
+                    }
+                    $seen[$digits] = true;
                     $this->writeAllOrFail($fp2, $digits . "\n", "arquivo de CPFs {$cpfsPath}");
                     $count++;
                 }
