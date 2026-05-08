@@ -14,7 +14,7 @@ class CltConsultJob extends Model
         'run_token',
         'phase2_total','phase2_attempt',
         'phase2_aprovado_count','phase2_nao_aprovado_count',
-        'total_cpfs','elegivel_count','inelegivel_count','not_found_count','fail_count',
+        'total_cpfs','elegivel_count','inelegivel_count','descartado_count','not_found_count','fail_count',
         'file_disk','file_path','file_name',
         'started_at','finished_at','canceled_at','paused_at','cancel_reason','scheduled_for',
         // spool
@@ -34,6 +34,7 @@ class CltConsultJob extends Model
         'phase2_nao_aprovado_count' => 'integer',
         'elegivel_count' => 'integer',
         'inelegivel_count' => 'integer',
+        'descartado_count' => 'integer',
         'spool_bytes'=> 'integer',
     ];
 

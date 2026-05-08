@@ -13,7 +13,8 @@ export type CltJobStatus =
   | 'cancelado'
 
 export type CltJobStatusFilter = CltJobStatus | 'todos'
-export type CltJobVariantFilter = 'online' | 'offline' | 'hybrid' | 'todos'
+export type CltJobVariant = 'online' | 'offline' | 'hybrid' | 'credit_policy'
+export type CltJobVariantFilter = CltJobVariant | 'todos'
 
 export type CltJobPhase = 'fase_1' | 'fase_2' | null
 
@@ -33,6 +34,7 @@ export interface CltConsultJobListItem {
   total_cpfs: number
   elegivel_count: number
   inelegivel_count: number
+  descartado_count: number
   fail_count: number
   not_found_count: number
 
@@ -54,7 +56,7 @@ export interface CltConsultJobListItem {
   spool_cpfs_path?: string | null
 
   /** modo/variante */
-  variant?: 'online' | 'offline' | 'hybrid' | null
+  variant?: CltJobVariant | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -78,6 +80,7 @@ export interface CltConsultJobShow {
   total_cpfs: number
   elegivel_count: number
   inelegivel_count: number
+  descartado_count: number
   fail_count: number
   not_found_count: number
   has_file: boolean
@@ -97,7 +100,7 @@ export interface CltConsultJobShow {
   spool_bytes?: number | null
 
   /** modo/variante (opcional no show) */
-  variant?: 'online' | 'offline' | 'hybrid' | null
+  variant?: CltJobVariant | null
 
   /** datas */
   started_at?: string | null
@@ -126,7 +129,7 @@ export interface CltJobHttpCounterRow {
 export interface CltJobHttpCountersResponse {
   id: number
   title: string
-  variant: 'online' | 'offline' | 'hybrid' | null
+  variant: CltJobVariant | null
   status: CltJobStatus
   available: boolean
   summary: Omit<CltJobHttpCounterRow, 'endpoint'>
@@ -142,8 +145,8 @@ export interface CltJobHttpCountersResponse {
 export interface CreateCltConsultInput {
   title: string
   cpfs: string | string[]
-  /** 'online' | 'offline' | 'hybrid' */
-  variant?: 'online' | 'offline' | 'hybrid'
+  /** 'online' | 'offline' | 'hybrid' | 'credit_policy' */
+  variant?: CltJobVariant
   run_at?: string
   timezone?: string
 }
@@ -159,7 +162,7 @@ export interface Paginated<T> {
 
 const BASE = '/clt/consult-jobs'
 const CLT_JOB_STATUSES: CltJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
-const CLT_JOB_VARIANTS: Array<'online' | 'offline' | 'hybrid'> = ['online', 'offline', 'hybrid']
+const CLT_JOB_VARIANTS: CltJobVariant[] = ['online', 'offline', 'hybrid', 'credit_policy']
 
 /** Lista os jobs CLT com filtros opcionais */
 export async function listCltConsultJobs(
@@ -179,7 +182,7 @@ export async function listCltConsultJobs(
   if (
     typeof requestedVariant === 'string'
     && requestedVariant !== 'todos'
-    && CLT_JOB_VARIANTS.includes(requestedVariant as 'online' | 'offline' | 'hybrid')
+    && CLT_JOB_VARIANTS.includes(requestedVariant as CltJobVariant)
   ) {
     params.variant = requestedVariant
   }

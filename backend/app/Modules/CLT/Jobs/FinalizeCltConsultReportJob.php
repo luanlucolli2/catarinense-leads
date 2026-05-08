@@ -260,7 +260,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
     }
 
     /**
-     * @return array{elegivel_count:int,inelegivel_count:int,not_found_count:int,fail_count:int,phase2_aprovado_count:int,phase2_nao_aprovado_count:int}
+     * @return array{elegivel_count:int,inelegivel_count:int,descartado_count:int,not_found_count:int,fail_count:int,phase2_aprovado_count:int,phase2_nao_aprovado_count:int}
      */
     private function reconcileCountsFromFinalCsv(string $finalReal): array
     {
@@ -301,6 +301,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                     $cpfStates[$cpf] = [
                         'has_eligible' => false,
                         'has_success' => false,
+                        'has_discarded' => false,
                         'has_not_found' => false,
                         'has_fail' => false,
                     ];
@@ -308,10 +309,16 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
                 $eligivel = $this->simNaoToBool($assoc['elegivel'] ?? null);
                 $mensagem = trim((string) ($assoc['mensagem'] ?? ''));
+                $politicaCreditoMensagem = trim((string) ($assoc['politicaCreditoMensagem'] ?? ''));
                 $numeroVinculos = max(0, (int) preg_replace('/\D+/', '', (string) ($assoc['numeroVinculos'] ?? '0')));
 
                 if ($this->isNotFoundCsvMessage($mensagem)) {
                     $cpfStates[$cpf]['has_not_found'] = true;
+                    continue;
+                }
+
+                if ($this->isDiscardedCsvMessage($politicaCreditoMensagem)) {
+                    $cpfStates[$cpf]['has_discarded'] = true;
                     continue;
                 }
 
@@ -334,6 +341,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
         $eligibleCount = 0;
         $ineligibleCount = 0;
+        $discardedCount = 0;
         $notFoundCount = 0;
         $failCount = 0;
 
@@ -345,6 +353,11 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
             if (!empty($state['has_not_found'])) {
                 $notFoundCount++;
+                continue;
+            }
+
+            if (!empty($state['has_discarded'])) {
+                $discardedCount++;
                 continue;
             }
 
@@ -361,6 +374,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         return [
             'elegivel_count' => $eligibleCount,
             'inelegivel_count' => $ineligibleCount,
+            'descartado_count' => $discardedCount,
             'not_found_count' => $notFoundCount,
             'fail_count' => $failCount,
             'phase2_aprovado_count' => $phase2ApprovedCount,
@@ -406,5 +420,10 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             'Nenhum dado encontrado!',
             'HTTP 404',
         ], true);
+    }
+
+    private function isDiscardedCsvMessage(string $mensagem): bool
+    {
+        return $mensagem === 'Não possui dados suficientes para validação e precisa consultar antes.';
     }
 }

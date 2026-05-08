@@ -83,8 +83,12 @@ class DispatchScheduledCltConsultJobs
             }
 
             try {
-                DispatchCltConsultJob::dispatch($job->id, 'phase1')
-                    ->onQueue(CltVariant::resolvePhaseOneQueue($job->variant));
+                $stage = CltVariant::isCreditPolicyOnly($job->variant) ? 'phase2' : 'phase1';
+                $queue = $stage === 'phase2'
+                    ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+                    : CltVariant::resolvePhaseOneQueue($job->variant);
+
+                DispatchCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
                 $dispatched++;
             } catch (Throwable $e) {
                 CltConsultJob::query()

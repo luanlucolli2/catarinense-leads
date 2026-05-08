@@ -77,6 +77,7 @@ export const CLTControls = ({
                 <SelectItem value="online">Online (ON)</SelectItem>
                 <SelectItem value="offline">Offline (OFF)</SelectItem>
                 <SelectItem value="hybrid">Híbrido</SelectItem>
+                <SelectItem value="credit_policy">Política</SelectItem>
               </SelectContent>
             </Select>
           </div>

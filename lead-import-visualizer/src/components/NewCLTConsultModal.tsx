@@ -15,7 +15,7 @@ interface NewCLTConsultModalProps {
   onSubmit: (
     titulo: string,
     cpfs: string,
-    modo: "OFF" | "ONLINE" | "HYBRID",
+    modo: "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY",
     opts?: { runAt?: string | null; timezone?: string | null }
   ) => void;
 }
@@ -43,13 +43,20 @@ const MODE_OPTIONS = [
     description:
       "Consulta primeiro a base offline. Reaproveita dados atualizados nos últimos 7 dias e envia ao online apenas CPFs antigos, incompletos ou não encontrados.",
   },
+  {
+    value: "CREDIT_POLICY" as const,
+    label: "Política",
+    helper: "Leads + snapshot",
+    description:
+      "Valida apenas a política de crédito para CPFs já cadastrados com dados CLT suficientes.",
+  },
 ];
 
 export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
   const [cpfs, setCpfs] = useState("");
   const [cpfCount, setCpfCount] = useState(0);
-  const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "">("");
+  const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY" | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [isAgendado, setIsAgendado] = useState(false);
   const [runAtLocal, setRunAtLocal] = useState("");
@@ -86,7 +93,7 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
       await onSubmit(
         titulo,
         cpfs,
-        modo as "OFF" | "ONLINE" | "HYBRID",
+        modo as "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY",
         isAgendado
           ? {
               runAt: runAtLocal,
@@ -145,9 +152,9 @@ export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultM
 
           <div className="space-y-3">
             <Label className="text-sm font-medium">Modo de Consulta *</Label>
-            <Tabs value={modo || ""} onValueChange={(value) => setModo(value as "OFF" | "ONLINE" | "HYBRID")}>
+            <Tabs value={modo || ""} onValueChange={(value) => setModo(value as "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY")}>
               {/* Ajustado: bg-transparent e gap maior entre os itens */}
-              <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-3">
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-4">
                 {MODE_OPTIONS.map((option) => (
                   <TabsTrigger
                     key={option.value}
