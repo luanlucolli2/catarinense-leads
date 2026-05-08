@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Pause,
   Play,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -178,11 +179,11 @@ function calcSegments(i: CltConsultJobListItem) {
   };
 }
 
-type CltVariant = "online" | "offline" | "hybrid" | undefined;
+type CltVariant = "online" | "offline" | "hybrid" | "credit_policy" | undefined;
 type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Pausada" | "Concluído" | "Falhou" | "Cancelada";
 
 function resolveVariant(item: CltConsultJobListItem): CltVariant {
-  if (item.variant === "online" || item.variant === "offline" || item.variant === "hybrid") {
+  if (item.variant === "online" || item.variant === "offline" || item.variant === "hybrid" || item.variant === "credit_policy") {
     return item.variant;
   }
 
@@ -200,6 +201,7 @@ function resolveVariant(item: CltConsultJobListItem): CltVariant {
   const legacy = String(legacyItem.mode ?? legacyItem.tipo ?? legacyItem.type ?? "").toLowerCase();
   if (legacy === "offline" || legacy === "off") return "offline";
   if (legacy === "hybrid" || legacy === "hyb") return "hybrid";
+  if (legacy === "credit_policy" || legacy === "policy") return "credit_policy";
   if (legacy === "online" || legacy === "on") return "online";
   return undefined;
 }
@@ -412,6 +414,91 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
+  const total = Math.max(0, item.total_cpfs ?? item.phase2_total ?? 0);
+  const discarded = Math.max(0, Math.min(total, item.descartado_count ?? 0));
+  const approved = Math.max(0, Math.min(Math.max(0, total - discarded), item.phase2_aprovado_count ?? 0));
+  const notApproved = Math.max(
+    0,
+    Math.min(Math.max(0, total - discarded - approved), item.phase2_nao_aprovado_count ?? 0)
+  );
+  const resolved = Math.max(0, Math.min(total, approved + notApproved + discarded));
+  const pending = Math.max(0, total - resolved);
+  const approvedPct = total > 0 ? (approved / total) * 100 : 0;
+  const notApprovedPct = total > 0 ? (notApproved / total) * 100 : 0;
+  const discardedPct = total > 0 ? (discarded / total) * 100 : 0;
+  const totalPct = approvedPct + notApprovedPct + discardedPct;
+
+  let status: OnlinePhaseStatus = "Aguardando";
+  if (item.status === "concluido") {
+    status = "Concluído";
+  } else if (item.status === "falhou") {
+    status = "Falhou";
+  } else if (item.status === "cancelado") {
+    status = "Cancelada";
+  } else if (item.status === "pausado") {
+    status = "Pausada";
+  } else if (item.status === "pendente" || item.status === "em_progresso") {
+    status = "Em andamento";
+  } else if (resolved >= total && total > 0) {
+    status = "Concluído";
+  }
+
+  return (
+    <div className="rounded-xl border border-sky-200/70 bg-sky-50/40 p-4 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/10">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {getOnlinePhaseStatusIcon(status)}
+          <span className="text-sm font-semibold">Política de crédito</span>
+        </div>
+        <span className="text-xs font-medium text-muted-foreground bg-background/80 px-2 py-0.5 rounded-full">
+          {resolved.toLocaleString()} / {total.toLocaleString()} CPFs
+        </span>
+      </div>
+
+      <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+        {approvedPct > 0 && (
+          <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${approvedPct}%` }} />
+        )}
+        {notApprovedPct > 0 && (
+          <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${approvedPct}%`, width: `${notApprovedPct}%` }} />
+        )}
+        {discardedPct > 0 && (
+          <div className="absolute top-0 h-full bg-orange-500 transition-all duration-500" style={{ left: `${approvedPct + notApprovedPct}%`, width: `${discardedPct}%` }} />
+        )}
+        {status === "Em andamento" && totalPct < 100 && (
+          <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${totalPct}%`, width: `${Math.min(8, 100 - totalPct)}%` }} />
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="text-muted-foreground">Aprovados</span>
+          <span className="font-semibold text-foreground">{approved.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-slate-400" />
+          <span className="text-muted-foreground">Não aprovados</span>
+          <span className="font-semibold text-foreground">{notApproved.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-orange-500" />
+          <span className="text-muted-foreground">Descartados</span>
+          <span className="font-semibold text-foreground">{discarded.toLocaleString()}</span>
+        </div>
+        {pending > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3 h-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Pendentes</span>
+            <span className="font-semibold text-foreground">{pending.toLocaleString()}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -678,9 +765,16 @@ export const CLTHistoryTable = ({
 
           const variant = resolveVariant(i);
           const isTwoPhase = isTwoPhaseVariant(variant);
+          const isCreditPolicyOnly = variant === "credit_policy";
           const canViewHttpCounters = isTwoPhase && typeof onViewHttpCounters === "function";
           const phaseAndStatusInfo =
-            isTwoPhase && phaseInfo
+            isCreditPolicyOnly && phaseInfo
+              ? {
+                  icon: statusInfo.icon,
+                  className: statusInfo.className,
+                  label: `Política de crédito • ${statusInfo.label}`,
+                }
+            : isTwoPhase && phaseInfo
               ? {
                   icon: statusInfo.icon,
                   className: statusInfo.className,
@@ -706,6 +800,13 @@ export const CLTHistoryTable = ({
                   className:
                     "bg-gradient-to-r from-amber-100 to-orange-50 text-amber-800 border-amber-300 dark:from-amber-900/30 dark:to-orange-800/20 dark:text-amber-300 dark:border-amber-700 shadow-sm",
                   label: "Híbrido",
+                }
+            : variant === "credit_policy"
+              ? {
+                  icon: <ShieldCheck className="w-3.5 h-3.5" />,
+                  className:
+                    "bg-gradient-to-r from-sky-100 to-cyan-50 text-sky-800 border-sky-300 dark:from-sky-900/30 dark:to-cyan-800/20 dark:text-sky-300 dark:border-sky-700 shadow-sm",
+                  label: "Política",
                 }
             : {
                 icon: <Wifi className="w-3.5 h-3.5" />,
@@ -1005,7 +1106,9 @@ export const CLTHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  {isTwoPhase ? (
+                  {isCreditPolicyOnly ? (
+                    <CreditPolicyOnlyProgress item={i} />
+                  ) : isTwoPhase ? (
                     <OnlineTwoPhaseProgress item={i} />
                   ) : (
                     <SegmentedProgressBar item={i} />

@@ -66,6 +66,10 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
 
     public function model(array $row)
     {
+        if ($this->shouldStopImport()) {
+            return null;
+        }
+
         // normaliza chaves
         $row = $this->normalizeRowKeys($row);
 
@@ -440,10 +444,17 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             AfterChunk::class => function () {
                 $this->flushRowBuffer();
                 $this->updateProcessedRowsAfterChunk();
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                }
             },
 
             AfterImport::class => function () {
                 $this->flushRowBuffer();
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                    return;
+                }
                 $this->finalizeImportJobAsCompleted();
             },
         ];

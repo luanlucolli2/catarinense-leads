@@ -79,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     /* Importação (FGTS) */
     Route::post('/import', [ImportController::class, 'store']);
     Route::get('/import/{importJob}', [ImportController::class, 'show'])->whereNumber('importJob');
+    Route::post('/import/{importJob}/cancel', [ImportController::class, 'cancel'])->whereNumber('importJob');
     Route::get('/imports', [ImportController::class, 'index']);
     Route::get('/import/{importJob}/errors', [ImportController::class, 'errors'])->whereNumber('importJob');
     Route::get('/import/{importJob}/errors/export', [ImportController::class, 'exportErrors'])->whereNumber('importJob');

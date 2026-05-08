@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\DB;
 
 trait ImportLifecycleSupport
 {
+    protected bool $cancelled = false;
+    protected int $cancelCheckCounter = 0;
+
     protected function dbBatchSize(): int
     {
         return max(50, (int) config('leads.import.db_batch_size', 500));
@@ -55,10 +58,40 @@ trait ImportLifecycleSupport
     {
         $this->backup->purgeOldBackups();
         $this->rowsInCurrentChunk = 0;
+        $this->cancelled = false;
+        $this->cancelCheckCounter = 0;
         $this->maxErrorsPerJob = $this->maxErrorsPerJob();
         $this->errorCount = (int) DB::table('import_errors')
             ->where('import_job_id', $this->importJob->id)
             ->count();
+    }
+
+    protected function shouldStopImport(): bool
+    {
+        if ($this->cancelled) {
+            return true;
+        }
+
+        $this->cancelCheckCounter++;
+        if (($this->cancelCheckCounter % 50) !== 0) {
+            return false;
+        }
+
+        return $this->refreshImportCancelledFlag(true);
+    }
+
+    protected function refreshImportCancelledFlag(bool $force = false): bool
+    {
+        if ($this->cancelled && !$force) {
+            return true;
+        }
+
+        $status = DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->value('status');
+
+        $this->cancelled = ($status === 'cancelado');
+        return $this->cancelled;
     }
 
     protected function updateProcessedRowsAfterChunk(): void
@@ -98,5 +131,17 @@ trait ImportLifecycleSupport
             'status' => 'concluido',
             'finished_at' => now(),
         ]);
+    }
+
+    protected function finalizeImportJobAsCancelled(): void
+    {
+        $this->rowsInCurrentChunk = 0;
+
+        DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->where('status', 'cancelado')
+            ->update([
+                'finished_at' => DB::raw('COALESCE(finished_at, NOW())'),
+            ]);
     }
 }

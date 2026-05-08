@@ -197,6 +197,34 @@ class ImportController extends Controller
         return response()->json($jobs);
     }
 
+    public function cancel(Request $request, ImportJob $importJob)
+    {
+        if (!$this->canAccessImportJob($request, $importJob)) {
+            return response()->json([
+                'message' => 'Você não tem permissão para cancelar esta importação.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        if (!in_array($importJob->status, ['pendente', 'em_progresso'], true)) {
+            return response()->json([
+                'message' => 'Somente importações pendentes ou em progresso podem ser canceladas.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        DB::table('import_jobs')
+            ->where('id', $importJob->id)
+            ->whereIn('status', ['pendente', 'em_progresso'])
+            ->update([
+                'status' => 'cancelado',
+                'finished_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'Importação cancelada.',
+        ]);
+    }
+
     public function errors(Request $request, ImportJob $importJob)
     {
         if (!$this->canAccessImportJob($request, $importJob)) {

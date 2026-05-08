@@ -3,7 +3,7 @@ import axiosClient from "@/api/axiosClient";
 /** Para polling (toast de progresso) */
 export interface ActiveImportJobDto {
   id: number;
-  status: "pendente" | "em_progresso" | "concluido" | "falhou";
+  status: "pendente" | "em_progresso" | "concluido" | "falhou" | "cancelado";
   processed_rows: number;
   total_rows: number;
   errors: number;
@@ -19,6 +19,7 @@ export interface ImportJob {
   | "em_progresso"
   | "concluido"
   | "falhou"
+  | "cancelado"
   | "revertido";
   totalRows: number;
   processedRows: number;
@@ -69,6 +70,10 @@ export async function listActiveImports(): Promise<
 
 export async function rollbackImportJob(id: number): Promise<void> {
   await axiosClient.post(`/import/${id}/rollback`);
+}
+
+export async function cancelImportJob(id: number): Promise<void> {
+  await axiosClient.post(`/import/${id}/cancel`);
 }
 
 /** GET /imports → lista completa (Histórico) */

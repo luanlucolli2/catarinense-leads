@@ -10,12 +10,12 @@ import {
 import { RelatorioErrosModal } from "@/components/modals/RelatorioErrosModal";
 import {
   listImportJobs, fetchImportErrors, exportImportErrorsCsv,
-  rollbackImportJob,
+  rollbackImportJob, cancelImportJob,
   ImportJob, ImportError,
 } from "@/api/importJobs";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Eye, RotateCcw, ShieldAlert, Loader2 } from "lucide-react"; // Ícones adicionados
+import { FileText, Eye, RotateCcw, ShieldAlert, Loader2, Square } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogContent,
@@ -32,6 +32,8 @@ const HistoricoPage = () => {
   const [loadingErrors, setLoadingErrors] = useState(false);
   const [loadingRollback, setLoadingRollback] = useState<number | null>(null);
   const [confirmJob, setConfirmJob] = useState<ImportJob | null>(null);
+  const [loadingCancel, setLoadingCancel] = useState<number | null>(null);
+  const [cancelJobConfirm, setCancelJobConfirm] = useState<ImportJob | null>(null);
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ["importJobs"],
@@ -83,6 +85,21 @@ const HistoricoPage = () => {
     }
   };
 
+  const executeCancel = async (job: ImportJob) => {
+    if (loadingCancel) return;
+    setLoadingCancel(job.id);
+    try {
+      await cancelImportJob(job.id);
+      toast.success("Importação cancelada.");
+      await queryClient.invalidateQueries({ queryKey: ["importJobs"] });
+      setCancelJobConfirm(null);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Erro ao cancelar importação");
+    } finally {
+      setLoadingCancel(null);
+    }
+  };
+
   const formatDateStr = (date: string | null) =>
     date ? format(new Date(date), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-";
 
@@ -91,12 +108,13 @@ const HistoricoPage = () => {
       concluido: "bg-green-100 text-green-800",
       revertido: "bg-gray-200 text-gray-800",
       falhou: "bg-red-100 text-red-800",
+      cancelado: "bg-amber-100 text-amber-800",
       pendente: "bg-blue-100 text-blue-800",
       em_progresso: "bg-blue-100 text-blue-800 animate-pulse",
     } as const;
     const label = {
       concluido: "Concluído", revertido: "Revertido",
-      em_progresso: "Em progresso", pendente: "Pendente", falhou: "Falhou",
+      em_progresso: "Em progresso", pendente: "Pendente", falhou: "Falhou", cancelado: "Cancelado",
     } as const;
     return <Badge variant="outline" className={cn("border-transparent", map[status])}>{label[status]}</Badge>;
   };
@@ -162,6 +180,7 @@ const HistoricoPage = () => {
               {jobs.map(job => {
                 const isRollbackTarget = job.id === lastRollbackEligibleJobId;
                 const rollbackDisabled = !isRollbackTarget;
+                const cancellable = job.status === "pendente" || job.status === "em_progresso";
 
                 return (
                   <TableRow key={job.id} className="hover:bg-gray-50">
@@ -182,6 +201,17 @@ const HistoricoPage = () => {
                         <Eye className="w-4 h-4" />
                         <span className="hidden xl:inline ml-1">Ver</span>
                       </Button>
+                      {cancellable && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={loadingCancel === job.id}
+                          onClick={() => setCancelJobConfirm(job)}
+                        >
+                          <Square className="w-4 h-4" />
+                          <span className="hidden xl:inline ml-1">Cancelar</span>
+                        </Button>
+                      )}
                       {isRollbackTarget && (
                         <Button
                           variant="destructive" size="sm"
@@ -205,6 +235,7 @@ const HistoricoPage = () => {
           {jobs.map(job => {
             const isRollbackTarget = job.id === lastRollbackEligibleJobId;
             const rollbackDisabled = !isRollbackTarget;
+            const cancellable = job.status === "pendente" || job.status === "em_progresso";
 
             return (
               <div key={job.id} className="bg-white border rounded-lg p-4 space-y-3">
@@ -214,6 +245,11 @@ const HistoricoPage = () => {
                     <Button size="sm" variant="outline" onClick={() => handleViewReport(job)} disabled={job.errorsCount === 0 || loadingErrors}>
                       <Eye className="w-4 h-4" />
                     </Button>
+                    {cancellable && (
+                      <Button size="sm" variant="outline" disabled={loadingCancel === job.id} onClick={() => setCancelJobConfirm(job)}>
+                        <Square className="w-4 h-4" />
+                      </Button>
+                    )}
                     {isRollbackTarget && (
                       <Button size="sm" variant="destructive" disabled={rollbackDisabled || loadingRollback === job.id} onClick={() => setConfirmJob(job)}>
                         <RotateCcw className="w-4 h-4" />
@@ -289,6 +325,38 @@ const HistoricoPage = () => {
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 "Sim, desfazer importação"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!cancelJobConfirm} onOpenChange={(isOpen) => !isOpen && setCancelJobConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar importação?</AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="text-sm text-gray-700">
+            <p>O processamento será interrompido e o que já foi lido permanecerá salvo.</p>
+            <p className="font-semibold my-2 bg-gray-100 p-2 rounded">
+              {cancelJobConfirm?.fileName}
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loadingCancel !== null}>
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={loadingCancel !== null}
+              onClick={(e) => {
+                e.preventDefault();
+                if (cancelJobConfirm) executeCancel(cancelJobConfirm);
+              }}
+            >
+              {loadingCancel === cancelJobConfirm?.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Confirmar cancelamento"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

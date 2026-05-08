@@ -238,6 +238,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
             ]);
 
+            if (CltVariant::isCreditPolicyOnly($this->variant) && !$this->prepareCreditPolicySpoolIfNeeded($job)) {
+                if ($this->stoppedByRunTokenHandoff) {
+                    return;
+                }
+
+                $statusAfterPreparation = $this->currentStatusCached($job->id, true);
+                if ($statusAfterPreparation === null || in_array($statusAfterPreparation, ['pausado', 'cancelado', 'falhou', 'concluido'], true)) {
+                    return;
+                }
+
+                $this->failFinalize();
+                return;
+            }
+
             if (!$this->runCreditPhaseTwo($api, $job)) {
                 if ($this->stoppedByRunTokenHandoff) {
                     return;
@@ -1990,6 +2004,182 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolFp = null;
     }
 
+    private function prepareCreditPolicySpoolIfNeeded(CltConsultJob $job): bool
+    {
+        $preparedRows = max(0, (int) ($job->phase2_total ?? 0)) + max(0, (int) ($job->descartado_count ?? 0));
+        $expectedRows = max(0, (int) ($job->total_cpfs ?? 0));
+        $spoolHasDataRows = CltSpool::hasDataRows(Storage::disk($this->disk), $job->spool_path ?? null);
+
+        if ($spoolHasDataRows && $expectedRows > 0 && $preparedRows >= $expectedRows) {
+            return true;
+        }
+
+        return $this->rebuildCreditPolicySpoolFromSnapshots($job);
+    }
+
+    private function rebuildCreditPolicySpoolFromSnapshots(CltConsultJob $job): bool
+    {
+        $disk = Storage::disk($this->disk);
+        $spoolPath = (string) ($job->spool_path ?? '');
+        $cpfsPath = (string) ($job->spool_cpfs_path ?? '');
+
+        if ($spoolPath === '' || $cpfsPath === '' || !$disk->exists($cpfsPath)) {
+            CltLog::error("[CLT] Job {$this->jobId} sem arquivo de CPFs para preparar a fase 2.");
+            return false;
+        }
+
+        $tmpPath = $spoolPath . '.credit-policy.tmp';
+        $tmpReal = $disk->path($tmpPath);
+        $cpfsReal = $disk->path($cpfsPath);
+        $requiresOperationValues = $this->requiresOperationCreditPolicyValues();
+        $inputCount = 0;
+        $processableCount = 0;
+        $discardedCount = 0;
+        $cleanupTmp = true;
+
+        try {
+            $writer = @fopen($tmpReal, 'wb');
+            if (!is_resource($writer)) {
+                throw new \RuntimeException("Falha ao abrir spool temporário da política de crédito (job {$this->jobId}).");
+            }
+
+            $reader = @fopen($cpfsReal, 'rb');
+            if (!is_resource($reader)) {
+                @fclose($writer);
+                throw new \RuntimeException("Falha ao abrir arquivo de CPFs da política de crédito (job {$this->jobId}).");
+            }
+
+            try {
+                $this->writeCsvRowOrFail($writer, CltSchema::TITLES, 'spool temporário da política de crédito');
+
+                $chunk = [];
+                while (($line = fgets($reader)) !== false) {
+                    if ($this->finishIfStopped($job)) {
+                        return false;
+                    }
+
+                    $cpf = trim($line);
+                    if ($cpf === '' || strlen($cpf) !== 11) {
+                        continue;
+                    }
+
+                    $inputCount++;
+                    $chunk[] = $cpf;
+                    if (count($chunk) >= 500) {
+                        [$processableRows, $discardedRows] = $this->appendCreditPolicySnapshotChunkRows($writer, $chunk, $requiresOperationValues);
+                        $processableCount += $processableRows;
+                        $discardedCount += $discardedRows;
+                        $chunk = [];
+                    }
+                }
+
+                if ($chunk !== []) {
+                    [$processableRows, $discardedRows] = $this->appendCreditPolicySnapshotChunkRows($writer, $chunk, $requiresOperationValues);
+                    $processableCount += $processableRows;
+                    $discardedCount += $discardedRows;
+                }
+
+                if (!fflush($writer)) {
+                    throw new \RuntimeException("Falha ao sincronizar spool temporário da política de crédito (job {$this->jobId}).");
+                }
+            } finally {
+                @fclose($reader);
+                @fclose($writer);
+            }
+
+            if (!@rename($tmpReal, $this->spoolReal)) {
+                throw new \RuntimeException("Falha ao promover spool preparado da política de crédito (job {$this->jobId}).");
+            }
+            $cleanupTmp = false;
+
+            clearstatcache(true, $this->spoolReal);
+            $spoolBytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
+
+            DB::table('clt_consult_jobs')->where('id', $job->id)->update([
+                'spool_bytes' => $spoolBytes,
+                'total_cpfs' => $inputCount,
+                'elegivel_count' => $processableCount,
+                'inelegivel_count' => 0,
+                'descartado_count' => $discardedCount,
+                'phase2_total' => $processableCount,
+                'phase2_attempt' => 0,
+                'phase2_aprovado_count' => 0,
+                'phase2_nao_aprovado_count' => 0,
+                'updated_at' => Carbon::now(),
+            ]);
+
+            $job->forceFill([
+                'spool_bytes' => $spoolBytes,
+                'total_cpfs' => $inputCount,
+                'elegivel_count' => $processableCount,
+                'inelegivel_count' => 0,
+                'descartado_count' => $discardedCount,
+                'phase2_total' => $processableCount,
+                'phase2_attempt' => 0,
+                'phase2_aprovado_count' => 0,
+                'phase2_nao_aprovado_count' => 0,
+            ]);
+
+            return true;
+        } finally {
+            if ($cleanupTmp && is_file($tmpReal)) {
+                @unlink($tmpReal);
+            }
+        }
+    }
+
+    private function appendCreditPolicySnapshotChunkRows($writer, array $cpfs, bool $requiresOperationValues): array
+    {
+        $rows = DB::table('leads')
+            ->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
+            ->whereIn('leads.cpf', $cpfs)
+            ->select([
+                'leads.cpf',
+                DB::raw('COALESCE(cs.nome, leads.nome) as nome'),
+                'cs.elegivel',
+                'cs.not_found',
+                DB::raw('COALESCE(cs.data_nascimento, leads.data_nascimento) as data_nascimento'),
+                'cs.idade',
+                'cs.sexo',
+                'cs.data_admissao',
+                'cs.meses_admissao',
+                'cs.matricula',
+                'cs.valor_renda',
+                'cs.valor_base_margem',
+                'cs.margem_disponivel',
+                'cs.valor_max_prestacao',
+                'cs.categoria_trabalhador_codigo',
+                'cs.inicio_atividade_empregador',
+                'cs.meses_empresa_empregador',
+                'cs.qtd_emprestimos_ativos_suspensos',
+                'cs.emprestimos_legados',
+                'cs.updated_at',
+                'cs.consulted_at',
+            ])
+            ->get()
+            ->keyBy('cpf');
+
+        $processableCount = 0;
+        $discardedCount = 0;
+
+        foreach ($cpfs as $cpf) {
+            $record = $rows->get($cpf);
+            $row = $record !== null
+                ? $this->creditPolicySnapshotCsvRow($record, $requiresOperationValues)
+                : $this->creditPolicyMissingCsvRow($cpf);
+
+            if ($this->canProcessCreditPolicyCsvRow($row)) {
+                $processableCount++;
+            } else {
+                $discardedCount++;
+            }
+
+            $this->writeCsvRowOrFail($writer, $this->assocToCsvRow($row), 'spool preparado da política de crédito');
+        }
+
+        return [$processableCount, $discardedCount];
+    }
+
     private function runCreditPhaseTwo(\App\Modules\CLT\Services\FactaApiService $api, CltConsultJob $job): bool
     {
         if ($this->finishIfStopped($job)) {
@@ -3271,15 +3461,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $dataAdmissao = trim((string) ($row['dataAdmissao'] ?? ''));
         $valorParcela = $row['valorMaximoPrestacao'] ?? null;
         $valorRenda = $row['valorTotalVencimentos'] ?? null;
+        $requiresOperationValues = $this->requiresOperationCreditPolicyValues();
 
         if (
             $matricula === ''
             || $dataNascimento === ''
             || $dataAdmissao === ''
-            || $valorParcela === null
-            || trim((string) $valorParcela) === ''
-            || $valorRenda === null
-            || trim((string) $valorRenda) === ''
+            || ($requiresOperationValues && (
+                $valorParcela === null
+                || trim((string) $valorParcela) === ''
+                || $valorRenda === null
+                || trim((string) $valorRenda) === ''
+            ))
         ) {
             $row['politicaCreditoAprovado'] = 'NÃO';
             $row['politicaCreditoMensagem'] = 'Dados insuficientes para continuação da análise de crédito.';
@@ -3323,6 +3516,107 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             'phase2_approved_table' => is_array($credit['phase2_approved_table'] ?? null) ? $credit['phase2_approved_table'] : null,
             'phase2_approved_table_name' => is_string($credit['phase2_approved_table_name'] ?? null) ? $credit['phase2_approved_table_name'] : null,
         ];
+    }
+
+    private function creditPolicySnapshotCsvRow(object $record, bool $requiresOperationValues): array
+    {
+        $row = [
+            'cpf' => (string) $record->cpf,
+            'nome' => $record->nome,
+            'elegivel' => (bool) ($record->elegivel ?? false),
+            'dataNascimento' => $record->data_nascimento,
+            'idade' => $record->idade,
+            'sexo_descricao' => $record->sexo,
+            'dataAdmissao' => $record->data_admissao,
+            'tempoAdmissaoMeses' => $record->meses_admissao,
+            'valorTotalVencimentos' => $record->valor_renda,
+            'valorBaseMargem' => $record->valor_base_margem,
+            'valorMargemDisponivel' => $record->margem_disponivel,
+            'valorMaximoPrestacao' => $record->valor_max_prestacao,
+            'codigoCategoriaTrabalhador' => $record->categoria_trabalhador_codigo,
+            'dataInicioAtividadeEmpregador' => $record->inicio_atividade_empregador,
+            'mesesEmpresaEmpregador' => $record->meses_empresa_empregador,
+            'qtdEmprestimosAtivosSuspensos' => $record->qtd_emprestimos_ativos_suspensos,
+            'emprestimosLegados' => $record->emprestimos_legados,
+            'matricula' => $record->matricula,
+            'updated_at' => $record->updated_at,
+            'consulted_at' => $record->consulted_at,
+            'fonteConsulta' => 'snapshot_clt',
+        ];
+
+        if (!$this->canProcessCreditPolicySnapshotRecord($record, $requiresOperationValues)) {
+            $row['elegivel'] = false;
+            $row['politicaCreditoMensagem'] = $this->creditPolicyInsufficientMessage();
+        }
+
+        return $row;
+    }
+
+    private function creditPolicyMissingCsvRow(string $cpf): array
+    {
+        return [
+            'cpf' => $cpf,
+            'elegivel' => false,
+            'politicaCreditoMensagem' => $this->creditPolicyInsufficientMessage(),
+            'fonteConsulta' => 'sem_dados',
+        ];
+    }
+
+    private function canProcessCreditPolicySnapshotRecord(object $record, bool $requiresOperationValues): bool
+    {
+        $margemDisponivel = is_numeric($record->margem_disponivel ?? null)
+            ? (float) $record->margem_disponivel
+            : null;
+
+        if (($record->elegivel ?? null) != 1) {
+            return false;
+        }
+
+        if (($record->not_found ?? null) == 1) {
+            return false;
+        }
+
+        if ($margemDisponivel === null || $margemDisponivel <= 30.0) {
+            return false;
+        }
+
+        if (trim((string) ($record->matricula ?? '')) === '') {
+            return false;
+        }
+
+        if (empty($record->data_admissao) || empty($record->data_nascimento)) {
+            return false;
+        }
+
+        if ($requiresOperationValues && (($record->valor_renda ?? null) === null || ($record->valor_max_prestacao ?? null) === null)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function canProcessCreditPolicyCsvRow(array $row): bool
+    {
+        $margemDisponivel = is_numeric($row['valorMargemDisponivel'] ?? null)
+            ? (float) $row['valorMargemDisponivel']
+            : null;
+
+        return ($row['elegivel'] ?? null) === true
+            && $margemDisponivel !== null
+            && $margemDisponivel > 30.0
+            && empty($row['politicaCreditoMensagem']);
+    }
+
+    private function creditPolicyInsufficientMessage(): string
+    {
+        return 'Não possui dados suficientes para validação e precisa consultar antes.';
+    }
+
+    private function requiresOperationCreditPolicyValues(): bool
+    {
+        $mode = strtolower(trim((string) config('cltfacta.credit_worker.policy_source_mode', 'operacoes')));
+
+        return !in_array($mode, ['experimental', 'fixed'], true);
     }
 
     /**

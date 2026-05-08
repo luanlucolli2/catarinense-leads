@@ -54,6 +54,10 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
 
     public function model(array $row)
     {
+        if ($this->shouldStopImport()) {
+            return null;
+        }
+
         // contador real por CPF com dígitos
         $cpfRaw = $row['cpfcliente'] ?? null;
         $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string)$cpfRaw) : '';
@@ -239,10 +243,17 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
             AfterChunk::class => function () {
                 $this->flushRowBuffer();
                 $this->updateProcessedRowsAfterChunk();
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                }
             },
 
             AfterImport::class => function () {
                 $this->flushRowBuffer();
+                if ($this->refreshImportCancelledFlag(true)) {
+                    $this->finalizeImportJobAsCancelled();
+                    return;
+                }
                 $this->finalizeImportJobAsCompleted();
             },
         ];

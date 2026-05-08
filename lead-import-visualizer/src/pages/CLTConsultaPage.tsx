@@ -733,13 +733,15 @@ const CLTConsultaPage = () => {
   const handleNewConsult = async (
     titulo: string,
     cpfs: string,
-    modo: "OFF" | "ONLINE" | "HYBRID",
+    modo: "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY",
     opts?: { runAt?: string | null; timezone?: string | null }
   ) => {
     const variant = modo === "OFF"
       ? "offline"
       : modo === "HYBRID"
         ? "hybrid"
+        : modo === "CREDIT_POLICY"
+          ? "credit_policy"
         : "online";
     await createMutation.mutateAsync({
       title: titulo,

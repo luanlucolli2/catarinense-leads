@@ -72,6 +72,8 @@ class MercantilCsvImport
 
     protected int $rowsInCurrentChunk = 0;
     protected int $errorCount = 0;
+    protected bool $cancelled = false;
+    protected int $cancelCheckCounter = 0;
 
     public function __construct(ImportJob $importJob)
     {
@@ -79,6 +81,8 @@ class MercantilCsvImport
         $this->lineChunkSize = max(100, (int) config('leads.import.mercantil.chunk_size', 500));
         $this->dbBatchSize = max(50, (int) config('leads.import.db_batch_size', 500));
         $this->maxErrorsPerJob = max(1, (int) config('leads.import.max_errors_per_job', 5000));
+        $this->cancelled = false;
+        $this->cancelCheckCounter = 0;
 
         $ignored = array_values(array_filter((array) config('leads.import.mercantil.ignored_statuses', [])));
         foreach ($ignored as $status) {
@@ -135,6 +139,13 @@ class MercantilCsvImport
 
             $lineNumber = 1;
             while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
+                if ($this->shouldStopImport()) {
+                    $this->flushPendingState();
+                    $this->flushQueuedErrors();
+                    $this->markImportAsCancelled();
+                    return;
+                }
+
                 $lineNumber++;
 
                 if ($this->isCsvRowEmpty($row)) {
@@ -399,6 +410,35 @@ class MercantilCsvImport
             'status' => 'concluido',
             'finished_at' => now(),
         ]);
+    }
+
+    protected function markImportAsCancelled(): void
+    {
+        DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->where('status', 'cancelado')
+            ->update([
+                'finished_at' => DB::raw('COALESCE(finished_at, NOW())'),
+            ]);
+    }
+
+    protected function shouldStopImport(): bool
+    {
+        if ($this->cancelled) {
+            return true;
+        }
+
+        $this->cancelCheckCounter++;
+        if (($this->cancelCheckCounter % 50) !== 0) {
+            return false;
+        }
+
+        $status = DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->value('status');
+
+        $this->cancelled = ($status === 'cancelado');
+        return $this->cancelled;
     }
 
     /**
