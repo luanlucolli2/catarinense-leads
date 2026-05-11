@@ -15,7 +15,7 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
 
 interface FiltersModalProps {
-  mode: "FGTS" | "CLT" | "MERCANTIL"
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL"
 
   isOpen: boolean
   onClose: () => void
@@ -689,23 +689,23 @@ export const FiltersModal = ({
     if (isUpdatedPeriodActive) chips.push("Período de higienização")
     if (isFgtsStatusActive) chips.push("FGTS OFF status")
     if (isFgtsPeriodActive) chips.push("FGTS OFF período")
-  } else {
-    if (mode === "CLT") {
-      if (actCltSituacao) chips.push("CLT · Situação")
-      if (actCltVinculo) chips.push("CLT · Vínculo")
-      if (actCltPerfil) chips.push("CLT · Perfil")
-      if (actCltRenda) chips.push("CLT · Renda/Margem")
-      if (actCltHistorico) chips.push("CLT · Histórico")
-    } else {
-      if (actMercantilSituacao) chips.push("Mercantil · Situação")
-      if (actMercantilFinanceiro) chips.push("Mercantil · Financeiro")
-    }
+  } else if (mode === "CLT") {
+    if (actCltSituacao) chips.push("CLT · Situação")
+    if (actCltVinculo) chips.push("CLT · Vínculo")
+    if (actCltPerfil) chips.push("CLT · Perfil")
+    if (actCltRenda) chips.push("CLT · Renda/Margem")
+    if (actCltHistorico) chips.push("CLT · Histórico")
+  } else if (mode === "MERCANTIL") {
+    if (actMercantilSituacao) chips.push("Mercantil · Situação")
+    if (actMercantilFinanceiro) chips.push("Mercantil · Financeiro")
   }
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
   if (isMassActive) chips.push("Filtros em massa")
 
   const modeLabel =
-    mode === "FGTS"
+    mode === "BASE"
+      ? "Leads"
+      : mode === "FGTS"
       ? "FGTS (Facta FGTS Base offline)"
       : mode === "CLT"
         ? "CLT (Facta Crédito do Trabalhador)"

@@ -2,7 +2,24 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export type Mode = "fgts" | "clt" | "mercantil"
+export type Mode = "base" | "fgts" | "clt" | "mercantil"
+
+export interface LeadFromApiBase {
+  id: number
+  cpf: string
+  nome: string | null
+  data_nascimento: string | null
+  fone1: string | null
+  classe_fone1: string | null
+  fone2: string | null
+  classe_fone2: string | null
+  fone3: string | null
+  classe_fone3: string | null
+  fone4: string | null
+  classe_fone4: string | null
+  ultima_origem_cadastral: string | null
+  ultima_origem_higienizacao: string | null
+}
 
 /** FGTS (lista) */
 export interface LeadFromApiFGTS {
@@ -176,6 +193,7 @@ export interface PaginatedResponse<T> {
 export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
 export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
 export type PaginatedLeadsResponseMercantil = PaginatedResponse<LeadFromApiMercantil>
+export type PaginatedLeadsResponseBase = PaginatedResponse<LeadFromApiBase>
 
 export interface LeadFilters {
   page?: number
@@ -379,6 +397,35 @@ const shouldUsePost = (filters: LeadFilters, mode: Mode) => {
 }
 
 /* ---------- Endpoints: lista ---------- */
+export async function fetchLeadsBase(filters: LeadFilters) {
+  const mode: Mode = "base"
+  if (shouldUsePost(filters, mode)) {
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      mode,
+      search: filters.search?.trim() || undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      birth_month: months.length ? months : undefined,
+      without_phones: filters.without_phones || undefined,
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+    }
+    const { data } = await axiosClient.post<PaginatedLeadsResponseBase>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined }
+    )
+    return data
+  }
+
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponseBase>("/leads", {
+    params,
+  })
+  return data
+}
+
 export async function fetchLeadsFGTS(filters: LeadFilters) {
   const mode: Mode = "fgts"
   if (shouldUsePost(filters, mode)) {
@@ -565,7 +612,7 @@ export interface LeadsExportStatusDTO {
 export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
-  mode: "fgts" | "clt" | "mercantil"
+  mode: "base" | "fgts" | "clt" | "mercantil"
 ): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
   const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)

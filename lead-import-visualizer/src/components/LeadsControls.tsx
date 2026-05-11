@@ -7,7 +7,7 @@ import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
 
 interface LeadsControlsProps {
-  mode: "FGTS" | "CLT" | "MERCANTIL";
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -157,6 +157,8 @@ interface LeadsControlsProps {
   availableMercantilOrigens: string[];
   availableMercantilStatuses: string[];
 
+  visibleColumnsBASE: string[];
+  onVisibleColumnsBASEChange: (cols: string[]) => void;
   visibleColumnsFGTS: string[];
   onVisibleColumnsFGTSChange: (cols: string[]) => void;
   visibleColumnsCLT: string[];
@@ -164,6 +166,7 @@ interface LeadsControlsProps {
   visibleColumnsMERCANTIL: string[];
   onVisibleColumnsMERCANTILChange: (cols: string[]) => void;
 
+  defaultVisibleColumnsBASE: string[];
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
   defaultVisibleColumnsMERCANTIL: string[];
@@ -295,12 +298,15 @@ export const LeadsControls = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  visibleColumnsBASE,
+  onVisibleColumnsBASEChange,
   visibleColumnsFGTS,
   onVisibleColumnsFGTSChange,
   visibleColumnsCLT,
   onVisibleColumnsCLTChange,
   visibleColumnsMERCANTIL,
   onVisibleColumnsMERCANTILChange,
+  defaultVisibleColumnsBASE,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
   defaultVisibleColumnsMERCANTIL,
@@ -311,20 +317,25 @@ export const LeadsControls = ({
   const [isColumnsModalOpen, setIsColumnsModalOpen] = useState(false);
 
   const currentVisible =
-    mode === "FGTS"
+    mode === "BASE"
+      ? visibleColumnsBASE
+      : mode === "FGTS"
       ? visibleColumnsFGTS
       : mode === "CLT"
         ? visibleColumnsCLT
         : visibleColumnsMERCANTIL;
   const currentDefaults =
-    mode === "FGTS"
+    mode === "BASE"
+      ? defaultVisibleColumnsBASE
+      : mode === "FGTS"
       ? defaultVisibleColumnsFGTS
       : mode === "CLT"
         ? defaultVisibleColumnsCLT
         : defaultVisibleColumnsMERCANTIL;
 
   const onSaveVisible = (cols: string[]) => {
-    if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
+    if (mode === "BASE") onVisibleColumnsBASEChange(cols);
+    else if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
     else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
     else onVisibleColumnsMERCANTILChange(cols);
   };

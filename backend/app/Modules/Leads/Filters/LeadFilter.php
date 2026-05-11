@@ -15,7 +15,10 @@ class LeadFilter
     {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
-        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt' | 'mercantil'
+        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'clt' | 'mercantil'
+        if (!in_array($mode, ['base', 'fgts', 'clt', 'mercantil'], true)) {
+            $mode = 'fgts';
+        }
 
         $cltFields = [
             'matricula',
@@ -260,7 +263,15 @@ class LeadFilter
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
             }
 
-            if ($mode === 'fgts') {
+            if ($mode === 'base') {
+                $query->addSelect([
+                    'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral')
+                ]);
+
+                $query->addSelect([
+                    'ultima_origem_higienizacao' => self::latestOriginSubquery('higienizacao')
+                ]);
+            } elseif ($mode === 'fgts') {
                 $query->withCount('contracts');
 
                 $query->addSelect([

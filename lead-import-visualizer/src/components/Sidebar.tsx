@@ -119,7 +119,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
         key: "leads",
         items: [
           {
-            name: "Dashboard (Leads)",
+            name: "Base de leads",
             icon: Home,
             path: "/",
             active: location.pathname === "/",
