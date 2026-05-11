@@ -20,8 +20,8 @@ return [
         'mimes' => ['xlsx', 'xls', 'csv'],
         'types' => ['cadastral', 'higienizacao', 'clt', 'mercantil'],
         'allowed_extensions' => [
-            'cadastral' => ['xlsx', 'xls'],
-            'higienizacao' => ['xlsx', 'xls'],
+            'cadastral' => ['csv'],
+            'higienizacao' => ['csv'],
             'clt' => ['xlsx', 'xls'],
             'mercantil' => ['csv'],
         ],
@@ -47,6 +47,10 @@ return [
         'max_errors_per_job' => (int) env('LEADS_IMPORT_MAX_ERRORS_PER_JOB', 5000),
         'vendor_cache_max' => (int) env('LEADS_IMPORT_VENDOR_CACHE_MAX', 5000),
         'pre_count_total_rows' => filter_var(env('LEADS_IMPORT_PRE_COUNT_TOTAL_ROWS', true), FILTER_VALIDATE_BOOL),
+        'csv' => [
+            'delimiter' => (string) env('LEADS_IMPORT_CSV_DELIMITER', ';'),
+            'enclosure' => (string) env('LEADS_IMPORT_CSV_ENCLOSURE', '"'),
+        ],
         'mercantil' => [
             'chunk_size' => (int) env('LEADS_IMPORT_MERCANTIL_CHUNK_SIZE', 500),
             'csv' => [

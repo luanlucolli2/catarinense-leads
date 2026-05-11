@@ -78,6 +78,93 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
         return null;
     }
 
+    public static function missingRequiredHeaders(array $headers): array
+    {
+        $index = self::buildHeaderIndex($headers);
+        $missing = [];
+        foreach (self::REQUIRED_HEADERS as $header) {
+            if (!isset($index[$header])) {
+                $missing[] = $header;
+            }
+        }
+        return $missing;
+    }
+
+    public function process(string $fullPath): void
+    {
+        $this->bootImportLifecycleState();
+        $this->rowBuffer = [];
+        $this->pendingLeadUpdates = [];
+        $this->pendingLeadImports = [];
+        $this->pendingErrors = [];
+        $this->backedUpLeadIds = [];
+
+        $handle = fopen($fullPath, 'rb');
+        if (!$handle) {
+            throw new \RuntimeException("Não foi possível abrir o CSV de higienização: {$fullPath}");
+        }
+
+        try {
+            $headers = fgetcsv($handle, 0, $this->csvDelimiter(), $this->csvEnclosure());
+            if ($headers === false) {
+                throw new \RuntimeException('CSV de higienização vazio ou sem cabeçalho.');
+            }
+
+            $headerIndex = self::buildHeaderIndex($headers);
+            $missing = self::missingRequiredHeaders($headers);
+            if (!empty($missing)) {
+                throw new \RuntimeException('Cabeçalhos ausentes no CSV de higienização: ' . implode(', ', $missing));
+            }
+
+            $lineNumber = 1;
+            while (($csvRow = fgetcsv($handle, 0, $this->csvDelimiter(), $this->csvEnclosure())) !== false) {
+                if ($this->shouldStopImport()) {
+                    $this->flushRowBuffer();
+                    $this->flushQueuedErrors();
+                    $this->finalizeImportJobAsCancelled();
+                    return;
+                }
+
+                $lineNumber++;
+                if ($this->isCsvRowEmpty($csvRow)) {
+                    continue;
+                }
+
+                $row = $this->parseCsvRow($headerIndex, $csvRow);
+                $cpfRaw = $row['cpfcliente'] ?? null;
+                $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string) $cpfRaw) : '';
+                if ($digits === '') {
+                    continue;
+                }
+
+                $this->rowsInCurrentChunk++;
+                $this->rowBuffer[] = [
+                    'row' => $row,
+                    'row_number' => $lineNumber,
+                ];
+
+                if (count($this->rowBuffer) >= $this->dbBatchSize()) {
+                    $this->flushRowBuffer();
+                }
+
+                if ($this->rowsInCurrentChunk >= $this->chunkSize()) {
+                    $this->flushRowBuffer();
+                    $this->updateProcessedRowsAfterChunk();
+                }
+            }
+
+            $this->flushRowBuffer();
+            $this->flushQueuedErrors();
+            if ($this->refreshImportCancelledFlag(true)) {
+                $this->finalizeImportJobAsCancelled();
+                return;
+            }
+            $this->finalizeImportJobAsCompleted();
+        } finally {
+            fclose($handle);
+        }
+    }
+
     private function flushRowBuffer(): void
     {
         if (empty($this->rowBuffer)) {
@@ -257,5 +344,78 @@ class HigienizacaoImport implements ToModel, WithHeadingRow, WithChunkReading, W
                 $this->finalizeImportJobAsCompleted();
             },
         ];
+    }
+
+    private static function buildHeaderIndex(array $headers): array
+    {
+        $aliases = [
+            'cpf_cliente' => 'cpfcliente',
+            'data_atualizacao' => 'dataatualizacao',
+        ];
+
+        $index = [];
+        foreach ($headers as $i => $header) {
+            $normalized = self::normalizeHeaderLabel((string) $header);
+            $canonical = $aliases[$normalized] ?? $normalized;
+            if (in_array($canonical, self::REQUIRED_HEADERS, true) && !isset($index[$canonical])) {
+                $index[$canonical] = (int) $i;
+            }
+        }
+        return $index;
+    }
+
+    private static function normalizeHeaderLabel(string $value): string
+    {
+        $value = self::normalizeCsvValue($value);
+        $value = preg_replace('/^\xEF\xBB\xBF/u', '', $value) ?? $value;
+        $value = str_replace("\u{00A0}", ' ', $value);
+        $normalized = \Illuminate\Support\Str::of($value)->ascii()->lower()->value();
+        $normalized = preg_replace('/[^a-z0-9]+/u', '_', $normalized) ?? '';
+        return trim((string) preg_replace('/_+/u', '_', $normalized), '_');
+    }
+
+    private function parseCsvRow(array $headerIndex, array $csvRow): array
+    {
+        $row = [];
+        foreach ($headerIndex as $header => $index) {
+            $row[$header] = isset($csvRow[$index]) ? self::normalizeCsvValue((string) $csvRow[$index]) : null;
+        }
+        return $row;
+    }
+
+    private static function normalizeCsvValue(string $value): string
+    {
+        if ($value === '') {
+            return $value;
+        }
+
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            $value = mb_convert_encoding($value, 'UTF-8', 'Windows-1252');
+        }
+
+        $value = preg_replace('/^\xEF\xBB\xBF/u', '', $value) ?? $value;
+        return str_replace("\u{00A0}", ' ', $value);
+    }
+
+    private function isCsvRowEmpty(array $row): bool
+    {
+        foreach ($row as $value) {
+            if (trim((string) $value) !== '') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function csvDelimiter(): string
+    {
+        $configured = (string) config('leads.import.csv.delimiter', ';');
+        return $configured !== '' ? $configured[0] : ';';
+    }
+
+    private function csvEnclosure(): string
+    {
+        $configured = (string) config('leads.import.csv.enclosure', '"');
+        return $configured !== '' ? $configured[0] : '"';
     }
 }

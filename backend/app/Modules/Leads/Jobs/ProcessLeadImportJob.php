@@ -112,6 +112,37 @@ class ProcessLeadImportJob implements ShouldQueue
                 return;
             }
 
+            if ($type === 'cadastral' || $type === 'higienizacao') {
+                [$missing, $totalRows] = $this->inspectLeadCsv($fullPath, $type);
+
+                if (!empty($missing)) {
+                    foreach ($missing as $h) {
+                        ImportError::create([
+                            'import_job_id' => $this->importJob->id,
+                            'row_number'    => 1,
+                            'column_name'   => $h,
+                            'error_message' => 'Cabeçalho ausente.',
+                        ]);
+                    }
+                    $this->importJob->update([
+                        'status'      => 'falhou',
+                        'finished_at' => now(),
+                    ]);
+                    return;
+                }
+
+                if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
+                    $this->importJob->update(['total_rows' => (int) $totalRows]);
+                }
+
+                $importer = $type === 'cadastral'
+                    ? new CadastralImport($this->importJob, app(\App\Services\BackupService::class))
+                    : new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class));
+
+                $importer->process($fullPath);
+                return;
+            }
+
             // pré-validação leve (Excel)
             if ($type !== 'clt') {
                 $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
@@ -277,6 +308,46 @@ class ProcessLeadImportJob implements ShouldQueue
     }
 
     /**
+     * @return array{0: array<int, string>, 1: int}
+     */
+    private function inspectLeadCsv(string $fullPath, string $type): array
+    {
+        $handle = fopen($fullPath, 'rb');
+        if (!$handle) {
+            throw new \RuntimeException("Não foi possível abrir o CSV de importação: {$fullPath}");
+        }
+
+        try {
+            $delimiter = $this->csvDelimiter();
+            $enclosure = $this->csvEnclosure();
+
+            $headers = fgetcsv($handle, 0, $delimiter, $enclosure);
+            if ($headers === false) {
+                $required = $type === 'cadastral'
+                    ? CadastralImport::REQUIRED_HEADERS
+                    : HigienizacaoImport::REQUIRED_HEADERS;
+                return [$required, 0];
+            }
+
+            $missing = $type === 'cadastral'
+                ? CadastralImport::missingRequiredHeaders($headers)
+                : HigienizacaoImport::missingRequiredHeaders($headers);
+
+            $totalRows = 0;
+            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
+                if ($this->isCsvRowEmpty($row)) {
+                    continue;
+                }
+                $totalRows++;
+            }
+
+            return [$missing, $totalRows];
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /**
      * @param array<int, string> $row
      */
     private function isCsvRowEmpty(array $row): bool
@@ -288,6 +359,18 @@ class ProcessLeadImportJob implements ShouldQueue
         }
 
         return true;
+    }
+
+    private function csvDelimiter(): string
+    {
+        $configured = (string) config('leads.import.csv.delimiter', ';');
+        return $configured !== '' ? $configured[0] : ';';
+    }
+
+    private function csvEnclosure(): string
+    {
+        $configured = (string) config('leads.import.csv.enclosure', '"');
+        return $configured !== '' ? $configured[0] : '"';
     }
 
     private function deleteUploadedFile(?string $relativePath): void

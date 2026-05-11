@@ -25,8 +25,8 @@ class ImportController extends Controller
         }
 
         return [
-            'cadastral' => ['xlsx', 'xls'],
-            'higienizacao' => ['xlsx', 'xls'],
+            'cadastral' => ['csv'],
+            'higienizacao' => ['csv'],
             'clt' => ['xlsx', 'xls'],
             'mercantil' => ['csv'],
         ];
