@@ -1093,14 +1093,11 @@ const Dashboard = () => {
             Base de Leads
           </h1>
           <p className="text-sm text-gray-600 lg:text-base">
-            A tabela sempre mantém os dados cadastrais do lead. Escolha um complemento para adicionar informações de FGTS, CLT Facta ou CLT Mercantil.
+           Consulte a carteira de leads e escolha quais informações adicionais deseja visualizar.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
               Leads cadastrados: {totalLeads}
-            </span>
-            <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-              Leads filtrados: {total}
             </span>
           </div>
         </div>
@@ -1164,6 +1161,7 @@ const Dashboard = () => {
         onVendorsFilterChange={ui.setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
+        filteredCount={total}
         fgtsAuthorizedFilter={ui.fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={ui.setFgtsAuthorizedFilter}
         fgtsConsultaFromFilter={ui.fgtsConsultaFromFilter}
