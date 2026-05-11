@@ -1093,7 +1093,7 @@ const Dashboard = () => {
             Base de Leads
           </h1>
           <p className="text-sm text-gray-600 lg:text-base">
-            Consulte a carteira de leads e escolha abaixo quais informações adicionais deseja visualizar.
+            A tabela sempre mantém os dados cadastrais do lead. Escolha um complemento para adicionar informações de FGTS, CLT Facta ou CLT Mercantil.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -1106,7 +1106,7 @@ const Dashboard = () => {
         </div>
 
         <label className="flex w-full max-w-xs flex-col gap-1 text-sm font-medium text-gray-700">
-          Informações exibidas
+          Complemento da tabela
           <select
             value={activeTab}
             onChange={(event) => {
@@ -1115,10 +1115,10 @@ const Dashboard = () => {
             }}
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="BASE">Dados cadastrais</option>
-            <option value="FGTS">Dados FGTS</option>
-            <option value="CLT">Dados CLT Facta</option>
-            <option value="MERCANTIL">Dados CLT Mercantil</option>
+            <option value="BASE">Somente dados cadastrais</option>
+            <option value="FGTS">Cadastrais + FGTS</option>
+            <option value="CLT">Cadastrais + CLT Facta</option>
+            <option value="MERCANTIL">Cadastrais + CLT Mercantil</option>
           </select>
         </label>
       </div>
