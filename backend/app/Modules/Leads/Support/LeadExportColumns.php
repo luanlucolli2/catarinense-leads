@@ -43,6 +43,7 @@ final class LeadExportColumns
             'margem_disponivel' => ['label' => 'CLT Margem disponível (R$)', 'formatter' => 'float'],
             'valor_max_prestacao' => ['label' => 'CLT Valor máx. prestação (R$)', 'formatter' => 'float'],
             'categoria_trabalhador_codigo' => ['label' => 'CLT Categoria do Trabalhador', 'formatter' => 'raw'],
+            'matricula' => ['label' => 'CLT Matrícula', 'formatter' => 'raw'],
             'inicio_atividade_empregador' => ['label' => 'CLT Início Atividade (Empregador)', 'formatter' => 'date_only'],
             'qtd_emprestimos_ativos_suspensos' => ['label' => 'CLT Qtd. empréstimos ativos/suspensos (qtd)', 'formatter' => 'int'],
             'emprestimos_legados' => ['label' => 'CLT Empréstimos Legados', 'formatter' => 'bool_ptbr'],

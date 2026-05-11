@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Mode = "FGTS" | "CLT" | "MERCANTIL";
+type Mode = "BASE" | "FGTS" | "CLT" | "MERCANTIL";
 
 interface ColumnsModalProps {
   isOpen: boolean;
@@ -29,6 +29,22 @@ type CatalogItem = {
 
 /** Catálogo (somente colunas configuráveis; Ações é fixa) */
 const CATALOG: Record<Mode, CatalogItem[]> = {
+  BASE: [
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+    { id: "telefone_1", label: "Fone 1", group: "Cadastral" },
+    { id: "classe_1", label: "Classe 1", group: "Cadastral" },
+    { id: "telefone_2", label: "Fone 2", group: "Cadastral" },
+    { id: "classe_2", label: "Classe 2", group: "Cadastral" },
+    { id: "telefone_3", label: "Fone 3", group: "Cadastral" },
+    { id: "classe_3", label: "Classe 3", group: "Cadastral" },
+    { id: "telefone_4", label: "Fone 4", group: "Cadastral" },
+    { id: "classe_4", label: "Classe 4", group: "Cadastral" },
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
+    { id: "ultima_origem_higienizacao", label: "Origem de higienização", group: "Registro" },
+  ],
+
   FGTS: [
     // Cadastral
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
@@ -87,6 +103,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "data_admissao", label: "Data admissão", group: "Produto" },
     { id: "meses_admissao", label: "Tempo de casa (meses)", group: "Produto" },
     { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", group: "Produto" },
+    { id: "matricula", label: "Matrícula", group: "Produto" },
     { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", group: "Produto" },
     { id: "valor_renda", label: "Renda", group: "Produto" },
     { id: "valor_base_margem", label: "Base de margem", group: "Produto" },

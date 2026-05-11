@@ -15,6 +15,7 @@ import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
 import { ExportModal } from "@/components/ExportModal"
 import {
+  fetchLeadsBase,
   fetchLeadsFGTS,
   fetchLeadsCLT,
   fetchLeadsMercantil,
@@ -23,9 +24,11 @@ import {
   startLeadsExport,
   downloadLeadsExport,
   leadsExportPoller,
+  LeadFromApiBase,
   LeadFromApiFGTS,
   LeadFromApiCLT,
   LeadFromApiMercantil,
+  PaginatedLeadsResponseBase,
   PaginatedLeadsResponseFGTS,
   PaginatedLeadsResponseCLT,
   PaginatedLeadsResponseMercantil,
@@ -38,13 +41,18 @@ import {
   formatPhone,
   formatDateOnly
 } from "@/lib/formatters"
-import { cn } from "@/lib/utils"
 
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
-type ActiveTab = "FGTS" | "CLT" | "MERCANTIL"
+type ActiveTab = "BASE" | "FGTS" | "CLT" | "MERCANTIL"
+
+export const BASE_COLUMNS_DEFAULT: string[] = [
+  "cpf",
+  "nome",
+  "data_nascimento",
+];
 
 // SUBSTITUA a constante FGTS_COLUMNS_DEFAULT por:
 export const FGTS_COLUMNS_DEFAULT: string[] = [
@@ -73,7 +81,7 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "elegivel",
   "clt_consultado_em",
   "clt_dados_atualizados_em", // 🆕
-  "data_admissao", "meses_admissao", "categoria_trabalhador_codigo",
+  "data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "matricula",
   "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao",
   "politica_credito_aprovado", "politica_credito_mensagem",
   "politica_credito_valor_maximo_disponivel", "politica_credito_prazo_maximo_disponivel",
@@ -104,9 +112,13 @@ export const MERCANTIL_COLUMNS_DEFAULT: string[] = [
 ]
 
 const Dashboard = () => {
-  const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "FGTS")
+  const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "BASE")
   const [currentPage, setCurrentPage] = useState(1)
 
+  const [baseVisibleColumns, setBaseVisibleColumns] = usePersistedState<string[]>(
+    "leadstable:base:visibleColumns:v1",
+    BASE_COLUMNS_DEFAULT
+  )
   const [fgtsVisibleColumns, setFgtsVisibleColumns] = usePersistedState<string[]>(
     "leadstable:fgts:visibleColumns:v1",
     FGTS_COLUMNS_DEFAULT
@@ -119,6 +131,14 @@ const Dashboard = () => {
     "leadstable:mercantil:visibleColumns:v1",
     MERCANTIL_COLUMNS_DEFAULT
   )
+
+  const [baseSearchValue, setBaseSearchValue] = usePersistedState<string>("dashboard-base:searchValue", "")
+  const [baseOrigemFilter, setBaseOrigemFilter] = usePersistedState<string[]>("dashboard-base:origemFilter", [])
+  const [baseCpfMassFilter, setBaseCpfMassFilter] = usePersistedState<string>("dashboard-base:cpfMassFilter", "")
+  const [baseNamesMassFilter, setBaseNamesMassFilter] = usePersistedState<string>("dashboard-base:namesMassFilter", "")
+  const [basePhonesMassFilter, setBasePhonesMassFilter] = usePersistedState<string>("dashboard-base:phonesMassFilter", "")
+  const [baseNoPhonesFilter, setBaseNoPhonesFilter] = usePersistedState<boolean>("dashboard-base:noPhonesFilter", false)
+  const [baseBirthMonthFilter, setBaseBirthMonthFilter] = usePersistedState<string[]>("dashboard-base:birthMonthFilter", [])
 
   /* =========================  FGTS (persistido)  ========================= */
   const [searchValue, setSearchValue] = usePersistedState<string>("dashboard:searchValue", "")
@@ -228,16 +248,34 @@ const Dashboard = () => {
   })
 
   const {
+    data: totalLeadsData,
+    refetch: refetchTotalLeads,
+  } = useQuery<PaginatedLeadsResponseBase>({
+    queryKey: ["leadsBaseTotal"],
+    queryFn: () => fetchLeadsBase({ page: 1 }),
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: false,
+  })
+
+  const {
     data: paginatedData,
     isLoading,
     isFetching,
     isError,
     refetch,
-  } = useQuery<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil>({
+  } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil>({
     queryKey: [
       "leads",
       activeTab,
       currentPage,
+      // BASE
+      baseSearchValue,
+      baseOrigemFilter,
+      baseCpfMassFilter,
+      baseNamesMassFilter,
+      basePhonesMassFilter,
+      baseNoPhonesFilter,
+      baseBirthMonthFilter,
       // FGTS
       searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
       dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
@@ -264,7 +302,20 @@ const Dashboard = () => {
       mercantilQtdParcelasMin, mercantilQtdParcelasMax,
       mercantilOrigensMercantilFilter,
     ],
-    queryFn: async (): Promise<PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil> => {
+    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil> => {
+      if (activeTab === "BASE") {
+        return fetchLeadsBase({
+          page: currentPage,
+          search: baseSearchValue,
+          origens: baseOrigemFilter,
+          cpf: baseCpfMassFilter,
+          names: baseNamesMassFilter,
+          phones: basePhonesMassFilter,
+          without_phones: baseNoPhonesFilter || undefined,
+          birth_month: baseBirthMonthFilter,
+        })
+      }
+
       if (activeTab === "FGTS") {
         return fetchLeadsFGTS({
           page: currentPage,
@@ -358,8 +409,41 @@ const Dashboard = () => {
       })
     },
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   })
+
+  const processedLeadsBase: ProcessedLeadFGTS[] = useMemo(() => {
+    if (activeTab !== "BASE") return []
+    const resp = paginatedData as PaginatedLeadsResponseBase | undefined
+    if (!resp?.data) return []
+    return resp.data.map((lead: LeadFromApiBase) => {
+      const telefones = [
+        { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
+        { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
+        { fone: formatPhone(lead.fone3), classe: lead.classe_fone3 },
+        { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
+      ].filter((f) => f.fone && f.fone !== "--")
+
+      return {
+        id: lead.id,
+        cpf: formatCPF(lead.cpf),
+        nome: lead.nome || "--",
+        data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
+        telefones,
+        contratos: 0,
+        data_contrato_recente: "",
+        vendedor: "",
+        saldo: "",
+        libera: "",
+        data_atualizacao: "",
+        consulta: "",
+        ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        ultima_origem_higienizacao: lead.ultima_origem_higienizacao || "",
+        fgts_off_authorized: null,
+        fgts_off_consultado_em: "",
+      }
+    })
+  }, [paginatedData, activeTab])
 
   const processedLeadsFGTS: ProcessedLeadFGTS[] = useMemo(() => {
     if (activeTab !== "FGTS") return []
@@ -438,6 +522,7 @@ const Dashboard = () => {
         data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        matricula: lead.matricula || "",
         elegivel,
         not_found: !!lead.not_found,
         politica_credito_aprovado: politicaCreditoAprovado,
@@ -550,6 +635,16 @@ const Dashboard = () => {
     setPendingToastId(id)
   }
 
+  const clearBase = () => {
+    setBaseSearchValue("")
+    setBaseOrigemFilter([])
+    setBaseCpfMassFilter("")
+    setBaseNamesMassFilter("")
+    setBasePhonesMassFilter("")
+    setBaseNoPhonesFilter(false)
+    setBaseBirthMonthFilter([])
+  }
+
   const clearFgts = () => {
     setSearchValue("")
     setStatusFilter("todos")
@@ -637,7 +732,8 @@ const Dashboard = () => {
   }
 
   const handleClearFilters = () => {
-    if (activeTab === "FGTS") clearFgts()
+    if (activeTab === "BASE") clearBase()
+    else if (activeTab === "FGTS") clearFgts()
     else if (activeTab === "CLT") clearClt()
     else clearMercantil()
     setCurrentPage(1)
@@ -646,6 +742,15 @@ const Dashboard = () => {
     const id = toast.loading("Limpando filtros…")
     setPendingToastId(id)
   }
+
+  const hasActiveFiltersBASE =
+    baseSearchValue ||
+    baseOrigemFilter.length ||
+    baseCpfMassFilter ||
+    baseNamesMassFilter ||
+    basePhonesMassFilter ||
+    baseNoPhonesFilter ||
+    baseBirthMonthFilter.length
 
   const hasActiveFiltersFGTS =
     searchValue ||
@@ -718,13 +823,27 @@ const Dashboard = () => {
     mercantilOrigensMercantilFilter.length
 
   const hasActiveFilters =
-    activeTab === "FGTS"
+    activeTab === "BASE"
+      ? hasActiveFiltersBASE
+      : activeTab === "FGTS"
       ? hasActiveFiltersFGTS
       : activeTab === "CLT"
         ? hasActiveFiltersCLT
         : hasActiveFiltersMercantil
 
   const collectFilters = () => {
+    if (activeTab === "BASE") {
+      return {
+        search: baseSearchValue || undefined,
+        origens: baseOrigemFilter.length ? baseOrigemFilter : undefined,
+        cpf: baseCpfMassFilter || undefined,
+        names: baseNamesMassFilter || undefined,
+        phones: basePhonesMassFilter || undefined,
+        without_phones: baseNoPhonesFilter || undefined,
+        birth_month: baseBirthMonthFilter.length ? baseBirthMonthFilter : undefined,
+      }
+    }
+
     if (activeTab === "FGTS") {
       return {
         search: searchValue || undefined,
@@ -858,8 +977,8 @@ const Dashboard = () => {
 
   // Inicia export e delega o polling ao singleton
   const handleExport = async (columns: string[]) => {
-    const mode: "fgts" | "clt" | "mercantil" =
-      activeTab === "FGTS" ? "fgts" : activeTab === "CLT" ? "clt" : "mercantil"
+    const mode: "base" | "fgts" | "clt" | "mercantil" =
+      activeTab === "BASE" ? "base" : activeTab === "FGTS" ? "fgts" : activeTab === "CLT" ? "clt" : "mercantil"
     const preId = toast.loading("Exportando leads", { duration: Infinity })
     try {
       const { token } = await startLeadsExport(collectFilters(), columns, mode)
@@ -874,10 +993,33 @@ const Dashboard = () => {
   }
 
   const total = (paginatedData as any)?.total ?? 0
+  const totalLeads = totalLeadsData?.total ?? total
   const current_page = (paginatedData as any)?.current_page ?? 1
   const last_page = (paginatedData as any)?.last_page ?? 1
 
-  const ui = activeTab === "FGTS"
+  const ui = activeTab === "BASE"
+    ? {
+      mode: "BASE" as const,
+      searchValue: baseSearchValue, setSearchValue: setBaseSearchValue,
+      statusFilter: "todos" as const, setStatusFilter: (_: StatusFilter) => {},
+      motivosFilter: [] as string[], setMotivosFilter: (_: string[]) => {},
+      origemFilter: baseOrigemFilter, setOrigemFilter: setBaseOrigemFilter,
+      higienizacaoFilter: [] as string[], setHigienizacaoFilter: (_: string[]) => {},
+      dateFromFilter: "", setDateFromFilter: (_: string) => {},
+      dateToFilter: "", setDateToFilter: (_: string) => {},
+      contractDateFromFilter: "", setContractDateFromFilter: (_: string) => {},
+      contractDateToFilter: "", setContractDateToFilter: (_: string) => {},
+      cpfMassFilter: baseCpfMassFilter, setCpfMassFilter: setBaseCpfMassFilter,
+      namesMassFilter: baseNamesMassFilter, setNamesMassFilter: setBaseNamesMassFilter,
+      phonesMassFilter: basePhonesMassFilter, setPhonesMassFilter: setBasePhonesMassFilter,
+      noPhonesFilter: baseNoPhonesFilter, setNoPhonesFilter: setBaseNoPhonesFilter,
+      vendorsFilter: [] as string[], setVendorsFilter: (_: string[]) => {},
+      birthMonthFilter: baseBirthMonthFilter, setBirthMonthFilter: setBaseBirthMonthFilter,
+      fgtsAuthorizedFilter: "todos" as const, setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
+      fgtsConsultaFromFilter: "", setFgtsConsultaFromFilter: (_: string) => {},
+      fgtsConsultaToFilter: "", setFgtsConsultaToFilter: (_: string) => {},
+    }
+    : activeTab === "FGTS"
     ? {
       mode: "FGTS" as const,
       searchValue, setSearchValue,
@@ -945,66 +1087,37 @@ const Dashboard = () => {
 
   return (
     <div className="max-w-full p-4 lg:p-6">
-      <div className="mb-4">
-        <h1 className="mb-1 text-xl font-bold lg:text-2xl text-gray-900">
-          Dashboard
-        </h1>
-        <p className="text-sm text-gray-600 lg:text-base">
-          {
-            activeTab === "FGTS"
-              ? "FGTS (Facta FGTS Base offline)"
-              : activeTab === "CLT"
-                ? "CLT (Facta Crédito do Trabalhador)"
-                : "CLT (Mercantil)"
-          } — {total} registros
-        </p>
-      </div>
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="mb-1 text-xl font-bold lg:text-2xl text-gray-900">
+            Base de Leads
+          </h1>
+          <p className="text-sm text-gray-600 lg:text-base">
+           Consulte a carteira de leads e escolha quais informações adicionais deseja visualizar.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+              Leads cadastrados: {totalLeads}
+            </span>
+          </div>
+        </div>
 
-      <div className="mb-4 flex gap-2">
-        <button
-          onClick={() => {
-            setActiveTab("FGTS")
-            setCurrentPage(1)
-          }}
-          className={cn(
-            "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200",
-            activeTab === "FGTS"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-          )}
-        >
-          FGTS
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab("CLT")
-            setCurrentPage(1)
-          }}
-          className={cn(
-            "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200",
-            activeTab === "CLT"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-          )}
-        >
-          CLT (Facta)
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab("MERCANTIL")
-            setCurrentPage(1)
-          }}
-          className={cn(
-            "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200",
-            activeTab === "MERCANTIL"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-          )}
-        >
-          CLT (Mercantil)
-        </button>
+        <label className="flex w-full max-w-xs flex-col gap-1 text-sm font-medium text-gray-700">
+          Dados da tabela
+          <select
+            value={activeTab}
+            onChange={(event) => {
+              setActiveTab(event.target.value as ActiveTab)
+              setCurrentPage(1)
+            }}
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="BASE">Somente dados cadastrais</option>
+            <option value="FGTS">Cadastrais + FGTS</option>
+            <option value="CLT">Cadastrais + CLT Facta</option>
+            <option value="MERCANTIL">Cadastrais + CLT Mercantil</option>
+          </select>
+        </label>
       </div>
 
       <LeadsControls
@@ -1048,6 +1161,7 @@ const Dashboard = () => {
         onVendorsFilterChange={ui.setVendorsFilter}
         availableVendors={filterOptions?.vendors ?? []}
         hasActiveFilters={!!hasActiveFilters}
+        filteredCount={total}
         fgtsAuthorizedFilter={ui.fgtsAuthorizedFilter}
         onFgtsAuthorizedFilterChange={ui.setFgtsAuthorizedFilter}
         fgtsConsultaFromFilter={ui.fgtsConsultaFromFilter}
@@ -1131,18 +1245,30 @@ const Dashboard = () => {
         onMercantilOrigensFilterChange={setMercantilOrigensMercantilFilter}
         availableMercantilOrigens={filterOptions?.origens_mercantil ?? []}
         availableMercantilStatuses={filterOptions?.mercantil_status ?? []}
+        visibleColumnsBASE={baseVisibleColumns}
+        onVisibleColumnsBASEChange={setBaseVisibleColumns}
         visibleColumnsFGTS={fgtsVisibleColumns}
         onVisibleColumnsFGTSChange={setFgtsVisibleColumns}
         visibleColumnsCLT={cltVisibleColumns}
         onVisibleColumnsCLTChange={setCltVisibleColumns}
         visibleColumnsMERCANTIL={mercantilVisibleColumns}
         onVisibleColumnsMERCANTILChange={setMercantilVisibleColumns}
+        defaultVisibleColumnsBASE={BASE_COLUMNS_DEFAULT}
         defaultVisibleColumnsFGTS={FGTS_COLUMNS_DEFAULT}
         defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
         defaultVisibleColumnsMERCANTIL={MERCANTIL_COLUMNS_DEFAULT}
       />
 
-      {activeTab === "FGTS" ? (
+      {activeTab === "BASE" ? (
+        <LeadsTableFGTS
+          leads={processedLeadsBase}
+          currentPage={current_page}
+          totalPages={last_page}
+          onPageChange={setCurrentPage}
+          isLoading={isLoading || isFetching || loadingOptions}
+          visibleColumns={baseVisibleColumns}
+        />
+      ) : activeTab === "FGTS" ? (
         <LeadsTableFGTS
           leads={processedLeadsFGTS}
           currentPage={current_page}
@@ -1174,7 +1300,10 @@ const Dashboard = () => {
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onImportSuccess={() => refetch()}
+        onImportSuccess={() => {
+          refetch()
+          refetchTotalLeads()
+        }}
       />
 
       <ExportModal

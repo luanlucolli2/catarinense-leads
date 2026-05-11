@@ -15,6 +15,8 @@ class MercantilSnapshot extends Model
 
     protected $fillable = [
         'cpf',
+        'nome',
+        'data_nascimento',
         'status',
         'mensagem_erro',
         'data_hora_origem',
@@ -31,6 +33,7 @@ class MercantilSnapshot extends Model
     ];
 
     protected $casts = [
+        'data_nascimento' => 'date',
         'data_hora_origem' => 'datetime',
         'data_primeiro_vencimento' => 'date',
         'valor_financiado' => 'decimal:2',

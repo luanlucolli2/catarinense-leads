@@ -78,7 +78,7 @@ export const ImportModal = ({
         }
         // Cabeçalhos faltando na planilha
         else if (status === 422 && Array.isArray(data.missing)) {
-          toast.error("Cabeçalhos inválidos na planilha", {
+          toast.error("Cabeçalhos inválidos no CSV", {
             description: `Colunas faltando: ${data.missing.join(", ")}`,
           })
         }
@@ -111,8 +111,8 @@ export const ImportModal = ({
     type: "cadastral" | "higienizacao",
   ): void => {
     const url = `/templates/${type === "cadastral"
-      ? "template_import_cadastral.xlsx"
-      : "template_import_higienizacao.xlsx"
+      ? "template_import_cadastral.csv"
+      : "template_import_higienizacao.csv"
       }`
     window.open(url, "_blank")
   }
@@ -136,7 +136,7 @@ export const ImportModal = ({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900">
-            Importar Planilha
+            Importar CSV
           </h2>
           <button
             onClick={handleClose}
@@ -197,7 +197,7 @@ export const ImportModal = ({
               htmlFor="origin"
               className="mb-2 block text-sm font-medium text-gray-700"
             >
-              Origem da Planilha (Opcional)
+              Origem do Arquivo (Opcional)
             </label>
             <Input
               id="origin"
@@ -241,13 +241,13 @@ export const ImportModal = ({
           {/* File input */}
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
-              Selecione o arquivo ({importType === "mercantil" ? ".csv" : ".xlsx/.xls"})
+              Selecione o arquivo (.csv)
             </label>
             <div className="rounded-lg border-2 border-dashed border-gray-300 p-4 text-center transition-colors duration-200 hover:border-blue-400">
               <input
                 id="file-upload"
                 type="file"
-                accept={importType === "mercantil" ? ".csv" : ".xlsx,.xls"}
+                accept=".csv"
                 className="hidden"
                 onChange={handleFileChange}
               />

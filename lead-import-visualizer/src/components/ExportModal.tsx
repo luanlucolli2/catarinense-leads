@@ -6,8 +6,8 @@ interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onExport: (columns: string[]) => void;
-  /** Define quais colunas exibir: FGTS | CLT | MERCANTIL */
-  mode: "FGTS" | "CLT" | "MERCANTIL";
+  /** Define quais colunas exibir: BASE | FGTS | CLT | MERCANTIL */
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
 }
 
 type Group = "Cadastral" | "Produto" | "Registro";
@@ -20,6 +20,22 @@ type ColumnDef = {
 };
 
 /** Catálogo de colunas por modo (alinhado ao backend) com a MESMA organização de grupos do ColumnsModal */
+const COLUMNS_BASE: ColumnDef[] = [
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
+  { id: "fone3", label: "Telefone 3", selected: true, group: "Cadastral" },
+  { id: "fone4", label: "Telefone 4", selected: true, group: "Cadastral" },
+  { id: "classe_fone1", label: "Classe do telefone 1", selected: true, group: "Cadastral" },
+  { id: "classe_fone2", label: "Classe do telefone 2", selected: true, group: "Cadastral" },
+  { id: "classe_fone3", label: "Classe do telefone 3", selected: true, group: "Cadastral" },
+  { id: "classe_fone4", label: "Classe do telefone 4", selected: true, group: "Cadastral" },
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
+  { id: "ultima_origem_higienizacao", label: "Origem de higienização", selected: true, group: "Registro" },
+];
+
 const COLUMNS_FGTS: ColumnDef[] = [
   // Cadastral
   { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
@@ -75,6 +91,7 @@ const COLUMNS_CLT: ColumnDef[] = [
   { id: "data_admissao", label: "Data admissão", selected: true, group: "Produto" },
   { id: "meses_admissao", label: "Tempo de casa (meses)", selected: true, group: "Produto" },
   { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", selected: true, group: "Produto" },
+  { id: "matricula", label: "Matrícula", selected: true, group: "Produto" },
   { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", selected: true, group: "Produto" },
   { id: "valor_renda", label: "Renda", selected: true, group: "Produto" },
   { id: "valor_base_margem", label: "Base de margem", selected: true, group: "Produto" },
@@ -134,7 +151,7 @@ export const ExportModal = ({
   mode,
 }: ExportModalProps) => {
   const columnsSource = useMemo<ColumnDef[]>(
-    () => (mode === "FGTS" ? COLUMNS_FGTS : mode === "CLT" ? COLUMNS_CLT : COLUMNS_MERCANTIL),
+    () => (mode === "BASE" ? COLUMNS_BASE : mode === "FGTS" ? COLUMNS_FGTS : mode === "CLT" ? COLUMNS_CLT : COLUMNS_MERCANTIL),
     [mode]
   );
 

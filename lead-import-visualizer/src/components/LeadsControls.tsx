@@ -2,12 +2,12 @@ import { Search, Upload, Download, Filter, Columns as ColumnsIcon } from "lucide
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
 
 interface LeadsControlsProps {
-  mode: "FGTS" | "CLT" | "MERCANTIL";
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -57,6 +57,7 @@ interface LeadsControlsProps {
   onVendorsFilterChange: (values: string[]) => void;
   availableVendors: { id: number; name: string }[];
   hasActiveFilters: boolean;
+  filteredCount?: number;
 
   fgtsAuthorizedFilter: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado";
   onFgtsAuthorizedFilterChange: (v: "todos" | "autorizado" | "nao_autorizado" | "nao_consultado") => void;
@@ -157,6 +158,8 @@ interface LeadsControlsProps {
   availableMercantilOrigens: string[];
   availableMercantilStatuses: string[];
 
+  visibleColumnsBASE: string[];
+  onVisibleColumnsBASEChange: (cols: string[]) => void;
   visibleColumnsFGTS: string[];
   onVisibleColumnsFGTSChange: (cols: string[]) => void;
   visibleColumnsCLT: string[];
@@ -164,6 +167,7 @@ interface LeadsControlsProps {
   visibleColumnsMERCANTIL: string[];
   onVisibleColumnsMERCANTILChange: (cols: string[]) => void;
 
+  defaultVisibleColumnsBASE: string[];
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
   defaultVisibleColumnsMERCANTIL: string[];
@@ -213,6 +217,7 @@ export const LeadsControls = ({
   onVendorsFilterChange,
   availableVendors,
   hasActiveFilters,
+  filteredCount,
   fgtsAuthorizedFilter,
   onFgtsAuthorizedFilterChange,
   fgtsConsultaFromFilter,
@@ -295,12 +300,15 @@ export const LeadsControls = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  visibleColumnsBASE,
+  onVisibleColumnsBASEChange,
   visibleColumnsFGTS,
   onVisibleColumnsFGTSChange,
   visibleColumnsCLT,
   onVisibleColumnsCLTChange,
   visibleColumnsMERCANTIL,
   onVisibleColumnsMERCANTILChange,
+  defaultVisibleColumnsBASE,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
   defaultVisibleColumnsMERCANTIL,
@@ -309,22 +317,42 @@ export const LeadsControls = ({
 }: LeadsControlsProps) => {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
   const [isColumnsModalOpen, setIsColumnsModalOpen] = useState(false);
+  const [localSearchValue, setLocalSearchValue] = useState(searchValue);
+
+  useEffect(() => {
+    setLocalSearchValue(searchValue);
+  }, [searchValue]);
+
+  useEffect(() => {
+    if (localSearchValue === searchValue) return;
+
+    const timeout = window.setTimeout(() => {
+      onSearchChange(localSearchValue);
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [localSearchValue, onSearchChange, searchValue]);
 
   const currentVisible =
-    mode === "FGTS"
+    mode === "BASE"
+      ? visibleColumnsBASE
+      : mode === "FGTS"
       ? visibleColumnsFGTS
       : mode === "CLT"
         ? visibleColumnsCLT
         : visibleColumnsMERCANTIL;
   const currentDefaults =
-    mode === "FGTS"
+    mode === "BASE"
+      ? defaultVisibleColumnsBASE
+      : mode === "FGTS"
       ? defaultVisibleColumnsFGTS
       : mode === "CLT"
         ? defaultVisibleColumnsCLT
         : defaultVisibleColumnsMERCANTIL;
 
   const onSaveVisible = (cols: string[]) => {
-    if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
+    if (mode === "BASE") onVisibleColumnsBASEChange(cols);
+    else if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
     else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
     else onVisibleColumnsMERCANTILChange(cols);
   };
@@ -350,8 +378,8 @@ export const LeadsControls = ({
             <Input
               type="text"
               placeholder="Nome, CPF ou Telefone"
-              value={searchValue}
-              onChange={(e) => onSearchChange(e.target.value)}
+              value={localSearchValue}
+              onChange={(e) => setLocalSearchValue(e.target.value)}
               className="pl-10 w-full"
             />
           </div>
@@ -423,7 +451,9 @@ export const LeadsControls = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-blue-600" />
-              <span className="text-sm text-blue-800 font-medium">Filtros ativos aplicados</span>
+              <span className="text-sm text-blue-800 font-medium">
+                Filtros ativos aplicados{typeof filteredCount === "number" ? ` · ${filteredCount} leads encontrados` : ""}
+              </span>
             </div>
             <Button
               onClick={onClearFilters}
