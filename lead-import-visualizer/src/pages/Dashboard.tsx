@@ -73,7 +73,7 @@ export const CLT_COLUMNS_DEFAULT: string[] = [
   "elegivel",
   "clt_consultado_em",
   "clt_dados_atualizados_em", // 🆕
-  "data_admissao", "meses_admissao", "categoria_trabalhador_codigo",
+  "data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "matricula",
   "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao",
   "politica_credito_aprovado", "politica_credito_mensagem",
   "politica_credito_valor_maximo_disponivel", "politica_credito_prazo_maximo_disponivel",
@@ -438,6 +438,7 @@ const Dashboard = () => {
         data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
         telefones,
         ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        matricula: lead.matricula || "",
         elegivel,
         not_found: !!lead.not_found,
         politica_credito_aprovado: politicaCreditoAprovado,

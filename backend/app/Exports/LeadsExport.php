@@ -79,6 +79,7 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
             'not_found'                         => 'CLT Não Encontrado',
             'clt_consultado_em'                 => 'CLT Data consulta',
             'clt_dados_atualizados_em'          => 'CLT Data dados',
+            'matricula'                         => 'CLT Matrícula',
         ];
 
         return array_map(static fn($c) => $map[$c] ?? $c, $this->columns);

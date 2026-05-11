@@ -115,6 +115,7 @@ class LeadController extends Controller
         // CLT – expõe campos e datas separadas
         $clt = $lead->cltSnapshot;
         if ($clt) {
+            $lead->setAttribute('matricula', $clt->matricula);
             $lead->setAttribute('elegivel', $clt->elegivel);
             $lead->setAttribute('idade', $clt->idade);
             $lead->setAttribute('sexo', $clt->sexo);

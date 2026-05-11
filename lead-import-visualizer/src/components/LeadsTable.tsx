@@ -662,6 +662,7 @@ export interface ProcessedLeadCLT {
   data_nascimento: string;
   telefones: Telefone[];
   ultima_origem_cadastral: string;
+  matricula: string;
 
   elegivel: boolean | null;
   not_found: boolean;
@@ -692,6 +693,7 @@ export interface ProcessedLeadCLT {
 
 type SortFieldCLT =
   | "cpf" | "nome" | "data_nascimento" | "idade" | "sexo"
+  | "matricula"
   | "ultima_origem_cadastral" | "elegivel"
   | "politica_credito_aprovado" | "politica_credito_mensagem"
   | "politica_credito_valor_maximo_disponivel" | "politica_credito_prazo_maximo_disponivel"
@@ -904,6 +906,7 @@ export const LeadsTableCLT = ({
     { id: "data_admissao", header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.data_admissao)}</td>) },
     { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Meses de admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
     { id: "categoria_trabalhador_codigo", header: <Th align="center"><SortButton field="categoria_trabalhador_codigo" align="center">Categoria trab. (cód.)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.categoria_trabalhador_codigo)}</td>) },
+    { id: "matricula", header: <Th><SortButton field="matricula">Matrícula</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-left min-w-[120px]">{display(lead.matricula)}</td>) },
     { id: "inicio_atividade_empregador", header: <Th align="center">Início atividade (empregador)</Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.inicio_atividade_empregador)}</td>) },
 
     { id: "valor_renda", header: <Th align="right"><SortButton field="valor_renda" align="right">Renda</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_renda)}</td>) },
@@ -1059,7 +1062,7 @@ export const LeadsTableCLT = ({
 
     const sectionPerfilVisible = hasAnyVisible(["idade", "sexo"]);
     const sectionVinculoVisible = hasAnyVisible([
-      "data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "inicio_atividade_empregador"
+      "data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "matricula", "inicio_atividade_empregador"
     ]);
 
     const sectionFinanceiroVisible = hasAnyVisible([
@@ -1185,6 +1188,7 @@ export const LeadsTableCLT = ({
             {isVisible("data_admissao") && <DataRow label="Admissão" value={display(lead.data_admissao)} />}
             {isVisible("meses_admissao") && <DataRow label="Tempo (meses)" value={lead.meses_admissao ?? EMPTY} />}
             {isVisible("categoria_trabalhador_codigo") && <DataRow label="Categoria trab. (cód.)" value={display(lead.categoria_trabalhador_codigo)} mono />}
+            {isVisible("matricula") && <DataRow label="Matrícula" value={display(lead.matricula)} alignRight={false} />}
             {isVisible("inicio_atividade_empregador") && <DataRow label="Início atividade (empregador)" value={display(lead.inicio_atividade_empregador)} />}
           </Section>
         </>}

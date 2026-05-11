@@ -52,6 +52,7 @@ export interface LeadFromApiCLT {
   ultima_origem_cadastral: string | null
 
   /** Snapshot CLT */
+  matricula: string | null
   elegivel: boolean | null
   not_found: boolean | null
   politica_credito_aprovado: boolean | number | "0" | "1" | null
@@ -147,6 +148,7 @@ export interface LeadDetailFromApi {
   clt_dados_atualizados_em: string | null,
 
   /** ➕ CLT */
+  matricula: string | null
   elegivel: boolean | null
   idade: number | null
   sexo: "M" | "F" | string | null

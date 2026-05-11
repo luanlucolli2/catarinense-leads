@@ -87,6 +87,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "data_admissao", label: "Data admissão", group: "Produto" },
     { id: "meses_admissao", label: "Tempo de casa (meses)", group: "Produto" },
     { id: "categoria_trabalhador_codigo", label: "Categoria do trabalhador (cód.)", group: "Produto" },
+    { id: "matricula", label: "Matrícula", group: "Produto" },
     { id: "inicio_atividade_empregador", label: "Início atividade (empregador)", group: "Produto" },
     { id: "valor_renda", label: "Renda", group: "Produto" },
     { id: "valor_base_margem", label: "Base de margem", group: "Produto" },

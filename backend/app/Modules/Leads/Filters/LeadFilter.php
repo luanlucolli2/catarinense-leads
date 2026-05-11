@@ -18,6 +18,7 @@ class LeadFilter
         $mode = strtolower((string) $r->input('mode', 'fgts')); // 'fgts' | 'clt' | 'mercantil'
 
         $cltFields = [
+            'matricula',
             'elegivel',
             'idade',
             'sexo',
@@ -298,6 +299,7 @@ class LeadFilter
             } elseif ($mode === 'clt') {
                 // ===== MODO CLT
                 $query->addSelect([
+                    DB::raw('cs.matricula as matricula'),
                     DB::raw('cs.elegivel as elegivel'),
                     DB::raw('cs.idade as idade'),
                     DB::raw('cs.sexo as sexo'),
