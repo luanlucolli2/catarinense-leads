@@ -1100,7 +1100,7 @@ const Dashboard = () => {
               Leads cadastrados: {totalLeads}
             </span>
             <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-              Resultado atual: {total}
+              Leads filtrados: {total}
             </span>
           </div>
         </div>
