@@ -1103,7 +1103,7 @@ const Dashboard = () => {
         </div>
 
         <label className="flex w-full max-w-xs flex-col gap-1 text-sm font-medium text-gray-700">
-          Complemento da tabela
+          Dados da tabela
           <select
             value={activeTab}
             onChange={(event) => {
