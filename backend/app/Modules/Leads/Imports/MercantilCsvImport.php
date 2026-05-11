@@ -12,6 +12,8 @@ class MercantilCsvImport
 {
     public const FIELD_LABELS = [
         'cpf' => 'cpf',
+        'nome' => 'nome',
+        'data_nascimento' => 'data_nascimento',
         'status' => 'status',
         'mensagem_erro' => 'mensagem_erro',
         'data_hora' => 'data_hora',
@@ -27,6 +29,8 @@ class MercantilCsvImport
 
     public const REQUIRED_FIELDS = [
         'cpf',
+        'nome',
+        'data_nascimento',
         'status',
         'mensagem_erro',
         'data_hora',
@@ -42,6 +46,8 @@ class MercantilCsvImport
 
     public const HEADER_ALIASES = [
         'cpf' => ['cpf', 'c_p_f'],
+        'nome' => ['nome'],
+        'data_nascimento' => ['data_nascimento', 'dt_nascimento', 'data_de_nascimento'],
         'status' => ['status'],
         'mensagem_erro' => ['mensagem_erro', 'mensagem_de_erro'],
         'data_hora' => ['data_hora', 'datahora'],
@@ -53,7 +59,6 @@ class MercantilCsvImport
         'valor_liberado' => ['valor_liberado'],
         'taxa_juros_mes' => ['taxa_juros_mes'],
         'valor_parcela' => ['valor_da_parcela', 'valor_parcela'],
-        'nome' => ['nome'],
     ];
 
     protected ImportJob $importJob;
@@ -312,6 +317,8 @@ class MercantilCsvImport
     protected function upsertPendingSnapshots(): void
     {
         $cpfs = array_keys($this->pendingSnapshots);
+        $this->insertMissingLeadsForPendingSnapshots($cpfs);
+
         $existing = DB::table('mercantil_snapshots')
             ->whereIn('cpf', $cpfs)
             ->get(['cpf', 'status', 'data_hora_origem'])
@@ -347,6 +354,8 @@ class MercantilCsvImport
 
         if (!empty($payload)) {
             $updateColumns = [
+                'nome',
+                'data_nascimento',
                 'status',
                 'mensagem_erro',
                 'data_hora_origem',
@@ -368,6 +377,47 @@ class MercantilCsvImport
         }
 
         $this->pendingSnapshots = [];
+    }
+
+    /**
+     * @param array<int, string> $cpfs
+     */
+    protected function insertMissingLeadsForPendingSnapshots(array $cpfs): void
+    {
+        if (empty($cpfs)) {
+            return;
+        }
+
+        $existingCpfs = DB::table('leads')
+            ->whereIn('cpf', $cpfs)
+            ->pluck('cpf')
+            ->all();
+
+        $existingMap = array_fill_keys(array_map('strval', $existingCpfs), true);
+        $now = now();
+        $payload = [];
+
+        foreach ($this->pendingSnapshots as $cpf => $snapshot) {
+            if (isset($existingMap[$cpf]) || isset($payload[$cpf])) {
+                continue;
+            }
+
+            $payload[$cpf] = [
+                'cpf' => $cpf,
+                'nome' => $snapshot['nome'] ?? null,
+                'data_nascimento' => $snapshot['data_nascimento'] ?? null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        if (empty($payload)) {
+            return;
+        }
+
+        foreach (array_chunk(array_values($payload), $this->dbBatchSize) as $chunk) {
+            DB::table('leads')->insertOrIgnore($chunk);
+        }
     }
 
     protected function shouldReplaceRecord(
@@ -454,6 +504,18 @@ class MercantilCsvImport
             return null;
         }
 
+        $nome = $this->nullableString($this->fieldValue($headerIndex, $row, 'nome'));
+        if ($nome === null) {
+            $this->queueImportError($lineNumber, 'nome', 'Nome ausente.');
+            return null;
+        }
+
+        $dataNascimento = $this->parseDate($this->fieldValue($headerIndex, $row, 'data_nascimento'));
+        if ($dataNascimento === null) {
+            $this->queueImportError($lineNumber, 'data_nascimento', 'Data de nascimento inválida ou ausente.');
+            return null;
+        }
+
         $status = mb_strtoupper(trim((string) $this->fieldValue($headerIndex, $row, 'status')));
         if ($status === '') {
             $this->queueImportError($lineNumber, 'status', 'Status ausente.');
@@ -472,6 +534,8 @@ class MercantilCsvImport
 
         return [
             'cpf' => $cpf,
+            'nome' => $nome,
+            'data_nascimento' => $dataNascimento,
             'status' => $status,
             'mensagem_erro' => $this->nullableString($this->fieldValue($headerIndex, $row, 'mensagem_erro')),
             'data_hora_origem' => $dataHora,
