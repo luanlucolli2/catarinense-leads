@@ -22,6 +22,8 @@ use App\Modules\Uy3\Controllers\Uy3PostExportController;
 use App\Modules\Uy3\Controllers\Uy3PostListController;
 use App\Modules\Uy3\Controllers\Uy3WebhookPostController;
 use App\Modules\Uy3\Middleware\VerifyUy3Webhook;
+use App\Modules\Mercantil\Controllers\MercantilSnapshotWebhookController;
+use App\Modules\Mercantil\Middleware\VerifyMercantilWebhook;
 
 /**
  * Endpoints públicos de autenticação.
@@ -45,6 +47,9 @@ Route::post('/ura/messages/send-official-template', UraSendOfficialTemplateContr
  */
 Route::post('/webhooks/uy3/posts', Uy3WebhookPostController::class)
     ->middleware([VerifyUy3Webhook::class]);
+
+Route::post('/webhooks/mercantil/snapshots', MercantilSnapshotWebhookController::class)
+    ->middleware([VerifyMercantilWebhook::class, 'throttle:600,1']);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).
