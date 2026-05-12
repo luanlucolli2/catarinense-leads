@@ -1056,7 +1056,7 @@ class CltConsultController extends Controller
             return false;
         }
 
-        if ($margemDisponivel === null || $margemDisponivel <= 30.0) {
+        if ($margemDisponivel === null || $margemDisponivel <= 40.0) {
             return false;
         }
 
@@ -1085,7 +1085,7 @@ class CltConsultController extends Controller
 
         return ($row['elegivel'] ?? null) === true
             && $margemDisponivel !== null
-            && $margemDisponivel > 30.0
+            && $margemDisponivel > 40.0
             && empty($row['politicaCreditoMensagem']);
     }
 

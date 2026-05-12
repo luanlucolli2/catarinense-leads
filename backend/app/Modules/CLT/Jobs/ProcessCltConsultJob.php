@@ -3442,7 +3442,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $margemDisponivel = $this->toFloatSmart($row['valorMargemDisponivel'] ?? null);
 
-        return $margemDisponivel !== null && $margemDisponivel > 30.0;
+        return $margemDisponivel !== null && $margemDisponivel > 40.0;
     }
 
     private function isCreditApprovedFlag($val): bool
@@ -3581,7 +3581,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return false;
         }
 
-        if ($margemDisponivel === null || $margemDisponivel <= 30.0) {
+        if ($margemDisponivel === null || $margemDisponivel <= 40.0) {
             return false;
         }
 
@@ -3608,7 +3608,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         return ($row['elegivel'] ?? null) === true
             && $margemDisponivel !== null
-            && $margemDisponivel > 30.0
+            && $margemDisponivel > 40.0
             && empty($row['politicaCreditoMensagem']);
     }
 
