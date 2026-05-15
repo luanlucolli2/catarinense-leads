@@ -140,8 +140,8 @@ class MercantilSnapshotWebhookController extends Controller
         DB::table('leads')->upsert(
             [[
                 'cpf' => $cpf,
-                'nome' => $this->preferIncomingValue($this->nullableString($nome), $existing?->nome),
-                'data_nascimento' => $this->preferIncomingValue($dataNascimento, $existing?->data_nascimento),
+                'nome' => $this->fillOnlyWhenCurrentIsNull($this->nullableString($nome), $existing?->nome),
+                'data_nascimento' => $this->fillOnlyWhenCurrentIsNull($dataNascimento, $existing?->data_nascimento),
                 'created_at' => $now,
                 'updated_at' => $now,
             ]],
@@ -182,8 +182,8 @@ class MercantilSnapshotWebhookController extends Controller
         return $value === '' ? null : $value;
     }
 
-    private function preferIncomingValue(mixed $incoming, mixed $current): mixed
+    private function fillOnlyWhenCurrentIsNull(mixed $incoming, mixed $current): mixed
     {
-        return $incoming !== null ? $incoming : $current;
+        return $current === null ? $incoming : $current;
     }
 }
