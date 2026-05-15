@@ -32,6 +32,8 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
   BASE: [
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
     { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "created_at", label: "Criado em (Lead)", group: "Cadastral" },
+    { id: "updated_at", label: "Atualizado em (Lead)", group: "Cadastral" },
     { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
     { id: "telefone_1", label: "Fone 1", group: "Cadastral" },
     { id: "classe_1", label: "Classe 1", group: "Cadastral" },
@@ -49,6 +51,8 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     // Cadastral
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
     { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "created_at", label: "Criado em (Lead)", group: "Cadastral" },
+    { id: "updated_at", label: "Atualizado em (Lead)", group: "Cadastral" },
     { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
 
     // Telefones (pares fone/classe)
@@ -82,6 +86,8 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     // Cadastral
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
     { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "created_at", label: "Criado em (Lead)", group: "Cadastral" },
+    { id: "updated_at", label: "Atualizado em (Lead)", group: "Cadastral" },
     { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
 
     // Telefones (pares fone/classe)
@@ -126,6 +132,8 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     // Cadastral
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
     { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "created_at", label: "Criado em (Lead)", group: "Cadastral" },
+    { id: "updated_at", label: "Atualizado em (Lead)", group: "Cadastral" },
     { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
 
     // Telefones (pares fone/classe)
@@ -150,7 +158,7 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", group: "Produto" },
     { id: "mercantil_valor_parcela", label: "Valor parcela", group: "Produto" },
     { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", group: "Produto" },
-    { id: "mercantil_dados_atualizados_em", label: "Data importação (Merc.)", group: "Produto" },
+    { id: "mercantil_dados_atualizados_em", label: "Dados atualizados em (Merc.)", group: "Produto" },
 
     // Registro
     { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },

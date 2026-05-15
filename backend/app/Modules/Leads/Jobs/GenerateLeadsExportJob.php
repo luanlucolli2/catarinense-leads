@@ -6,6 +6,7 @@ namespace App\Modules\Leads\Jobs;
 use App\Modules\Leads\Filters\LeadFilter;
 use App\Modules\Leads\Support\LeadExportColumns;
 use App\Modules\Leads\Support\LeadsExportCacheState;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -84,6 +85,7 @@ class GenerateLeadsExportJob implements ShouldQueue
             $eloquent = LeadFilter::apply($req, $columns); // export-mode
 
             $pk = $eloquent->getModel()->getKeyName() ?: 'id';
+            $qualifiedPk = $eloquent->getModel()->qualifyColumn($pk);
 
             $base = $eloquent->toBase();
 
@@ -115,7 +117,7 @@ class GenerateLeadsExportJob implements ShouldQueue
 
             $written = 0;
 
-            foreach ($base->lazyById($chunkSize, $pk, $pk) as $row) {
+            foreach ($base->lazyById($chunkSize, $qualifiedPk, $pk) as $row) {
                 fputcsv($fh, $this->mapRecord($row, $columns), $delimiter, $enclosure);
                 $written++;
                 if ($written % $flushEvery === 0) {
@@ -195,6 +197,7 @@ class GenerateLeadsExportJob implements ShouldQueue
             $row[] = match (LeadExportColumns::formatterFor($col)) {
                 'cpf_digits' => $this->cpfDigits($value),
                 'date' => $this->formatDate($value),
+                'datetime' => $this->formatUtcDateTime($value),
                 'date_only' => $this->formatDate($value, true),
                 'float' => $this->toFloat($value),
                 'int' => isset($value) ? (int) $value : null,
@@ -205,7 +208,7 @@ class GenerateLeadsExportJob implements ShouldQueue
         return $row;
     }
 
-    private function formatDate($value, bool $isDateOnly = false): ?string
+    private function formatDate($value, bool $isDateOnly = false, bool $includeTime = false): ?string
     {
         if (empty($value))
             return null;
@@ -219,9 +222,29 @@ class GenerateLeadsExportJob implements ShouldQueue
                 $d = getdate($ts);
                 $ts = mktime(0, 0, 0, $d['mon'], $d['mday'], $d['year']);
             }
-            return date('d/m/Y', $ts);
+            return date($includeTime ? 'd/m/Y H:i:s' : 'd/m/Y', $ts);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function formatUtcDateTime($value): ?string
+    {
+        if (empty($value))
+            return null;
+
+        try {
+            if ($value instanceof \DateTimeInterface) {
+                return Carbon::instance($value)
+                    ->setTimezone('America/Sao_Paulo')
+                    ->format('d/m/Y H:i:s');
+            }
+
+            return Carbon::parse((string) $value, 'UTC')
+                ->setTimezone('America/Sao_Paulo')
+                ->format('d/m/Y H:i:s');
+        } catch (\Throwable) {
+            return $this->formatDate($value, false, true);
         }
     }
 

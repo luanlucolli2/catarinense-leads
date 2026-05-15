@@ -317,7 +317,7 @@ class MercantilCsvImport
     protected function upsertPendingSnapshots(): void
     {
         $cpfs = array_keys($this->pendingSnapshots);
-        $this->insertMissingLeadsForPendingSnapshots($cpfs);
+        $this->upsertLeadsForPendingSnapshots($cpfs);
 
         $existing = DB::table('mercantil_snapshots')
             ->whereIn('cpf', $cpfs)
@@ -382,30 +382,37 @@ class MercantilCsvImport
     /**
      * @param array<int, string> $cpfs
      */
-    protected function insertMissingLeadsForPendingSnapshots(array $cpfs): void
+    protected function upsertLeadsForPendingSnapshots(array $cpfs): void
     {
         if (empty($cpfs)) {
             return;
         }
 
-        $existingCpfs = DB::table('leads')
+        $existingLeads = DB::table('leads')
             ->whereIn('cpf', $cpfs)
-            ->pluck('cpf')
-            ->all();
+            ->get(['cpf', 'nome', 'data_nascimento'])
+            ->keyBy('cpf');
 
-        $existingMap = array_fill_keys(array_map('strval', $existingCpfs), true);
         $now = now();
         $payload = [];
 
         foreach ($this->pendingSnapshots as $cpf => $snapshot) {
-            if (isset($existingMap[$cpf]) || isset($payload[$cpf])) {
+            if (isset($payload[$cpf])) {
                 continue;
             }
 
+            $existing = $existingLeads->get($cpf);
+
             $payload[$cpf] = [
                 'cpf' => $cpf,
-                'nome' => $snapshot['nome'] ?? null,
-                'data_nascimento' => $snapshot['data_nascimento'] ?? null,
+                'nome' => $this->preferIncomingValue(
+                    $snapshot['nome'] ?? null,
+                    $existing?->nome
+                ),
+                'data_nascimento' => $this->preferIncomingValue(
+                    $snapshot['data_nascimento'] ?? null,
+                    $existing?->data_nascimento
+                ),
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -416,8 +423,17 @@ class MercantilCsvImport
         }
 
         foreach (array_chunk(array_values($payload), $this->dbBatchSize) as $chunk) {
-            DB::table('leads')->insertOrIgnore($chunk);
+            DB::table('leads')->upsert($chunk, ['cpf'], [
+                'nome',
+                'data_nascimento',
+                'updated_at',
+            ]);
         }
+    }
+
+    protected function preferIncomingValue(mixed $incoming, mixed $current): mixed
+    {
+        return $incoming !== null ? $incoming : $current;
     }
 
     protected function shouldReplaceRecord(

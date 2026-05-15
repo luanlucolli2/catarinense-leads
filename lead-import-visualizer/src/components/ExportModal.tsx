@@ -23,6 +23,8 @@ type ColumnDef = {
 const COLUMNS_BASE: ColumnDef[] = [
   { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
   { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "created_at", label: "Criado em (Lead)", selected: true, group: "Cadastral" },
+  { id: "updated_at", label: "Atualizado em (Lead)", selected: true, group: "Cadastral" },
   { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
   { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
   { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
@@ -40,6 +42,8 @@ const COLUMNS_FGTS: ColumnDef[] = [
   // Cadastral
   { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
   { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "created_at", label: "Criado em (Lead)", selected: true, group: "Cadastral" },
+  { id: "updated_at", label: "Atualizado em (Lead)", selected: true, group: "Cadastral" },
   { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
   { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
   { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
@@ -70,6 +74,8 @@ const COLUMNS_CLT: ColumnDef[] = [
   // Cadastral
   { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
   { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "created_at", label: "Criado em (Lead)", selected: true, group: "Cadastral" },
+  { id: "updated_at", label: "Atualizado em (Lead)", selected: true, group: "Cadastral" },
   { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
   { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
   { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
@@ -115,6 +121,8 @@ const COLUMNS_MERCANTIL: ColumnDef[] = [
   // Cadastral
   { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
   { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "created_at", label: "Criado em (Lead)", selected: true, group: "Cadastral" },
+  { id: "updated_at", label: "Atualizado em (Lead)", selected: true, group: "Cadastral" },
   { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
   { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
   { id: "fone2", label: "Telefone 2", selected: true, group: "Cadastral" },
@@ -137,7 +145,7 @@ const COLUMNS_MERCANTIL: ColumnDef[] = [
   { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", selected: true, group: "Produto" },
   { id: "mercantil_valor_parcela", label: "Valor parcela", selected: true, group: "Produto" },
   { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", selected: true, group: "Produto" },
-  { id: "mercantil_dados_atualizados_em", label: "Data importação (Merc.)", selected: true, group: "Produto" },
+  { id: "mercantil_dados_atualizados_em", label: "Dados atualizados em (Merc.)", selected: true, group: "Produto" },
 
   // Registro
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },

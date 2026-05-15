@@ -43,7 +43,7 @@ class MercantilSnapshotWebhookController extends Controller
         $validator = Validator::make($payload, [
             'cpf' => ['required', 'string'],
             'nome' => ['required', 'string', 'max:150'],
-            'data_nascimento' => ['required', 'date_format:Y-m-d'],
+            'data_nascimento' => ['present', 'nullable', 'date_format:Y-m-d'],
             'status' => ['required', 'string', 'max:64'],
             'mensagem_erro' => ['present', 'nullable', 'string'],
             'data_hora' => ['required', 'string'],
@@ -122,9 +122,36 @@ class MercantilSnapshotWebhookController extends Controller
             ],
         );
 
+        $this->upsertLeadBasics($cpf, $payload['nome'] ?? null, $payload['data_nascimento'] ?? null);
+
         return response()->json([
             'ok' => true,
         ]);
+    }
+
+    private function upsertLeadBasics(string $cpf, mixed $nome, mixed $dataNascimento): void
+    {
+        $existing = DB::table('leads')
+            ->where('cpf', $cpf)
+            ->first(['cpf', 'nome', 'data_nascimento']);
+
+        $now = now();
+
+        DB::table('leads')->upsert(
+            [[
+                'cpf' => $cpf,
+                'nome' => $this->preferIncomingValue($this->nullableString($nome), $existing?->nome),
+                'data_nascimento' => $this->preferIncomingValue($dataNascimento, $existing?->data_nascimento),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]],
+            ['cpf'],
+            [
+                'nome',
+                'data_nascimento',
+                'updated_at',
+            ],
+        );
     }
 
     private function parseDateTime(string $value): ?string
@@ -153,5 +180,10 @@ class MercantilSnapshotWebhookController extends Controller
 
         $value = trim((string) $value);
         return $value === '' ? null : $value;
+    }
+
+    private function preferIncomingValue(mixed $incoming, mixed $current): mixed
+    {
+        return $incoming !== null ? $incoming : $current;
     }
 }

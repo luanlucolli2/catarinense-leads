@@ -13,6 +13,8 @@ final class LeadExportColumns
             'id' => ['label' => 'ID', 'formatter' => 'raw'],
             'cpf' => ['label' => 'CPF', 'formatter' => 'cpf_digits'],
             'nome' => ['label' => 'Nome', 'formatter' => 'raw'],
+            'created_at' => ['label' => 'Criado em (Lead)', 'formatter' => 'datetime'],
+            'updated_at' => ['label' => 'Atualizado em (Lead)', 'formatter' => 'datetime'],
             'data_nascimento' => ['label' => 'Data de Nascimento', 'formatter' => 'date_only'],
             'fone1' => ['label' => 'Telefone 1', 'formatter' => 'raw'],
             'fone2' => ['label' => 'Telefone 2', 'formatter' => 'raw'],
@@ -68,7 +70,7 @@ final class LeadExportColumns
             'mercantil_valor_liberado' => ['label' => 'Mercantil Valor liberado (R$)', 'formatter' => 'float'],
             'mercantil_taxa_juros_mes' => ['label' => 'Mercantil Taxa juros (% a.m.)', 'formatter' => 'float'],
             'mercantil_valor_parcela' => ['label' => 'Mercantil Valor parcela (R$)', 'formatter' => 'float'],
-            'mercantil_dados_atualizados_em' => ['label' => 'Mercantil Data importação', 'formatter' => 'raw'],
+            'mercantil_dados_atualizados_em' => ['label' => 'Mercantil Dados atualizados em', 'formatter' => 'raw'],
             'ultima_origem_mercantil' => ['label' => 'Última Origem (Mercantil)', 'formatter' => 'raw'],
         ];
     }

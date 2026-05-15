@@ -8,6 +8,8 @@ export interface LeadFromApiBase {
   id: number
   cpf: string
   nome: string | null
+  created_at: string | null
+  updated_at: string | null
   data_nascimento: string | null
   fone1: string | null
   classe_fone1: string | null
@@ -26,6 +28,8 @@ export interface LeadFromApiFGTS {
   id: number
   cpf: string
   nome: string | null
+  created_at: string | null
+  updated_at: string | null
   data_nascimento: string | null
   fone1: string | null
   classe_fone1: string | null
@@ -56,6 +60,8 @@ export interface LeadFromApiCLT {
   id: number
   cpf: string
   nome: string | null
+  created_at: string | null
+  updated_at: string | null
   data_nascimento: string | null
   fone1: string | null
   classe_fone1: string | null
@@ -103,6 +109,8 @@ export interface LeadFromApiMercantil {
   id: number
   cpf: string
   nome: string | null
+  created_at: string | null
+  updated_at: string | null
   data_nascimento: string | null
   fone1: string | null
   classe_fone1: string | null
