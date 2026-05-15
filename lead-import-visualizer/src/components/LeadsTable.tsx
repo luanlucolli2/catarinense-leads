@@ -102,6 +102,8 @@ export interface ProcessedLeadFGTS {
   id: number;
   cpf: string;
   nome: string;
+  created_at: string;
+  updated_at: string;
   data_nascimento: string;
   telefones: Telefone[];
   contratos: number;
@@ -124,6 +126,8 @@ type SortFieldFGTS =
   | "consulta"
   | "saldo"
   | "libera"
+  | "created_at"
+  | "updated_at"
   | "data_atualizacao"
   | "data_nascimento"
   | "contratos"
@@ -201,6 +205,8 @@ export const LeadsTableFGTS = ({
     const valueForSort = (x: ProcessedLeadFGTS) => {
       switch (sortField) {
         case "data_atualizacao":
+        case "created_at":
+        case "updated_at":
         case "data_nascimento":
         case "data_contrato_recente":
           return (x as any)[sortField] ? new Date((x as any)[sortField] as string).getTime() : Number.POSITIVE_INFINITY;
@@ -330,6 +336,8 @@ export const LeadsTableFGTS = ({
   const cols = [
     { id: "cpf", header: <Th minW="min-w-[96px]"><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 align-middle text-left min-w-[96px]">{display(lead.cpf)}</td>) },
     { id: "nome", header: <Th minW="min-w-[140px]"><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium align-middle text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "created_at", header: <Th align="center" minW="min-w-[140px]"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[140px]">{display(lead.created_at)}</td>) },
+    { id: "updated_at", header: <Th align="center" minW="min-w-[140px]"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
     { id: "data_nascimento", header: <Th align="center" minW="min-w-[110px]"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
 
     // Telefones 1..4 (pares fone/classe)
@@ -413,7 +421,7 @@ export const LeadsTableFGTS = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (["data_nascimento", "data_atualizacao", "fgts_off_consultado_em", "data_contrato_recente"].includes(c.id))
+        if (["created_at", "updated_at", "data_nascimento", "data_atualizacao", "fgts_off_consultado_em", "data_contrato_recente"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
         if (
@@ -515,6 +523,8 @@ export const LeadsTableFGTS = ({
           <div className="flex-1 min-w-0">
             <ShowIf id="nome"><h3 className="font-semibold text-gray-900 truncate">{display(lead.nome)}</h3></ShowIf>
             <ShowIf id="cpf"><p className="text-xs font-mono text-gray-600 truncate">{display(lead.cpf)}</p></ShowIf>
+            <ShowIf id="created_at"><p className="text-xs text-gray-600">Criado em (Lead): {display(lead.created_at)}</p></ShowIf>
+            <ShowIf id="updated_at"><p className="text-xs text-gray-600">Atualizado em (Lead): {display(lead.updated_at)}</p></ShowIf>
             <ShowIf id="data_nascimento"><p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p></ShowIf>
             <ShowIf id="data_contrato_recente">{lead.data_contrato_recente && <p className="text-xs text-gray-600">Último contrato: {display(lead.data_contrato_recente)}</p>}</ShowIf>
             <ShowIf id="vendedor">{lead.vendedor && <p className="text-xs text-gray-600">Vendedor: {display(lead.vendedor)}</p>}</ShowIf>
@@ -659,6 +669,8 @@ export interface ProcessedLeadCLT {
   id: number;
   cpf: string;
   nome: string;
+  created_at: string;
+  updated_at: string;
   data_nascimento: string;
   telefones: Telefone[];
   ultima_origem_cadastral: string;
@@ -692,7 +704,7 @@ export interface ProcessedLeadCLT {
 }
 
 type SortFieldCLT =
-  | "cpf" | "nome" | "data_nascimento" | "idade" | "sexo"
+  | "cpf" | "nome" | "created_at" | "updated_at" | "data_nascimento" | "idade" | "sexo"
   | "matricula"
   | "ultima_origem_cadastral" | "elegivel"
   | "politica_credito_aprovado" | "politica_credito_mensagem"
@@ -751,6 +763,8 @@ export const LeadsTableCLT = ({
       case "clt_consultado_em":
       case "clt_dados_atualizados_em":
       case "politica_credito_data_consulta":
+      case "created_at":
+      case "updated_at":
       case "data_admissao":
       case "data_nascimento":
         return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
@@ -858,6 +872,8 @@ export const LeadsTableCLT = ({
   const cols = [
     { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
     { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "created_at", header: <Th align="center"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.created_at)}</td>) },
+    { id: "updated_at", header: <Th align="center"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
     { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
 
     ...phonePairCols(1),
@@ -987,7 +1003,7 @@ export const LeadsTableCLT = ({
       {visibleCols.map((c, idx) => {
         if (c.id === "cpf") return <SkeletonCell key={idx} w="w-28" align="left" />;
         if (c.id === "nome") return <SkeletonCell key={idx} w="w-40" align="left" />;
-        if (["data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em", "politica_credito_data_consulta"].includes(c.id))
+        if (["created_at", "updated_at", "data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em", "politica_credito_data_consulta"].includes(c.id))
           return <SkeletonCell key={idx} w="w-24" align="center" />;
 
         if (
@@ -1124,6 +1140,8 @@ export const LeadsTableCLT = ({
           <div className="flex-1 min-w-0">
             <ShowIf id="nome"><h3 className="font-semibold text-gray-900 truncate">{display(lead.nome)}</h3></ShowIf>
             <ShowIf id="cpf"><p className="text-xs font-mono text-gray-600 truncate">{display(lead.cpf)}</p></ShowIf>
+            <ShowIf id="created_at"><p className="text-xs text-gray-600">Criado em (Lead): {display(lead.created_at)}</p></ShowIf>
+            <ShowIf id="updated_at"><p className="text-xs text-gray-600">Atualizado em (Lead): {display(lead.updated_at)}</p></ShowIf>
             <ShowIf id="data_nascimento"><p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p></ShowIf>
             <div className="mt-1 flex items-center gap-2">
               <ShowIf id="telefone_1"><span className="text-xs font-mono text-gray-800">{display(lead.telefones[0]?.fone)}</span></ShowIf>
@@ -1298,6 +1316,8 @@ export interface ProcessedLeadMercantil {
   id: number;
   cpf: string;
   nome: string;
+  created_at: string;
+  updated_at: string;
   data_nascimento: string;
   telefones: Telefone[];
   ultima_origem_cadastral: string;
@@ -1320,6 +1340,8 @@ export interface ProcessedLeadMercantil {
 type SortFieldMercantil =
   | "cpf"
   | "nome"
+  | "created_at"
+  | "updated_at"
   | "data_nascimento"
   | "mercantil_status"
   | "mercantil_mensagem_erro"
@@ -1378,6 +1400,8 @@ export const LeadsTableMercantil = ({
 
   const valueForSort = (x: ProcessedLeadMercantil, field: SortFieldMercantil) => {
     switch (field) {
+      case "created_at":
+      case "updated_at":
       case "data_nascimento":
       case "mercantil_data_hora_origem":
       case "mercantil_data_primeiro_vencimento":
@@ -1474,6 +1498,8 @@ export const LeadsTableMercantil = ({
   const cols = [
     { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
     { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "created_at", header: <Th align="center"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.created_at)}</td>) },
+    { id: "updated_at", header: <Th align="center"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
     { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
 
     ...phonePairCols(1),
@@ -1520,7 +1546,7 @@ export const LeadsTableMercantil = ({
     { id: "mercantil_quantidade_parcelas", header: <Th align="center"><SortButton field="mercantil_quantidade_parcelas" align="center">Parcelas</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">{display(lead.mercantil_quantidade_parcelas)}</td>) },
     { id: "mercantil_valor_parcela", header: <Th align="right"><SortButton field="mercantil_valor_parcela" align="right">Valor parcela</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_parcela)}</td>) },
     { id: "mercantil_taxa_juros_mes", header: <Th align="center"><SortButton field="mercantil_taxa_juros_mes" align="center">Taxa mês</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">{display(lead.mercantil_taxa_juros_mes)}</td>) },
-    { id: "mercantil_dados_atualizados_em", header: <Th align="center"><SortButton field="mercantil_dados_atualizados_em" align="center">Data importação (Merc.)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.mercantil_dados_atualizados_em)}</td>) },
+    { id: "mercantil_dados_atualizados_em", header: <Th align="center"><SortButton field="mercantil_dados_atualizados_em" align="center">Dados atualizados em (Merc.)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.mercantil_dados_atualizados_em)}</td>) },
     {
       id: "ultima_origem_cadastral",
       header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>,
@@ -1576,6 +1602,8 @@ export const LeadsTableMercantil = ({
         if (
           [
             "data_nascimento",
+            "created_at",
+            "updated_at",
             "mercantil_data_hora_origem",
             "mercantil_data_primeiro_vencimento",
             "mercantil_dados_atualizados_em",
@@ -1665,6 +1693,8 @@ export const LeadsTableMercantil = ({
           <div className="flex-1 min-w-0">
             <ShowIf id="nome"><h3 className="font-semibold text-gray-900 truncate">{display(lead.nome)}</h3></ShowIf>
             <ShowIf id="cpf"><p className="text-xs font-mono text-gray-600 truncate">{display(lead.cpf)}</p></ShowIf>
+            <ShowIf id="created_at"><p className="text-xs text-gray-600">Criado em (Lead): {display(lead.created_at)}</p></ShowIf>
+            <ShowIf id="updated_at"><p className="text-xs text-gray-600">Atualizado em (Lead): {display(lead.updated_at)}</p></ShowIf>
             <ShowIf id="data_nascimento"><p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p></ShowIf>
             <div className="mt-1 flex items-center gap-2">
               <ShowIf id="telefone_1"><span className="text-xs font-mono text-gray-800">{display(lead.telefones[0]?.fone)}</span></ShowIf>
@@ -1730,7 +1760,7 @@ export const LeadsTableMercantil = ({
         {sectionRegistroVisible && <>
           <div className="h-px bg-gray-200" />
           <Section title="Registro" icon={FileText}>
-            {isVisible("mercantil_dados_atualizados_em") && <DataRow label="Data importação (Merc.)" value={display(lead.mercantil_dados_atualizados_em)} />}
+            {isVisible("mercantil_dados_atualizados_em") && <DataRow label="Dados atualizados em (Merc.)" value={display(lead.mercantil_dados_atualizados_em)} />}
             {isVisible("ultima_origem_cadastral") && <DataRow label="Origem cadastral" value={display(lead.ultima_origem_cadastral)} />}
             {isVisible("ultima_origem_mercantil") && <DataRow label="Origem mercantil" value={display(lead.ultima_origem_mercantil)} />}
           </Section>

@@ -106,6 +106,8 @@ class LeadFilter
             $allowedLeadCols = [
                 'cpf',
                 'nome',
+                'created_at',
+                'updated_at',
                 'data_nascimento',
                 'fone1',
                 'fone2',

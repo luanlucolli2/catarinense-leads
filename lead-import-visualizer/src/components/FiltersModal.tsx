@@ -1250,7 +1250,7 @@ export const FiltersModal = ({
                   </div>
 
                   <div>
-                    <Label text="Período da importação Mercantil" active={any([lMercantilImportFrom, lMercantilImportTo])} />
+                    <Label text="Período de atualização dos dados Mercantil" active={any([lMercantilImportFrom, lMercantilImportTo])} />
                     <div className="mt-2 grid grid-cols-2 gap-3">
                       <Input
                         type="date"
