@@ -38,6 +38,7 @@ import {
   formatCPF,
   formatCurrency,
   formatDate,
+  formatLocalDateTime,
   formatPhone,
   formatDateOnly
 } from "@/lib/formatters"
@@ -534,7 +535,7 @@ const Dashboard = () => {
           lead.politica_credito_prazo_maximo_disponivel === ""
             ? null
             : Number(lead.politica_credito_prazo_maximo_disponivel),
-        politica_credito_data_consulta: lead.politica_credito_data_consulta ? formatDate(lead.politica_credito_data_consulta) : "",
+        politica_credito_data_consulta: lead.politica_credito_data_consulta ? formatLocalDateTime(lead.politica_credito_data_consulta) : "",
         politica_credito_tabela_aprovada: lead.politica_credito_tabela_aprovada || "",
         clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
         // 🆕
@@ -584,7 +585,7 @@ const Dashboard = () => {
         ultima_origem_mercantil: lead.ultima_origem_mercantil || "",
         mercantil_status: lead.mercantil_status || "",
         mercantil_mensagem_erro: lead.mercantil_mensagem_erro || "",
-        mercantil_data_hora_origem: lead.mercantil_data_hora_origem ? formatDate(lead.mercantil_data_hora_origem) : "",
+        mercantil_data_hora_origem: lead.mercantil_data_hora_origem ? formatLocalDateTime(lead.mercantil_data_hora_origem) : "",
         mercantil_valor_financiado: formatCurrency(lead.mercantil_valor_financiado as any),
         mercantil_valor_iof: formatCurrency(lead.mercantil_valor_iof as any),
         mercantil_data_primeiro_vencimento: lead.mercantil_data_primeiro_vencimento ? formatDateOnly(lead.mercantil_data_primeiro_vencimento) : "",

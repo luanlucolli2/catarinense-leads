@@ -51,7 +51,6 @@ export const formatDate = (dateString?: string | null): string => {
   // Padrão "YYYY-MM-DD HH:mm:ss" (sem timezone) → tratar como UTC
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateString)) {
     try {
-      // Transforma em ISO UTC forçado (ex.: "2025-10-14T19:03:41Z")
       const asUtcIso = dateString.replace(' ', 'T') + 'Z';
       const d = new Date(asUtcIso);
       return format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR });
@@ -61,6 +60,33 @@ export const formatDate = (dateString?: string | null): string => {
   }
 
   // Demais formatos: tenta usar o parser nativo
+  try {
+    return format(new Date(dateString), 'dd/MM/yyyy HH:mm', { locale: ptBR });
+  } catch {
+    return 'Data inválida';
+  }
+};
+
+/**
+ * Formata um datetime sem timezone assumindo que o valor ja esta em horario local.
+ * Ex.: "2026-05-15 10:29:36" => "15/05/2026 10:29"
+ */
+export const formatLocalDateTime = (dateString?: string | null): string => {
+  if (!dateString) return '--';
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    return formatDateOnly(dateString);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateString)) {
+    try {
+      const d = parse(dateString, 'yyyy-MM-dd HH:mm:ss', new Date());
+      return format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+    } catch {
+      // fallback abaixo
+    }
+  }
+
   try {
     return format(new Date(dateString), 'dd/MM/yyyy HH:mm', { locale: ptBR });
   } catch {
