@@ -43,7 +43,7 @@ class MercantilSnapshotWebhookController extends Controller
         $validator = Validator::make($payload, [
             'cpf' => ['required', 'string'],
             'nome' => ['required', 'string', 'max:150'],
-            'data_nascimento' => ['required', 'date_format:Y-m-d'],
+            'data_nascimento' => ['present', 'nullable', 'date_format:Y-m-d'],
             'status' => ['required', 'string', 'max:64'],
             'mensagem_erro' => ['present', 'nullable', 'string'],
             'data_hora' => ['required', 'string'],
