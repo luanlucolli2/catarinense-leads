@@ -1334,7 +1334,6 @@ export interface ProcessedLeadMercantil {
   mercantil_valor_liberado: string;
   mercantil_taxa_juros_mes: string;
   mercantil_valor_parcela: string;
-  mercantil_dados_atualizados_em: string;
 }
 
 type SortFieldMercantil =
@@ -1354,7 +1353,6 @@ type SortFieldMercantil =
   | "mercantil_valor_liberado"
   | "mercantil_taxa_juros_mes"
   | "mercantil_valor_parcela"
-  | "mercantil_dados_atualizados_em"
   | "ultima_origem_cadastral"
   | "ultima_origem_mercantil";
 
@@ -1405,7 +1403,6 @@ export const LeadsTableMercantil = ({
       case "data_nascimento":
       case "mercantil_data_hora_origem":
       case "mercantil_data_primeiro_vencimento":
-      case "mercantil_dados_atualizados_em":
         return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
       case "mercantil_quantidade_parcelas":
         return Number(x.mercantil_quantidade_parcelas) || -1;
@@ -1546,7 +1543,6 @@ export const LeadsTableMercantil = ({
     { id: "mercantil_quantidade_parcelas", header: <Th align="center"><SortButton field="mercantil_quantidade_parcelas" align="center">Parcelas</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">{display(lead.mercantil_quantidade_parcelas)}</td>) },
     { id: "mercantil_valor_parcela", header: <Th align="right"><SortButton field="mercantil_valor_parcela" align="right">Valor parcela</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.mercantil_valor_parcela)}</td>) },
     { id: "mercantil_taxa_juros_mes", header: <Th align="center"><SortButton field="mercantil_taxa_juros_mes" align="center">Taxa mês</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">{display(lead.mercantil_taxa_juros_mes)}</td>) },
-    { id: "mercantil_dados_atualizados_em", header: <Th align="center"><SortButton field="mercantil_dados_atualizados_em" align="center">Dados atualizados em (Merc.)</SortButton></Th>, cell: (lead: ProcessedLeadMercantil) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.mercantil_dados_atualizados_em)}</td>) },
     {
       id: "ultima_origem_cadastral",
       header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>,
@@ -1606,7 +1602,6 @@ export const LeadsTableMercantil = ({
             "updated_at",
             "mercantil_data_hora_origem",
             "mercantil_data_primeiro_vencimento",
-            "mercantil_dados_atualizados_em",
             "mercantil_status",
             "mercantil_quantidade_parcelas",
             "ultima_origem_cadastral",
@@ -1684,7 +1679,7 @@ export const LeadsTableMercantil = ({
       "mercantil_quantidade_parcelas", "mercantil_valor_liberado", "mercantil_taxa_juros_mes", "mercantil_valor_parcela"
     ]);
     const sectionRegistroVisible = hasAnyVisible([
-      "mercantil_dados_atualizados_em", "ultima_origem_cadastral", "ultima_origem_mercantil"
+      "ultima_origem_cadastral", "ultima_origem_mercantil"
     ]);
 
     return (
@@ -1760,7 +1755,6 @@ export const LeadsTableMercantil = ({
         {sectionRegistroVisible && <>
           <div className="h-px bg-gray-200" />
           <Section title="Registro" icon={FileText}>
-            {isVisible("mercantil_dados_atualizados_em") && <DataRow label="Dados atualizados em (Merc.)" value={display(lead.mercantil_dados_atualizados_em)} />}
             {isVisible("ultima_origem_cadastral") && <DataRow label="Origem cadastral" value={display(lead.ultima_origem_cadastral)} />}
             {isVisible("ultima_origem_mercantil") && <DataRow label="Origem mercantil" value={display(lead.ultima_origem_mercantil)} />}
           </Section>

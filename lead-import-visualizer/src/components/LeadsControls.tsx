@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
 import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
+import type { LeadSort } from "@/api/leads";
 
 interface LeadsControlsProps {
   mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
@@ -45,6 +46,8 @@ interface LeadsControlsProps {
 
   birthMonthFilter: string[];
   onBirthMonthFilterChange: (values: string[]) => void;
+  sortBy: LeadSort | "";
+  onSortByChange: (value: LeadSort | "") => void;
 
   onApplyFilters: () => void;
   onClearFilters: () => void;
@@ -141,10 +144,6 @@ interface LeadsControlsProps {
   onMercantilConsultaFromChange: (v: string) => void;
   mercantilConsultaTo: string;
   onMercantilConsultaToChange: (v: string) => void;
-  mercantilImportFrom: string;
-  onMercantilImportFromChange: (v: string) => void;
-  mercantilImportTo: string;
-  onMercantilImportToChange: (v: string) => void;
   mercantilParcelaMin: string;
   onMercantilParcelaMinChange: (v: string) => void;
   mercantilParcelaMax: string;
@@ -206,6 +205,8 @@ export const LeadsControls = ({
   onDateToFilterChange,
   birthMonthFilter,
   onBirthMonthFilterChange,
+  sortBy,
+  onSortByChange,
   onApplyFilters,
   onClearFilters,
   availableMotivos,
@@ -284,10 +285,6 @@ export const LeadsControls = ({
   onMercantilConsultaFromChange,
   mercantilConsultaTo,
   onMercantilConsultaToChange,
-  mercantilImportFrom,
-  onMercantilImportFromChange,
-  mercantilImportTo,
-  onMercantilImportToChange,
   mercantilParcelaMin,
   onMercantilParcelaMinChange,
   mercantilParcelaMax,
@@ -503,6 +500,8 @@ export const LeadsControls = ({
         availableVendors={availableVendors}
         birthMonthFilter={birthMonthFilter}
         onBirthMonthFilterChange={onBirthMonthFilterChange}
+        sortBy={sortBy}
+        onSortByChange={onSortByChange}
         onApplyFilters={onApplyFilters}
         onClearFilters={onClearFilters}
         availableMotivos={availableMotivos}
@@ -573,10 +572,6 @@ export const LeadsControls = ({
         onMercantilConsultaFromChange={onMercantilConsultaFromChange}
         mercantilConsultaTo={mercantilConsultaTo}
         onMercantilConsultaToChange={onMercantilConsultaToChange}
-        mercantilImportFrom={mercantilImportFrom}
-        onMercantilImportFromChange={onMercantilImportFromChange}
-        mercantilImportTo={mercantilImportTo}
-        onMercantilImportToChange={onMercantilImportToChange}
         mercantilParcelaMin={mercantilParcelaMin}
         onMercantilParcelaMinChange={onMercantilParcelaMinChange}
         mercantilParcelaMax={mercantilParcelaMax}

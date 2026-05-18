@@ -28,6 +28,7 @@ import {
   LeadFromApiFGTS,
   LeadFromApiCLT,
   LeadFromApiMercantil,
+  LeadSort,
   PaginatedLeadsResponseBase,
   PaginatedLeadsResponseFGTS,
   PaginatedLeadsResponseCLT,
@@ -48,6 +49,10 @@ type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consult
 type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
 type ActiveTab = "BASE" | "FGTS" | "CLT" | "MERCANTIL"
+
+const BASE_SORT_DEFAULT: LeadSort = "lead_updated_at"
+const CLT_SORT_DEFAULT: LeadSort = "clt_updated_at"
+const MERCANTIL_SORT_DEFAULT: LeadSort = "mercantil_consulted_at"
 
 export const BASE_COLUMNS_DEFAULT: string[] = [
   "cpf",
@@ -107,7 +112,6 @@ export const MERCANTIL_COLUMNS_DEFAULT: string[] = [
   "mercantil_quantidade_parcelas",
   "mercantil_valor_parcela",
   "mercantil_taxa_juros_mes",
-  "mercantil_dados_atualizados_em",
   "ultima_origem_cadastral",
   "ultima_origem_mercantil",
 ]
@@ -140,6 +144,7 @@ const Dashboard = () => {
   const [basePhonesMassFilter, setBasePhonesMassFilter] = usePersistedState<string>("dashboard-base:phonesMassFilter", "")
   const [baseNoPhonesFilter, setBaseNoPhonesFilter] = usePersistedState<boolean>("dashboard-base:noPhonesFilter", false)
   const [baseBirthMonthFilter, setBaseBirthMonthFilter] = usePersistedState<string[]>("dashboard-base:birthMonthFilter", [])
+  const [baseSortBy, setBaseSortBy] = usePersistedState<LeadSort>("dashboard-base:sortBy", BASE_SORT_DEFAULT)
 
   /* =========================  FGTS (persistido)  ========================= */
   const [searchValue, setSearchValue] = usePersistedState<string>("dashboard:searchValue", "")
@@ -209,6 +214,7 @@ const Dashboard = () => {
   const [cltAtivosMax, setCltAtivosMax] = usePersistedState<string>("dashboard-clt:ativosMax", "")
   const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-clt:temAtivos", "todos")
   const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-clt:temLegados", "todos")
+  const [cltSortBy, setCltSortBy] = usePersistedState<LeadSort>("dashboard-clt:sortBy", CLT_SORT_DEFAULT)
 
   const [mercantilSearchValue, setMercantilSearchValue] = usePersistedState<string>("dashboard-mercantil:searchValue", "")
   const [mercantilOrigemFilter, setMercantilOrigemFilter] = usePersistedState<string[]>("dashboard-mercantil:origemFilter", [])
@@ -224,8 +230,6 @@ const Dashboard = () => {
   const [mercantilStatusFilter, setMercantilStatusFilter] = usePersistedState<string[]>("dashboard-mercantil:statusFilter", [])
   const [mercantilConsultaFrom, setMercantilConsultaFrom] = usePersistedState<string>("dashboard-mercantil:consultaFrom", "")
   const [mercantilConsultaTo, setMercantilConsultaTo] = usePersistedState<string>("dashboard-mercantil:consultaTo", "")
-  const [mercantilImportFrom, setMercantilImportFrom] = usePersistedState<string>("dashboard-mercantil:importFrom", "")
-  const [mercantilImportTo, setMercantilImportTo] = usePersistedState<string>("dashboard-mercantil:importTo", "")
   const [mercantilParcelaMin, setMercantilParcelaMin] = usePersistedState<string>("dashboard-mercantil:parcelaMin", "")
   const [mercantilParcelaMax, setMercantilParcelaMax] = usePersistedState<string>("dashboard-mercantil:parcelaMax", "")
   const [mercantilQtdParcelasMin, setMercantilQtdParcelasMin] = usePersistedState<string>("dashboard-mercantil:qtdParcelasMin", "")
@@ -234,6 +238,8 @@ const Dashboard = () => {
     "dashboard-mercantil:origensMercantilFilter",
     []
   )
+  const [mercantilSortBy, setMercantilSortBy] = usePersistedState<LeadSort>("dashboard-mercantil:sortBy", MERCANTIL_SORT_DEFAULT)
+  const mercantilSortEffective: LeadSort = mercantilSortBy === "mercantil_updated_at" ? MERCANTIL_SORT_DEFAULT : mercantilSortBy
   const mercantilStatusEffective = mercantilSituacao === "sem_consulta" ? [] : mercantilStatusFilter
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -277,6 +283,7 @@ const Dashboard = () => {
       basePhonesMassFilter,
       baseNoPhonesFilter,
       baseBirthMonthFilter,
+      baseSortBy,
       // FGTS
       searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
       dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
@@ -291,6 +298,7 @@ const Dashboard = () => {
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
       cltSexo, cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax, cltMargemMin, cltMargemMax,
       cltPrestacaoMin, cltPrestacaoMax, cltAtivosMin, cltAtivosMax, cltTemAtivos, cltTemLegados,
+      cltSortBy,
       // MERCANTIL
       mercantilSearchValue,
       mercantilOrigemFilter,
@@ -298,10 +306,10 @@ const Dashboard = () => {
       mercantilBirthMonthFilter,
       mercantilSituacao, mercantilStatusEffective,
       mercantilConsultaFrom, mercantilConsultaTo,
-      mercantilImportFrom, mercantilImportTo,
       mercantilParcelaMin, mercantilParcelaMax,
       mercantilQtdParcelasMin, mercantilQtdParcelasMax,
       mercantilOrigensMercantilFilter,
+      mercantilSortEffective,
     ],
     queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil> => {
       if (activeTab === "BASE") {
@@ -314,6 +322,7 @@ const Dashboard = () => {
           phones: basePhonesMassFilter,
           without_phones: baseNoPhonesFilter || undefined,
           birth_month: baseBirthMonthFilter,
+          sort: baseSortBy,
         })
       }
 
@@ -381,6 +390,7 @@ const Dashboard = () => {
           clt_ativos_max: cltAtivosMax || undefined,
           clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
           clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+          sort: cltSortBy,
         })
       }
 
@@ -400,13 +410,12 @@ const Dashboard = () => {
         mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
         mercantil_consulta_from: mercantilConsultaFrom || undefined,
         mercantil_consulta_to: mercantilConsultaTo || undefined,
-        mercantil_import_from: mercantilImportFrom || undefined,
-        mercantil_import_to: mercantilImportTo || undefined,
         mercantil_parcela_min: mercantilParcelaMin || undefined,
         mercantil_parcela_max: mercantilParcelaMax || undefined,
         mercantil_qtd_parcelas_min: mercantilQtdParcelasMin || undefined,
         mercantil_qtd_parcelas_max: mercantilQtdParcelasMax || undefined,
         mercantil_origens: mercantilOrigensMercantilFilter.length ? mercantilOrigensMercantilFilter : undefined,
+        sort: mercantilSortEffective,
       })
     },
     placeholderData: keepPreviousData,
@@ -602,7 +611,6 @@ const Dashboard = () => {
         mercantil_valor_liberado: formatCurrency(lead.mercantil_valor_liberado as any),
         mercantil_taxa_juros_mes: taxaFmt,
         mercantil_valor_parcela: formatCurrency(lead.mercantil_valor_parcela as any),
-        mercantil_dados_atualizados_em: lead.mercantil_dados_atualizados_em ? formatDate(lead.mercantil_dados_atualizados_em) : "",
       }
     })
   }, [paginatedData, activeTab])
@@ -652,6 +660,7 @@ const Dashboard = () => {
     setBasePhonesMassFilter("")
     setBaseNoPhonesFilter(false)
     setBaseBirthMonthFilter([])
+    setBaseSortBy(BASE_SORT_DEFAULT)
   }
 
   const clearFgts = () => {
@@ -717,6 +726,7 @@ const Dashboard = () => {
     setCltAtivosMax("")
     setCltTemAtivos("todos")
     setCltTemLegados("todos")
+    setCltSortBy(CLT_SORT_DEFAULT)
   }
 
   const clearMercantil = () => {
@@ -731,13 +741,12 @@ const Dashboard = () => {
     setMercantilStatusFilter([])
     setMercantilConsultaFrom("")
     setMercantilConsultaTo("")
-    setMercantilImportFrom("")
-    setMercantilImportTo("")
     setMercantilParcelaMin("")
     setMercantilParcelaMax("")
     setMercantilQtdParcelasMin("")
     setMercantilQtdParcelasMax("")
     setMercantilOrigensMercantilFilter([])
+    setMercantilSortBy(MERCANTIL_SORT_DEFAULT)
   }
 
   const handleClearFilters = () => {
@@ -823,8 +832,6 @@ const Dashboard = () => {
     mercantilStatusEffective.length ||
     mercantilConsultaFrom ||
     mercantilConsultaTo ||
-    mercantilImportFrom ||
-    mercantilImportTo ||
     mercantilParcelaMin ||
     mercantilParcelaMax ||
     mercantilQtdParcelasMin ||
@@ -934,8 +941,6 @@ const Dashboard = () => {
       mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
       mercantil_consulta_from: mercantilConsultaFrom || undefined,
       mercantil_consulta_to: mercantilConsultaTo || undefined,
-      mercantil_import_from: mercantilImportFrom || undefined,
-      mercantil_import_to: mercantilImportTo || undefined,
       mercantil_parcela_min: mercantilParcelaMin || undefined,
       mercantil_parcela_max: mercantilParcelaMax || undefined,
       mercantil_qtd_parcelas_min: mercantilQtdParcelasMin || undefined,
@@ -1024,6 +1029,10 @@ const Dashboard = () => {
       noPhonesFilter: baseNoPhonesFilter, setNoPhonesFilter: setBaseNoPhonesFilter,
       vendorsFilter: [] as string[], setVendorsFilter: (_: string[]) => {},
       birthMonthFilter: baseBirthMonthFilter, setBirthMonthFilter: setBaseBirthMonthFilter,
+      sortBy: baseSortBy,
+      setSortBy: (value: LeadSort | "") => {
+        if (value) setBaseSortBy(value)
+      },
       fgtsAuthorizedFilter: "todos" as const, setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
       fgtsConsultaFromFilter: "", setFgtsConsultaFromFilter: (_: string) => {},
       fgtsConsultaToFilter: "", setFgtsConsultaToFilter: (_: string) => {},
@@ -1046,6 +1055,8 @@ const Dashboard = () => {
       noPhonesFilter, setNoPhonesFilter,
       vendorsFilter, setVendorsFilter,
       birthMonthFilter, setBirthMonthFilter,
+      sortBy: "" as LeadSort | "",
+      setSortBy: (_: LeadSort | "") => {},
       fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
       fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
       fgtsConsultaToFilter, setFgtsConsultaToFilter,
@@ -1068,6 +1079,10 @@ const Dashboard = () => {
         noPhonesFilter: cltNoPhonesFilter, setNoPhonesFilter: setCltNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
+        sortBy: cltSortBy,
+        setSortBy: (value: LeadSort | "") => {
+          if (value) setCltSortBy(value)
+        },
         fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
         fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
         fgtsConsultaToFilter, setFgtsConsultaToFilter,
@@ -1089,6 +1104,10 @@ const Dashboard = () => {
         noPhonesFilter: mercantilNoPhonesFilter, setNoPhonesFilter: setMercantilNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: mercantilBirthMonthFilter, setBirthMonthFilter: setMercantilBirthMonthFilter,
+        sortBy: mercantilSortEffective,
+        setSortBy: (value: LeadSort | "") => {
+          if (value) setMercantilSortBy(value)
+        },
         fgtsAuthorizedFilter, setFgtsAuthorizedFilter,
         fgtsConsultaFromFilter, setFgtsConsultaFromFilter,
         fgtsConsultaToFilter, setFgtsConsultaToFilter,
@@ -1161,6 +1180,8 @@ const Dashboard = () => {
         onNoPhonesFilterChange={ui.setNoPhonesFilter}
         birthMonthFilter={ui.birthMonthFilter}
         onBirthMonthFilterChange={ui.setBirthMonthFilter}
+        sortBy={ui.sortBy}
+        onSortByChange={ui.setSortBy}
         onApplyFilters={handleApplyFilters}
         onClearFilters={handleClearFilters}
         availableMotivos={filterOptions?.motivos ?? []}
@@ -1238,10 +1259,6 @@ const Dashboard = () => {
         onMercantilConsultaFromChange={setMercantilConsultaFrom}
         mercantilConsultaTo={mercantilConsultaTo}
         onMercantilConsultaToChange={setMercantilConsultaTo}
-        mercantilImportFrom={mercantilImportFrom}
-        onMercantilImportFromChange={setMercantilImportFrom}
-        mercantilImportTo={mercantilImportTo}
-        onMercantilImportToChange={setMercantilImportTo}
         mercantilParcelaMin={mercantilParcelaMin}
         onMercantilParcelaMinChange={setMercantilParcelaMin}
         mercantilParcelaMax={mercantilParcelaMax}

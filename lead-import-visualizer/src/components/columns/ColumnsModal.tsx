@@ -158,7 +158,6 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", group: "Produto" },
     { id: "mercantil_valor_parcela", label: "Valor parcela", group: "Produto" },
     { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", group: "Produto" },
-    { id: "mercantil_dados_atualizados_em", label: "Dados atualizados em (Merc.)", group: "Produto" },
 
     // Registro
     { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },

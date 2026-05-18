@@ -3,6 +3,13 @@ import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
 export type Mode = "base" | "fgts" | "clt" | "mercantil"
+export type LeadSort =
+  | "lead_updated_at"
+  | "lead_created_at"
+  | "clt_updated_at"
+  | "clt_consulted_at"
+  | "mercantil_updated_at"
+  | "mercantil_consulted_at"
 
 export interface LeadFromApiBase {
   id: number
@@ -134,7 +141,6 @@ export interface LeadFromApiMercantil {
   mercantil_valor_liberado: string | number | null
   mercantil_taxa_juros_mes: string | number | null
   mercantil_valor_parcela: string | number | null
-  mercantil_dados_atualizados_em: string | null
 }
 
 /** Detalhe (carrega FGTS e CLT) */
@@ -205,6 +211,7 @@ export type PaginatedLeadsResponseBase = PaginatedResponse<LeadFromApiBase>
 
 export interface LeadFilters {
   page?: number
+  sort?: LeadSort
   search?: string
   /** mantido só por compat na UI; ignorado no back FGTS/CLT */
   status?: "todos" | "elegiveis" | "nao-elegiveis"
@@ -262,8 +269,6 @@ export interface LeadFilters {
   mercantil_status?: string[]
   mercantil_consulta_from?: string
   mercantil_consulta_to?: string
-  mercantil_import_from?: string
-  mercantil_import_to?: string
   mercantil_parcela_min?: string
   mercantil_parcela_max?: string
   mercantil_qtd_parcelas_min?: string | number
@@ -291,6 +296,7 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
 
   // filtros básicos
   if (f.page) p.set("page", String(f.page))
+  if (f.sort) p.set("sort", f.sort)
   if (f.search) {
     const raw = f.search.trim()
     const hasLetters = /[A-Za-zÀ-ú]/.test(raw)
@@ -357,8 +363,6 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.mercantil_status?.length) p.set("mercantil_status", f.mercantil_status.join(","))
     if (f.mercantil_consulta_from) p.set("mercantil_consulta_from", f.mercantil_consulta_from)
     if (f.mercantil_consulta_to) p.set("mercantil_consulta_to", f.mercantil_consulta_to)
-    if (f.mercantil_import_from) p.set("mercantil_import_from", f.mercantil_import_from)
-    if (f.mercantil_import_to) p.set("mercantil_import_to", f.mercantil_import_to)
     if (f.mercantil_parcela_min) p.set("mercantil_parcela_min", f.mercantil_parcela_min)
     if (f.mercantil_parcela_max) p.set("mercantil_parcela_max", f.mercantil_parcela_max)
     if (f.mercantil_qtd_parcelas_min !== undefined && f.mercantil_qtd_parcelas_min !== "")
@@ -412,6 +416,7 @@ export async function fetchLeadsBase(filters: LeadFilters) {
     const payload: any = {
       mode,
       search: filters.search?.trim() || undefined,
+      sort: filters.sort || undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
       without_phones: filters.without_phones || undefined,
@@ -441,6 +446,7 @@ export async function fetchLeadsFGTS(filters: LeadFilters) {
     const payload: any = {
       mode,
       search: filters.search?.trim() || undefined,
+      sort: filters.sort || undefined,
       motivos: filters.motivos?.length ? filters.motivos : undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
@@ -480,6 +486,7 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
     const payload: any = {
       mode,
       search: filters.search?.trim() || undefined,
+      sort: filters.sort || undefined,
       // CLT: apenas o que faz sentido
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
@@ -538,6 +545,7 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
     const payload: any = {
       mode,
       search: filters.search?.trim() || undefined,
+      sort: filters.sort || undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
       without_phones: filters.without_phones || undefined,
@@ -549,8 +557,6 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
       mercantil_status: filters.mercantil_status?.length ? filters.mercantil_status : undefined,
       mercantil_consulta_from: filters.mercantil_consulta_from || undefined,
       mercantil_consulta_to: filters.mercantil_consulta_to || undefined,
-      mercantil_import_from: filters.mercantil_import_from || undefined,
-      mercantil_import_to: filters.mercantil_import_to || undefined,
       mercantil_parcela_min: filters.mercantil_parcela_min || undefined,
       mercantil_parcela_max: filters.mercantil_parcela_max || undefined,
       mercantil_qtd_parcelas_min: filters.mercantil_qtd_parcelas_min ?? undefined,

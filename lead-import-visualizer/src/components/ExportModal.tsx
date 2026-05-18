@@ -145,7 +145,6 @@ const COLUMNS_MERCANTIL: ColumnDef[] = [
   { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", selected: true, group: "Produto" },
   { id: "mercantil_valor_parcela", label: "Valor parcela", selected: true, group: "Produto" },
   { id: "mercantil_taxa_juros_mes", label: "Taxa juros (mês)", selected: true, group: "Produto" },
-  { id: "mercantil_dados_atualizados_em", label: "Dados atualizados em (Merc.)", selected: true, group: "Produto" },
 
   // Registro
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },

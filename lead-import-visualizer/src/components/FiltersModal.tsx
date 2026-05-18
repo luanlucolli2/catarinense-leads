@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
+import type { LeadSort } from "@/api/leads"
 
 interface FiltersModalProps {
   mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL"
@@ -58,6 +59,8 @@ interface FiltersModalProps {
   onFgtsConsultaToFilterChange: (v: string) => void
   birthMonthFilter: string[]
   onBirthMonthFilterChange: (values: string[]) => void
+  sortBy: LeadSort | ""
+  onSortByChange: (v: LeadSort | "") => void
   onApplyFilters: () => void
   onClearFilters: () => void
   availableMotivos: string[]
@@ -144,10 +147,6 @@ interface FiltersModalProps {
   onMercantilConsultaFromChange: (v: string) => void
   mercantilConsultaTo: string
   onMercantilConsultaToChange: (v: string) => void
-  mercantilImportFrom: string
-  onMercantilImportFromChange: (v: string) => void
-  mercantilImportTo: string
-  onMercantilImportToChange: (v: string) => void
   mercantilParcelaMin: string
   onMercantilParcelaMinChange: (v: string) => void
   mercantilParcelaMax: string
@@ -185,6 +184,28 @@ const monthLabelToNum = (label: string) => {
 const isValidMonth = (m: string) => {
   const n = parseInt(m, 10)
   return !Number.isNaN(n) && n >= 1 && n <= 12
+}
+
+const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; label: string }[]> = {
+  BASE: [
+    { value: "lead_updated_at", label: "Atualizados mais recentemente" },
+    { value: "lead_created_at", label: "Criados mais recentemente" },
+  ],
+  CLT: [
+    { value: "clt_updated_at", label: "Dados atualizados mais recentemente" },
+    { value: "clt_consulted_at", label: "Consultados mais recentemente" },
+    { value: "lead_updated_at", label: "Lead atualizado mais recentemente" },
+  ],
+  MERCANTIL: [
+    { value: "mercantil_consulted_at", label: "Consultados mais recentemente" },
+    { value: "lead_updated_at", label: "Lead atualizado mais recentemente" },
+  ],
+}
+
+const DEFAULT_SORT_BY: Record<"BASE" | "CLT" | "MERCANTIL", LeadSort> = {
+  BASE: "lead_updated_at",
+  CLT: "clt_updated_at",
+  MERCANTIL: "mercantil_consulted_at",
 }
 
 /* util de foco: remove outline/ring nativos */
@@ -307,6 +328,8 @@ export const FiltersModal = ({
   onFgtsConsultaToFilterChange,
   birthMonthFilter,
   onBirthMonthFilterChange,
+  sortBy,
+  onSortByChange,
   onApplyFilters,
   onClearFilters,
   availableMotivos,
@@ -375,10 +398,6 @@ export const FiltersModal = ({
   onMercantilConsultaFromChange,
   mercantilConsultaTo,
   onMercantilConsultaToChange,
-  mercantilImportFrom,
-  onMercantilImportFromChange,
-  mercantilImportTo,
-  onMercantilImportToChange,
   mercantilParcelaMin,
   onMercantilParcelaMinChange,
   mercantilParcelaMax,
@@ -406,6 +425,7 @@ export const FiltersModal = ({
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
   const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
   const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(birthMonthFilter.map(monthNumToLabel))
+  const [localSort, setLocalSort] = useState<LeadSort | "">(sortBy)
   const [localFgtsAuthorized, setLocalFgtsAuthorized] =
     useState<"todos" | "autorizado" | "nao_autorizado" | "nao_consultado">(fgtsAuthorizedFilter)
   const [localFgtsFrom, setLocalFgtsFrom] = useState(fgtsConsultaFromFilter)
@@ -444,8 +464,6 @@ export const FiltersModal = ({
   const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
   const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
   const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)
-  const [lMercantilImportFrom, setLMercantilImportFrom] = useState(mercantilImportFrom)
-  const [lMercantilImportTo, setLMercantilImportTo] = useState(mercantilImportTo)
   const [lMercantilParcelaMin, setLMercantilParcelaMin] = useState(mercantilParcelaMin)
   const [lMercantilParcelaMax, setLMercantilParcelaMax] = useState(mercantilParcelaMax)
   const [lMercantilQtdParcelasMin, setLMercantilQtdParcelasMin] = useState(mercantilQtdParcelasMin)
@@ -468,6 +486,7 @@ export const FiltersModal = ({
     setLocalHigienizacao(higienizacaoFilter)
     setLocalVendors(vendorsFilter)
     setLocalBirthMonths(birthMonthFilter.map(monthNumToLabel))
+    setLocalSort(sortBy)
     setLocalFgtsAuthorized(fgtsAuthorizedFilter)
     setLocalFgtsFrom(fgtsConsultaFromFilter)
     setLocalFgtsTo(fgtsConsultaToFilter)
@@ -505,8 +524,6 @@ export const FiltersModal = ({
     setLMercantilStatus(mercantilStatusFilter)
     setLMercantilConsultaFrom(mercantilConsultaFrom)
     setLMercantilConsultaTo(mercantilConsultaTo)
-    setLMercantilImportFrom(mercantilImportFrom)
-    setLMercantilImportTo(mercantilImportTo)
     setLMercantilParcelaMin(mercantilParcelaMin)
     setLMercantilParcelaMax(mercantilParcelaMax)
     setLMercantilQtdParcelasMin(mercantilQtdParcelasMin)
@@ -528,6 +545,7 @@ export const FiltersModal = ({
     higienizacaoFilter,
     vendorsFilter,
     birthMonthFilter,
+    sortBy,
     fgtsAuthorizedFilter,
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
@@ -543,7 +561,6 @@ export const FiltersModal = ({
     // MERCANTIL deps
     mercantilSituacao, mercantilStatusFilter,
     mercantilConsultaFrom, mercantilConsultaTo,
-    mercantilImportFrom, mercantilImportTo,
     mercantilParcelaMin, mercantilParcelaMax,
     mercantilQtdParcelasMin, mercantilQtdParcelasMax,
     mercantilOrigensFilter,
@@ -572,6 +589,7 @@ export const FiltersModal = ({
     onHigienizacaoFilterChange(localHigienizacao)
     onVendorsFilterChange(localVendors)
     onBirthMonthFilterChange(normalizedMonths)
+    onSortByChange(localSort)
 
     if (mode === "FGTS") {
       onFgtsAuthorizedFilterChange(localFgtsAuthorized)
@@ -613,8 +631,6 @@ export const FiltersModal = ({
       onMercantilStatusFilterChange(lMercantilSituacao === "sem_consulta" ? [] : lMercantilStatus)
       onMercantilConsultaFromChange(lMercantilConsultaFrom)
       onMercantilConsultaToChange(lMercantilConsultaTo)
-      onMercantilImportFromChange(lMercantilImportFrom)
-      onMercantilImportToChange(lMercantilImportTo)
       onMercantilParcelaMinChange(lMercantilParcelaMin)
       onMercantilParcelaMaxChange(lMercantilParcelaMax)
       onMercantilQtdParcelasMinChange(lMercantilQtdParcelasMin)
@@ -637,6 +653,9 @@ export const FiltersModal = ({
   const isHigienizacaoActive = localHigienizacao.length > 0
   const isVendorsActive = localVendors.length > 0
   const isBirthActive = localBirthMonths.length > 0
+  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? SORT_OPTIONS[mode] : []
+  const defaultSortBy = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? DEFAULT_SORT_BY[mode] : ""
+  const isSortActive = !!defaultSortBy && localSort !== "" && localSort !== defaultSortBy
   const isContractPeriodActive = any([localContractFrom, localContractTo])
   const isUpdatedPeriodActive = any([localDateFrom, localDateTo])
   const isFgtsStatusActive = localFgtsAuthorized !== "todos"
@@ -667,11 +686,13 @@ export const FiltersModal = ({
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
     lCltTemLegados !== "todos"
 
+  const mercantilStatusActive =
+    lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0
+
   const actMercantilSituacao =
     lMercantilSituacao !== "todos" ||
-    (lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0) ||
+    mercantilStatusActive ||
     any([lMercantilConsultaFrom, lMercantilConsultaTo]) ||
-    any([lMercantilImportFrom, lMercantilImportTo]) ||
     lMercantilOrigens.length > 0
 
   const actMercantilFinanceiro =
@@ -699,6 +720,7 @@ export const FiltersModal = ({
     if (actMercantilSituacao) chips.push("Mercantil · Situação")
     if (actMercantilFinanceiro) chips.push("Mercantil · Financeiro")
   }
+  if (isSortActive) chips.push("Ordenação")
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
   if (isMassActive) chips.push("Filtros em massa")
 
@@ -760,6 +782,30 @@ export const FiltersModal = ({
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gradient-to-b from-white to-gray-50">
           {/* ======= Grupo: Geral ======= */}
           <Group title="Geral">
+            {sortOptions.length > 0 && (
+              <div>
+                <Section
+                  title="Ordenação"
+                  description="Define como a lista será ordenada no backend."
+                  active={isSortActive}
+                >
+                  <div>
+                    <Label text="Ordenar por" active={isSortActive} />
+                    <Select value={localSort} onValueChange={(v) => setLocalSort(v as LeadSort)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", isSortActive && "ring-1 ring-blue-200")}>
+                        <SelectValue placeholder="Selecionar..." />
+                      </SelectTrigger>
+                      <SelectContent className="shadow-lg">
+                        {sortOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </Section>
+              </div>
+            )}
+
             {/* Pesquisa */}
             <div>
               <Section title="Pesquisa" description="Busque por nome, CPF ou telefone." active={isSearchActive}>
@@ -1249,23 +1295,6 @@ export const FiltersModal = ({
                     </div>
                   </div>
 
-                  <div>
-                    <Label text="Período de atualização dos dados Mercantil" active={any([lMercantilImportFrom, lMercantilImportTo])} />
-                    <div className="mt-2 grid grid-cols-2 gap-3">
-                      <Input
-                        type="date"
-                        value={lMercantilImportFrom}
-                        onChange={(e) => setLMercantilImportFrom(e.target.value)}
-                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                      />
-                      <Input
-                        type="date"
-                        value={lMercantilImportTo}
-                        onChange={(e) => setLMercantilImportTo(e.target.value)}
-                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                      />
-                    </div>
-                  </div>
                 </Section>
               </div>
 
