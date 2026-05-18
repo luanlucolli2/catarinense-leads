@@ -365,6 +365,160 @@ export const LeadsControls = ({
     return false;
   }, [currentVisible, currentDefaults]);
 
+  const sortLabels: Partial<Record<LeadSort, string>> = {
+    lead_updated_at: "Lead atualizado mais recentemente",
+    lead_created_at: "Leads criados mais recentemente",
+    clt_updated_at: "Dados atualizados mais recentemente",
+    clt_consulted_at: "Consultados mais recentemente",
+    mercantil_updated_at: "Dados atualizados mais recentemente",
+    mercantil_consulted_at: "Consultados mais recentemente",
+  };
+
+  const summarizeList = (values: string[], max = 3) => {
+    if (!values.length) return "";
+    if (values.length <= max) return values.join(", ");
+    return `${values.slice(0, max).join(", ")} +${values.length - max}`;
+  };
+
+  const rangeLabel = (label: string, from?: string, to?: string) => {
+    if (from && to) return `${label}: ${from} a ${to}`;
+    if (from) return `${label}: a partir de ${from}`;
+    if (to) return `${label}: até ${to}`;
+    return null;
+  };
+
+  const activeFilterLabels = useMemo(() => {
+    const items: string[] = [];
+
+    if (searchValue) items.push(`Busca: ${searchValue}`);
+    if (origemFilter.length) items.push(`Origem cadastral: ${summarizeList(origemFilter)}`);
+    if (cpfMassFilter) items.push(`CPFs: ${cpfMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (namesMassFilter) items.push(`Nomes: ${namesMassFilter.split(/\r?\n/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (phonesMassFilter) items.push(`Telefones: ${phonesMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (noPhonesFilter) items.push("Sem telefone");
+    if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
+
+    if (mode === "FGTS") {
+      if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
+      if (motivosFilter.length) items.push(`Motivos: ${summarizeList(motivosFilter)}`);
+      if (higienizacaoFilter.length) items.push(`Origem hig.: ${summarizeList(higienizacaoFilter)}`);
+      const periodoAtualizacao = rangeLabel("Data hig.", dateFromFilter, dateToFilter);
+      if (periodoAtualizacao) items.push(periodoAtualizacao);
+      const periodoContrato = rangeLabel("Data contrato", contractDateFromFilter, contractDateToFilter);
+      if (periodoContrato) items.push(periodoContrato);
+      if (vendorsFilter.length) items.push(`Vendedores: ${summarizeList(vendorsFilter)}`);
+      if (fgtsAuthorizedFilter !== "todos") {
+        const map = {
+          autorizado: "Autorizado",
+          nao_autorizado: "Não autorizado",
+          nao_consultado: "Não consultado",
+        } as const;
+        items.push(`FGTS Off: ${map[fgtsAuthorizedFilter]}`);
+      }
+      const fgtsConsulta = rangeLabel("Consulta FGTS Off", fgtsConsultaFromFilter, fgtsConsultaToFilter);
+      if (fgtsConsulta) items.push(fgtsConsulta);
+    }
+
+    if (mode === "CLT") {
+      if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
+      if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
+      if (cltSituacao !== "todos") {
+        const map = {
+          nao_encontrado: "Não encontrado",
+          elegivel: "Elegível",
+          nao_elegivel: "Não elegível",
+        } as const;
+        items.push(`Situação: ${map[cltSituacao]}`);
+      }
+      const consulta = rangeLabel("Data consulta", cltConsultaFrom, cltConsultaTo);
+      if (consulta) items.push(consulta);
+      const admissao = rangeLabel("Admissão", cltAdmissaoFrom, cltAdmissaoTo);
+      if (admissao) items.push(admissao);
+      if (cltMesesMin || cltMesesMax) items.push(`Meses adm.: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
+      const inicioEmp = rangeLabel("Início empregador", cltInicioEmpregadorFrom, cltInicioEmpregadorTo);
+      if (inicioEmp) items.push(inicioEmp);
+      if (cltCategoriaCodigos.trim()) items.push(`Categorias: ${cltCategoriaCodigos.trim()}`);
+      if (cltIdadeMin || cltIdadeMax) items.push(`Idade: ${cltIdadeMin || "0"} a ${cltIdadeMax || "max"}`);
+      if (cltSexo.length) items.push(`Sexo: ${summarizeList(cltSexo)}`);
+      if (cltRendaMin || cltRendaMax) items.push(`Renda: ${cltRendaMin || "0"} a ${cltRendaMax || "max"}`);
+      if (cltBaseMin || cltBaseMax) items.push(`Base margem: ${cltBaseMin || "0"} a ${cltBaseMax || "max"}`);
+      if (cltMargemMin || cltMargemMax) items.push(`Margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
+      if (cltPrestacaoMin || cltPrestacaoMax) items.push(`Prestação: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+      if (cltAtivosMin || cltAtivosMax) items.push(`Ativos: ${cltAtivosMin || "0"} a ${cltAtivosMax || "max"}`);
+      if (cltTemAtivos !== "todos") items.push(`Tem ativos: ${cltTemAtivos === "sim" ? "Sim" : "Não"}`);
+      if (cltTemLegados !== "todos") items.push(`Tem legados: ${cltTemLegados === "sim" ? "Sim" : "Não"}`);
+    }
+
+    if (mode === "MERCANTIL") {
+      if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
+      if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
+      const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
+      if (consulta) items.push(consulta);
+      if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
+      if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
+      if (mercantilOrigensFilter.length) items.push(`Origem mercantil: ${summarizeList(mercantilOrigensFilter)}`);
+    }
+
+    return items;
+  }, [
+    birthMonthFilter,
+    cltAdmissaoFrom,
+    cltAdmissaoTo,
+    cltAtivosMax,
+    cltAtivosMin,
+    cltCategoriaCodigos,
+    cltConsultaFrom,
+    cltConsultaTo,
+    cltConsultado,
+    cltIdadeMax,
+    cltIdadeMin,
+    cltInicioEmpregadorFrom,
+    cltInicioEmpregadorTo,
+    cltBaseMax,
+    cltBaseMin,
+    cltMargemMax,
+    cltMargemMin,
+    cltMesesMax,
+    cltMesesMin,
+    cltPrestacaoMax,
+    cltPrestacaoMin,
+    cltRendaMax,
+    cltRendaMin,
+    cltSexo,
+    cltSituacao,
+    cltTemAtivos,
+    cltTemLegados,
+    contractDateFromFilter,
+    contractDateToFilter,
+    cpfMassFilter,
+    dateFromFilter,
+    dateToFilter,
+    eligibleFilter,
+    fgtsAuthorizedFilter,
+    fgtsConsultaFromFilter,
+    fgtsConsultaToFilter,
+    higienizacaoFilter,
+    mercantilConsultaFrom,
+    mercantilConsultaTo,
+    mercantilOrigensFilter,
+    mercantilParcelaMax,
+    mercantilParcelaMin,
+    mercantilQtdParcelasMax,
+    mercantilQtdParcelasMin,
+    mercantilSituacao,
+    mercantilStatusFilter,
+    mode,
+    motivosFilter,
+    namesMassFilter,
+    noPhonesFilter,
+    origemFilter,
+    phonesMassFilter,
+    searchValue,
+    vendorsFilter,
+  ]);
+
+  const currentSortLabel = sortBy ? sortLabels[sortBy] ?? sortBy : null;
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm mb-6">
       <div className="px-3 sm:px-4 py-3 sm:py-4">
@@ -446,11 +600,25 @@ export const LeadsControls = ({
         {/* Indicador de filtros ativos */}
         {hasActiveFilters && !disableFilters && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-blue-600" />
-              <span className="text-sm text-blue-800 font-medium">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <span className="text-sm text-blue-800 font-medium">
                 Filtros ativos aplicados{typeof filteredCount === "number" ? ` · ${filteredCount} leads encontrados` : ""}
-              </span>
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {activeFilterLabels.map((label) => (
+                  <span key={label} className="inline-flex max-w-full items-center rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-800">
+                    {label}
+                  </span>
+                ))}
+                {currentSortLabel && (
+                  <span className="inline-flex max-w-full items-center rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-800">
+                    Ordenação: {currentSortLabel}
+                  </span>
+                )}
+              </div>
             </div>
             <Button
               onClick={onClearFilters}
