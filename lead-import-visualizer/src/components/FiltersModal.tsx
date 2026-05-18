@@ -13,8 +13,6 @@ import {
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
-import type { LeadSort } from "@/api/leads"
-
 interface FiltersModalProps {
   mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL"
 
@@ -59,8 +57,6 @@ interface FiltersModalProps {
   onFgtsConsultaToFilterChange: (v: string) => void
   birthMonthFilter: string[]
   onBirthMonthFilterChange: (values: string[]) => void
-  sortBy: LeadSort | ""
-  onSortByChange: (v: LeadSort | "") => void
   onApplyFilters: () => void
   onClearFilters: () => void
   availableMotivos: string[]
@@ -186,28 +182,6 @@ const isValidMonth = (m: string) => {
   return !Number.isNaN(n) && n >= 1 && n <= 12
 }
 
-const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; label: string }[]> = {
-  BASE: [
-    { value: "lead_updated_at", label: "Atualizados mais recentemente" },
-    { value: "lead_created_at", label: "Criados mais recentemente" },
-  ],
-  CLT: [
-    { value: "clt_consulted_at", label: "Consultados mais recentemente" },
-    { value: "clt_updated_at", label: "Dados atualizados mais recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado mais recentemente" },
-  ],
-  MERCANTIL: [
-    { value: "mercantil_consulted_at", label: "Consultados mais recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado mais recentemente" },
-  ],
-}
-
-const DEFAULT_SORT_BY: Record<"BASE" | "CLT" | "MERCANTIL", LeadSort> = {
-  BASE: "lead_updated_at",
-  CLT: "clt_consulted_at",
-  MERCANTIL: "mercantil_consulted_at",
-}
-
 /* util de foco: remove outline/ring nativos */
 const NO_FOCUS = "focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none"
 
@@ -328,8 +302,6 @@ export const FiltersModal = ({
   onFgtsConsultaToFilterChange,
   birthMonthFilter,
   onBirthMonthFilterChange,
-  sortBy,
-  onSortByChange,
   onApplyFilters,
   onClearFilters,
   availableMotivos,
@@ -425,7 +397,6 @@ export const FiltersModal = ({
   const [localHigienizacao, setLocalHigienizacao] = useState<string[]>(higienizacaoFilter)
   const [localVendors, setLocalVendors] = useState<string[]>(vendorsFilter)
   const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(birthMonthFilter.map(monthNumToLabel))
-  const [localSort, setLocalSort] = useState<LeadSort | "">(sortBy)
   const [localFgtsAuthorized, setLocalFgtsAuthorized] =
     useState<"todos" | "autorizado" | "nao_autorizado" | "nao_consultado">(fgtsAuthorizedFilter)
   const [localFgtsFrom, setLocalFgtsFrom] = useState(fgtsConsultaFromFilter)
@@ -486,7 +457,6 @@ export const FiltersModal = ({
     setLocalHigienizacao(higienizacaoFilter)
     setLocalVendors(vendorsFilter)
     setLocalBirthMonths(birthMonthFilter.map(monthNumToLabel))
-    setLocalSort(sortBy)
     setLocalFgtsAuthorized(fgtsAuthorizedFilter)
     setLocalFgtsFrom(fgtsConsultaFromFilter)
     setLocalFgtsTo(fgtsConsultaToFilter)
@@ -545,7 +515,6 @@ export const FiltersModal = ({
     higienizacaoFilter,
     vendorsFilter,
     birthMonthFilter,
-    sortBy,
     fgtsAuthorizedFilter,
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
@@ -589,7 +558,6 @@ export const FiltersModal = ({
     onHigienizacaoFilterChange(localHigienizacao)
     onVendorsFilterChange(localVendors)
     onBirthMonthFilterChange(normalizedMonths)
-    onSortByChange(localSort)
 
     if (mode === "FGTS") {
       onFgtsAuthorizedFilterChange(localFgtsAuthorized)
@@ -653,9 +621,6 @@ export const FiltersModal = ({
   const isHigienizacaoActive = localHigienizacao.length > 0
   const isVendorsActive = localVendors.length > 0
   const isBirthActive = localBirthMonths.length > 0
-  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? SORT_OPTIONS[mode] : []
-  const defaultSortBy = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? DEFAULT_SORT_BY[mode] : ""
-  const isSortActive = !!defaultSortBy && localSort !== "" && localSort !== defaultSortBy
   const isContractPeriodActive = any([localContractFrom, localContractTo])
   const isUpdatedPeriodActive = any([localDateFrom, localDateTo])
   const isFgtsStatusActive = localFgtsAuthorized !== "todos"
@@ -720,7 +685,6 @@ export const FiltersModal = ({
     if (actMercantilSituacao) chips.push("Mercantil · Situação")
     if (actMercantilFinanceiro) chips.push("Mercantil · Financeiro")
   }
-  if (isSortActive) chips.push("Ordenação")
   if (isBirthActive) chips.push(`Aniversário (${localBirthMonths.length})`)
   if (isMassActive) chips.push("Filtros em massa")
 
@@ -782,30 +746,6 @@ export const FiltersModal = ({
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gradient-to-b from-white to-gray-50">
           {/* ======= Grupo: Geral ======= */}
           <Group title="Geral">
-            {sortOptions.length > 0 && (
-              <div>
-                <Section
-                  title="Ordenação"
-                  description="Define como a lista será ordenada no backend."
-                  active={isSortActive}
-                >
-                  <div>
-                    <Label text="Ordenar por" active={isSortActive} />
-                    <Select value={localSort} onValueChange={(v) => setLocalSort(v as LeadSort)}>
-                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", isSortActive && "ring-1 ring-blue-200")}>
-                        <SelectValue placeholder="Selecionar..." />
-                      </SelectTrigger>
-                      <SelectContent className="shadow-lg">
-                        {sortOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </Section>
-              </div>
-            )}
-
             {/* Pesquisa */}
             <div>
               <Section title="Pesquisa" description="Busque por nome, CPF ou telefone." active={isSearchActive}>
