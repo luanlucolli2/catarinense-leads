@@ -131,25 +131,28 @@ class MercantilSnapshotWebhookController extends Controller
 
     private function upsertLeadBasics(string $cpf, mixed $nome, mixed $dataNascimento): void
     {
-        $existing = DB::table('leads')
-            ->where('cpf', $cpf)
-            ->first(['cpf', 'nome', 'data_nascimento']);
+        $now = now()->format('Y-m-d H:i:s');
 
-        $now = now();
-
-        DB::table('leads')->upsert(
-            [[
-                'cpf' => $cpf,
-                'nome' => $this->fillOnlyWhenCurrentIsNull($this->nullableString($nome), $existing?->nome),
-                'data_nascimento' => $this->fillOnlyWhenCurrentIsNull($dataNascimento, $existing?->data_nascimento),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]],
-            ['cpf'],
+        DB::statement(
+            <<<'SQL'
+            INSERT INTO leads (cpf, nome, data_nascimento, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                nome = IF(leads.nome IS NULL, VALUES(nome), leads.nome),
+                data_nascimento = IF(leads.data_nascimento IS NULL, VALUES(data_nascimento), leads.data_nascimento),
+                updated_at = IF(
+                    (leads.nome IS NULL AND VALUES(nome) IS NOT NULL)
+                    OR (leads.data_nascimento IS NULL AND VALUES(data_nascimento) IS NOT NULL),
+                    VALUES(updated_at),
+                    leads.updated_at
+                )
+            SQL,
             [
-                'nome',
-                'data_nascimento',
-                'updated_at',
+                $cpf,
+                $this->nullableString($nome),
+                $dataNascimento,
+                $now,
+                $now,
             ],
         );
     }
@@ -182,8 +185,4 @@ class MercantilSnapshotWebhookController extends Controller
         return $value === '' ? null : $value;
     }
 
-    private function fillOnlyWhenCurrentIsNull(mixed $incoming, mixed $current): mixed
-    {
-        return $current === null ? $incoming : $current;
-    }
 }
