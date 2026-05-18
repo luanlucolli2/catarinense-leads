@@ -1,4 +1,4 @@
-import { Search, Upload, Download, Filter, Columns as ColumnsIcon, ArrowDownUp } from "lucide-react";
+import { Search, Upload, Download, Filter, Columns as ColumnsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -500,39 +500,38 @@ export const LeadsControls = ({
           
           {/* Inputs Section (Search & Sort) */}
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:flex-1">
-            <div className="relative w-full sm:max-w-[320px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                type="text"
-                placeholder="Nome, CPF ou Telefone"
-                value={localSearchValue}
-                onChange={(e) => setLocalSearchValue(e.target.value)}
-                className="pl-9 h-10 w-full"
-              />
-            </div>
+            <label className="w-full sm:max-w-[320px]">
+              <span className="mb-1 block text-xs font-medium text-gray-700">Busca</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  type="text"
+                  placeholder="Nome, CPF ou Telefone"
+                  value={localSearchValue}
+                  onChange={(e) => setLocalSearchValue(e.target.value)}
+                  className="pl-9 h-10 w-full"
+                />
+              </div>
+            </label>
 
             {sortOptions.length > 0 && (
-              <div className="relative w-full sm:w-[260px] flex items-center group">
-                <ArrowDownUp className="absolute left-3 w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors pointer-events-none" />
-                <select
-                  value={sortBy}
-                  onChange={(event) => onSortByChange(event.target.value as LeadSort)}
-                  className="h-10 w-full appearance-none rounded-md border border-gray-200 bg-white pl-9 pr-8 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer hover:bg-gray-50"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                    backgroundPosition: "right 0.5rem center",
-                    backgroundRepeat: "no-repeat",
-                    backgroundSize: "1.5em 1.5em",
-                  }}
-                >
-                  <option value="" disabled>Ordenar por...</option>
-                  {sortOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <label className="w-full sm:w-[260px]">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Ordenação</span>
+                <div className="relative flex items-center">
+                  <select
+                    value={sortBy}
+                    onChange={(event) => onSortByChange(event.target.value as LeadSort)}
+                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="" disabled>Ordenar por...</option>
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
             )}
           </div>
 
@@ -550,10 +549,7 @@ export const LeadsControls = ({
               <ColumnsIcon className="w-4 h-4" />
               <span>Colunas</span>
               {hasCustomColumns && (
-                <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                </span>
+                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
               )}
             </Button>
 
@@ -570,10 +566,7 @@ export const LeadsControls = ({
               <Filter className="w-4 h-4" />
               <span>Filtros</span>
               {hasActiveFilters && !disableFilters && (
-                <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                </span>
+                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
               )}
             </Button>
 
