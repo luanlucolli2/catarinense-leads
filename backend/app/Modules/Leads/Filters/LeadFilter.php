@@ -19,6 +19,7 @@ class LeadFilter
         if (!in_array($mode, ['base', 'fgts', 'clt', 'mercantil'], true)) {
             $mode = 'fgts';
         }
+        $sort = self::normalizeSort((string) $r->input('sort', ''), $mode);
 
         $cltFields = [
             'matricula',
@@ -56,7 +57,6 @@ class LeadFilter
             'mercantil_valor_liberado',
             'mercantil_taxa_juros_mes',
             'mercantil_valor_parcela',
-            'mercantil_dados_atualizados_em',
             'ultima_origem_mercantil',
         ];
 
@@ -83,8 +83,6 @@ class LeadFilter
             || $r->filled('mercantil_origens')
             || $r->filled('mercantil_consulta_from')
             || $r->filled('mercantil_consulta_to')
-            || $r->filled('mercantil_import_from')
-            || $r->filled('mercantil_import_to')
             || $r->filled('mercantil_parcela_min')
             || $r->filled('mercantil_parcela_max')
             || $r->filled('mercantil_qtd_parcelas_min')
@@ -243,9 +241,6 @@ class LeadFilter
                 if (in_array('mercantil_valor_parcela', $columnsForExport, true)) {
                     $query->addSelect(DB::raw('ms.valor_parcela as mercantil_valor_parcela'));
                 }
-                if (in_array('mercantil_dados_atualizados_em', $columnsForExport, true)) {
-                    $query->addSelect(DB::raw('ms.updated_at as mercantil_dados_atualizados_em'));
-                }
             }
         } else {
             // ====== LISTA (API) ======
@@ -352,7 +347,6 @@ class LeadFilter
                     DB::raw('ms.valor_liberado as mercantil_valor_liberado'),
                     DB::raw('ms.taxa_juros_mes as mercantil_taxa_juros_mes'),
                     DB::raw('ms.valor_parcela as mercantil_valor_parcela'),
-                    DB::raw('ms.updated_at as mercantil_dados_atualizados_em'),
 
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
                     DB::raw('ijm.origin as ultima_origem_mercantil'),
@@ -588,7 +582,6 @@ class LeadFilter
             $hasSnapshotScopedFilters =
                 !empty($statuses) ||
                 $r->filled('mercantil_consulta_from') || $r->filled('mercantil_consulta_to') ||
-                $r->filled('mercantil_import_from') || $r->filled('mercantil_import_to') ||
                 $r->filled('mercantil_parcela_min') || $r->filled('mercantil_parcela_max') ||
                 $r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max');
 
@@ -607,12 +600,6 @@ class LeadFilter
                     $from = $r->input('mercantil_consulta_from', '1900-01-01');
                     $to = $r->input('mercantil_consulta_to', now()->toDateString());
                     $query->whereBetween('ms.data_hora_origem', ["{$from} 00:00:00", "{$to} 23:59:59"]);
-                }
-
-                if ($r->filled('mercantil_import_from') || $r->filled('mercantil_import_to')) {
-                    $from = $r->input('mercantil_import_from', '1900-01-01');
-                    $to = $r->input('mercantil_import_to', now()->toDateString());
-                    $query->whereBetween('ms.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
                 }
 
                 self::range($query, $r, 'mercantil_parcela_min', 'mercantil_parcela_max', 'ms.valor_parcela');
@@ -650,13 +637,72 @@ class LeadFilter
             return $query->orderBy('leads.id', 'asc');
         }
 
-        if ($mode === 'mercantil') {
-            return $query
-                ->orderByDesc('ms.updated_at')
-                ->orderByDesc('leads.updated_at');
+        return self::applyModeSort($query, $mode, $sort);
+    }
+
+    private static function normalizeSort(string $sort, string $mode): ?string
+    {
+        return match ($mode) {
+            'base' => in_array($sort, ['lead_updated_at', 'lead_created_at'], true)
+                ? $sort
+                : 'lead_updated_at',
+            'clt' => match ($sort) {
+                'clt_updated_at', 'clt_consulted_at', 'lead_updated_at' => $sort,
+                default => 'clt_consulted_at',
+            },
+            'mercantil' => match ($sort) {
+                'mercantil_consulted_at', 'lead_updated_at' => $sort,
+                'mercantil_updated_at' => 'mercantil_consulted_at',
+                default => 'mercantil_consulted_at',
+            },
+            default => null,
+        };
+    }
+
+    private static function applyModeSort(Builder $query, string $mode, ?string $sort): Builder
+    {
+        if ($mode === 'base') {
+            return $sort === 'lead_created_at'
+                ? $query->orderByDesc('leads.created_at')->orderByDesc('leads.id')
+                : $query->orderByDesc('leads.updated_at')->orderByDesc('leads.id');
         }
 
-        return $query->orderByDesc('leads.updated_at');
+        if ($mode === 'clt') {
+            return match ($sort) {
+                'clt_consulted_at' => $query
+                    ->orderByDesc('cs.consulted_at')
+                    ->orderByDesc('cs.updated_at')
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+                'lead_updated_at' => $query
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+                default => $query
+                    ->orderByDesc('cs.updated_at')
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+            };
+        }
+
+        if ($mode === 'mercantil') {
+            return match ($sort) {
+                'mercantil_consulted_at' => $query
+                    ->orderByDesc('ms.data_hora_origem')
+                    ->orderByDesc('ms.updated_at')
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+                'lead_updated_at' => $query
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+                default => $query
+                    ->orderByDesc('ms.data_hora_origem')
+                    ->orderByDesc('ms.updated_at')
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+            };
+        }
+
+        return $query->orderByDesc('leads.updated_at')->orderByDesc('leads.id');
     }
 
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void

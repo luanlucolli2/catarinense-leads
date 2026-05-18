@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
 import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
+import type { LeadSort } from "@/api/leads";
 
 interface LeadsControlsProps {
   mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
@@ -45,6 +46,8 @@ interface LeadsControlsProps {
 
   birthMonthFilter: string[];
   onBirthMonthFilterChange: (values: string[]) => void;
+  sortBy: LeadSort | "";
+  onSortByChange: (value: LeadSort | "") => void;
 
   onApplyFilters: () => void;
   onClearFilters: () => void;
@@ -141,10 +144,6 @@ interface LeadsControlsProps {
   onMercantilConsultaFromChange: (v: string) => void;
   mercantilConsultaTo: string;
   onMercantilConsultaToChange: (v: string) => void;
-  mercantilImportFrom: string;
-  onMercantilImportFromChange: (v: string) => void;
-  mercantilImportTo: string;
-  onMercantilImportToChange: (v: string) => void;
   mercantilParcelaMin: string;
   onMercantilParcelaMinChange: (v: string) => void;
   mercantilParcelaMax: string;
@@ -174,6 +173,22 @@ interface LeadsControlsProps {
 
   disableFilters?: boolean;
   disableExport?: boolean;
+}
+
+const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; label: string }[]> = {
+  BASE: [
+    { value: "lead_updated_at", label: "Atualizados recentemente" },
+    { value: "lead_created_at", label: "Criados recentemente" },
+  ],
+  CLT: [
+    { value: "clt_consulted_at", label: "Consultados recentemente" },
+    { value: "clt_updated_at", label: "Dados atualizados recentemente" },
+    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+  ],
+  MERCANTIL: [
+    { value: "mercantil_consulted_at", label: "Consultados recentemente" },
+    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+  ],
 }
 
 export const LeadsControls = ({
@@ -206,6 +221,8 @@ export const LeadsControls = ({
   onDateToFilterChange,
   birthMonthFilter,
   onBirthMonthFilterChange,
+  sortBy,
+  onSortByChange,
   onApplyFilters,
   onClearFilters,
   availableMotivos,
@@ -284,10 +301,6 @@ export const LeadsControls = ({
   onMercantilConsultaFromChange,
   mercantilConsultaTo,
   onMercantilConsultaToChange,
-  mercantilImportFrom,
-  onMercantilImportFromChange,
-  mercantilImportTo,
-  onMercantilImportToChange,
   mercantilParcelaMin,
   onMercantilParcelaMinChange,
   mercantilParcelaMax,
@@ -368,100 +381,249 @@ export const LeadsControls = ({
     return false;
   }, [currentVisible, currentDefaults]);
 
+  const sortLabels: Partial<Record<LeadSort, string>> = {
+    lead_updated_at: "Lead atualizado",
+    lead_created_at: "Criados recentemente",
+    clt_updated_at: "Dados CLT atualizados",
+    clt_consulted_at: "Consultados CLT",
+    mercantil_updated_at: "Dados Mercantil atualizados",
+    mercantil_consulted_at: "Consultados Mercantil",
+  };
+
+  const summarizeList = (values: string[], max = 3) => {
+    if (!values.length) return "";
+    if (values.length <= max) return values.join(", ");
+    return `${values.slice(0, max).join(", ")} +${values.length - max}`;
+  };
+
+  const rangeLabel = (label: string, from?: string, to?: string) => {
+    if (from && to) return `${label}: ${from} a ${to}`;
+    if (from) return `${label}: a partir de ${from}`;
+    if (to) return `${label}: até ${to}`;
+    return null;
+  };
+
+  const activeFilterLabels = useMemo(() => {
+    const items: string[] = [];
+
+    if (searchValue) items.push(`Busca: ${searchValue}`);
+    if (origemFilter.length) items.push(`Origem: ${summarizeList(origemFilter)}`);
+    if (cpfMassFilter) items.push(`CPFs: ${cpfMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (namesMassFilter) items.push(`Nomes: ${namesMassFilter.split(/\r?\n/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (phonesMassFilter) items.push(`Telefones: ${phonesMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (noPhonesFilter) items.push("Sem telefone");
+    if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
+
+    if (mode === "FGTS") {
+      if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
+      if (motivosFilter.length) items.push(`Motivos: ${summarizeList(motivosFilter)}`);
+      if (higienizacaoFilter.length) items.push(`Origem hig.: ${summarizeList(higienizacaoFilter)}`);
+      const periodoAtualizacao = rangeLabel("Data hig.", dateFromFilter, dateToFilter);
+      if (periodoAtualizacao) items.push(periodoAtualizacao);
+      const periodoContrato = rangeLabel("Data contrato", contractDateFromFilter, contractDateToFilter);
+      if (periodoContrato) items.push(periodoContrato);
+      if (vendorsFilter.length) items.push(`Vendedores: ${summarizeList(vendorsFilter)}`);
+      if (fgtsAuthorizedFilter !== "todos") {
+        const map = {
+          autorizado: "Autorizado",
+          nao_autorizado: "Não autorizado",
+          nao_consultado: "Não consultado",
+        } as const;
+        items.push(`FGTS Off: ${map[fgtsAuthorizedFilter]}`);
+      }
+      const fgtsConsulta = rangeLabel("Consulta FGTS Off", fgtsConsultaFromFilter, fgtsConsultaToFilter);
+      if (fgtsConsulta) items.push(fgtsConsulta);
+    }
+
+    if (mode === "CLT") {
+      if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
+      if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
+      if (cltSituacao !== "todos") {
+        const map = {
+          nao_encontrado: "Não encontrado",
+          elegivel: "Elegível",
+          nao_elegivel: "Não elegível",
+        } as const;
+        items.push(`Situação: ${map[cltSituacao]}`);
+      }
+      const consulta = rangeLabel("Data consulta", cltConsultaFrom, cltConsultaTo);
+      if (consulta) items.push(consulta);
+      const admissao = rangeLabel("Admissão", cltAdmissaoFrom, cltAdmissaoTo);
+      if (admissao) items.push(admissao);
+      if (cltMesesMin || cltMesesMax) items.push(`Meses adm.: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
+      const inicioEmp = rangeLabel("Início empregador", cltInicioEmpregadorFrom, cltInicioEmpregadorTo);
+      if (inicioEmp) items.push(inicioEmp);
+      if (cltCategoriaCodigos.trim()) items.push(`Categorias: ${cltCategoriaCodigos.trim()}`);
+      if (cltIdadeMin || cltIdadeMax) items.push(`Idade: ${cltIdadeMin || "0"} a ${cltIdadeMax || "max"}`);
+      if (cltSexo.length) items.push(`Sexo: ${summarizeList(cltSexo)}`);
+      if (cltRendaMin || cltRendaMax) items.push(`Renda: ${cltRendaMin || "0"} a ${cltRendaMax || "max"}`);
+      if (cltBaseMin || cltBaseMax) items.push(`Base margem: ${cltBaseMin || "0"} a ${cltBaseMax || "max"}`);
+      if (cltMargemMin || cltMargemMax) items.push(`Margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
+      if (cltPrestacaoMin || cltPrestacaoMax) items.push(`Prestação: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+      if (cltAtivosMin || cltAtivosMax) items.push(`Ativos: ${cltAtivosMin || "0"} a ${cltAtivosMax || "max"}`);
+      if (cltTemAtivos !== "todos") items.push(`Tem ativos: ${cltTemAtivos === "sim" ? "Sim" : "Não"}`);
+      if (cltTemLegados !== "todos") items.push(`Tem legados: ${cltTemLegados === "sim" ? "Sim" : "Não"}`);
+    }
+
+    if (mode === "MERCANTIL") {
+      if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
+      if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
+      const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
+      if (consulta) items.push(consulta);
+      if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
+      if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
+      if (mercantilOrigensFilter.length) items.push(`Origem: ${summarizeList(mercantilOrigensFilter)}`);
+    }
+
+    return items;
+  }, [
+    birthMonthFilter, cltAdmissaoFrom, cltAdmissaoTo, cltAtivosMax, cltAtivosMin,
+    cltCategoriaCodigos, cltConsultaFrom, cltConsultaTo, cltConsultado, cltIdadeMax,
+    cltIdadeMin, cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltBaseMax, cltBaseMin,
+    cltMargemMax, cltMargemMin, cltMesesMax, cltMesesMin, cltPrestacaoMax, cltPrestacaoMin,
+    cltRendaMax, cltRendaMin, cltSexo, cltSituacao, cltTemAtivos, cltTemLegados,
+    contractDateFromFilter, contractDateToFilter, cpfMassFilter, dateFromFilter,
+    dateToFilter, eligibleFilter, fgtsAuthorizedFilter, fgtsConsultaFromFilter,
+    fgtsConsultaToFilter, higienizacaoFilter, mercantilConsultaFrom, mercantilConsultaTo,
+    mercantilOrigensFilter, mercantilParcelaMax, mercantilParcelaMin, mercantilQtdParcelasMax,
+    mercantilQtdParcelasMin, mercantilSituacao, mercantilStatusFilter, mode, motivosFilter,
+    namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter,
+  ]);
+
+  const currentSortLabel = sortBy ? sortLabels[sortBy] ?? sortBy : null;
+  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? SORT_OPTIONS[mode] : [];
+
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm mb-6">
-      <div className="px-3 sm:px-4 py-3 sm:py-4">
-        {/* Linha 1: busca */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-between">
-          <div className="relative w-full sm:flex-1 min-w-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              type="text"
-              placeholder="Nome, CPF ou Telefone"
-              value={localSearchValue}
-              onChange={(e) => setLocalSearchValue(e.target.value)}
-              className="pl-10 w-full"
-            />
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
+      <div className="p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          
+          {/* Inputs Section (Search & Sort) */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:flex-1">
+            <label className="w-full sm:max-w-[320px]">
+              <span className="mb-1 block text-xs font-medium text-gray-700">Busca</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  type="text"
+                  placeholder="Nome, CPF ou Telefone"
+                  value={localSearchValue}
+                  onChange={(e) => setLocalSearchValue(e.target.value)}
+                  className="pl-9 h-10 w-full"
+                />
+              </div>
+            </label>
+
+            {sortOptions.length > 0 && (
+              <label className="w-full sm:w-[260px]">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Ordenação</span>
+                <div className="relative flex items-center">
+                  <select
+                    value={sortBy}
+                    onChange={(event) => onSortByChange(event.target.value as LeadSort)}
+                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="" disabled>Ordenar por...</option>
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            )}
           </div>
 
-          {/* Linha 2: ações – grid no mobile, linha no desktop */}
-          <div className="w-full sm:w-auto">
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-              <Button
-                onClick={() => setIsColumnsModalOpen(true)}
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative w-full sm:w-auto",
-                  hasCustomColumns && "border-blue-500 bg-blue-50 text-blue-700"
-                )}
-                title="Selecionar colunas visíveis"
-              >
-                <ColumnsIcon className="w-4 h-4" />
-                <span className="hidden xs:inline sm:inline">Colunas</span>
-                {hasCustomColumns && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
-                )}
-              </Button>
+          {/* Action Buttons Section */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-end sm:justify-end gap-2 w-full lg:w-auto shrink-0 self-end">
+            <Button
+              onClick={() => setIsColumnsModalOpen(true)}
+              variant="outline"
+              className={cn(
+                "h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 relative w-full sm:w-auto",
+                hasCustomColumns && "border-blue-500 bg-blue-50/50 text-blue-700 hover:bg-blue-50"
+              )}
+              title="Selecionar colunas visíveis"
+            >
+              <ColumnsIcon className="w-4 h-4" />
+              <span>Colunas</span>
+              {hasCustomColumns && (
+                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
+              )}
+            </Button>
 
-              <Button
-                onClick={() => !disableFilters && setIsFiltersModalOpen(true)}
-                variant="outline"
-                size="sm"
-                disabled={disableFilters}
-                className={cn(
-                  "flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 relative w-full sm:w-auto",
-                  hasActiveFilters && !disableFilters && "border-blue-500 bg-blue-50 text-blue-700"
-                )}
-                title={disableFilters ? "Filtros indisponíveis para CLT (Mercantil)" : undefined}
-              >
-                <Filter className="w-4 h-4" />
-                <span className="hidden xs:inline sm:inline">Filtros</span>
-                {hasActiveFilters && !disableFilters && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
-                )}
-              </Button>
+            <Button
+              onClick={() => !disableFilters && setIsFiltersModalOpen(true)}
+              variant="outline"
+              disabled={disableFilters}
+              className={cn(
+                "h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 relative w-full sm:w-auto",
+                hasActiveFilters && !disableFilters && "border-blue-500 bg-blue-50/50 text-blue-700 hover:bg-blue-50"
+              )}
+              title={disableFilters ? "Filtros indisponíveis para CLT (Mercantil)" : undefined}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filtros</span>
+              {hasActiveFilters && !disableFilters && (
+                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
+              )}
+            </Button>
 
-              <Button
-                onClick={onExportClick}
-                variant="outline"
-                size="sm"
-                disabled={disableExport}
-                className="flex items-center justify-center gap-2 px-3 border-gray-300 hover:bg-gray-50 w-full sm:w-auto"
-                title={disableExport ? "Exportação indisponível para CLT (Mercantil)" : undefined}
-              >
-                <Download className="w-4 h-4" />
-                <span className="hidden xs:inline sm:inline">Exportar</span>
-              </Button>
+            <Button
+              onClick={onExportClick}
+              variant="outline"
+              disabled={disableExport}
+              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 w-full sm:w-auto"
+              title={disableExport ? "Exportação indisponível para CLT (Mercantil)" : undefined}
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Exportar</span>
+            </Button>
 
-              <Button
-                onClick={onImportClick}
-                size="sm"
-                className="flex items-center justify-center gap-2 px-3 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
-              >
-                <Upload className="w-4 h-4" />
-                <span className="hidden xs:inline sm:inline">Importar</span>
-              </Button>
-            </div>
+            <Button
+              onClick={onImportClick}
+              className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
+            >
+              <Upload className="w-4 h-4" />
+              <span className="hidden sm:inline">Importar</span>
+            </Button>
           </div>
         </div>
 
         {/* Indicador de filtros ativos */}
         {hasActiveFilters && !disableFilters && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-blue-600" />
-              <span className="text-sm text-blue-800 font-medium">
-                Filtros ativos aplicados{typeof filteredCount === "number" ? ` · ${filteredCount} leads encontrados` : ""}
-              </span>
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 bg-blue-50/50 border border-blue-100 rounded-lg p-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-blue-900">
+                  Filtros aplicados
+                  {typeof filteredCount === "number" && (
+                    <span className="text-blue-600 font-normal ml-1">· {filteredCount} leads encontrados</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activeFilterLabels.map((label) => (
+                  <span key={label} className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 shadow-sm">
+                    {label}
+                  </span>
+                ))}
+                {currentSortLabel && (
+                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 shadow-sm">
+                    Ordenação: {currentSortLabel}
+                  </span>
+                )}
+              </div>
             </div>
             <Button
               onClick={onClearFilters}
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="text-xs border-blue-300 text-blue-700 hover:bg-blue-100 self-start sm:self-auto"
+              className="h-8 text-xs text-blue-700 hover:text-blue-800 hover:bg-blue-100/50 shrink-0 self-start w-full sm:w-auto"
             >
-              Limpar
+              Limpar todos
             </Button>
           </div>
         )}
@@ -573,10 +735,6 @@ export const LeadsControls = ({
         onMercantilConsultaFromChange={onMercantilConsultaFromChange}
         mercantilConsultaTo={mercantilConsultaTo}
         onMercantilConsultaToChange={onMercantilConsultaToChange}
-        mercantilImportFrom={mercantilImportFrom}
-        onMercantilImportFromChange={onMercantilImportFromChange}
-        mercantilImportTo={mercantilImportTo}
-        onMercantilImportToChange={onMercantilImportToChange}
         mercantilParcelaMin={mercantilParcelaMin}
         onMercantilParcelaMinChange={onMercantilParcelaMinChange}
         mercantilParcelaMax={mercantilParcelaMax}

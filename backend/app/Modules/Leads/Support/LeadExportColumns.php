@@ -70,7 +70,6 @@ final class LeadExportColumns
             'mercantil_valor_liberado' => ['label' => 'Mercantil Valor liberado (R$)', 'formatter' => 'float'],
             'mercantil_taxa_juros_mes' => ['label' => 'Mercantil Taxa juros (% a.m.)', 'formatter' => 'float'],
             'mercantil_valor_parcela' => ['label' => 'Mercantil Valor parcela (R$)', 'formatter' => 'float'],
-            'mercantil_dados_atualizados_em' => ['label' => 'Mercantil Dados atualizados em', 'formatter' => 'raw'],
             'ultima_origem_mercantil' => ['label' => 'Última Origem (Mercantil)', 'formatter' => 'raw'],
         ];
     }

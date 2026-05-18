@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
-
 interface FiltersModalProps {
   mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL"
 
@@ -144,10 +143,6 @@ interface FiltersModalProps {
   onMercantilConsultaFromChange: (v: string) => void
   mercantilConsultaTo: string
   onMercantilConsultaToChange: (v: string) => void
-  mercantilImportFrom: string
-  onMercantilImportFromChange: (v: string) => void
-  mercantilImportTo: string
-  onMercantilImportToChange: (v: string) => void
   mercantilParcelaMin: string
   onMercantilParcelaMinChange: (v: string) => void
   mercantilParcelaMax: string
@@ -375,10 +370,6 @@ export const FiltersModal = ({
   onMercantilConsultaFromChange,
   mercantilConsultaTo,
   onMercantilConsultaToChange,
-  mercantilImportFrom,
-  onMercantilImportFromChange,
-  mercantilImportTo,
-  onMercantilImportToChange,
   mercantilParcelaMin,
   onMercantilParcelaMinChange,
   mercantilParcelaMax,
@@ -444,8 +435,6 @@ export const FiltersModal = ({
   const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
   const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
   const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)
-  const [lMercantilImportFrom, setLMercantilImportFrom] = useState(mercantilImportFrom)
-  const [lMercantilImportTo, setLMercantilImportTo] = useState(mercantilImportTo)
   const [lMercantilParcelaMin, setLMercantilParcelaMin] = useState(mercantilParcelaMin)
   const [lMercantilParcelaMax, setLMercantilParcelaMax] = useState(mercantilParcelaMax)
   const [lMercantilQtdParcelasMin, setLMercantilQtdParcelasMin] = useState(mercantilQtdParcelasMin)
@@ -505,8 +494,6 @@ export const FiltersModal = ({
     setLMercantilStatus(mercantilStatusFilter)
     setLMercantilConsultaFrom(mercantilConsultaFrom)
     setLMercantilConsultaTo(mercantilConsultaTo)
-    setLMercantilImportFrom(mercantilImportFrom)
-    setLMercantilImportTo(mercantilImportTo)
     setLMercantilParcelaMin(mercantilParcelaMin)
     setLMercantilParcelaMax(mercantilParcelaMax)
     setLMercantilQtdParcelasMin(mercantilQtdParcelasMin)
@@ -543,7 +530,6 @@ export const FiltersModal = ({
     // MERCANTIL deps
     mercantilSituacao, mercantilStatusFilter,
     mercantilConsultaFrom, mercantilConsultaTo,
-    mercantilImportFrom, mercantilImportTo,
     mercantilParcelaMin, mercantilParcelaMax,
     mercantilQtdParcelasMin, mercantilQtdParcelasMax,
     mercantilOrigensFilter,
@@ -613,8 +599,6 @@ export const FiltersModal = ({
       onMercantilStatusFilterChange(lMercantilSituacao === "sem_consulta" ? [] : lMercantilStatus)
       onMercantilConsultaFromChange(lMercantilConsultaFrom)
       onMercantilConsultaToChange(lMercantilConsultaTo)
-      onMercantilImportFromChange(lMercantilImportFrom)
-      onMercantilImportToChange(lMercantilImportTo)
       onMercantilParcelaMinChange(lMercantilParcelaMin)
       onMercantilParcelaMaxChange(lMercantilParcelaMax)
       onMercantilQtdParcelasMinChange(lMercantilQtdParcelasMin)
@@ -667,11 +651,13 @@ export const FiltersModal = ({
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
     lCltTemLegados !== "todos"
 
+  const mercantilStatusActive =
+    lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0
+
   const actMercantilSituacao =
     lMercantilSituacao !== "todos" ||
-    (lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0) ||
+    mercantilStatusActive ||
     any([lMercantilConsultaFrom, lMercantilConsultaTo]) ||
-    any([lMercantilImportFrom, lMercantilImportTo]) ||
     lMercantilOrigens.length > 0
 
   const actMercantilFinanceiro =
@@ -1249,23 +1235,6 @@ export const FiltersModal = ({
                     </div>
                   </div>
 
-                  <div>
-                    <Label text="Período de atualização dos dados Mercantil" active={any([lMercantilImportFrom, lMercantilImportTo])} />
-                    <div className="mt-2 grid grid-cols-2 gap-3">
-                      <Input
-                        type="date"
-                        value={lMercantilImportFrom}
-                        onChange={(e) => setLMercantilImportFrom(e.target.value)}
-                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                      />
-                      <Input
-                        type="date"
-                        value={lMercantilImportTo}
-                        onChange={(e) => setLMercantilImportTo(e.target.value)}
-                        className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                      />
-                    </div>
-                  </div>
                 </Section>
               </div>
 
