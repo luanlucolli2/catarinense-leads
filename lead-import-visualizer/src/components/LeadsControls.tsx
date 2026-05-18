@@ -499,7 +499,7 @@ export const LeadsControls = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           
           {/* Inputs Section (Search & Sort) */}
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:flex-1">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:flex-1">
             <label className="w-full sm:max-w-[320px]">
               <span className="mb-1 block text-xs font-medium text-gray-700">Busca</span>
               <div className="relative">
@@ -536,7 +536,7 @@ export const LeadsControls = ({
           </div>
 
           {/* Action Buttons Section */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-center sm:justify-end gap-2 w-full lg:w-auto shrink-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-end sm:justify-end gap-2 w-full lg:w-auto shrink-0 self-end">
             <Button
               onClick={() => setIsColumnsModalOpen(true)}
               variant="outline"
