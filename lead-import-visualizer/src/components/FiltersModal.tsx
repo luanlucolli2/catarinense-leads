@@ -192,8 +192,8 @@ const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; labe
     { value: "lead_created_at", label: "Criados mais recentemente" },
   ],
   CLT: [
-    { value: "clt_updated_at", label: "Dados atualizados mais recentemente" },
     { value: "clt_consulted_at", label: "Consultados mais recentemente" },
+    { value: "clt_updated_at", label: "Dados atualizados mais recentemente" },
     { value: "lead_updated_at", label: "Lead atualizado mais recentemente" },
   ],
   MERCANTIL: [
@@ -204,7 +204,7 @@ const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; labe
 
 const DEFAULT_SORT_BY: Record<"BASE" | "CLT" | "MERCANTIL", LeadSort> = {
   BASE: "lead_updated_at",
-  CLT: "clt_updated_at",
+  CLT: "clt_consulted_at",
   MERCANTIL: "mercantil_consulted_at",
 }
 

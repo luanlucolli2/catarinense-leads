@@ -51,7 +51,7 @@ type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel
 type ActiveTab = "BASE" | "FGTS" | "CLT" | "MERCANTIL"
 
 const BASE_SORT_DEFAULT: LeadSort = "lead_updated_at"
-const CLT_SORT_DEFAULT: LeadSort = "clt_updated_at"
+const CLT_SORT_DEFAULT: LeadSort = "clt_consulted_at"
 const MERCANTIL_SORT_DEFAULT: LeadSort = "mercantil_consulted_at"
 
 export const BASE_COLUMNS_DEFAULT: string[] = [
@@ -214,7 +214,7 @@ const Dashboard = () => {
   const [cltAtivosMax, setCltAtivosMax] = usePersistedState<string>("dashboard-clt:ativosMax", "")
   const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-clt:temAtivos", "todos")
   const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-clt:temLegados", "todos")
-  const [cltSortBy, setCltSortBy] = usePersistedState<LeadSort>("dashboard-clt:sortBy", CLT_SORT_DEFAULT)
+  const [cltSortBy, setCltSortBy] = usePersistedState<LeadSort>("dashboard-clt:sortBy:v2", CLT_SORT_DEFAULT)
 
   const [mercantilSearchValue, setMercantilSearchValue] = usePersistedState<string>("dashboard-mercantil:searchValue", "")
   const [mercantilOrigemFilter, setMercantilOrigemFilter] = usePersistedState<string[]>("dashboard-mercantil:origemFilter", [])

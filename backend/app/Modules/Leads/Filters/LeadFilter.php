@@ -648,7 +648,7 @@ class LeadFilter
                 : 'lead_updated_at',
             'clt' => match ($sort) {
                 'clt_updated_at', 'clt_consulted_at', 'lead_updated_at' => $sort,
-                default => 'clt_updated_at',
+                default => 'clt_consulted_at',
             },
             'mercantil' => match ($sort) {
                 'mercantil_consulted_at', 'lead_updated_at' => $sort,
