@@ -351,9 +351,6 @@ export const LeadsTableFGTS = ({
     { id: "libera", header: <Th align="right" minW="min-w-[96px]"><SortButton field="libera" align="right">Libera</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[96px]">{display(lead.libera)}</td>) },
     { id: "data_atualizacao", header: <Th align="center" minW="min-w-[110px]"><SortButton field="data_atualizacao" align="center">Data hig.</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[110px]">{display(lead.data_atualizacao)}</td>) },
 
-    { id: "data_contrato_recente", header: <Th align="center" minW="min-w-[130px]"><SortButton field="data_contrato_recente" align="center">Último contrato</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">{display(lead.data_contrato_recente)}</td>) },
-    { id: "vendedor", header: <Th minW="min-w-[160px]"><SortButton field="vendedor">Vendedor</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[160px] max-w-[220px] truncate">{display(lead.vendedor)}</td>) },
-
     {
       id: "fgts_off_authorized", header: <Th align="center" minW="min-w-[150px]"><SortButton field="fgts_off_authorized" align="center">Autorizado (FGTS OFF)</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap align-middle text-center min-w-[150px]">
         {lead.fgts_off_authorized === true ? (
@@ -376,6 +373,8 @@ export const LeadsTableFGTS = ({
     },
 
     { id: "contratos", header: <Th align="right" minW="min-w-[72px]"><SortButton field="contratos" align="right">Contratos</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold align-middle text-right min-w-[72px]">{typeof lead.contratos === "number" ? lead.contratos : EMPTY}</td>) },
+    { id: "data_contrato_recente", header: <Th align="center" minW="min-w-[130px]"><SortButton field="data_contrato_recente" align="center">Último contrato</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">{display(lead.data_contrato_recente)}</td>) },
+    { id: "vendedor", header: <Th minW="min-w-[160px]"><SortButton field="vendedor">Vendedor</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-left min-w-[160px] max-w-[220px] truncate">{display(lead.vendedor)}</td>) },
     {
       id: "ultima_origem_cadastral", header: <Th align="center" minW="min-w-[130px]"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>, cell: (lead: ProcessedLeadFGTS) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle text-center min-w-[130px]">
         {lead.ultima_origem_cadastral ? (
@@ -881,8 +880,6 @@ export const LeadsTableCLT = ({
     ...phonePairCols(3),
     ...phonePairCols(4),
 
-    { id: "idade", header: <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[72px]">{display(lead.idade)}</td>) },
-    { id: "sexo", header: <Th align="center"><SortButton field="sexo" align="center">Sexo</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">{display(lead.sexo)}</td>) },
     {
       id: "elegivel", header: <Th align="center"><SortButton field="elegivel" align="center">Situação</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">
         {lead.not_found ? (
@@ -918,6 +915,8 @@ export const LeadsTableCLT = ({
         )}
       </td>)
     },
+    { id: "idade", header: <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[72px]">{display(lead.idade)}</td>) },
+    { id: "sexo", header: <Th align="center"><SortButton field="sexo" align="center">Sexo</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">{display(lead.sexo)}</td>) },
 
     { id: "data_admissao", header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.data_admissao)}</td>) },
     { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Meses de admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
