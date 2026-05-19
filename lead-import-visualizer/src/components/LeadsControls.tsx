@@ -501,7 +501,7 @@ export const LeadsControls = ({
           {/* Inputs Section (Search & Sort) */}
           <div className="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:flex-1">
             <label className="w-full sm:max-w-[320px]">
-              <span className="mb-1 block text-xs font-medium text-gray-700">Busca</span>
+              <span className="mb-1 block text-xs font-medium text-gray-700">Busca rápida</span>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
