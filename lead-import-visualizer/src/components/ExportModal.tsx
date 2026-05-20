@@ -11,6 +11,7 @@ interface ExportModalProps {
 }
 
 type Group = "Cadastral" | "Produto" | "Registro";
+type ExportMode = ExportModalProps["mode"];
 
 type ColumnDef = {
   id: string;
@@ -149,6 +150,60 @@ const COLUMNS_MERCANTIL: ColumnDef[] = [
   { id: "ultima_origem_mercantil", label: "Origem mercantil", selected: true, group: "Registro" },
 ];
 
+const EXPORT_COLUMNS_STORAGE_KEY = "dashboard-export-columns";
+
+const getDefaultSelectedColumns = (columns: ColumnDef[]) =>
+  columns.reduce((acc, col) => {
+    acc[col.id] = col.selected;
+    return acc;
+  }, {} as Record<string, boolean>);
+
+const readStoredSelectedColumns = (mode: ExportMode, columns: ColumnDef[]) => {
+  const defaultSelection = getDefaultSelectedColumns(columns);
+
+  if (typeof window === "undefined") {
+    return defaultSelection;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(`${EXPORT_COLUMNS_STORAGE_KEY}:${mode}`);
+    if (!rawValue) {
+      return defaultSelection;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    if (!parsedValue || typeof parsedValue !== "object") {
+      return defaultSelection;
+    }
+
+    return columns.reduce((acc, col) => {
+      acc[col.id] =
+        typeof parsedValue[col.id] === "boolean" ? parsedValue[col.id] : col.selected;
+      return acc;
+    }, {} as Record<string, boolean>);
+  } catch {
+    return defaultSelection;
+  }
+};
+
+const writeStoredSelectedColumns = (
+  mode: ExportMode,
+  columns: Record<string, boolean>,
+) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      `${EXPORT_COLUMNS_STORAGE_KEY}:${mode}`,
+      JSON.stringify(columns),
+    );
+  } catch {
+    // Ignore storage failures to avoid blocking export.
+  }
+};
+
 export const ExportModal = ({
   isOpen,
   onClose,
@@ -164,13 +219,9 @@ export const ExportModal = ({
 
   useEffect(() => {
     if (isOpen) {
-      const init = columnsSource.reduce((acc, col) => {
-        acc[col.id] = col.selected;
-        return acc;
-      }, {} as Record<string, boolean>);
-      setSelectedColumns(init);
+      setSelectedColumns(readStoredSelectedColumns(mode, columnsSource));
     }
-  }, [isOpen, columnsSource]);
+  }, [isOpen, mode, columnsSource]);
 
   useEffect(() => {
     if (isOpen) document.body.style.overflow = "hidden";
@@ -179,7 +230,11 @@ export const ExportModal = ({
   }, [isOpen]);
 
   const handleColumnToggle = (columnId: string) => {
-    setSelectedColumns(prev => ({ ...prev, [columnId]: !prev[columnId] }));
+    setSelectedColumns((prev) => {
+      const nextState = { ...prev, [columnId]: !prev[columnId] };
+      writeStoredSelectedColumns(mode, nextState);
+      return nextState;
+    });
   };
 
   const handleSelectAll = () => {
@@ -188,6 +243,7 @@ export const ExportModal = ({
       acc[col.id] = !allSelected;
       return acc;
     }, {} as Record<string, boolean>);
+    writeStoredSelectedColumns(mode, newState);
     setSelectedColumns(newState);
   };
 
@@ -196,6 +252,7 @@ export const ExportModal = ({
     const allGroupSelected = groupCols.every(c => selectedColumns[c.id]);
     const newState = { ...selectedColumns };
     groupCols.forEach(c => { newState[c.id] = !allGroupSelected; });
+    writeStoredSelectedColumns(mode, newState);
     setSelectedColumns(newState);
   };
 
