@@ -56,7 +56,7 @@ docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chm
 echo ">>> 7/11: Otimizando caches..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan optimize:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan config:cache
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:cache
+docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan view:cache
 
 # Reinicia sinalizadores de fila (embora o container tenha sido recriado, boa prática)
