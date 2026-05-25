@@ -14,7 +14,7 @@ use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
-use App\Modules\Vendeai\Controllers\VendeaiProposalCreatedWebhookController;
+use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
 
 // ✅ NOVO: URA
 use App\Http\Controllers\Api\UraSendOfficialTemplateController;
@@ -52,7 +52,7 @@ Route::post('/webhooks/uy3/posts', Uy3WebhookPostController::class)
 Route::post('/webhooks/mercantil/snapshots', MercantilSnapshotWebhookController::class)
     ->middleware([VerifyMercantilWebhook::class, 'throttle:600,1']);
 
-Route::post('/webhooks/vendeai/{token}', VendeaiProposalCreatedWebhookController::class);
+Route::post('/webhooks/vendeai/{token}', VendeaiWebhookController::class);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).
