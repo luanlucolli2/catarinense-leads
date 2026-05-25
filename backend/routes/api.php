@@ -52,7 +52,7 @@ Route::post('/webhooks/uy3/posts', Uy3WebhookPostController::class)
 Route::post('/webhooks/mercantil/snapshots', MercantilSnapshotWebhookController::class)
     ->middleware([VerifyMercantilWebhook::class, 'throttle:600,1']);
 
-Route::post('/webhooks/vendeai/proposal-created/{token}', VendeaiProposalCreatedWebhookController::class);
+Route::post('/webhooks/vendeai/{token}', VendeaiProposalCreatedWebhookController::class);
 
 /**
  * Endpoints autenticados via Sanctum (SPA / API interna).
