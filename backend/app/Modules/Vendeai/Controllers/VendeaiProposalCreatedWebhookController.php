@@ -25,22 +25,22 @@ class VendeaiProposalCreatedWebhookController extends Controller
 
         if (trim($rawPayload) === '') {
             return response()->json([
-                'error' => 'invalid_payload',
-            ], 422);
+                'ok' => true,
+            ]);
         }
 
         try {
             $payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return response()->json([
-                'error' => 'invalid_payload',
-            ], 422);
+                'ok' => true,
+            ]);
         }
 
         if (! is_array($payload) || ($payload['event'] ?? null) !== 'proposal_created') {
             return response()->json([
-                'error' => 'invalid_event',
-            ], 422);
+                'ok' => true,
+            ]);
         }
 
         $this->incrementCounter('proposal_created');
