@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
+use App\Modules\Vendeai\Services\NewCorbanProposalService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -13,6 +14,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class VendeaiWebhookController extends Controller
 {
+    public function __construct(private readonly NewCorbanProposalService $newCorbanProposalService)
+    {
+    }
+
     public function __invoke(Request $request, string $token): Response
     {
         $configuredToken = (string) config('vendeai.webhook_token');
@@ -44,7 +49,9 @@ class VendeaiWebhookController extends Controller
             ]);
         }
 
-        VendeaiProposalCreatedWebhook::create($this->proposalCreatedAttributes($payload));
+        $webhook = VendeaiProposalCreatedWebhook::create($this->proposalCreatedAttributes($payload));
+
+        $this->newCorbanProposalService->sendProposalCreated($webhook, $payload);
 
         return response()->json([
             'ok' => true,

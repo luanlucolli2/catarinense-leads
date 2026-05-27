@@ -37,6 +37,13 @@ class VendeaiProposalCreatedWebhook extends Model
         'table_id',
         'formalization_link',
         'raw_payload',
+        'newcorban_request_payload',
+        'newcorban_response_status',
+        'newcorban_response_body',
+        'newcorban_proposta_id',
+        'newcorban_cliente_id',
+        'newcorban_sent_at',
+        'newcorban_error',
     ];
 
     protected $casts = [
@@ -48,5 +55,9 @@ class VendeaiProposalCreatedWebhook extends Model
         'number_of_payments' => 'integer',
         'installment_value' => 'decimal:2',
         'raw_payload' => 'array',
+        'newcorban_request_payload' => 'array',
+        'newcorban_response_status' => 'integer',
+        'newcorban_response_body' => 'array',
+        'newcorban_sent_at' => 'datetime',
     ];
 }
