@@ -9,6 +9,7 @@ class VendeaiProposalCreatedWebhook extends Model
     protected $table = 'vendeai_proposal_created_webhooks';
 
     protected $fillable = [
+        'vendeai_lead_id',
         'received_at',
         'account_id',
         'chat_id',
@@ -47,6 +48,7 @@ class VendeaiProposalCreatedWebhook extends Model
     ];
 
     protected $casts = [
+        'vendeai_lead_id' => 'integer',
         'received_at' => 'datetime',
         'contact_birth_date' => 'date',
         'tags' => 'array',

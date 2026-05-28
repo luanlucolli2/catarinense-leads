@@ -14,6 +14,8 @@ use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
+use App\Modules\Vendeai\Controllers\VendeaiLeadListController;
+use App\Modules\Vendeai\Controllers\VendeaiProposalCreatedWebhookListController;
 use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
 
 // ✅ NOVO: URA
@@ -71,6 +73,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('throttle:30,1');
 
     Route::get('/uy3/posts', Uy3PostListController::class)
+        ->middleware('throttle:120,1');
+
+    Route::get('/vendeai/proposal-created-webhooks', VendeaiProposalCreatedWebhookListController::class)
+        ->middleware('throttle:120,1');
+
+    Route::get('/vendeai/leads', VendeaiLeadListController::class)
         ->middleware('throttle:120,1');
 
     /* C6 */

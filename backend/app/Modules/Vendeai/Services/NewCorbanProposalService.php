@@ -126,7 +126,7 @@ class NewCorbanProposalService
                     'valor_liberado' => $this->numberOrNull(data_get($payload, 'proposal.liquid_value')),
                     'prazo' => $this->integerOrNull(data_get($payload, 'proposal.number_of_payments')),
                     'taxa' => null,
-                    'tabela_id' => null,
+                    'tabela_id' => $this->stringOrNull(data_get($payload, 'proposal.table_id')),
                 ],
             ],
         ];

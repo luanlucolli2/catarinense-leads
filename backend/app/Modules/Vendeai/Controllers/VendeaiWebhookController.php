@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
+use App\Modules\Vendeai\Services\VendeaiLeadUpsertService;
 use App\Modules\Vendeai\Services\NewCorbanProposalService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -14,7 +15,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class VendeaiWebhookController extends Controller
 {
-    public function __construct(private readonly NewCorbanProposalService $newCorbanProposalService)
+    public function __construct(
+        private readonly NewCorbanProposalService $newCorbanProposalService,
+        private readonly VendeaiLeadUpsertService $vendeaiLeadUpsertService,
+    )
     {
     }
 
@@ -43,13 +47,23 @@ class VendeaiWebhookController extends Controller
 
         $this->incrementCounter($event);
 
-        if ($event !== 'proposal_created' || ! is_array($payload)) {
+        if (! is_array($payload)) {
             return response()->json([
                 'ok' => true,
             ]);
         }
 
-        $webhook = VendeaiProposalCreatedWebhook::create($this->proposalCreatedAttributes($payload));
+        $lead = $this->vendeaiLeadUpsertService->upsert($payload, $event);
+
+        if ($event !== 'proposal_created') {
+            return response()->json([
+                'ok' => true,
+            ]);
+        }
+
+        $webhook = VendeaiProposalCreatedWebhook::create(
+            $this->proposalCreatedAttributes($payload, $lead?->id)
+        );
 
         $this->newCorbanProposalService->sendProposalCreated($webhook, $payload);
 
@@ -91,9 +105,10 @@ class VendeaiWebhookController extends Controller
         }
     }
 
-    private function proposalCreatedAttributes(array $payload): array
+    private function proposalCreatedAttributes(array $payload, ?int $leadId): array
     {
         return [
+            'vendeai_lead_id' => $leadId,
             'received_at' => now(),
             'account_id' => $this->stringOrNull(data_get($payload, 'chat_summary.account_id'), 80),
             'chat_id' => $this->stringOrNull(data_get($payload, 'chat_summary.chat_id'), 80),
