@@ -103,9 +103,9 @@ class NewCorbanProposalService
                     'endereco_id' => null,
                     'telefone_id' => $phone['numero'],
                     'banco_id' => null,
-                    'convenio_id' => null,
-                    'proposta_id_banco' => $this->stringOrNull(data_get($payload, 'proposal.proposal_number')),
-                    'produto_id' => null,
+                    'convenio_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
+                    'proposta_id_banco' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
+                    'produto_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
                     'status' => 'DIGITADA',
                     'tipo_cadastro' => 'API',
                     'tipo_liberacao' => null,
@@ -148,6 +148,24 @@ class NewCorbanProposalService
             'ddd' => substr($digits, 0, 2),
             'numero' => substr($digits, 2),
         ];
+    }
+
+    private function newCorbanProductId(mixed $value): ?string
+    {
+        return match (mb_strtolower((string) $this->stringOrNull($value))) {
+            'fgts' => '7',
+            'clt' => '13',
+            default => null,
+        };
+    }
+
+    private function newCorbanConvenioId(mixed $value): ?string
+    {
+        return match (mb_strtolower((string) $this->stringOrNull($value))) {
+            'fgts' => '100000',
+            'clt' => '54451',
+            default => null,
+        };
     }
 
     private function onlyDigits(mixed $value): ?string
