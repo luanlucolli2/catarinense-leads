@@ -102,7 +102,7 @@ class NewCorbanProposalService
                     'documento_id' => $cpf,
                     'endereco_id' => null,
                     'telefone_id' => $phone['numero'],
-                    'banco_id' => null,
+                    'banco_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
                     'convenio_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
                     'proposta_id_banco' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
                     'produto_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
@@ -155,6 +155,19 @@ class NewCorbanProposalService
         return match (mb_strtolower((string) $this->stringOrNull($value))) {
             'fgts' => '7',
             'clt' => '13',
+            default => null,
+        };
+    }
+
+    private function newCorbanBankId(mixed $value): ?string
+    {
+        return match (mb_strtolower((string) $this->stringOrNull($value))) {
+            'mercantil' => '389',
+            'presenca' => '3299',
+            'v8', 'facta' => '935',
+            'pan' => '623',
+            'c6' => '626',
+            'novo_saque' => '500001',
             default => null,
         };
     }
