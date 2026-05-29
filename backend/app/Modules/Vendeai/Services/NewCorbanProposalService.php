@@ -118,7 +118,7 @@ class NewCorbanProposalService
                     'vendedor' => '3384',
                     'franquia_id' => null,
                     'vendedor_participante' => null,
-                    'origem_id' => null,
+                    'origem_id' => '21',
                     'proposta_id' => false,
                     'login_digitacao' => $this->newCorbanLoginDigitacao(data_get($payload, 'proposal.bank')),
                     'valor_parcela' => $this->numberOrNull(data_get($payload, 'proposal.installment_value')),
