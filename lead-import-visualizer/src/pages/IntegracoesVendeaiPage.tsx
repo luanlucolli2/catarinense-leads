@@ -38,6 +38,7 @@ type FiltersState = {
   to: string;
   status: VendeaiAttemptStatus;
   direction: VendeaiSortDirection;
+  windowMode: "rolling" | "fixed";
 };
 
 const STORAGE_KEY = "vendeai:integracoes:filters:v1";
@@ -57,6 +58,11 @@ const directionOptions: Array<{ value: VendeaiSortDirection; label: string }> = 
   { value: "asc", label: "Mais antigas" },
 ];
 
+const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
+  { value: "rolling", label: "Janela móvel" },
+  { value: "fixed", label: "Intervalo fixo" },
+];
+
 function toDateTimeLocalValue(date: Date): string {
   const offsetMs = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
@@ -74,6 +80,35 @@ function defaultFilters(): FiltersState {
     to: toDateTimeLocalValue(new Date()),
     status: "all",
     direction: "desc",
+    windowMode: "rolling",
+  };
+}
+
+function isValidDateTimeLocal(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function rollRangeToNow(fromValue: string, toValue: string): { from: string; to: string } {
+  const fromDate = new Date(fromValue);
+  const toDate = new Date(toValue);
+
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
+    const now = new Date();
+    return {
+      from: toDateTimeLocalValue(subHours(now, 24)),
+      to: toDateTimeLocalValue(now),
+    };
+  }
+
+  const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
+  const now = new Date();
+  const nextFrom = new Date(now.getTime() - durationMs);
+
+  return {
+    from: toDateTimeLocalValue(nextFrom),
+    to: toDateTimeLocalValue(now),
   };
 }
 
@@ -83,11 +118,27 @@ function loadFilters(): FiltersState {
 
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}") as Partial<FiltersState>;
+    const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
+    const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
+    const windowMode = parsed.windowMode === "fixed" || parsed.windowMode === "rolling" ? parsed.windowMode : fallback.windowMode;
+
+    if (windowMode === "rolling") {
+      const rolled = rollRangeToNow(from, to);
+      return {
+        from: rolled.from,
+        to: rolled.to,
+        status: statusOptions.some((option) => option.value === parsed.status) ? parsed.status as VendeaiAttemptStatus : fallback.status,
+        direction: parsed.direction === "asc" || parsed.direction === "desc" ? parsed.direction : fallback.direction,
+        windowMode,
+      };
+    }
+
     return {
-      from: typeof parsed.from === "string" && parsed.from ? parsed.from : fallback.from,
-      to: typeof parsed.to === "string" && parsed.to ? parsed.to : fallback.to,
+      from,
+      to,
       status: statusOptions.some((option) => option.value === parsed.status) ? parsed.status as VendeaiAttemptStatus : fallback.status,
       direction: parsed.direction === "asc" || parsed.direction === "desc" ? parsed.direction : fallback.direction,
+      windowMode,
     };
   } catch {
     return fallback;
@@ -207,6 +258,7 @@ const IntegracoesVendeaiPage = () => {
   const [toInput, setToInput] = useState(initial.to);
   const [statusInput, setStatusInput] = useState<VendeaiAttemptStatus>(initial.status);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
+  const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [page, setPage] = useState(1);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -286,7 +338,25 @@ const IntegracoesVendeaiPage = () => {
     }
 
     setRangeError(null);
-    setApplied({ from: fromInput, to: toInput, status: statusInput, direction: directionInput });
+
+    let nextFrom = fromInput;
+    let nextTo = toInput;
+
+    if (windowModeInput === "rolling") {
+      const rolled = rollRangeToNow(fromInput, toInput);
+      nextFrom = rolled.from;
+      nextTo = rolled.to;
+      setFromInput(nextFrom);
+      setToInput(nextTo);
+    }
+
+    setApplied({
+      from: nextFrom,
+      to: nextTo,
+      status: statusInput,
+      direction: directionInput,
+      windowMode: windowModeInput,
+    });
     setPage(1);
   };
 
@@ -374,8 +444,27 @@ const IntegracoesVendeaiPage = () => {
       </div>
 
       <div className="py-5 border-y border-gray-100">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_220px_180px_auto] lg:items-end">
-          <div className="space-y-1.5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_220px_180px_auto] xl:items-end">
+          <div className="min-w-0 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-gray-400" />
+              Modo de intervalo
+            </label>
+            <Select value={windowModeInput} onValueChange={(value) => setWindowModeInput(value as FiltersState["windowMode"])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {windowModeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               <Calendar className="w-4 h-4 text-gray-400" />
               Data inicial
@@ -383,7 +472,7 @@ const IntegracoesVendeaiPage = () => {
             <Input type="datetime-local" value={fromInput} onChange={(event) => setFromInput(event.target.value)} />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               <Calendar className="w-4 h-4 text-gray-400" />
               Data final
@@ -391,7 +480,7 @@ const IntegracoesVendeaiPage = () => {
             <Input type="datetime-local" value={toInput} onChange={(event) => setToInput(event.target.value)} />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-gray-400" />
               Situação da tentativa
@@ -410,7 +499,7 @@ const IntegracoesVendeaiPage = () => {
             </Select>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-gray-400" />
               Ordenação
@@ -429,7 +518,7 @@ const IntegracoesVendeaiPage = () => {
             </Select>
           </div>
 
-          <Button onClick={applyFilters}>
+          <Button onClick={applyFilters} className="w-full md:col-span-2 xl:col-span-1 xl:w-auto">
             <Filter className="w-4 h-4 mr-2" />
             Aplicar
           </Button>
@@ -439,6 +528,13 @@ const IntegracoesVendeaiPage = () => {
           <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
             <AlertCircle className="w-4 h-4" />
             {rangeError}
+          </p>
+        )}
+
+        {windowModeInput === "rolling" && !rangeError && (
+          <p className="mt-3 text-sm text-gray-500 flex items-center gap-1.5">
+            <Clock className="w-4 h-4" />
+            Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
           </p>
         )}
       </div>
@@ -459,8 +555,9 @@ const IntegracoesVendeaiPage = () => {
           <div className="space-y-3">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Conversas com a IA</h2>
-              <div className="mt-3 grid grid-cols-1 gap-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <MetricCard label="Conversas com a IA" value={formatNumber(metrics?.leads.total)} />
+                <ProductList title="Conversas por produto" items={metrics?.leads.by_product ?? []} />
               </div>
             </div>
 
@@ -472,12 +569,10 @@ const IntegracoesVendeaiPage = () => {
                 <MetricCard label="Falhas na criação" value={formatNumber(metrics?.attempts.failed)} />
                 <MetricCard label="Taxa de criação" value={`${metrics?.attempts.success_rate ?? 0}%`} detail={`${formatNumber(metrics?.attempts.pending)} não enviada(s)`} />
               </div>
+              <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <ProductList title="Propostas por produto" items={metrics?.attempts.by_product ?? []} />
+              </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <ProductList title="Conversas por produto" items={metrics?.leads.by_product ?? []} />
-            <ProductList title="Propostas por produto" items={metrics?.attempts.by_product ?? []} />
           </div>
         </>
       )}
