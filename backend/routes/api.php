@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 use App\Modules\Vendeai\Controllers\VendeaiLeadListController;
 use App\Modules\Vendeai\Controllers\VendeaiProposalCreatedWebhookListController;
+use App\Modules\Vendeai\Controllers\VendeaiProposalRetryController;
 use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
 
 // ✅ NOVO: URA
@@ -80,6 +81,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/vendeai/leads', VendeaiLeadListController::class)
         ->middleware('throttle:120,1');
+
+    Route::post('/vendeai/proposals/retry-newcorban', VendeaiProposalRetryController::class)
+        ->middleware('throttle:30,1');
 
     /* C6 */
     Route::post('/c6/authorization-link', C6AuthorizationLinkController::class)

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Vendeai\Models;
 
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
 
 class VendeaiLead extends Model
@@ -76,4 +77,9 @@ class VendeaiLead extends Model
         'last_received_at' => 'datetime',
         'last_payload' => 'array',
     ];
+
+    public function proposalCreatedWebhooks(): HasMany
+    {
+        return $this->hasMany(VendeaiProposalCreatedWebhook::class, 'vendeai_lead_id');
+    }
 }

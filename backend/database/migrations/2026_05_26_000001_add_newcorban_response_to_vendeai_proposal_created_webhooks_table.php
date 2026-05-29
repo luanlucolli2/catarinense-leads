@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('vendeai_proposal_created_webhooks', function (Blueprint $table) {
+        Schema::table('vendeai_newcorban_proposal_attempts', function (Blueprint $table) {
             $table->json('newcorban_request_payload')->nullable();
             $table->unsignedSmallInteger('newcorban_response_status')->nullable();
             $table->json('newcorban_response_body')->nullable();
@@ -21,7 +21,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('vendeai_proposal_created_webhooks', function (Blueprint $table) {
+        Schema::table('vendeai_newcorban_proposal_attempts', function (Blueprint $table) {
             $table->dropColumn([
                 'newcorban_request_payload',
                 'newcorban_response_status',

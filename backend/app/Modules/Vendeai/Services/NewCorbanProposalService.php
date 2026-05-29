@@ -42,7 +42,7 @@ class NewCorbanProposalService
                 'newcorban_proposta_id' => $this->stringOrNull($responseBody['proposta_id'] ?? null, 80),
                 'newcorban_cliente_id' => $this->stringOrNull($responseBody['cliente_id'] ?? null, 80),
                 'newcorban_sent_at' => $sentAt,
-                'newcorban_error' => $response->successful() ? null : 'HTTP ' . $response->status(),
+                'newcorban_error' => $this->responseError($response->status(), $responseBody),
             ]);
         } catch (Throwable $e) {
             $webhook->update([
@@ -148,6 +148,15 @@ class NewCorbanProposalService
             'ddd' => substr($digits, 0, 2),
             'numero' => substr($digits, 2),
         ];
+    }
+
+    private function responseError(int $status, array $body): ?string
+    {
+        if (($body['error'] ?? false) === true) {
+            return $this->stringOrNull($body['mensagem'] ?? 'New Corban returned error.', 1000);
+        }
+
+        return $status >= 200 && $status < 300 ? null : 'HTTP ' . $status;
     }
 
     private function newCorbanProductId(mixed $value): ?string

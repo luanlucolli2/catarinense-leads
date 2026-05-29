@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiLead;
+use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,6 +16,7 @@ class VendeaiLeadListController extends Controller
         $validated = $request->validate([
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
+            'view' => ['nullable', Rule::in(['summary'])],
             'sort' => ['nullable', Rule::in(['last_received_at', 'id'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
         ]);
@@ -23,10 +25,37 @@ class VendeaiLeadListController extends Controller
         $sort = (string) ($validated['sort'] ?? 'last_received_at');
         $direction = strtolower((string) ($validated['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 
-        return response()->json(
-            VendeaiLead::query()
-                ->orderBy($sort, $direction)
-                ->paginate($perPage)
-        );
+        if (($validated['view'] ?? null) === 'summary') {
+            $summarySort = $sort === 'id'
+                ? 'vendeai_newcorban_proposal_attempts.id'
+                : 'vendeai_newcorban_proposal_attempts.received_at';
+
+            return response()->json(
+                VendeaiProposalCreatedWebhook::query()
+                    ->join('vendeai_leads', 'vendeai_leads.id', '=', 'vendeai_newcorban_proposal_attempts.vendeai_lead_id')
+                    ->whereNotNull('vendeai_leads.customer_cpf')
+                    ->where('vendeai_leads.customer_cpf', '<>', '')
+                    ->orderBy($summarySort, $direction)
+                    ->select([
+                        'vendeai_newcorban_proposal_attempts.id',
+                        'vendeai_newcorban_proposal_attempts.newcorban_proposta_id',
+                        'vendeai_newcorban_proposal_attempts.created_at',
+                        'vendeai_leads.customer_cpf',
+                        'vendeai_leads.customer_name',
+                    ])
+                    ->paginate($perPage)
+                    ->through(fn (VendeaiProposalCreatedWebhook $webhook): array => [
+                        'customer_cpf' => $webhook->customer_cpf,
+                        'customer_name' => $webhook->customer_name,
+                        'newcorban_proposta_id' => $webhook->newcorban_proposta_id,
+                        'created_at' => $webhook->created_at?->toIso8601String(),
+                    ])
+            );
+        }
+
+        $query = VendeaiLead::query()
+            ->orderBy($sort, $direction);
+
+        return response()->json($query->paginate($perPage));
     }
 }

@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
 use App\Modules\Vendeai\Services\VendeaiLeadUpsertService;
 use App\Modules\Vendeai\Services\NewCorbanProposalService;
-use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -110,32 +109,6 @@ class VendeaiWebhookController extends Controller
         return [
             'vendeai_lead_id' => $leadId,
             'received_at' => now(),
-            'account_id' => $this->stringOrNull(data_get($payload, 'chat_summary.account_id'), 80),
-            'chat_id' => $this->stringOrNull(data_get($payload, 'chat_summary.chat_id'), 80),
-            'chat_product' => $this->stringOrNull(data_get($payload, 'chat_summary.product'), 40),
-            'chat_stage' => $this->stringOrNull(data_get($payload, 'chat_summary.stage'), 80),
-            'contact_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.name'), 180),
-            'contact_phone' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.phone'), 40),
-            'contact_email' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.email'), 180),
-            'contact_cpf' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.cpf'), 20),
-            'contact_birth_date' => $this->dateOrNull(data_get($payload, 'chat_summary.details.contact.birth_date')),
-            'contact_mother_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.mother_name'), 180),
-            'session_campaign' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.campaign'), 180),
-            'session_inbox_phone_number' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.inbox_phone_number'), 40),
-            'session_product_being_processed' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.product_being_processed'), 40),
-            'tags' => is_array(data_get($payload, 'chat_summary.tags')) ? data_get($payload, 'chat_summary.tags') : null,
-            'proposal_id' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id'), 120),
-            'proposal_number' => $this->stringOrNull(data_get($payload, 'proposal.proposal_number'), 80),
-            'proposal_status' => $this->stringOrNull(data_get($payload, 'proposal.proposal_status'), 80),
-            'bank' => $this->stringOrNull(data_get($payload, 'proposal.bank'), 40),
-            'proposal_product' => $this->stringOrNull(data_get($payload, 'proposal.product'), 40),
-            'liquid_value' => $this->decimalOrNull(data_get($payload, 'proposal.liquid_value')),
-            'gross_value' => $this->decimalOrNull(data_get($payload, 'proposal.gross_value')),
-            'number_of_payments' => $this->integerOrNull(data_get($payload, 'proposal.number_of_payments')),
-            'installment_value' => $this->decimalOrNull(data_get($payload, 'proposal.installment_value')),
-            'table_name' => $this->stringOrNull(data_get($payload, 'proposal.table_name'), 180),
-            'table_id' => $this->stringOrNull(data_get($payload, 'proposal.table_id'), 120),
-            'formalization_link' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
             'raw_payload' => $payload,
         ];
     }
@@ -164,28 +137,4 @@ class VendeaiWebhookController extends Controller
         return $maxLength === null ? $value : mb_substr($value, 0, $maxLength);
     }
 
-    private function dateOrNull(mixed $value): ?string
-    {
-        $value = $this->stringOrNull($value);
-
-        if ($value === null) {
-            return null;
-        }
-
-        try {
-            return Carbon::createFromFormat('Y-m-d', $value)->format('Y-m-d');
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    private function decimalOrNull(mixed $value): ?string
-    {
-        return is_numeric($value) ? number_format((float) $value, 2, '.', '') : null;
-    }
-
-    private function integerOrNull(mixed $value): ?int
-    {
-        return is_numeric($value) ? max(0, (int) $value) : null;
-    }
 }
