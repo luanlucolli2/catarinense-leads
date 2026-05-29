@@ -126,3 +126,5 @@ dist-codex
 # Codex local overrides
 .codex/*.local.toml
 .codex/AGENTS.override.md
+backend/docs/especificacao_webhook_outbound_vendeai.txt
+backend/docs/api-new-corban.json
