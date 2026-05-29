@@ -165,6 +165,19 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           },
         ],
       },
+      {
+        name: "Integrações",
+        icon: Link2,
+        key: "integracoes",
+        items: [
+          {
+            name: "VendeAI",
+            icon: Link2,
+            path: "/integracoes/vendeai",
+            active: isActive("/integracoes/vendeai"),
+          },
+        ],
+      },
       c6Group,
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps

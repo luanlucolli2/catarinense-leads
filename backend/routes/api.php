@@ -14,7 +14,10 @@ use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
+use App\Modules\Vendeai\Controllers\VendeaiExportController;
 use App\Modules\Vendeai\Controllers\VendeaiLeadListController;
+use App\Modules\Vendeai\Controllers\VendeaiMetricsController;
+use App\Modules\Vendeai\Controllers\VendeaiNewCorbanProposalAttemptListController;
 use App\Modules\Vendeai\Controllers\VendeaiProposalCreatedWebhookListController;
 use App\Modules\Vendeai\Controllers\VendeaiProposalRetryController;
 use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
@@ -81,6 +84,21 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/vendeai/leads', VendeaiLeadListController::class)
         ->middleware('throttle:120,1');
+
+    Route::get('/vendeai/metrics', VendeaiMetricsController::class)
+        ->middleware('throttle:120,1');
+
+    Route::get('/vendeai/newcorban-proposal-attempts', VendeaiNewCorbanProposalAttemptListController::class)
+        ->middleware('throttle:120,1');
+
+    Route::post('/vendeai/exports/leads', [VendeaiExportController::class, 'leads'])
+        ->middleware('throttle:30,1');
+    Route::post('/vendeai/exports/newcorban-proposal-attempts', [VendeaiExportController::class, 'newCorbanProposalAttempts'])
+        ->middleware('throttle:30,1');
+    Route::get('/vendeai/exports/{token}', [VendeaiExportController::class, 'status'])
+        ->middleware('throttle:120,1');
+    Route::get('/vendeai/exports/{token}/download', [VendeaiExportController::class, 'download'])
+        ->middleware('throttle:30,1');
 
     Route::post('/vendeai/proposals/retry-newcorban', VendeaiProposalRetryController::class)
         ->middleware('throttle:30,1');

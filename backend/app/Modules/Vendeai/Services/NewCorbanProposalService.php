@@ -113,14 +113,14 @@ class NewCorbanProposalService
                     'conta' => null,
                     'conta_digito' => null,
                     'agencia' => null,
-                    'promotora_id' => null,
+                    'promotora_id' => $this->newCorbanPromotoraId(data_get($payload, 'proposal.bank')),
                     'link_formalizacao' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
-                    'vendedor' => null,
+                    'vendedor' => '3384',
                     'franquia_id' => null,
                     'vendedor_participante' => null,
-                    'origem_id' => null,
+                    'origem_id' => '21',
                     'proposta_id' => false,
-                    'login_digitacao' => null,
+                    'login_digitacao' => $this->newCorbanLoginDigitacao(data_get($payload, 'proposal.bank')),
                     'valor_parcela' => $this->numberOrNull(data_get($payload, 'proposal.installment_value')),
                     'valor_financiado' => $this->numberOrNull(data_get($payload, 'proposal.gross_value')),
                     'valor_liberado' => $this->numberOrNull(data_get($payload, 'proposal.liquid_value')),
@@ -170,13 +170,35 @@ class NewCorbanProposalService
 
     private function newCorbanBankId(mixed $value): ?string
     {
-        return match (mb_strtolower((string) $this->stringOrNull($value))) {
+        return match ($this->bankKey($value)) {
             'mercantil' => '389',
             'presenca' => '3299',
             'v8', 'facta' => '935',
             'pan' => '623',
             'c6' => '626',
             'novo_saque' => '500001',
+            default => null,
+        };
+    }
+
+    private function newCorbanPromotoraId(mixed $value): string
+    {
+        return match ($this->bankKey($value)) {
+            'v8' => '413',
+            'novo_saque' => '4412',
+            default => '411',
+        };
+    }
+
+    private function newCorbanLoginDigitacao(mixed $value): ?string
+    {
+        return match ($this->bankKey($value)) {
+            'presenca' => '42485740801_U4UN',
+            'c6' => '11521981906_000855',
+            'pan' => '11521981906_007528',
+            'facta' => '20953',
+            'v8' => 'karen@catarinensecredito.com.br',
+            'novo_saque' => 'contatoia@catarinensecredito.com.br',
             default => null,
         };
     }
@@ -201,6 +223,15 @@ class NewCorbanProposalService
         $digits = preg_replace('/\D+/', '', $value);
 
         return $digits === '' ? null : $digits;
+    }
+
+    private function bankKey(mixed $value): string
+    {
+        return match (mb_strtolower((string) $this->stringOrNull($value))) {
+            'presença' => 'presenca',
+            'novo saque' => 'novo_saque',
+            default => mb_strtolower((string) $this->stringOrNull($value)),
+        };
     }
 
     private function stringOrNull(mixed $value, ?int $maxLength = null): ?string

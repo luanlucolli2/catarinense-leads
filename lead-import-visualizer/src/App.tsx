@@ -16,6 +16,7 @@ import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSOfflineConsultaPage from "./pages/FGTSOfflineConsultaPage"; // 👈 nova página FGTS OFF
 import C6LinksPage from "./pages/C6LinksPage";
 import ParceirosUY3Page from "./pages/ParceirosUY3Page";
+import IntegracoesVendeaiPage from "./pages/IntegracoesVendeaiPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -84,6 +85,11 @@ const App = () => (
                 <Route
                   path="parceiros/uy3"
                   element={<ParceirosUY3Page />}
+                />
+
+                <Route
+                  path="integracoes/vendeai"
+                  element={<IntegracoesVendeaiPage />}
                 />
               </Route>
 
