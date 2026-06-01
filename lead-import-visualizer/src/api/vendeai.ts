@@ -58,8 +58,37 @@ export interface VendeaiAttempt {
   };
 }
 
+export interface VendeaiLead {
+  id: number;
+  account_id: string | null;
+  chat_id: string | null;
+  first_received_at: string | null;
+  last_received_at: string | null;
+  last_event: string | null;
+  chat_product: string | null;
+  stage: string | null;
+  tags: string[] | null;
+  customer_cpf: string | null;
+  customer_name: string | null;
+  customer_birth_date: string | null;
+  customer_phone: string | null;
+  proposal_id: string | null;
+  proposal_bank: string | null;
+  proposal_product: string | null;
+  proposal_status: string | null;
+  proposal_liquid_value: string | null;
+}
+
 export interface VendeaiAttemptsResponse {
   data: VendeaiAttempt[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface VendeaiLeadsResponse {
+  data: VendeaiLead[];
   current_page: number;
   last_page: number;
   per_page: number;
@@ -86,6 +115,12 @@ export interface ListVendeaiAttemptsParams extends VendeaiFilters {
   page?: number;
   perPage?: number;
   sort?: "received_at" | "newcorban_sent_at" | "id";
+}
+
+export interface ListVendeaiLeadsParams extends VendeaiFilters {
+  page?: number;
+  perPage?: number;
+  sort?: "first_received_at" | "last_received_at" | "id";
 }
 
 function buildParams(params: VendeaiFilters): Record<string, string | number> {
@@ -119,6 +154,21 @@ export async function listVendeaiAttempts(
   if (params.sort) query.sort = params.sort;
 
   const { data } = await axiosClient.get<VendeaiAttemptsResponse>("/vendeai/newcorban-proposal-attempts", {
+    params: query,
+    signal,
+  });
+
+  return data;
+}
+
+export async function listVendeaiLeads(params: ListVendeaiLeadsParams, signal?: AbortSignal): Promise<VendeaiLeadsResponse> {
+  const query = buildParams(params);
+
+  if (typeof params.page === "number") query.page = params.page;
+  if (typeof params.perPage === "number") query.per_page = params.perPage;
+  if (params.sort) query.sort = params.sort;
+
+  const { data } = await axiosClient.get<VendeaiLeadsResponse>("/vendeai/leads", {
     params: query,
     signal,
   });
