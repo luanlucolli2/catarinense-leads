@@ -194,11 +194,28 @@ function errorMessage(error: unknown): string {
   return "Não foi possível concluir a ação.";
 }
 
-function MetricCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function MetricCard({
+  label,
+  value,
+  detail,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: "default" | "blue" | "green" | "rose";
+}) {
+  const toneClasses = {
+    default: "border-gray-200 bg-white",
+    blue: "border-blue-100 bg-blue-50/40",
+    green: "border-emerald-100 bg-emerald-50/40",
+    rose: "border-rose-100 bg-rose-50/40",
+  };
+
   return (
-    <Card className="border-gray-100">
+    <Card className={`shadow-sm ${toneClasses[tone]}`}>
       <CardContent className="p-4">
-        <p className="text-sm text-gray-500">{label}</p>
+        <p className="text-sm text-gray-600">{label}</p>
         <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
         {detail && <p className="mt-1 text-xs text-gray-500">{detail}</p>}
       </CardContent>
@@ -233,9 +250,9 @@ function bankLabel(label: string): string {
 
 function ProductList({ title, items }: { title: string; items: VendeaiMetricBucket[] }) {
   return (
-    <Card className="border-gray-100">
+    <Card className="border border-blue-100 bg-blue-50/40 shadow-sm">
       <CardContent className="p-4">
-        <p className="text-sm font-medium text-gray-800">{title}</p>
+        <p className="text-sm font-medium text-blue-900">{title}</p>
         <div className="mt-3 space-y-2">
           {items.length === 0 ? (
             <p className="text-sm text-gray-500">Sem dados no período.</p>
@@ -425,16 +442,26 @@ const IntegracoesVendeaiPage = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={() => void exportCsv("leads")} disabled={exporting !== null}>
+          <Button
+            variant="outline"
+            className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50"
+            onClick={() => void exportCsv("leads")}
+            disabled={exporting !== null}
+          >
             {exporting === "leads" ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}
             CSV leads
           </Button>
-          <Button variant="outline" onClick={() => void exportCsv("newcorban-proposal-attempts")} disabled={exporting !== null}>
+          <Button
+            variant="outline"
+            className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50"
+            onClick={() => void exportCsv("newcorban-proposal-attempts")}
+            disabled={exporting !== null}
+          >
             {exporting === "newcorban-proposal-attempts" ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
             CSV tentativas
           </Button>
           <Button
-            variant="outline"
+            className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 text-white"
             onClick={handleManualRefresh}
             disabled={metricsQuery.isFetching || attemptsQuery.isFetching || manualRefreshRemaining > 0}
           >
@@ -444,7 +471,7 @@ const IntegracoesVendeaiPage = () => {
         </div>
       </div>
 
-      <div className="py-5 border-y border-gray-100">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_220px_180px_auto] xl:items-end">
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
@@ -452,7 +479,7 @@ const IntegracoesVendeaiPage = () => {
               Modo de intervalo
             </label>
             <Select value={windowModeInput} onValueChange={(value) => setWindowModeInput(value as FiltersState["windowMode"])}>
-              <SelectTrigger>
+              <SelectTrigger className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -470,7 +497,7 @@ const IntegracoesVendeaiPage = () => {
               <Calendar className="w-4 h-4 text-gray-400" />
               Data inicial
             </label>
-            <Input type="datetime-local" value={fromInput} onChange={(event) => setFromInput(event.target.value)} />
+            <Input className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" type="datetime-local" value={fromInput} onChange={(event) => setFromInput(event.target.value)} />
           </div>
 
           <div className="min-w-0 space-y-1.5">
@@ -478,7 +505,7 @@ const IntegracoesVendeaiPage = () => {
               <Calendar className="w-4 h-4 text-gray-400" />
               Data final
             </label>
-            <Input type="datetime-local" value={toInput} onChange={(event) => setToInput(event.target.value)} />
+            <Input className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" type="datetime-local" value={toInput} onChange={(event) => setToInput(event.target.value)} />
           </div>
 
           <div className="min-w-0 space-y-1.5">
@@ -487,7 +514,7 @@ const IntegracoesVendeaiPage = () => {
               Situação da tentativa
             </label>
             <Select value={statusInput} onValueChange={(value) => setStatusInput(value as VendeaiAttemptStatus)}>
-              <SelectTrigger>
+              <SelectTrigger className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -506,7 +533,7 @@ const IntegracoesVendeaiPage = () => {
               Ordenação
             </label>
             <Select value={directionInput} onValueChange={(value) => setDirectionInput(value as VendeaiSortDirection)}>
-              <SelectTrigger>
+              <SelectTrigger className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -519,24 +546,28 @@ const IntegracoesVendeaiPage = () => {
             </Select>
           </div>
 
-          <Button onClick={applyFilters} className="w-full md:col-span-2 xl:col-span-1 xl:w-auto">
+          <Button onClick={applyFilters} className="h-10 w-full md:col-span-2 xl:col-span-1 xl:w-auto bg-blue-600 hover:bg-blue-700">
             <Filter className="w-4 h-4 mr-2" />
             Aplicar
           </Button>
         </div>
 
         {rangeError && (
-          <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
-            <AlertCircle className="w-4 h-4" />
-            {rangeError}
-          </p>
+          <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50/60 p-3">
+            <p className="text-sm text-rose-700 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4" />
+              {rangeError}
+            </p>
+          </div>
         )}
 
         {windowModeInput === "rolling" && !rangeError && (
-          <p className="mt-3 text-sm text-gray-500 flex items-center gap-1.5">
-            <Clock className="w-4 h-4" />
-            Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
-          </p>
+          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+            <p className="text-sm text-blue-900 flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-blue-600" />
+              Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
+            </p>
+          </div>
         )}
       </div>
 
@@ -557,7 +588,7 @@ const IntegracoesVendeaiPage = () => {
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Conversas com a IA</h2>
               <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <MetricCard label="Conversas com a IA" value={formatNumber(metrics?.leads.total)} />
+                <MetricCard label="Conversas com a IA" value={formatNumber(metrics?.leads.total)} tone="blue" />
                 <ProductList title="Conversas por produto" items={metrics?.leads.by_product ?? []} />
               </div>
             </div>
@@ -565,10 +596,10 @@ const IntegracoesVendeaiPage = () => {
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Criação de propostas na New Corban</h2>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                <MetricCard label="Tentativas de criação" value={formatNumber(metrics?.attempts.total)} />
-                <MetricCard label="Criadas na New Corban" value={formatNumber(metrics?.attempts.success)} />
-                <MetricCard label="Falhas na criação" value={formatNumber(metrics?.attempts.failed)} />
-                <MetricCard label="Taxa de criação" value={`${metrics?.attempts.success_rate ?? 0}%`} detail={`${formatNumber(metrics?.attempts.pending)} não enviada(s)`} />
+                <MetricCard label="Tentativas de criação" value={formatNumber(metrics?.attempts.total)} tone="blue" />
+                <MetricCard label="Criadas na New Corban" value={formatNumber(metrics?.attempts.success)} tone="green" />
+                <MetricCard label="Falhas na criação" value={formatNumber(metrics?.attempts.failed)} tone="rose" />
+                <MetricCard label="Taxa de criação" value={`${metrics?.attempts.success_rate ?? 0}%`} detail={`${formatNumber(metrics?.attempts.pending)} não enviada(s)`} tone="default" />
               </div>
               <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <ProductList title="Propostas por produto" items={metrics?.attempts.by_product ?? []} />
@@ -590,7 +621,7 @@ const IntegracoesVendeaiPage = () => {
           </div>
         </div>
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden border border-gray-200 shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
@@ -627,10 +658,10 @@ const IntegracoesVendeaiPage = () => {
                   </tr>
                 ) : (
                   attempts.map((attempt) => (
-                    <tr key={attempt.id} className="align-top">
+                    <tr key={attempt.id} className="align-top hover:bg-gray-50 transition-colors duration-150">
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">#{attempt.id}</div>
-                        <div className="text-xs text-gray-500">{formatDateTime(attempt.received_at)}</div>
+                        <div className="text-xs text-blue-700">{formatDateTime(attempt.received_at)}</div>
                         <Badge
                           variant="outline"
                           className={
