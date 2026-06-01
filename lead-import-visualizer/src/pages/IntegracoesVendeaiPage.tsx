@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatCPF, formatPhone } from "@/lib/formatters";
 
 type FiltersState = {
   from: string;
@@ -172,18 +173,6 @@ function formatNumber(value: number | null | undefined): string {
 function formatCurrency(value: string | null): string {
   const number = Number(value);
   return Number.isFinite(number) ? brMoney.format(number) : "-";
-}
-
-function formatCpf(value: string | null): string {
-  if (!value) return "-";
-
-  const digits = value.replace(/\D+/g, "");
-
-  if (digits.length !== 11) {
-    return value;
-  }
-
-  return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -656,7 +645,7 @@ const IntegracoesVendeaiPage = () => {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{formatCpf(attempt.lead.customer_cpf)}</div>
+                        <div className="font-medium text-gray-900">{formatCPF(attempt.lead.customer_cpf)}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{attempt.lead.customer_name || "-"}</div>
@@ -665,7 +654,7 @@ const IntegracoesVendeaiPage = () => {
                         <div className="font-medium text-gray-900">{formatDate(attempt.lead.customer_birth_date)}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{attempt.lead.customer_phone || "-"}</div>
+                        <div className="font-medium text-gray-900">{formatPhone(attempt.lead.customer_phone)}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{attempt.lead.chat_id || "-"}</div>
