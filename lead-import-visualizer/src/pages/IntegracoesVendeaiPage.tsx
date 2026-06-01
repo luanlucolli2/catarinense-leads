@@ -2,17 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { format, parseISO, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import {
-  AlertCircle,
-  Calendar,
-  Clock,
-  Download,
-  FileDown,
-  Filter,
-  Loader2,
-  RefreshCw,
-  XCircle,
-} from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -29,8 +19,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VendeaiControls } from "@/components/VendeaiControls";
+import { VendeaiFiltersModal } from "@/components/VendeaiFiltersModal";
 import { formatCPF, formatPhone } from "@/lib/formatters";
 
 type FiltersState = {
@@ -274,6 +264,7 @@ const IntegracoesVendeaiPage = () => {
   const [exporting, setExporting] = useState<VendeaiExportType | null>(null);
   const [manualRefreshLockedUntil, setManualRefreshLockedUntil] = useState(0);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
 
   const fromIso = useMemo(() => toUtcIso(applied.from), [applied.from]);
   const toIso = useMemo(() => toUtcIso(applied.to), [applied.to]);
@@ -357,19 +348,30 @@ const IntegracoesVendeaiPage = () => {
   const currentAttemptsPage = attemptsQuery.data?.current_page ?? attemptsPage;
   const lastAttemptsPage = attemptsQuery.data?.last_page ?? 1;
   const totalAttempts = attemptsQuery.data?.total ?? 0;
+  const activeCount = activeTable === "leads" ? totalLeads : totalAttempts;
+  const activeModeLabel = activeTable === "leads" ? "Leads VendeAI" : "Propostas NewCorban";
+  const activeCountLabel = activeTable === "leads" ? "leads encontrados" : "propostas encontradas";
+  const activeExportType: VendeaiExportType = activeTable === "leads" ? "leads" : "newcorban-proposal-attempts";
+  const activeExportLabel = activeTable === "leads" ? "CSV leads VendeAI" : "CSV propostas NewCorban";
+  const activeExportIcon = activeTable === "leads" ? "file" : "download";
+  const appliedLabels = [
+    `Modo: ${windowModeInput === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
+    `De ${formatDateTime(fromIso ?? applied.from)}`,
+    `Até ${formatDateTime(toIso ?? applied.to)}`,
+  ];
 
-  const applyFilters = () => {
+  const applyFilters = (): boolean => {
     const fromDate = new Date(fromInput);
     const toDate = new Date(toInput);
 
     if (!fromInput || !toInput || Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
       setRangeError("Preencha um intervalo válido com data e hora.");
-      return;
+      return false;
     }
 
     if (fromDate.getTime() > toDate.getTime()) {
       setRangeError("A data/hora inicial não pode ser maior que a final.");
-      return;
+      return false;
     }
 
     setRangeError(null);
@@ -391,6 +393,34 @@ const IntegracoesVendeaiPage = () => {
       direction: directionInput,
       windowMode: windowModeInput,
     });
+    setLeadsPage(1);
+    setAttemptsPage(1);
+    return true;
+  };
+
+  const handleApplyFilters = () => {
+    if (applyFilters()) {
+      setIsFiltersModalOpen(false);
+    }
+  };
+
+  const resetFilterInputs = () => {
+    const next = defaultFilters();
+    setFromInput(next.from);
+    setToInput(next.to);
+    setWindowModeInput(next.windowMode);
+    setDirectionInput(next.direction);
+    setRangeError(null);
+  };
+
+  const clearFilters = () => {
+    const next = defaultFilters();
+    setFromInput(next.from);
+    setToInput(next.to);
+    setWindowModeInput(next.windowMode);
+    setDirectionInput(next.direction);
+    setRangeError(null);
+    setApplied(next);
     setLeadsPage(1);
     setAttemptsPage(1);
   };
@@ -454,7 +484,7 @@ const IntegracoesVendeaiPage = () => {
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-1">Integração VendeAI</h1>
           <p className="text-gray-600 text-sm lg:text-base">
-            Métricas de conversas e tentativas de criação de propostas na New Corban.
+            Métricas de conversas e propostas na New Corban.
           </p>
         </div>
 
@@ -471,121 +501,45 @@ const IntegracoesVendeaiPage = () => {
               className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="leads">Leads VendeAI</option>
-              <option value="attempts">Tentativas NewCorban</option>
+              <option value="attempts">Propostas NewCorban</option>
             </select>
           </label>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50"
-              onClick={() => void exportCsv("leads")}
-              disabled={exporting !== null}
-            >
-              {exporting === "leads" ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}
-              CSV leads
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50"
-              onClick={() => void exportCsv("newcorban-proposal-attempts")}
-              disabled={exporting !== null}
-            >
-              {exporting === "newcorban-proposal-attempts" ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
-              CSV tentativas
-            </Button>
-            <Button
-              className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={handleManualRefresh}
-              disabled={metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0}
-            >
-              {metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-              {manualRefreshRemaining > 0 ? `Atualizar (${manualRefreshRemaining}s)` : "Atualizar"}
-            </Button>
-          </div>
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_180px_auto] xl:items-end">
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-gray-400" />
-              Modo de intervalo
-            </label>
-            <Select value={windowModeInput} onValueChange={(value) => setWindowModeInput(value as FiltersState["windowMode"])}>
-              <SelectTrigger className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {windowModeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      <VendeaiControls
+        modeLabel={activeModeLabel}
+        filteredCount={activeCount}
+        countLabel={activeCountLabel}
+        exportLabel={activeExportLabel}
+        exportLoading={exporting === activeExportType}
+        exportIcon={activeExportIcon}
+        isRefreshing={metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching}
+        refreshCountdown={manualRefreshRemaining}
+        activeLabels={appliedLabels}
+        hasActiveFilters
+        onFilterClick={() => setIsFiltersModalOpen(true)}
+        onExportClick={() => void exportCsv(activeExportType)}
+        onRefreshClick={handleManualRefresh}
+        onClearFilters={clearFilters}
+      />
 
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              Data inicial
-            </label>
-            <Input className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" type="datetime-local" value={fromInput} onChange={(event) => setFromInput(event.target.value)} />
-          </div>
-
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              Data final
-            </label>
-            <Input className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" type="datetime-local" value={toInput} onChange={(event) => setToInput(event.target.value)} />
-          </div>
-
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-gray-400" />
-              Ordenação
-            </label>
-            <Select value={directionInput} onValueChange={(value) => setDirectionInput(value as VendeaiSortDirection)}>
-              <SelectTrigger className="border-gray-300 bg-white text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {directionOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Button onClick={applyFilters} className="h-10 w-full md:col-span-2 xl:col-span-1 xl:w-auto bg-blue-600 hover:bg-blue-700">
-            <Filter className="w-4 h-4 mr-2" />
-            Aplicar
-          </Button>
-        </div>
-
-        {rangeError && (
-          <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50/60 p-3">
-            <p className="text-sm text-rose-700 flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4" />
-              {rangeError}
-            </p>
-          </div>
-        )}
-
-        {windowModeInput === "rolling" && !rangeError && (
-          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
-            <p className="text-sm text-blue-900 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-blue-600" />
-              Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
-            </p>
-          </div>
-        )}
-      </div>
+      <VendeaiFiltersModal
+        isOpen={isFiltersModalOpen}
+        title={`Filtros de ${activeModeLabel}`}
+        subtitle="Ajuste o período e aplique na visualização atual."
+        from={fromInput}
+        to={toInput}
+        windowMode={windowModeInput}
+        windowModeOptions={windowModeOptions}
+        rangeError={rangeError}
+        onClose={() => setIsFiltersModalOpen(false)}
+        onFromChange={setFromInput}
+        onToChange={setToInput}
+        onWindowModeChange={setWindowModeInput}
+        onReset={resetFilterInputs}
+        onApply={handleApplyFilters}
+      />
 
       {metricsQuery.isLoading ? (
         <Card className="border-dashed">
@@ -613,9 +567,9 @@ const IntegracoesVendeaiPage = () => {
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Criação de propostas na New Corban</h2>
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                  <MetricCard label="Tentativas de criação" value={formatNumber(metrics?.attempts.total)} tone="blue" />
+                  <MetricCard label="Propostas enviadas" value={formatNumber(metrics?.attempts.total)} tone="blue" />
                   <MetricCard label="Criadas na New Corban" value={formatNumber(metrics?.attempts.success)} tone="green" />
-                  <MetricCard label="Falhas na criação" value={formatNumber(metrics?.attempts.failed)} tone="rose" />
+                  <MetricCard label="Falhas" value={formatNumber(metrics?.attempts.failed)} tone="rose" />
                   <ProductList title="Propostas por produto" items={metrics?.attempts.by_product ?? []} />
                 </div>
               </div>
@@ -628,7 +582,7 @@ const IntegracoesVendeaiPage = () => {
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold text-foreground">
-              {activeTable === "leads" ? "Leads VendeAI" : "Tentativas de criação de proposta NewCorban"}
+              {activeTable === "leads" ? "Leads VendeAI" : "Propostas NewCorban"}
             </h2>
             <p className="text-muted-foreground text-sm">
               {activeTable === "leads"
@@ -728,7 +682,7 @@ const IntegracoesVendeaiPage = () => {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium">Tentativa</th>
+                    <th className="px-4 py-3 text-left font-medium">Proposta</th>
                     <th className="px-4 py-3 text-left font-medium">CPF</th>
                     <th className="px-4 py-3 text-left font-medium">Nome</th>
                     <th className="px-4 py-3 text-left font-medium">Nascimento</th>
@@ -747,16 +701,16 @@ const IntegracoesVendeaiPage = () => {
                     <tr>
                       <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
                         <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                        Carregando tentativas...
+                        Carregando propostas...
                       </td>
                     </tr>
                   ) : attemptsQuery.isError ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar tentativas.</td>
+                      <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar propostas.</td>
                     </tr>
                   ) : attempts.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhuma tentativa no período.</td>
+                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhuma proposta no período.</td>
                     </tr>
                   ) : (
                     attempts.map((attempt) => (
