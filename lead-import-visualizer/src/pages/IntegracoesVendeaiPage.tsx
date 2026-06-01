@@ -595,10 +595,11 @@ const IntegracoesVendeaiPage = () => {
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Tentativa</th>
-                  <th className="px-4 py-3 text-left font-medium">Nome</th>
                   <th className="px-4 py-3 text-left font-medium">CPF</th>
-                  <th className="px-4 py-3 text-left font-medium">Chat</th>
+                  <th className="px-4 py-3 text-left font-medium">Nome</th>
                   <th className="px-4 py-3 text-left font-medium">Nascimento</th>
+                  <th className="px-4 py-3 text-left font-medium">Telefone</th>
+                  <th className="px-4 py-3 text-left font-medium">Chat</th>
                   <th className="px-4 py-3 text-left font-medium">Proposta New Corban</th>
                   <th className="px-4 py-3 text-left font-medium">Banco</th>
                   <th className="px-4 py-3 text-left font-medium">Produto</th>
@@ -610,18 +611,18 @@ const IntegracoesVendeaiPage = () => {
               <tbody className="divide-y divide-gray-100">
                 {attemptsQuery.isLoading ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
                       <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                       Carregando tentativas...
                     </td>
                   </tr>
                 ) : attemptsQuery.isError ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-red-600">Falha ao carregar tentativas.</td>
+                    <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar tentativas.</td>
                   </tr>
                 ) : attempts.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-500">Nenhuma tentativa no período.</td>
+                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhuma tentativa no período.</td>
                   </tr>
                 ) : (
                   attempts.map((attempt) => (
@@ -643,16 +644,19 @@ const IntegracoesVendeaiPage = () => {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{attempt.lead.customer_name || "-"}</div>
-                      </td>
-                      <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{attempt.lead.customer_cpf || "-"}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{attempt.lead.chat_id || "-"}</div>
+                        <div className="font-medium text-gray-900">{attempt.lead.customer_name || "-"}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{formatDate(attempt.lead.customer_birth_date)}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">{attempt.lead.customer_phone || "-"}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">{attempt.lead.chat_id || "-"}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
