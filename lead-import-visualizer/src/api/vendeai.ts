@@ -48,18 +48,104 @@ export interface VendeaiAttempt {
     customer_birth_date: string | null;
     customer_phone: string | null;
     stage: string | null;
+    simulation_product: string | null;
+    simulation_bank: string | null;
+    simulation_liquid_value: string | null;
+    simulation_number_of_payments: number | null;
+    simulation_installment_value: string | null;
+    simulation_monthly_fee: string | null;
+    simulation_table_name: string | null;
+    simulation_table_id: string | null;
+    simulation_best_liquid_value: string | null;
+    simulation_best_table_id: string | null;
+    simulation_received_at: string | null;
+    proposal_id: string | null;
+    proposal_number: string | null;
+    proposal_bank: string | null;
+    proposal_product: string | null;
+    proposal_status: string | null;
+    previous_proposal_status: string | null;
+    proposal_liquid_value: string | null;
+    proposal_gross_value: string | null;
+    proposal_number_of_payments: number | null;
+    proposal_installment_value: string | null;
+    proposal_table_name: string | null;
+    proposal_table_id: string | null;
+    proposal_formalization_link: string | null;
+    proposal_created_at: string | null;
+    proposal_status_updated_at: string | null;
   };
   proposal: {
     proposal_id: string | null;
+    proposal_number: string | null;
     bank: string | null;
     product: string | null;
     status: string | null;
+    previous_status: string | null;
     liquid_value: string | null;
+    gross_value: string | null;
+    number_of_payments: number | null;
+    installment_value: string | null;
+    table_name: string | null;
+    table_id: string | null;
+    formalization_link: string | null;
+    created_at: string | null;
+    status_updated_at: string | null;
   };
+}
+
+export interface VendeaiLead {
+  id: number;
+  account_id: string | null;
+  chat_id: string | null;
+  first_received_at: string | null;
+  last_received_at: string | null;
+  last_event: string | null;
+  chat_product: string | null;
+  stage: string | null;
+  tags: string[] | null;
+  customer_cpf: string | null;
+  customer_name: string | null;
+  customer_birth_date: string | null;
+  customer_phone: string | null;
+  simulation_product: string | null;
+  simulation_bank: string | null;
+  simulation_liquid_value: string | null;
+  simulation_number_of_payments: number | null;
+  simulation_installment_value: string | null;
+  simulation_monthly_fee: string | null;
+  simulation_table_name: string | null;
+  simulation_table_id: string | null;
+  simulation_best_liquid_value: string | null;
+  simulation_best_table_id: string | null;
+  simulation_received_at: string | null;
+  proposal_id: string | null;
+  proposal_number: string | null;
+  proposal_bank: string | null;
+  proposal_product: string | null;
+  proposal_status: string | null;
+  previous_proposal_status: string | null;
+  proposal_liquid_value: string | null;
+  proposal_gross_value: string | null;
+  proposal_number_of_payments: number | null;
+  proposal_installment_value: string | null;
+  proposal_table_name: string | null;
+  proposal_table_id: string | null;
+  proposal_formalization_link: string | null;
+  proposal_created_at: string | null;
+  proposal_status_updated_at: string | null;
 }
 
 export interface VendeaiAttemptsResponse {
   data: VendeaiAttempt[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface VendeaiLeadsResponse {
+  data: VendeaiLead[];
   current_page: number;
   last_page: number;
   per_page: number;
@@ -86,6 +172,12 @@ export interface ListVendeaiAttemptsParams extends VendeaiFilters {
   page?: number;
   perPage?: number;
   sort?: "received_at" | "newcorban_sent_at" | "id";
+}
+
+export interface ListVendeaiLeadsParams extends VendeaiFilters {
+  page?: number;
+  perPage?: number;
+  sort?: "first_received_at" | "last_received_at" | "id";
 }
 
 function buildParams(params: VendeaiFilters): Record<string, string | number> {
@@ -119,6 +211,21 @@ export async function listVendeaiAttempts(
   if (params.sort) query.sort = params.sort;
 
   const { data } = await axiosClient.get<VendeaiAttemptsResponse>("/vendeai/newcorban-proposal-attempts", {
+    params: query,
+    signal,
+  });
+
+  return data;
+}
+
+export async function listVendeaiLeads(params: ListVendeaiLeadsParams, signal?: AbortSignal): Promise<VendeaiLeadsResponse> {
+  const query = buildParams(params);
+
+  if (typeof params.page === "number") query.page = params.page;
+  if (typeof params.perPage === "number") query.per_page = params.perPage;
+  if (params.sort) query.sort = params.sort;
+
+  const { data } = await axiosClient.get<VendeaiLeadsResponse>("/vendeai/leads", {
     params: query,
     signal,
   });

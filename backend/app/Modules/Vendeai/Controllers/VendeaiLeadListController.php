@@ -5,6 +5,7 @@ namespace App\Modules\Vendeai\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiLead;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
+use App\Modules\Vendeai\Support\VendeaiDateRange;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,11 +17,14 @@ class VendeaiLeadListController extends Controller
         $validated = $request->validate([
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
             'view' => ['nullable', Rule::in(['summary'])],
-            'sort' => ['nullable', Rule::in(['last_received_at', 'id'])],
+            'sort' => ['nullable', Rule::in(['first_received_at', 'last_received_at', 'id'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
         ]);
 
+        [$from, $to] = VendeaiDateRange::fromValidated($validated);
         $perPage = (int) ($validated['per_page'] ?? 20);
         $sort = (string) ($validated['sort'] ?? 'last_received_at');
         $direction = strtolower((string) ($validated['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
@@ -53,8 +57,17 @@ class VendeaiLeadListController extends Controller
             );
         }
 
-        $query = VendeaiLead::query()
-            ->orderBy($sort, $direction);
+        $query = VendeaiLead::query();
+
+        if ($from !== null) {
+            $query->where('first_received_at', '>=', $from);
+        }
+
+        if ($to !== null) {
+            $query->where('first_received_at', '<=', $to);
+        }
+
+        $query->orderBy($sort, $direction)->orderBy('id', $direction);
 
         return response()->json($query->paginate($perPage));
     }

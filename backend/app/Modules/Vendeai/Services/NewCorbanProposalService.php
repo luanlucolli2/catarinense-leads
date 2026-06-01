@@ -106,7 +106,7 @@ class NewCorbanProposalService
                     'convenio_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
                     'proposta_id_banco' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
                     'produto_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
-                    'status' => 'DIGITADA',
+                    'status' => '0',
                     'tipo_cadastro' => 'API',
                     'tipo_liberacao' => null,
                     'banco_averbacao' => null,

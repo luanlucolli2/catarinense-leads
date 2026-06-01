@@ -3,6 +3,7 @@
 namespace App\Modules\Vendeai\Services;
 
 use App\Modules\Vendeai\Models\VendeaiLead;
+use App\Support\Cpf;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 
@@ -79,7 +80,7 @@ class VendeaiLeadUpsertService
             'customer_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.name'), 255),
             'customer_phone' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.phone'), 30),
             'customer_email' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.email'), 255),
-            'customer_cpf' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.cpf'), 20),
+            'customer_cpf' => Cpf::normalize($this->stringOrNull(data_get($payload, 'chat_summary.details.contact.cpf'))),
             'customer_birth_date' => $this->dateOrNull(data_get($payload, 'chat_summary.details.contact.birth_date')),
             'customer_mother_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.mother_name'), 255),
             'last_received_at' => $now,

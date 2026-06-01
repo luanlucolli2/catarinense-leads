@@ -16,7 +16,7 @@ import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSOfflineConsultaPage from "./pages/FGTSOfflineConsultaPage"; // 👈 nova página FGTS OFF
 import C6LinksPage from "./pages/C6LinksPage";
 import ParceirosUY3Page from "./pages/ParceirosUY3Page";
-import IntegracoesVendeaiPage from "./pages/IntegracoesVendeaiPage";
+import IntegracoesVendeaiPage from "./modules/vendeai/pages/IntegracoesVendeaiPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";

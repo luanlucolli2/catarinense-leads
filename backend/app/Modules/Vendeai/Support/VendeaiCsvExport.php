@@ -24,19 +24,12 @@ final class VendeaiCsvExport
     {
         if ($type === self::TYPE_ATTEMPTS) {
             return [
-                'ID tentativa',
-                'Recebido em',
-                'Enviado NewCorban em',
-                'Status tentativa',
-                'HTTP',
-                'Erro NewCorban',
-                'Proposta NewCorban',
-                'Cliente NewCorban',
-                'Account ID',
-                'Chat ID',
                 'CPF',
                 'Nome',
+                'Data nascimento',
                 'Telefone',
+                'Account ID',
+                'Chat ID',
                 'Proposal ID VendeAI',
                 'Banco',
                 'Produto',
@@ -53,27 +46,42 @@ final class VendeaiCsvExport
                 'Origem ID enviado',
                 'Vendedor enviado',
                 'Login digitacao enviado',
+                'ID tentativa',
+                'Status tentativa',
+                'Proposta NewCorban',
+                'Cliente NewCorban',
+                'HTTP',
+                'Erro NewCorban',
+                'Recebido em',
+                'Enviado NewCorban em',
             ];
         }
 
         return [
-            'ID lead',
-            'Account ID',
-            'Chat ID',
-            'Primeiro evento em',
-            'Ultimo evento em',
-            'Ultimo evento',
-            'Produto conversa',
-            'Stage',
-            'Tags',
             'CPF',
             'Nome',
             'Data nascimento',
             'Telefone',
             'Email',
+            'Account ID',
+            'Chat ID',
+            'ID lead',
+            'Produto conversa',
+            'Stage',
+            'Tags',
+            'Ultimo evento',
             'Produto simulacao',
             'Banco simulacao',
             'Valor liquido simulacao',
+            'Quantidade parcelas simulacao',
+            'Valor parcela simulacao',
+            'Taxa mensal simulacao',
+            'Nome tabela simulacao',
+            'ID tabela simulacao',
+            'Melhor valor liquido simulacao',
+            'Melhor tabela simulacao',
+            'Detalhes tabela simulacao',
+            'Data simulacao',
             'Produto proposta',
             'Banco proposta',
             'Proposal ID',
@@ -82,10 +90,15 @@ final class VendeaiCsvExport
             'Status anterior proposta',
             'Valor liquido proposta',
             'Valor bruto proposta',
-            'Parcelas',
-            'Valor parcela',
-            'Tabela ID',
+            'Quantidade parcelas proposta',
+            'Valor parcela proposta',
+            'Nome tabela proposta',
+            'ID tabela proposta',
             'Link formalizacao',
+            'Data criacao proposta',
+            'Data atualizacao status proposta',
+            'Primeiro evento em',
+            'Ultimo evento em',
         ];
     }
 
@@ -142,6 +155,15 @@ final class VendeaiCsvExport
                 'simulation_product',
                 'simulation_bank',
                 'simulation_liquid_value',
+                'simulation_number_of_payments',
+                'simulation_installment_value',
+                'simulation_monthly_fee',
+                'simulation_table_name',
+                'simulation_table_id',
+                'simulation_best_liquid_value',
+                'simulation_best_table_id',
+                'simulation_table_details',
+                'simulation_received_at',
                 'proposal_product',
                 'proposal_bank',
                 'proposal_id',
@@ -152,8 +174,11 @@ final class VendeaiCsvExport
                 'proposal_gross_value',
                 'proposal_number_of_payments',
                 'proposal_installment_value',
+                'proposal_table_name',
                 'proposal_table_id',
                 'proposal_formalization_link',
+                'proposal_created_at',
+                'proposal_status_updated_at',
             ]);
 
         self::applyDateFilter($query, 'first_received_at', $from, $to);
@@ -180,6 +205,7 @@ final class VendeaiCsvExport
                 'leads.chat_id',
                 'leads.customer_cpf',
                 'leads.customer_name',
+                'leads.customer_birth_date',
                 'leads.customer_phone',
                 'leads.proposal_id',
                 'leads.proposal_bank',
@@ -231,23 +257,30 @@ final class VendeaiCsvExport
     private static function mapLead(object $lead): array
     {
         return [
-            self::sanitizeCsvValue($lead->id ?? null),
+            self::sanitizeCsvValue(self::csvCpf($lead->customer_cpf ?? null)),
+            self::sanitizeCsvValue($lead->customer_name ?? null),
+            self::sanitizeCsvValue(self::formatDate($lead->customer_birth_date ?? null)),
+            self::sanitizeCsvValue(self::csvPhone($lead->customer_phone ?? null)),
+            self::sanitizeCsvValue($lead->customer_email ?? null),
             self::sanitizeCsvValue($lead->account_id ?? null),
             self::sanitizeCsvValue($lead->chat_id ?? null),
-            self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
-            self::sanitizeCsvValue(self::formatDateTime($lead->last_received_at ?? null)),
-            self::sanitizeCsvValue($lead->last_event ?? null),
+            self::sanitizeCsvValue($lead->id ?? null),
             self::sanitizeCsvValue($lead->chat_product ?? null),
             self::sanitizeCsvValue($lead->stage ?? null),
             self::sanitizeCsvValue($lead->tags ?? null),
-            self::sanitizeCsvValue($lead->customer_cpf ?? null),
-            self::sanitizeCsvValue($lead->customer_name ?? null),
-            self::sanitizeCsvValue(self::formatDate($lead->customer_birth_date ?? null)),
-            self::sanitizeCsvValue($lead->customer_phone ?? null),
-            self::sanitizeCsvValue($lead->customer_email ?? null),
+            self::sanitizeCsvValue($lead->last_event ?? null),
             self::sanitizeCsvValue($lead->simulation_product ?? null),
             self::sanitizeCsvValue($lead->simulation_bank ?? null),
             self::sanitizeCsvValue($lead->simulation_liquid_value ?? null),
+            self::sanitizeCsvValue($lead->simulation_number_of_payments ?? null),
+            self::sanitizeCsvValue($lead->simulation_installment_value ?? null),
+            self::sanitizeCsvValue($lead->simulation_monthly_fee ?? null),
+            self::sanitizeCsvValue($lead->simulation_table_name ?? null),
+            self::sanitizeCsvValue($lead->simulation_table_id ?? null),
+            self::sanitizeCsvValue($lead->simulation_best_liquid_value ?? null),
+            self::sanitizeCsvValue($lead->simulation_best_table_id ?? null),
+            self::sanitizeCsvValue($lead->simulation_table_details ?? null),
+            self::sanitizeCsvValue(self::formatDateTime($lead->simulation_received_at ?? null)),
             self::sanitizeCsvValue($lead->proposal_product ?? null),
             self::sanitizeCsvValue($lead->proposal_bank ?? null),
             self::sanitizeCsvValue($lead->proposal_id ?? null),
@@ -258,27 +291,25 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->proposal_gross_value ?? null),
             self::sanitizeCsvValue($lead->proposal_number_of_payments ?? null),
             self::sanitizeCsvValue($lead->proposal_installment_value ?? null),
+            self::sanitizeCsvValue($lead->proposal_table_name ?? null),
             self::sanitizeCsvValue($lead->proposal_table_id ?? null),
             self::sanitizeCsvValue($lead->proposal_formalization_link ?? null),
+            self::sanitizeCsvValue(self::formatDateTime($lead->proposal_created_at ?? null)),
+            self::sanitizeCsvValue(self::formatDateTime($lead->proposal_status_updated_at ?? null)),
+            self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
+            self::sanitizeCsvValue(self::formatDateTime($lead->last_received_at ?? null)),
         ];
     }
 
     private static function mapAttempt(object $attempt): array
     {
         return [
-            self::sanitizeCsvValue($attempt->id ?? null),
-            self::sanitizeCsvValue(self::formatDateTime($attempt->received_at ?? null)),
-            self::sanitizeCsvValue(self::formatDateTime($attempt->newcorban_sent_at ?? null)),
-            self::sanitizeCsvValue(self::attemptStatus($attempt)),
-            self::sanitizeCsvValue($attempt->newcorban_response_status ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_error ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_proposta_id ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_cliente_id ?? null),
+            self::sanitizeCsvValue(self::csvCpf($attempt->customer_cpf ?? null)),
+            self::sanitizeCsvValue($attempt->customer_name ?? null),
+            self::sanitizeCsvValue(self::formatDate($attempt->customer_birth_date ?? null)),
+            self::sanitizeCsvValue(self::csvPhone($attempt->customer_phone ?? null)),
             self::sanitizeCsvValue($attempt->account_id ?? null),
             self::sanitizeCsvValue($attempt->chat_id ?? null),
-            self::sanitizeCsvValue($attempt->customer_cpf ?? null),
-            self::sanitizeCsvValue($attempt->customer_name ?? null),
-            self::sanitizeCsvValue($attempt->customer_phone ?? null),
             self::sanitizeCsvValue($attempt->proposal_id ?? null),
             self::sanitizeCsvValue($attempt->proposal_bank ?? null),
             self::sanitizeCsvValue($attempt->proposal_product ?? null),
@@ -295,6 +326,14 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($attempt->request_origem_id ?? null),
             self::sanitizeCsvValue($attempt->request_vendedor ?? null),
             self::sanitizeCsvValue($attempt->request_login_digitacao ?? null),
+            self::sanitizeCsvValue($attempt->id ?? null),
+            self::sanitizeCsvValue(self::attemptStatus($attempt)),
+            self::sanitizeCsvValue($attempt->newcorban_proposta_id ?? null),
+            self::sanitizeCsvValue($attempt->newcorban_cliente_id ?? null),
+            self::sanitizeCsvValue($attempt->newcorban_response_status ?? null),
+            self::sanitizeCsvValue($attempt->newcorban_error ?? null),
+            self::sanitizeCsvValue(self::formatDateTime($attempt->received_at ?? null)),
+            self::sanitizeCsvValue(self::formatDateTime($attempt->newcorban_sent_at ?? null)),
         ];
     }
 
@@ -369,5 +408,37 @@ final class VendeaiCsvExport
         }
 
         return $string;
+    }
+
+    private static function csvCpf(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $value);
+
+        if ($digits === null || $digits === '') {
+            return null;
+        }
+
+        $trimmed = ltrim($digits, '0');
+
+        return $trimmed === '' ? '0' : $trimmed;
+    }
+
+    private static function csvPhone(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $value);
+
+        if ($digits === null || $digits === '') {
+            return null;
+        }
+
+        return $digits;
     }
 }
