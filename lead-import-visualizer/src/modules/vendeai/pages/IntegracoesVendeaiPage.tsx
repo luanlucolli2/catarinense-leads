@@ -217,6 +217,129 @@ function stageLabel(label: string | null): string {
   return label.replace(/_/g, " ");
 }
 
+function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value || value === "-") return null;
+
+  return (
+    <div className="text-xs text-gray-600">
+      <span className="font-medium text-gray-700">{label}:</span> {value}
+    </div>
+  );
+}
+
+function SimulationDetails({
+  data,
+}: {
+  data: {
+    simulation_product: string | null;
+    simulation_bank: string | null;
+    simulation_liquid_value: string | null;
+    simulation_number_of_payments: number | null;
+    simulation_installment_value: string | null;
+    simulation_monthly_fee: string | null;
+    simulation_table_name: string | null;
+    simulation_table_id: string | null;
+    simulation_best_liquid_value: string | null;
+    simulation_best_table_id: string | null;
+    simulation_received_at: string | null;
+  };
+}) {
+  if (
+    !data.simulation_product &&
+    !data.simulation_bank &&
+    !data.simulation_liquid_value &&
+    !data.simulation_number_of_payments &&
+    !data.simulation_installment_value &&
+    !data.simulation_monthly_fee &&
+    !data.simulation_table_name &&
+    !data.simulation_best_liquid_value &&
+    !data.simulation_best_table_id &&
+    !data.simulation_received_at
+  ) {
+    return <span className="text-gray-400">-</span>;
+  }
+
+  return (
+    <div className="min-w-[240px] space-y-1">
+      <DetailLine label="Produto" value={productLabel(data.simulation_product || "-")} />
+      <DetailLine label="Banco" value={bankLabel(data.simulation_bank || "-")} />
+      <DetailLine label="Valor líquido" value={formatCurrency(data.simulation_liquid_value)} />
+      <DetailLine label="Parcela" value={formatCurrency(data.simulation_installment_value)} />
+      <DetailLine label="Parcelas" value={data.simulation_number_of_payments ? String(data.simulation_number_of_payments) : "-"} />
+      <DetailLine label="Taxa mensal" value={data.simulation_monthly_fee ? `${String(data.simulation_monthly_fee)}%` : "-"} />
+      <DetailLine label="Tabela" value={data.simulation_table_name || data.simulation_table_id || "-"} />
+      <DetailLine label="Melhor valor" value={data.simulation_best_liquid_value ? formatCurrency(data.simulation_best_liquid_value) : "-"} />
+      <DetailLine label="Melhor tabela" value={data.simulation_best_table_id || "-"} />
+      <DetailLine label="Data" value={formatDateTime(data.simulation_received_at)} />
+    </div>
+  );
+}
+
+function ProposalDetails({
+  data,
+}: {
+  data: {
+    proposal_id: string | null;
+    proposal_number: string | null;
+    bank: string | null;
+    product: string | null;
+    status: string | null;
+    previous_status: string | null;
+    liquid_value: string | null;
+    gross_value: string | null;
+    number_of_payments: number | null;
+    installment_value: string | null;
+    table_name: string | null;
+    table_id: string | null;
+    formalization_link: string | null;
+    created_at: string | null;
+    status_updated_at: string | null;
+  };
+}) {
+  if (
+    !data.proposal_id &&
+    !data.status &&
+    !data.previous_status &&
+    !data.bank &&
+    !data.product &&
+    !data.liquid_value &&
+    !data.gross_value &&
+    !data.number_of_payments &&
+    !data.installment_value &&
+    !data.table_name &&
+    !data.formalization_link &&
+    !data.created_at &&
+    !data.status_updated_at
+  ) {
+    return <span className="text-gray-400">-</span>;
+  }
+
+  return (
+    <div className="min-w-[260px] space-y-1">
+      <div className="font-medium text-gray-900">{data.proposal_id || "-"}</div>
+      <DetailLine label="Número" value={data.proposal_number || "-"} />
+      <DetailLine label="Status" value={data.status || "-"} />
+      <DetailLine label="Status anterior" value={data.previous_status || "-"} />
+      <DetailLine label="Produto" value={productLabel(data.product || "-")} />
+      <DetailLine label="Banco" value={bankLabel(data.bank || "-")} />
+      <DetailLine label="Valor líquido" value={formatCurrency(data.liquid_value)} />
+      <DetailLine label="Valor bruto" value={formatCurrency(data.gross_value)} />
+      <DetailLine label="Parcela" value={formatCurrency(data.installment_value)} />
+      <DetailLine label="Parcelas" value={data.number_of_payments ? String(data.number_of_payments) : "-"} />
+      <DetailLine label="Tabela" value={data.table_name || data.table_id || "-"} />
+      {data.formalization_link ? (
+        <div className="text-xs text-blue-700">
+          <a href={data.formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+            Link de formalização
+          </a>
+        </div>
+      ) : null}
+      <DetailLine label="Criada em" value={formatDateTime(data.created_at)} />
+      <DetailLine label="Atualizada em" value={formatDateTime(data.status_updated_at)} />
+    </div>
+  );
+}
+
 const IntegracoesVendeaiPage = () => {
   const initial = useMemo(() => loadFilters(), []);
   const [fromInput, setFromInput] = useState(initial.from);
@@ -565,30 +688,28 @@ const IntegracoesVendeaiPage = () => {
                     <th className="px-4 py-3 text-left font-medium">Nascimento</th>
                     <th className="px-4 py-3 text-left font-medium">Telefone</th>
                     <th className="px-4 py-3 text-left font-medium">Chat</th>
-                    <th className="px-4 py-3 text-left font-medium">Produto</th>
                     <th className="px-4 py-3 text-left font-medium">Etapa</th>
                     <th className="px-4 py-3 text-left font-medium">Tags</th>
-                    <th className="px-4 py-3 text-left font-medium">Proposta VendeAI</th>
-                    <th className="px-4 py-3 text-left font-medium">Banco</th>
-                    <th className="px-4 py-3 text-left font-medium">Valor</th>
+                    <th className="px-4 py-3 text-left font-medium">Simulação</th>
+                    <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
                     <th className="px-4 py-3 text-left font-medium">Eventos</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {leadsQuery.isLoading ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                         <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                         Carregando leads...
                       </td>
                     </tr>
                   ) : leadsQuery.isError ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
+                      <td colSpan={10} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
                     </tr>
                   ) : leads.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
+                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
                     </tr>
                   ) : (
                     leads.map((lead) => (
@@ -598,7 +719,6 @@ const IntegracoesVendeaiPage = () => {
                         <td className="px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
                         <td className="px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
                         <td className="px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{productLabel(lead.proposal_product || lead.chat_product || "-")}</td>
                         <td className="px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
                         <td className="px-4 py-3">
                           <div className="flex max-w-[240px] flex-wrap gap-1">
@@ -614,11 +734,29 @@ const IntegracoesVendeaiPage = () => {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{lead.proposal_id || "-"}</div>
-                          <div className="text-xs text-gray-500">{lead.proposal_status || "-"}</div>
+                          <SimulationDetails data={lead} />
                         </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{bankLabel(lead.proposal_bank || "-")}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{formatCurrency(lead.proposal_liquid_value)}</td>
+                        <td className="px-4 py-3">
+                          <ProposalDetails
+                            data={{
+                              proposal_id: lead.proposal_id,
+                              proposal_number: lead.proposal_number,
+                              bank: lead.proposal_bank,
+                              product: lead.proposal_product,
+                              status: lead.proposal_status,
+                              previous_status: lead.previous_proposal_status,
+                              liquid_value: lead.proposal_liquid_value,
+                              gross_value: lead.proposal_gross_value,
+                              number_of_payments: lead.proposal_number_of_payments,
+                              installment_value: lead.proposal_installment_value,
+                              table_name: lead.proposal_table_name,
+                              table_id: lead.proposal_table_id,
+                              formalization_link: lead.proposal_formalization_link,
+                              created_at: lead.proposal_created_at,
+                              status_updated_at: lead.proposal_status_updated_at,
+                            }}
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-blue-700">{formatDateTime(lead.first_received_at)}</div>
                           <div className="text-xs text-gray-500">{formatDateTime(lead.last_received_at)}</div>
@@ -638,29 +776,27 @@ const IntegracoesVendeaiPage = () => {
                     <th className="px-4 py-3 text-left font-medium">Nascimento</th>
                     <th className="px-4 py-3 text-left font-medium">Telefone</th>
                     <th className="px-4 py-3 text-left font-medium">Chat</th>
+                    <th className="px-4 py-3 text-left font-medium">Dados da simulação</th>
+                    <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
                     <th className="px-4 py-3 text-left font-medium">Proposta New Corban</th>
-                    <th className="px-4 py-3 text-left font-medium">Banco</th>
-                    <th className="px-4 py-3 text-left font-medium">Produto</th>
-                    <th className="px-4 py-3 text-left font-medium">Valor</th>
-                    <th className="px-4 py-3 text-left font-medium">Proposta VendeAI</th>
                     <th className="px-4 py-3 text-left font-medium">Erro</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {attemptsQuery.isLoading ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                         <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                         Carregando propostas...
                       </td>
                     </tr>
                   ) : attemptsQuery.isError ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar propostas.</td>
+                      <td colSpan={10} className="px-4 py-12 text-center text-red-600">Falha ao carregar propostas.</td>
                     </tr>
                   ) : attempts.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhuma proposta no período.</td>
+                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">Nenhuma proposta no período.</td>
                     </tr>
                   ) : (
                     attempts.map((attempt) => (
@@ -697,20 +833,31 @@ const IntegracoesVendeaiPage = () => {
                           <div className="font-medium text-gray-900">{attempt.lead.chat_id || "-"}</div>
                         </td>
                         <td className="px-4 py-3">
+                          <SimulationDetails data={attempt.lead} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <ProposalDetails
+                            data={{
+                              proposal_id: attempt.lead.proposal_id,
+                              proposal_number: attempt.lead.proposal_number,
+                              bank: attempt.lead.proposal_bank,
+                              product: attempt.lead.proposal_product,
+                              status: attempt.lead.proposal_status,
+                              previous_status: attempt.lead.previous_proposal_status,
+                              liquid_value: attempt.lead.proposal_liquid_value,
+                              gross_value: attempt.lead.proposal_gross_value,
+                              number_of_payments: attempt.lead.proposal_number_of_payments,
+                              installment_value: attempt.lead.proposal_installment_value,
+                              table_name: attempt.lead.proposal_table_name,
+                              table_id: attempt.lead.proposal_table_id,
+                              formalization_link: attempt.lead.proposal_formalization_link,
+                              created_at: attempt.lead.proposal_created_at,
+                              status_updated_at: attempt.lead.proposal_status_updated_at,
+                            }}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
                           <div className="font-medium text-gray-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{bankLabel(attempt.proposal.bank || "-")}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{productLabel(attempt.proposal.product || "-")}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{formatCurrency(attempt.proposal.liquid_value)}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{attempt.proposal.proposal_id || "-"}</div>
-                          <div className="text-xs text-gray-500">{attempt.proposal.status || "-"}</div>
                         </td>
                         <td className="px-4 py-3 max-w-[360px]">
                           {attempt.newcorban_error ? (

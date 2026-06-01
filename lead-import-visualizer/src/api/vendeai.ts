@@ -48,13 +48,49 @@ export interface VendeaiAttempt {
     customer_birth_date: string | null;
     customer_phone: string | null;
     stage: string | null;
+    simulation_product: string | null;
+    simulation_bank: string | null;
+    simulation_liquid_value: string | null;
+    simulation_number_of_payments: number | null;
+    simulation_installment_value: string | null;
+    simulation_monthly_fee: string | null;
+    simulation_table_name: string | null;
+    simulation_table_id: string | null;
+    simulation_best_liquid_value: string | null;
+    simulation_best_table_id: string | null;
+    simulation_received_at: string | null;
+    proposal_id: string | null;
+    proposal_number: string | null;
+    proposal_bank: string | null;
+    proposal_product: string | null;
+    proposal_status: string | null;
+    previous_proposal_status: string | null;
+    proposal_liquid_value: string | null;
+    proposal_gross_value: string | null;
+    proposal_number_of_payments: number | null;
+    proposal_installment_value: string | null;
+    proposal_table_name: string | null;
+    proposal_table_id: string | null;
+    proposal_formalization_link: string | null;
+    proposal_created_at: string | null;
+    proposal_status_updated_at: string | null;
   };
   proposal: {
     proposal_id: string | null;
+    proposal_number: string | null;
     bank: string | null;
     product: string | null;
     status: string | null;
+    previous_status: string | null;
     liquid_value: string | null;
+    gross_value: string | null;
+    number_of_payments: number | null;
+    installment_value: string | null;
+    table_name: string | null;
+    table_id: string | null;
+    formalization_link: string | null;
+    created_at: string | null;
+    status_updated_at: string | null;
   };
 }
 
@@ -72,11 +108,32 @@ export interface VendeaiLead {
   customer_name: string | null;
   customer_birth_date: string | null;
   customer_phone: string | null;
+  simulation_product: string | null;
+  simulation_bank: string | null;
+  simulation_liquid_value: string | null;
+  simulation_number_of_payments: number | null;
+  simulation_installment_value: string | null;
+  simulation_monthly_fee: string | null;
+  simulation_table_name: string | null;
+  simulation_table_id: string | null;
+  simulation_best_liquid_value: string | null;
+  simulation_best_table_id: string | null;
+  simulation_received_at: string | null;
   proposal_id: string | null;
+  proposal_number: string | null;
   proposal_bank: string | null;
   proposal_product: string | null;
   proposal_status: string | null;
+  previous_proposal_status: string | null;
   proposal_liquid_value: string | null;
+  proposal_gross_value: string | null;
+  proposal_number_of_payments: number | null;
+  proposal_installment_value: string | null;
+  proposal_table_name: string | null;
+  proposal_table_id: string | null;
+  proposal_formalization_link: string | null;
+  proposal_created_at: string | null;
+  proposal_status_updated_at: string | null;
 }
 
 export interface VendeaiAttemptsResponse {
