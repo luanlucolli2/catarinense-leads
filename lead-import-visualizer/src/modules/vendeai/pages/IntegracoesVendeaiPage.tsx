@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { format, parseISO, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertCircle, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { AlertCircle, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,12 +13,11 @@ import {
   listVendeaiLeads,
   startVendeaiExport,
   type VendeaiExportType,
-  type VendeaiMetricBucket,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
 import { formatCPF, formatPhone } from "@/lib/formatters";
@@ -128,7 +127,6 @@ function loadFilters(): FiltersState {
 
 function formatDateTime(value: string | null): string {
   if (!value) return "-";
-
   try {
     return format(parseISO(value), "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
   } catch {
@@ -138,7 +136,6 @@ function formatDateTime(value: string | null): string {
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
-
   try {
     return format(parseISO(value), "dd/MM/yyyy", { locale: ptBR });
   } catch {
@@ -170,52 +167,19 @@ function errorMessage(error: unknown): string {
     const record = error as { response?: { data?: { message?: string } }; message?: string };
     return record.response?.data?.message || record.message || "Não foi possível concluir a ação.";
   }
-
   return "Não foi possível concluir a ação.";
-}
-
-function MetricCard({
-  label,
-  value,
-  detail,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-  tone?: "default" | "blue" | "green" | "rose";
-}) {
-  const toneClasses = {
-    default: "border-gray-200 bg-white",
-    blue: "border-blue-100 bg-blue-50/40",
-    green: "border-emerald-100 bg-emerald-50/40",
-    rose: "border-rose-100 bg-rose-50/40",
-  };
-
-  return (
-    <Card className={`shadow-sm ${toneClasses[tone]}`}>
-      <CardContent className="p-4">
-        <p className="text-sm text-gray-600">{label}</p>
-        <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
-        {detail && <p className="mt-1 text-xs text-gray-500">{detail}</p>}
-      </CardContent>
-    </Card>
-  );
 }
 
 function productLabel(label: string): string {
   const normalized = label.toLowerCase();
-
   if (normalized === "clt") return "Crédito do Trabalhador";
   if (normalized === "fgts") return "FGTS";
   if (normalized === "sem_valor") return "Não informado";
-
   return label;
 }
 
 function bankLabel(label: string): string {
   const normalized = label.toLowerCase();
-
   if (normalized === "mercantil") return "Mercantil";
   if (normalized === "presenca" || normalized === "presença") return "Presença Bank";
   if (normalized === "facta") return "FACTA";
@@ -224,21 +188,17 @@ function bankLabel(label: string): string {
   if (normalized === "c6") return "C6 Bank";
   if (normalized === "novo_saque" || normalized === "novo saque") return "Novo Saque";
   if (normalized === "sem_valor") return "Não informado";
-
   return label;
 }
 
 function stageLabel(label: string | null): string {
   if (!label) return "-";
-
   const normalized = label.toLowerCase().trim();
-
   if (normalized === "get_cpf") return "Coleta de CPF";
   if (normalized === "send_authorization") return "Envio de autorização";
   if (normalized === "vendedor") return "Vendedor";
   if (normalized === "oferta") return "Oferta";
-  if (normalized === "cross_sell") return "Cross sell";
-  if (normalized === "_cross_sell") return "Cross sell";
+  if (normalized === "cross_sell" || normalized === "_cross_sell") return "Cross sell";
   if (normalized === "get_sim_data") return "Coleta de dados da simulação";
   if (normalized === "first_message") return "Primeira mensagem";
   if (normalized === "simulation") return "Simulação";
@@ -254,30 +214,7 @@ function stageLabel(label: string | null): string {
   if (normalized === "unresolvable_error") return "Erro não tratável";
   if (normalized === "stage_updated") return "Etapa atualizada";
   if (normalized === "tag_updated") return "Tags atualizadas";
-
   return label.replace(/_/g, " ");
-}
-
-function ProductList({ title, items }: { title: string; items: VendeaiMetricBucket[] }) {
-  return (
-    <Card className="border border-blue-100 bg-blue-50/40 shadow-sm">
-      <CardContent className="p-4">
-        <p className="text-sm font-medium text-blue-900">{title}</p>
-        <div className="mt-3 space-y-2">
-          {items.length === 0 ? (
-            <p className="text-sm text-gray-500">Sem dados no período.</p>
-          ) : (
-            items.map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="min-w-0 truncate text-gray-600">{productLabel(item.label)}</span>
-                <span className="font-medium text-gray-900">{formatNumber(item.total)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 const IntegracoesVendeaiPage = () => {
@@ -308,7 +245,6 @@ const IntegracoesVendeaiPage = () => {
     const timer = window.setInterval(() => {
       setNowTs(Date.now());
     }, 1000);
-
     return () => window.clearInterval(timer);
   }, []);
 
@@ -326,17 +262,7 @@ const IntegracoesVendeaiPage = () => {
   const attemptsQuery = useQuery({
     queryKey: ["vendeai:attempts", attemptsPage, fromIso, toIso, applied.direction],
     queryFn: ({ signal }) =>
-      listVendeaiAttempts(
-        {
-          page: attemptsPage,
-          perPage: 20,
-          from: fromIso,
-          to: toIso,
-          direction: applied.direction,
-          sort: "received_at",
-        },
-        signal
-      ),
+      listVendeaiAttempts({ page: attemptsPage, perPage: 20, from: fromIso, to: toIso, direction: applied.direction, sort: "received_at" }, signal),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
@@ -349,17 +275,7 @@ const IntegracoesVendeaiPage = () => {
   const leadsQuery = useQuery({
     queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction],
     queryFn: ({ signal }) =>
-      listVendeaiLeads(
-        {
-          page: leadsPage,
-          perPage: 20,
-          from: fromIso,
-          to: toIso,
-          direction: applied.direction,
-          sort: "first_received_at",
-        },
-        signal
-      ),
+      listVendeaiLeads({ page: leadsPage, perPage: 20, from: fromIso, to: toIso, direction: applied.direction, sort: "first_received_at" }, signal),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
@@ -405,7 +321,6 @@ const IntegracoesVendeaiPage = () => {
     }
 
     setRangeError(null);
-
     let nextFrom = fromInput;
     let nextTo = toInput;
 
@@ -417,12 +332,7 @@ const IntegracoesVendeaiPage = () => {
       setToInput(nextTo);
     }
 
-    setApplied({
-      from: nextFrom,
-      to: nextTo,
-      direction: directionInput,
-      windowMode: windowModeInput,
-    });
+    setApplied({ from: nextFrom, to: nextTo, direction: directionInput, windowMode: windowModeInput });
     setLeadsPage(1);
     setAttemptsPage(1);
     return true;
@@ -456,10 +366,7 @@ const IntegracoesVendeaiPage = () => {
   };
 
   const handleManualRefresh = () => {
-    if (metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) {
-      return;
-    }
-
+    if (metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) return;
     setManualRefreshLockedUntil(Date.now() + MANUAL_REFRESH_COOLDOWN_MS);
     void metricsQuery.refetch();
     void leadsQuery.refetch();
@@ -468,38 +375,23 @@ const IntegracoesVendeaiPage = () => {
 
   const exportCsv = async (type: VendeaiExportType) => {
     if (exporting) return;
-
     setExporting(type);
     const toastId = toast.loading("Gerando CSV VendeAI...", { duration: Infinity });
 
     try {
-      const { token } = await startVendeaiExport(type, {
-        from: fromIso,
-        to: toIso,
-        direction: applied.direction,
-      });
-
+      const { token } = await startVendeaiExport(type, { from: fromIso, to: toIso, direction: applied.direction });
       for (let attempt = 0; attempt < 180; attempt += 1) {
         const status = await getVendeaiExportStatus(token);
-
         if (status.status === "ready") {
           toast.success("CSV pronto. Baixando...", { id: toastId });
           await downloadVendeaiExport(token);
           toast.dismiss(toastId);
           return;
         }
-
-        if (status.status === "error") {
-          throw new Error(status.error || status.message || "Falha ao gerar CSV.");
-        }
-
-        if (status.status === "deleted") {
-          throw new Error(status.message || "Export expirou antes do download.");
-        }
-
+        if (status.status === "error") throw new Error(status.error || status.message || "Falha ao gerar CSV.");
+        if (status.status === "deleted") throw new Error(status.message || "Export expirou antes do download.");
         await sleep(pollDelay(attempt));
       }
-
       throw new Error("O export demorou além do esperado.");
     } catch (error) {
       toast.error(errorMessage(error), { id: toastId });
@@ -513,9 +405,7 @@ const IntegracoesVendeaiPage = () => {
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-1">Integração VendeAI</h1>
-          <p className="text-gray-600 text-sm lg:text-base">
-            Métricas de conversas e propostas na New Corban.
-          </p>
+          <p className="text-gray-600 text-sm lg:text-base">Métricas de conversas e propostas na New Corban.</p>
         </div>
 
         <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
@@ -571,43 +461,6 @@ const IntegracoesVendeaiPage = () => {
         onApply={handleApplyFilters}
       />
 
-      {metricsQuery.isLoading ? (
-        <Card className="border-dashed">
-          <CardContent className="py-10 flex items-center justify-center text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            Carregando métricas...
-          </CardContent>
-        </Card>
-      ) : metricsQuery.isError ? (
-        <Card className="border-red-100 bg-red-50/50">
-          <CardContent className="py-10 text-center text-red-700">Falha ao carregar métricas.</CardContent>
-        </Card>
-      ) : (
-        <>
-          <div className="space-y-3">
-            {activeTable === "leads" ? (
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Leads VendeAI</h2>
-                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <MetricCard label="Conversas com a IA" value={formatNumber(metrics?.leads.total)} tone="blue" />
-                  <ProductList title="Conversas por produto" items={metrics?.leads.by_product ?? []} />
-                </div>
-              </div>
-            ) : (
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Criação de propostas na New Corban</h2>
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                  <MetricCard label="Propostas enviadas" value={formatNumber(metrics?.attempts.total)} tone="blue" />
-                  <MetricCard label="Criadas na New Corban" value={formatNumber(metrics?.attempts.success)} tone="green" />
-                  <MetricCard label="Falhas" value={formatNumber(metrics?.attempts.failed)} tone="rose" />
-                  <ProductList title="Propostas por produto" items={metrics?.attempts.by_product ?? []} />
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
       <div>
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -622,19 +475,86 @@ const IntegracoesVendeaiPage = () => {
           </div>
           <div className="text-sm text-gray-500 flex items-center gap-2">
             {activeTable === "leads"
-              ? leadsQuery.isFetching
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              : attemptsQuery.isFetching
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+              ? leadsQuery.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              : attemptsQuery.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
             {activeTable === "leads"
               ? leadsQuery.isFetching ? "Atualizando..." : "Atualiza automaticamente a cada 60s"
               : attemptsQuery.isFetching ? "Atualizando..." : "Atualiza automaticamente a cada 60s"}
           </div>
         </div>
 
-        <Card className="overflow-hidden border border-gray-200 shadow-sm">
+        <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
+          {/* HEADER DE MÉTRICAS INTEGRADO */}
+          {metricsQuery.isLoading && (
+            <div className="bg-gray-50/50 border-b border-gray-100 p-4 flex items-center text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Carregando métricas de resumo...
+            </div>
+          )}
+          {metricsQuery.isError && (
+            <div className="bg-red-50/50 border-b border-red-100 p-4 flex items-center text-sm text-red-600">
+              <AlertCircle className="w-4 h-4 mr-2" /> Não foi possível carregar as métricas do período.
+            </div>
+          )}
+          {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
+            <div className="bg-blue-50/20 border-b border-gray-200 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
+              {activeTable === "leads" ? (
+                <>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Conversas com IA</span>
+                    <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.leads.total)}</span>
+                  </div>
+                  {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                    <div className="hidden md:block w-px h-8 bg-gray-200" />
+                  )}
+                  <div className="flex-1 flex flex-col">
+                    {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
+                        {metrics.leads.by_product.map(item => (
+                          <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
+                            {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-6 lg:gap-8">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Enviadas</span>
+                      <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.attempts.total)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Criadas</span>
+                      <span className="text-2xl font-bold text-emerald-600 leading-none">{formatNumber(metrics.attempts.success)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Falhas</span>
+                      <span className="text-2xl font-bold text-rose-600 leading-none">{formatNumber(metrics.attempts.failed)}</span>
+                    </div>
+                  </div>
+                  {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                    <div className="hidden md:block w-px h-8 bg-gray-200" />
+                  )}
+                  <div className="flex-1 flex flex-col">
+                    {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
+                        {metrics.attempts.by_product.map(item => (
+                          <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
+                            {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             {activeTable === "leads" ? (
               <table className="w-full text-sm">
@@ -654,7 +574,7 @@ const IntegracoesVendeaiPage = () => {
                     <th className="px-4 py-3 text-left font-medium">Eventos</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 bg-white">
                   {leadsQuery.isLoading ? (
                     <tr>
                       <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
@@ -726,7 +646,7 @@ const IntegracoesVendeaiPage = () => {
                     <th className="px-4 py-3 text-left font-medium">Erro</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 bg-white">
                   {attemptsQuery.isLoading ? (
                     <tr>
                       <td colSpan={12} className="px-4 py-12 text-center text-gray-500">

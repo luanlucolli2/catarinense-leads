@@ -50,7 +50,7 @@ export function VendeaiControls({
           <Button
             onClick={onFilterClick}
             variant="outline"
-            className="relative h-10 justify-center gap-2 border-blue-500 bg-blue-50/50 px-4 text-blue-700 hover:bg-blue-50"
+            className="relative h-9 justify-center gap-2 border-blue-500 bg-blue-50/50 px-4 text-blue-700 hover:bg-blue-50"
           >
             <Filter className="h-4 w-4" />
             Filtros
@@ -61,7 +61,7 @@ export function VendeaiControls({
             onClick={onExportClick}
             variant="outline"
             disabled={exportLoading}
-            className="h-10 justify-center gap-2 border-gray-200 px-4 hover:bg-gray-50"
+            className="h-9 justify-center gap-2 border-gray-200 px-4 hover:bg-gray-50"
           >
             {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExportIcon className="h-4 w-4" />}
             {exportLabel}
@@ -70,7 +70,7 @@ export function VendeaiControls({
           <Button
             onClick={onRefreshClick}
             disabled={isRefreshing || refreshCountdown > 0}
-            className="h-10 justify-center gap-2 bg-blue-600 px-4 hover:bg-blue-700"
+            className="h-9 justify-center gap-2 bg-blue-600 px-4 hover:bg-blue-700 text-white"
           >
             {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {refreshCountdown > 0 ? `Atualizar (${refreshCountdown}s)` : "Atualizar"}
@@ -79,7 +79,7 @@ export function VendeaiControls({
       </div>
 
       {hasActiveFilters && (
-        <div className="mt-4 flex flex-col gap-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex items-center gap-2">
               <Filter className="h-4 w-4 text-blue-600" />
@@ -95,7 +95,7 @@ export function VendeaiControls({
                 <span
                   key={label}
                   className={cn(
-                    "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium shadow-sm",
+                    "inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium shadow-sm",
                     label.startsWith("Modo:")
                       ? "border-indigo-200 bg-indigo-50 text-indigo-800"
                       : "border-blue-200 bg-white text-blue-800"
@@ -110,7 +110,7 @@ export function VendeaiControls({
             onClick={onClearFilters}
             variant="ghost"
             size="sm"
-            className="h-8 w-full shrink-0 self-start text-xs text-blue-700 hover:bg-blue-100/50 hover:text-blue-800 sm:w-auto"
+            className="h-8 w-full shrink-0 self-start text-xs text-blue-700 hover:bg-blue-100/50 hover:text-blue-800 sm:w-auto mt-2 sm:mt-0"
           >
             Limpar todos
           </Button>
