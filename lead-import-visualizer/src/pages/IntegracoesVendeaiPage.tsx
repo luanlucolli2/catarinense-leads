@@ -174,6 +174,18 @@ function formatCurrency(value: string | null): string {
   return Number.isFinite(number) ? brMoney.format(number) : "-";
 }
 
+function formatCpf(value: string | null): string {
+  if (!value) return "-";
+
+  const digits = value.replace(/\D+/g, "");
+
+  if (digits.length !== 11) {
+    return value;
+  }
+
+  return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -644,7 +656,7 @@ const IntegracoesVendeaiPage = () => {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{attempt.lead.customer_cpf || "-"}</div>
+                        <div className="font-medium text-gray-900">{formatCpf(attempt.lead.customer_cpf)}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{attempt.lead.customer_name || "-"}</div>
