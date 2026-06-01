@@ -19,8 +19,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { VendeaiControls } from "@/components/VendeaiControls";
-import { VendeaiFiltersModal } from "@/components/VendeaiFiltersModal";
+import { VendeaiControls } from "../components/VendeaiControls";
+import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
 import { formatCPF, formatPhone } from "@/lib/formatters";
 
 type FiltersState = {
@@ -226,6 +226,36 @@ function bankLabel(label: string): string {
   if (normalized === "sem_valor") return "Não informado";
 
   return label;
+}
+
+function stageLabel(label: string | null): string {
+  if (!label) return "-";
+
+  const normalized = label.toLowerCase().trim();
+
+  if (normalized === "get_cpf") return "Coleta de CPF";
+  if (normalized === "send_authorization") return "Envio de autorização";
+  if (normalized === "vendedor") return "Vendedor";
+  if (normalized === "oferta") return "Oferta";
+  if (normalized === "cross_sell") return "Cross sell";
+  if (normalized === "_cross_sell") return "Cross sell";
+  if (normalized === "get_sim_data") return "Coleta de dados da simulação";
+  if (normalized === "first_message") return "Primeira mensagem";
+  if (normalized === "simulation") return "Simulação";
+  if (normalized === "simulation_rejected") return "Simulação rejeitada";
+  if (normalized === "option") return "Escolha de opção";
+  if (normalized === "negotiator") return "Negociador";
+  if (normalized === "digitador") return "Digitador";
+  if (normalized === "teimosinha") return "Teimosinha";
+  if (normalized === "proposal_sent") return "Proposta enviada";
+  if (normalized === "proposal_signed") return "Proposta assinada";
+  if (normalized === "proposal_created") return "Proposta criada";
+  if (normalized === "resolvable_error") return "Erro tratável";
+  if (normalized === "unresolvable_error") return "Erro não tratável";
+  if (normalized === "stage_updated") return "Etapa atualizada";
+  if (normalized === "tag_updated") return "Tags atualizadas";
+
+  return label.replace(/_/g, " ");
 }
 
 function ProductList({ title, items }: { title: string; items: VendeaiMetricBucket[] }) {
@@ -649,7 +679,7 @@ const IntegracoesVendeaiPage = () => {
                         <td className="px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
                         <td className="px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
                         <td className="px-4 py-3 font-medium text-gray-900">{productLabel(lead.proposal_product || lead.chat_product || "-")}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{lead.stage || "-"}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
                         <td className="px-4 py-3">
                           <div className="flex max-w-[240px] flex-wrap gap-1">
                             {lead.tags?.length ? (
