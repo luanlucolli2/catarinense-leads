@@ -97,6 +97,9 @@ final class VendeaiCsvExport
             'Link formalizacao',
             'Data criacao proposta',
             'Data atualizacao status proposta',
+            'Proposta NewCorban',
+            'Erro NewCorban',
+            'Enviado NewCorban em',
             'Primeiro evento em',
             'Ultimo evento em',
         ];
@@ -136,54 +139,70 @@ final class VendeaiCsvExport
         [$from, $to] = VendeaiDateRange::fromValidated($filters);
         $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 
+        $latestAttempts = DB::table('vendeai_newcorban_proposal_attempts')
+            ->selectRaw('MAX(id) as id, vendeai_lead_id')
+            ->whereNotNull('vendeai_lead_id')
+            ->groupBy('vendeai_lead_id');
+
         $query = DB::table('vendeai_leads')
+            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
+                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+            })
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id')
             ->select([
-                'id',
-                'account_id',
-                'chat_id',
-                'first_received_at',
-                'last_received_at',
-                'last_event',
-                'chat_product',
-                'stage',
-                'tags',
-                'customer_cpf',
-                'customer_name',
-                'customer_birth_date',
-                'customer_phone',
-                'customer_email',
-                'simulation_product',
-                'simulation_bank',
-                'simulation_liquid_value',
-                'simulation_number_of_payments',
-                'simulation_installment_value',
-                'simulation_monthly_fee',
-                'simulation_table_name',
-                'simulation_table_id',
-                'simulation_best_liquid_value',
-                'simulation_best_table_id',
-                'simulation_table_details',
-                'simulation_received_at',
-                'proposal_product',
-                'proposal_bank',
-                'proposal_id',
-                'proposal_number',
-                'proposal_status',
-                'previous_proposal_status',
-                'proposal_liquid_value',
-                'proposal_gross_value',
-                'proposal_number_of_payments',
-                'proposal_installment_value',
-                'proposal_table_name',
-                'proposal_table_id',
-                'proposal_formalization_link',
-                'proposal_created_at',
-                'proposal_status_updated_at',
+                'vendeai_leads.id',
+                'vendeai_leads.account_id',
+                'vendeai_leads.chat_id',
+                'vendeai_leads.first_received_at',
+                'vendeai_leads.last_received_at',
+                'vendeai_leads.last_event',
+                'vendeai_leads.chat_product',
+                'vendeai_leads.stage',
+                'vendeai_leads.tags',
+                'vendeai_leads.customer_cpf',
+                'vendeai_leads.customer_name',
+                'vendeai_leads.customer_birth_date',
+                'vendeai_leads.customer_phone',
+                'vendeai_leads.customer_email',
+                'vendeai_leads.simulation_product',
+                'vendeai_leads.simulation_bank',
+                'vendeai_leads.simulation_liquid_value',
+                'vendeai_leads.simulation_number_of_payments',
+                'vendeai_leads.simulation_installment_value',
+                'vendeai_leads.simulation_monthly_fee',
+                'vendeai_leads.simulation_table_name',
+                'vendeai_leads.simulation_table_id',
+                'vendeai_leads.simulation_best_liquid_value',
+                'vendeai_leads.simulation_best_table_id',
+                'vendeai_leads.simulation_table_details',
+                'vendeai_leads.simulation_received_at',
+                'vendeai_leads.proposal_product',
+                'vendeai_leads.proposal_bank',
+                'vendeai_leads.proposal_id',
+                'vendeai_leads.proposal_number',
+                'vendeai_leads.proposal_status',
+                'vendeai_leads.previous_proposal_status',
+                'vendeai_leads.proposal_liquid_value',
+                'vendeai_leads.proposal_gross_value',
+                'vendeai_leads.proposal_number_of_payments',
+                'vendeai_leads.proposal_installment_value',
+                'vendeai_leads.proposal_table_name',
+                'vendeai_leads.proposal_table_id',
+                'vendeai_leads.proposal_formalization_link',
+                'vendeai_leads.proposal_created_at',
+                'vendeai_leads.proposal_status_updated_at',
+                'attempts.newcorban_proposta_id',
+                'attempts.newcorban_error',
+                'attempts.newcorban_sent_at',
             ]);
 
-        self::applyDateFilter($query, 'first_received_at', $from, $to);
+        self::applyDateFilter($query, 'vendeai_leads.first_received_at', $from, $to);
 
-        return $query->orderBy('first_received_at', $direction)->orderBy('id', $direction);
+        if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
+            $query->whereNotNull('attempts.newcorban_sent_at');
+        }
+
+        return $query->orderBy('vendeai_leads.first_received_at', $direction)->orderBy('vendeai_leads.id', $direction);
     }
 
     private static function buildAttemptsQuery(array $filters): Builder
@@ -296,6 +315,9 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->proposal_formalization_link ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_created_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_status_updated_at ?? null)),
+            self::sanitizeCsvValue($lead->newcorban_proposta_id ?? null),
+            self::sanitizeCsvValue($lead->newcorban_error ?? null),
+            self::sanitizeCsvValue(self::formatDateTime($lead->newcorban_sent_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->last_received_at ?? null)),
         ];

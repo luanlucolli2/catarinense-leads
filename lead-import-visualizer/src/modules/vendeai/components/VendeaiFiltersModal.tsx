@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 type WindowMode = "rolling" | "fixed";
+type NewcorbanFilter = "all" | "sent";
 
 type WindowModeOption = {
   value: WindowMode;
@@ -19,12 +20,14 @@ type VendeaiFiltersModalProps = {
   from: string;
   to: string;
   windowMode: WindowMode;
+  newcorbanFilter: NewcorbanFilter;
   windowModeOptions: WindowModeOption[];
   rangeError: string | null;
   onClose: () => void;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
+  onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
   onReset: () => void;
   onApply: () => void;
 };
@@ -60,12 +63,14 @@ export function VendeaiFiltersModal({
   from,
   to,
   windowMode,
+  newcorbanFilter,
   windowModeOptions,
   rangeError,
   onClose,
   onFromChange,
   onToChange,
   onWindowModeChange,
+  onNewcorbanFilterChange,
   onReset,
   onApply,
 }: VendeaiFiltersModalProps) {
@@ -145,6 +150,24 @@ export function VendeaiFiltersModal({
             {rangeError ? (
               <div className="rounded-md border border-rose-100 bg-rose-50/60 p-3 text-sm text-rose-700">{rangeError}</div>
             ) : null}
+          </Section>
+
+          <Section title="Proposta enviada NewCorban" description="Filtre os leads com envio realizado para a NewCorban.">
+            <div>
+              <Label text="Situação" />
+              <Select value={newcorbanFilter} onValueChange={(value) => onNewcorbanFilterChange(value as NewcorbanFilter)}>
+                <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-gray-400" />
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="shadow-lg">
+                  <SelectItem value="all">Todos os leads</SelectItem>
+                  <SelectItem value="sent">Proposta enviada NewCorban</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </Section>
         </div>
 

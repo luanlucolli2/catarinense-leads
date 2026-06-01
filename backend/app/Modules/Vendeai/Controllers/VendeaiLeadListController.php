@@ -7,6 +7,7 @@ use App\Modules\Vendeai\Models\VendeaiLead;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
 use App\Modules\Vendeai\Support\VendeaiDateRange;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,6 +23,7 @@ class VendeaiLeadListController extends Controller
             'view' => ['nullable', Rule::in(['summary'])],
             'sort' => ['nullable', Rule::in(['first_received_at', 'last_received_at', 'id'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
+            'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
         ]);
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
@@ -57,17 +59,36 @@ class VendeaiLeadListController extends Controller
             );
         }
 
-        $query = VendeaiLead::query();
+        $latestAttempts = DB::table('vendeai_newcorban_proposal_attempts')
+            ->selectRaw('MAX(id) as id, vendeai_lead_id')
+            ->whereNotNull('vendeai_lead_id')
+            ->groupBy('vendeai_lead_id');
+
+        $query = VendeaiLead::query()
+            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
+                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+            })
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id')
+            ->select([
+                'vendeai_leads.*',
+                'attempts.newcorban_proposta_id',
+                'attempts.newcorban_error',
+                'attempts.newcorban_sent_at',
+            ]);
 
         if ($from !== null) {
-            $query->where('first_received_at', '>=', $from);
+            $query->where('vendeai_leads.first_received_at', '>=', $from);
         }
 
         if ($to !== null) {
-            $query->where('first_received_at', '<=', $to);
+            $query->where('vendeai_leads.first_received_at', '<=', $to);
         }
 
-        $query->orderBy($sort, $direction)->orderBy('id', $direction);
+        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
+            $query->whereNotNull('attempts.newcorban_sent_at');
+        }
+
+        $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);
 
         return response()->json($query->paginate($perPage));
     }
