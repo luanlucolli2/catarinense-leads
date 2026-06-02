@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use App\Modules\CLT\Services\DispatchScheduledCltConsultJobs;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
+use App\Modules\Vendeai\Services\BackfillVendeaiLeadProductKeysService;
 use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
 use App\Models\C6AuthorizationLink;
 
@@ -82,3 +83,15 @@ Artisan::command('c6:purge-expired-links', function () {
 
     $this->info("c6_authorization_links: {$updated} link(s) marcado(s) como expirado(s).");
 })->purpose('Marca links C6 expirados (sem remoção)');
+
+Artisan::command('vendeai:backfill-product-keys', function () {
+    $result = app(BackfillVendeaiLeadProductKeysService::class)->handle();
+
+    $this->info(sprintf(
+        'VendeAI product_key: %d processado(s), %d atualizado(s), %d duplicado(s), %d tentativa(s) religada(s).',
+        (int) ($result['processed'] ?? 0),
+        (int) ($result['updated'] ?? 0),
+        (int) ($result['duplicated'] ?? 0),
+        (int) ($result['attempts_relinked'] ?? 0),
+    ));
+})->purpose('Divide leads VendeAI por conversa + produto e religa tentativas NewCorban');

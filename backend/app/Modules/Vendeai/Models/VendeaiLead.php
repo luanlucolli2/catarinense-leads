@@ -12,6 +12,7 @@ class VendeaiLead extends Model
     protected $fillable = [
         'account_id',
         'chat_id',
+        'product_key',
         'last_event',
         'chat_product',
         'stage',

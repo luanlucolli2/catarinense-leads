@@ -11,6 +11,7 @@ import {
   startVendeaiExport,
   type VendeaiLead,
   type VendeaiNewcorbanFilter,
+  type VendeaiProductFilter,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Card } from "@/components/ui/card";
@@ -25,6 +26,7 @@ type FiltersState = {
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
   newcorbanFilter: VendeaiNewcorbanFilter;
+  product: VendeaiProductFilter;
 };
 
 const STORAGE_KEY = "vendeai:integracoes:filters:v2";
@@ -94,6 +96,7 @@ function defaultFilters(): FiltersState {
     direction: "desc",
     windowMode: "always",
     newcorbanFilter: "all",
+    product: "all",
   };
 }
 
@@ -231,9 +234,10 @@ function loadFilters(): FiltersState {
         : null;
     const newcorbanFilter =
       storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
+    const product = parsed.product === "clt" || parsed.product === "fgts" ? parsed.product : fallback.product;
 
     if (windowMode === "always") {
-      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
+      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
     }
 
     if (windowMode === "rolling") {
@@ -244,10 +248,11 @@ function loadFilters(): FiltersState {
         direction: parsed.direction === "asc" ? "asc" : fallback.direction,
         windowMode,
         newcorbanFilter,
+        product,
       };
     }
 
-    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
+    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
   } catch {
     return fallback;
   }
@@ -475,6 +480,7 @@ export default function IntegracoesVendeaiPage() {
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
+  const [productInput, setProductInput] = useState<VendeaiProductFilter>(initial.product);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -508,8 +514,8 @@ export default function IntegracoesVendeaiPage() {
   }, []);
 
   const metricsQuery = useQuery({
-    queryKey: ["vendeai:metrics", fromIso, toIso],
-    queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso }, signal),
+    queryKey: ["vendeai:metrics", fromIso, toIso, applied.product],
+    queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso, product: applied.product }, signal),
     staleTime: 15_000,
     gcTime: 120_000,
     retry: 1,
@@ -519,7 +525,7 @@ export default function IntegracoesVendeaiPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter],
+    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter, applied.product],
     queryFn: ({ signal }) =>
       listVendeaiLeads(
         {
@@ -530,6 +536,7 @@ export default function IntegracoesVendeaiPage() {
           direction: applied.direction,
           sort: "first_received_at",
           newcorbanFilter: applied.newcorbanFilter,
+          product: applied.product,
         },
         signal
       ),
@@ -556,6 +563,7 @@ export default function IntegracoesVendeaiPage() {
           `De ${formatDateTime(fromIso ?? effectiveRange.from)}`,
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
+    ...(applied.product === "all" ? [] : [`Produto: ${productLabel(applied.product)}`]),
     ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
@@ -568,6 +576,7 @@ export default function IntegracoesVendeaiPage() {
         direction: directionInput,
         windowMode: "always",
         newcorbanFilter: newcorbanFilterInput,
+        product: productInput,
       });
       setLeadsPage(1);
       return true;
@@ -605,6 +614,7 @@ export default function IntegracoesVendeaiPage() {
       direction: directionInput,
       windowMode: windowModeInput,
       newcorbanFilter: newcorbanFilterInput,
+      product: productInput,
     });
     setLeadsPage(1);
     return true;
@@ -621,6 +631,7 @@ export default function IntegracoesVendeaiPage() {
     setWindowModeInput(next.windowMode);
     setDirectionInput(next.direction);
     setNewcorbanFilterInput(next.newcorbanFilter);
+    setProductInput(next.product);
     setRangeError(null);
   };
 
@@ -629,8 +640,9 @@ export default function IntegracoesVendeaiPage() {
     setToInput("");
     setWindowModeInput("always");
     setNewcorbanFilterInput("all");
+    setProductInput("all");
     setRangeError(null);
-    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all" }));
+    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all", product: "all" }));
     setLeadsPage(1);
   };
 
@@ -653,6 +665,7 @@ export default function IntegracoesVendeaiPage() {
         to: toIso,
         direction: applied.direction,
         newcorbanFilter: applied.newcorbanFilter,
+        product: applied.product,
       });
 
       for (let attempt = 0; attempt < 180; attempt += 1) {
@@ -715,6 +728,7 @@ export default function IntegracoesVendeaiPage() {
         windowMode={windowModeInput}
         direction={directionInput}
         newcorbanFilter={newcorbanFilterInput}
+        product={productInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
@@ -723,6 +737,7 @@ export default function IntegracoesVendeaiPage() {
         onWindowModeChange={setWindowModeInput}
         onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
+        onProductChange={setProductInput}
         onReset={resetFilterInputs}
         onApply={handleApplyFilters}
       />

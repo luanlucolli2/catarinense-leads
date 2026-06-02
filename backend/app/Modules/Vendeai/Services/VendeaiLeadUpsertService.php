@@ -3,6 +3,7 @@
 namespace App\Modules\Vendeai\Services;
 
 use App\Modules\Vendeai\Models\VendeaiLead;
+use App\Modules\Vendeai\Support\VendeaiProductKey;
 use App\Support\Cpf;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -30,14 +31,16 @@ class VendeaiLeadUpsertService
             return null;
         }
 
+        $productKey = VendeaiProductKey::resolveFromPayload($payload);
         $now = now();
-        $lead = VendeaiLead::firstOrNew([
-            'account_id' => $accountId,
-            'chat_id' => $chatId,
-        ]);
+        $lead = $this->resolveLead($accountId, $chatId, $productKey);
+
+        if ($lead === null) {
+            return null;
+        }
 
         $attributes = array_merge(
-            $this->baseAttributes($payload, $event, $now),
+            $this->baseAttributes($payload, $event, $now, $productKey),
             $this->eventAttributes($payload, $event, $now),
         );
 
@@ -50,10 +53,7 @@ class VendeaiLeadUpsertService
         try {
             $lead->save();
         } catch (QueryException) {
-            $lead = VendeaiLead::query()
-                ->where('account_id', $accountId)
-                ->where('chat_id', $chatId)
-                ->first();
+            $lead = $this->resolvePersistedLead($accountId, $chatId, $productKey);
 
             if ($lead === null) {
                 return null;
@@ -67,16 +67,63 @@ class VendeaiLeadUpsertService
         return $lead;
     }
 
-    private function baseAttributes(array $payload, string $event, Carbon $now): array
+    private function resolveLead(string $accountId, string $chatId, ?string $productKey): ?VendeaiLead
+    {
+        if ($productKey !== null) {
+            $existing = $this->resolvePersistedLead($accountId, $chatId, $productKey);
+
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            $conversationLeads = VendeaiLead::query()
+                ->where('account_id', $accountId)
+                ->where('chat_id', $chatId)
+                ->get();
+
+            if ($conversationLeads->count() === 1 && $conversationLeads->first()?->product_key === null) {
+                return $conversationLeads->first();
+            }
+
+            return new VendeaiLead([
+                'account_id' => $accountId,
+                'chat_id' => $chatId,
+                'product_key' => $productKey,
+            ]);
+        }
+
+        $conversationLeads = VendeaiLead::query()
+            ->where('account_id', $accountId)
+            ->where('chat_id', $chatId)
+            ->get();
+
+        return $conversationLeads->count() === 1 ? $conversationLeads->first() : null;
+    }
+
+    private function resolvePersistedLead(string $accountId, string $chatId, ?string $productKey): ?VendeaiLead
+    {
+        $query = VendeaiLead::query()
+            ->where('account_id', $accountId)
+            ->where('chat_id', $chatId);
+
+        if ($productKey === null) {
+            return $query->whereNull('product_key')->first();
+        }
+
+        return $query->where('product_key', $productKey)->first();
+    }
+
+    private function baseAttributes(array $payload, string $event, Carbon $now, ?string $productKey): array
     {
         return [
+            'product_key' => $productKey,
             'last_event' => $this->stringOrNull($event, 50),
-            'chat_product' => $this->stringOrNull(data_get($payload, 'chat_summary.product'), 30),
+            'chat_product' => $this->normalizedProductOrRaw(data_get($payload, 'chat_summary.product'), 30),
             'stage' => $this->stringOrNull(data_get($payload, 'chat_summary.stage'), 100),
             'tags' => is_array(data_get($payload, 'chat_summary.tags')) ? data_get($payload, 'chat_summary.tags') : null,
             'campaign' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.campaign'), 150),
             'inbox_phone_number' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.inbox_phone_number'), 30),
-            'product_being_processed' => $this->stringOrNull(data_get($payload, 'chat_summary.details.session.product_being_processed'), 30),
+            'product_being_processed' => $this->normalizedProductOrRaw(data_get($payload, 'chat_summary.details.session.product_being_processed'), 30),
             'customer_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.name'), 255),
             'customer_phone' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.phone'), 30),
             'customer_email' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.email'), 255),
@@ -107,7 +154,7 @@ class VendeaiLeadUpsertService
         }
 
         return [
-            'simulation_product' => $this->stringOrNull(data_get($simulation, 'product'), 30),
+            'simulation_product' => $this->normalizedProductOrRaw(data_get($simulation, 'product'), 30),
             'simulation_bank' => $this->stringOrNull(data_get($simulation, 'bank'), 50),
             'simulation_liquid_value' => $this->decimalOrNull(data_get($simulation, 'liquid_value')),
             'simulation_number_of_payments' => $this->integerOrNull(data_get($simulation, 'number_of_payments')),
@@ -135,7 +182,7 @@ class VendeaiLeadUpsertService
             'proposal_number' => $this->stringOrNull(data_get($proposal, 'proposal_number'), 100),
             'proposal_status' => $this->stringOrNull(data_get($proposal, 'proposal_status'), 100),
             'proposal_bank' => $this->stringOrNull(data_get($proposal, 'bank'), 50),
-            'proposal_product' => $this->stringOrNull(data_get($proposal, 'product'), 30),
+            'proposal_product' => $this->normalizedProductOrRaw(data_get($proposal, 'product'), 30),
             'proposal_liquid_value' => $this->decimalOrNull(data_get($proposal, 'liquid_value')),
             'proposal_gross_value' => $this->decimalOrNull(data_get($proposal, 'gross_value')),
             'proposal_number_of_payments' => $this->integerOrNull(data_get($proposal, 'number_of_payments')),
@@ -202,5 +249,10 @@ class VendeaiLeadUpsertService
     private function integerOrNull(mixed $value): ?int
     {
         return is_numeric($value) ? max(0, (int) $value) : null;
+    }
+
+    private function normalizedProductOrRaw(mixed $value, ?int $maxLength = null): ?string
+    {
+        return VendeaiProductKey::canonicalize($value) ?? $this->stringOrNull($value, $maxLength);
     }
 }

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 type WindowMode = "always" | "rolling" | "fixed";
 type NewcorbanFilter = "all" | "sent";
+type ProductFilter = "all" | "clt" | "fgts";
 type SortDirection = "asc" | "desc";
 
 type WindowModeOption = {
@@ -23,6 +24,7 @@ type VendeaiFiltersModalProps = {
   windowMode: WindowMode;
   direction: SortDirection;
   newcorbanFilter: NewcorbanFilter;
+  product: ProductFilter;
   windowModeOptions: WindowModeOption[];
   rangeError: string | null;
   onClose: () => void;
@@ -31,6 +33,7 @@ type VendeaiFiltersModalProps = {
   onWindowModeChange: (value: WindowMode) => void;
   onDirectionChange: (value: SortDirection) => void;
   onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
+  onProductChange: (value: ProductFilter) => void;
   onReset: () => void;
   onApply: () => void;
 };
@@ -108,6 +111,7 @@ export function VendeaiFiltersModal({
   windowMode,
   direction,
   newcorbanFilter,
+  product,
   windowModeOptions,
   rangeError,
   onClose,
@@ -116,6 +120,7 @@ export function VendeaiFiltersModal({
   onWindowModeChange,
   onDirectionChange,
   onNewcorbanFilterChange,
+  onProductChange,
   onReset,
   onApply,
 }: VendeaiFiltersModalProps) {
@@ -123,6 +128,7 @@ export function VendeaiFiltersModal({
 
   const chips = [
     ...(windowMode === "always" ? [] : [`Período · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
+    ...(product === "all" ? [] : [`Produto · ${product === "clt" ? "Crédito do Trabalhador" : "FGTS"}`]),
     ...(newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
@@ -261,6 +267,25 @@ export function VendeaiFiltersModal({
                   <SelectContent className="shadow-lg">
                     <SelectItem value="all">Todos os leads</SelectItem>
                     <SelectItem value="sent">Proposta enviada NewCorban</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title="Produto" description="Aplique um recorte opcional por produto." active={product !== "all"}>
+              <div>
+                <Label text="Produto" />
+                <Select value={product} onValueChange={(value) => onProductChange(value as ProductFilter)}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todos os produtos</SelectItem>
+                    <SelectItem value="clt">Crédito do Trabalhador</SelectItem>
+                    <SelectItem value="fgts">FGTS</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

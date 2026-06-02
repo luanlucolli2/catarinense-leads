@@ -24,6 +24,7 @@ class VendeaiLeadListController extends Controller
             'sort' => ['nullable', Rule::in(['first_received_at', 'last_received_at', 'id'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
             'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
+            'product' => ['nullable', Rule::in(['all', 'clt', 'fgts'])],
         ]);
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
@@ -41,6 +42,10 @@ class VendeaiLeadListController extends Controller
                     ->join('vendeai_leads', 'vendeai_leads.id', '=', 'vendeai_newcorban_proposal_attempts.vendeai_lead_id')
                     ->whereNotNull('vendeai_leads.customer_cpf')
                     ->where('vendeai_leads.customer_cpf', '<>', '')
+                    ->when(
+                        in_array(($validated['product'] ?? 'all'), ['clt', 'fgts'], true),
+                        fn ($query) => $query->where('vendeai_leads.product_key', $validated['product'])
+                    )
                     ->orderBy($summarySort, $direction)
                     ->select([
                         'vendeai_newcorban_proposal_attempts.id',
@@ -86,6 +91,10 @@ class VendeaiLeadListController extends Controller
 
         if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
             $query->whereNotNull('attempts.newcorban_sent_at');
+        }
+
+        if (in_array(($validated['product'] ?? 'all'), ['clt', 'fgts'], true)) {
+            $query->where('vendeai_leads.product_key', $validated['product']);
         }
 
         $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);

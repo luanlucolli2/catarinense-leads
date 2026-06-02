@@ -3,6 +3,7 @@ import axiosClient from "./axiosClient";
 export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
 export type VendeaiNewcorbanFilter = "all" | "sent";
+export type VendeaiProductFilter = "all" | "clt" | "fgts";
 export type VendeaiExportStatus = "queued" | "running" | "ready" | "error" | "none" | "deleted";
 export type VendeaiExportType = "leads" | "newcorban-proposal-attempts";
 
@@ -102,6 +103,7 @@ export interface VendeaiLead {
   id: number;
   account_id: string | null;
   chat_id: string | null;
+  product_key: string | null;
   first_received_at: string | null;
   last_received_at: string | null;
   last_event: string | null;
@@ -174,6 +176,7 @@ export interface VendeaiFilters {
   status?: VendeaiAttemptStatus;
   direction?: VendeaiSortDirection;
   newcorbanFilter?: VendeaiNewcorbanFilter;
+  product?: VendeaiProductFilter;
 }
 
 export interface ListVendeaiAttemptsParams extends VendeaiFilters {
@@ -196,6 +199,7 @@ function buildParams(params: VendeaiFilters): Record<string, string | number> {
   if (params.status && params.status !== "all") query.status = params.status;
   if (params.direction) query.direction = params.direction;
   if (params.newcorbanFilter && params.newcorbanFilter !== "all") query.newcorban_filter = params.newcorbanFilter;
+  if (params.product && params.product !== "all") query.product = params.product;
 
   return query;
 }

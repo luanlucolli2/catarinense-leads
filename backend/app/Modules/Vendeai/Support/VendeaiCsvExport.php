@@ -152,6 +152,7 @@ final class VendeaiCsvExport
                 'vendeai_leads.id',
                 'vendeai_leads.account_id',
                 'vendeai_leads.chat_id',
+                'vendeai_leads.product_key',
                 'vendeai_leads.first_received_at',
                 'vendeai_leads.last_received_at',
                 'vendeai_leads.last_event',
@@ -195,6 +196,7 @@ final class VendeaiCsvExport
             ]);
 
         self::applyDateFilter($query, 'vendeai_leads.first_received_at', $from, $to);
+        self::applyProductFilter($query, (string) ($filters['product'] ?? 'all'), 'vendeai_leads.product_key');
 
         if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
             $query->whereNotNull('attempts.newcorban_sent_at');
@@ -220,6 +222,7 @@ final class VendeaiCsvExport
                 'attempts.newcorban_cliente_id',
                 'leads.account_id',
                 'leads.chat_id',
+                'leads.product_key',
                 'leads.customer_cpf',
                 'leads.customer_name',
                 'leads.customer_birth_date',
@@ -243,6 +246,7 @@ final class VendeaiCsvExport
             ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.login_digitacao')) as request_login_digitacao");
 
         self::applyDateFilter($query, 'attempts.received_at', $from, $to);
+        self::applyProductFilter($query, (string) ($filters['product'] ?? 'all'), 'leads.product_key');
         self::applyAttemptStatusFilter($query, (string) ($filters['status'] ?? 'all'));
 
         return $query->orderBy('attempts.received_at', $direction)->orderBy('attempts.id', $direction);
@@ -269,6 +273,15 @@ final class VendeaiCsvExport
             'pending' => $query->whereNull('attempts.newcorban_sent_at'),
             default => null,
         };
+    }
+
+    private static function applyProductFilter(Builder $query, string $product, string $column): void
+    {
+        if (! in_array($product, ['clt', 'fgts'], true)) {
+            return;
+        }
+
+        $query->where($column, $product);
     }
 
     private static function mapLead(object $lead): array

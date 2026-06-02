@@ -17,25 +17,27 @@ class VendeaiMetricsController extends Controller
         $validated = $request->validate([
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'product' => ['nullable', 'in:all,clt,fgts'],
         ]);
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
+        $product = (string) ($validated['product'] ?? 'all');
 
         $leads = DB::table('vendeai_leads');
-        $attempts = DB::table('vendeai_newcorban_proposal_attempts');
-        $attemptsWithLead = DB::table('vendeai_newcorban_proposal_attempts as attempts')
-            ->join('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id');
+        $attempts = DB::table('vendeai_newcorban_proposal_attempts as attempts')
+            ->leftJoin('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id');
 
         $this->applyDateFilter($leads, 'first_received_at', $from, $to);
-        $this->applyDateFilter($attempts, 'received_at', $from, $to);
-        $this->applyDateFilter($attemptsWithLead, 'attempts.received_at', $from, $to);
+        $this->applyDateFilter($attempts, 'attempts.received_at', $from, $to);
+        $this->applyProductFilter($leads, $product, 'product_key');
+        $this->applyProductFilter($attempts, $product, 'leads.product_key');
 
         $attemptsTotal = (int) (clone $attempts)->count();
-        $attemptsSuccess = (int) (clone $attempts)->whereNotNull('newcorban_proposta_id')->count();
-        $attemptsPending = (int) (clone $attempts)->whereNull('newcorban_sent_at')->count();
+        $attemptsSuccess = (int) (clone $attempts)->whereNotNull('attempts.newcorban_proposta_id')->count();
+        $attemptsPending = (int) (clone $attempts)->whereNull('attempts.newcorban_sent_at')->count();
         $attemptsFailed = (int) (clone $attempts)
-            ->whereNull('newcorban_proposta_id')
-            ->whereNotNull('newcorban_sent_at')
+            ->whereNull('attempts.newcorban_proposta_id')
+            ->whereNotNull('attempts.newcorban_sent_at')
             ->count();
 
         return response()->json([
@@ -51,7 +53,7 @@ class VendeaiMetricsController extends Controller
                     $leads,
                     "CASE WHEN proposal_status = 'LIQUIDATED_TO_CUSTOMER' THEN proposal_liquid_value ELSE 0 END"
                 ),
-                'by_product' => $this->countsBy($leads, 'chat_product'),
+                'by_product' => $this->countsBy($leads, 'product_key'),
             ],
             'attempts' => [
                 'conversations_total' => $this->distinctAttemptConversations($attempts),
@@ -60,7 +62,7 @@ class VendeaiMetricsController extends Controller
                 'failed' => $attemptsFailed,
                 'pending' => $attemptsPending,
                 'success_rate' => $attemptsTotal > 0 ? round(($attemptsSuccess / $attemptsTotal) * 100, 2) : 0,
-                'by_product' => $this->countsBy($attemptsWithLead, 'leads.proposal_product'),
+                'by_product' => $this->countsBy($attempts, 'leads.product_key'),
             ],
         ]);
     }
@@ -109,5 +111,14 @@ class VendeaiMetricsController extends Controller
         return round((float) ((clone $baseQuery)
             ->selectRaw("COALESCE(SUM({$expression}), 0) as total")
             ->value('total') ?? 0), 2);
+    }
+
+    private function applyProductFilter(Builder $query, string $product, string $column): void
+    {
+        if (! in_array($product, ['clt', 'fgts'], true)) {
+            return;
+        }
+
+        $query->where($column, $product);
     }
 }
