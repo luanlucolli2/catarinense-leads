@@ -2,44 +2,38 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { format, parseISO, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertCircle, Loader2, XCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   downloadVendeaiExport,
   getVendeaiExportStatus,
   getVendeaiMetrics,
-  listVendeaiAttempts,
   listVendeaiLeads,
   startVendeaiExport,
-  type VendeaiExportType,
+  type VendeaiLead,
+  type VendeaiNewcorbanFilter,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { formatCPF, formatPhone } from "@/lib/formatters";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
-import { formatCPF, formatPhone } from "@/lib/formatters";
 
 type FiltersState = {
   from: string;
   to: string;
   direction: VendeaiSortDirection;
   windowMode: "rolling" | "fixed";
+  newcorbanFilter: VendeaiNewcorbanFilter;
 };
 
-type ActiveTable = "leads" | "attempts";
-
-const STORAGE_KEY = "vendeai:integracoes:filters:v1";
+const STORAGE_KEY = "vendeai:integracoes:filters:v2";
 const AUTO_REFRESH_MS = 60_000;
 const MANUAL_REFRESH_COOLDOWN_MS = 10_000;
 const brMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-
-const directionOptions: Array<{ value: VendeaiSortDirection; label: string }> = [
-  { value: "desc", label: "Mais recentes" },
-  { value: "asc", label: "Mais antigas" },
-];
 
 const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
   { value: "rolling", label: "Janela móvel" },
@@ -63,6 +57,7 @@ function defaultFilters(): FiltersState {
     to: toDateTimeLocalValue(new Date()),
     direction: "desc",
     windowMode: "rolling",
+    newcorbanFilter: "all",
   };
 }
 
@@ -78,18 +73,14 @@ function rollRangeToNow(fromValue: string, toValue: string): { from: string; to:
 
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
     const now = new Date();
-    return {
-      from: toDateTimeLocalValue(subHours(now, 24)),
-      to: toDateTimeLocalValue(now),
-    };
+    return { from: toDateTimeLocalValue(subHours(now, 24)), to: toDateTimeLocalValue(now) };
   }
 
   const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
   const now = new Date();
-  const nextFrom = new Date(now.getTime() - durationMs);
 
   return {
-    from: toDateTimeLocalValue(nextFrom),
+    from: toDateTimeLocalValue(new Date(now.getTime() - durationMs)),
     to: toDateTimeLocalValue(now),
   };
 }
@@ -103,23 +94,19 @@ function loadFilters(): FiltersState {
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
     const windowMode = parsed.windowMode === "fixed" || parsed.windowMode === "rolling" ? parsed.windowMode : fallback.windowMode;
+    const storedNewcorbanFilter =
+      typeof (parsed as { newcorbanFilter?: unknown }).newcorbanFilter === "string"
+        ? (parsed as { newcorbanFilter?: string }).newcorbanFilter
+        : null;
+    const newcorbanFilter =
+      storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
 
     if (windowMode === "rolling") {
       const rolled = rollRangeToNow(from, to);
-      return {
-        from: rolled.from,
-        to: rolled.to,
-        direction: parsed.direction === "asc" || parsed.direction === "desc" ? parsed.direction : fallback.direction,
-        windowMode,
-      };
+      return { from: rolled.from, to: rolled.to, direction: "desc", windowMode, newcorbanFilter };
     }
 
-    return {
-      from,
-      to,
-      direction: parsed.direction === "asc" || parsed.direction === "desc" ? parsed.direction : fallback.direction,
-      windowMode,
-    };
+    return { from, to, direction: "desc", windowMode, newcorbanFilter };
   } catch {
     return fallback;
   }
@@ -219,7 +206,6 @@ function stageLabel(label: string | null): string {
 
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value || value === "-") return null;
-
   return (
     <div className="text-xs text-gray-600">
       <span className="font-medium text-gray-700">{label}:</span> {value}
@@ -230,19 +216,20 @@ function DetailLine({ label, value }: { label: string; value: string | null | un
 function SimulationDetails({
   data,
 }: {
-  data: {
-    simulation_product: string | null;
-    simulation_bank: string | null;
-    simulation_liquid_value: string | null;
-    simulation_number_of_payments: number | null;
-    simulation_installment_value: string | null;
-    simulation_monthly_fee: string | null;
-    simulation_table_name: string | null;
-    simulation_table_id: string | null;
-    simulation_best_liquid_value: string | null;
-    simulation_best_table_id: string | null;
-    simulation_received_at: string | null;
-  };
+  data: Pick<
+    VendeaiLead,
+    | "simulation_product"
+    | "simulation_bank"
+    | "simulation_liquid_value"
+    | "simulation_number_of_payments"
+    | "simulation_installment_value"
+    | "simulation_monthly_fee"
+    | "simulation_table_name"
+    | "simulation_table_id"
+    | "simulation_best_liquid_value"
+    | "simulation_best_table_id"
+    | "simulation_received_at"
+  >;
 }) {
   if (
     !data.simulation_product &&
@@ -281,35 +268,35 @@ function ProposalDetails({
   data: {
     proposal_id: string | null;
     proposal_number: string | null;
-    bank: string | null;
-    product: string | null;
-    status: string | null;
-    previous_status: string | null;
-    liquid_value: string | null;
-    gross_value: string | null;
-    number_of_payments: number | null;
-    installment_value: string | null;
-    table_name: string | null;
-    table_id: string | null;
-    formalization_link: string | null;
-    created_at: string | null;
-    status_updated_at: string | null;
+    proposal_bank: string | null;
+    proposal_product: string | null;
+    proposal_status: string | null;
+    previous_proposal_status: string | null;
+    proposal_liquid_value: string | null;
+    proposal_gross_value: string | null;
+    proposal_number_of_payments: number | null;
+    proposal_installment_value: string | null;
+    proposal_table_name: string | null;
+    proposal_table_id: string | null;
+    proposal_formalization_link: string | null;
+    proposal_created_at: string | null;
+    proposal_status_updated_at: string | null;
   };
 }) {
   if (
     !data.proposal_id &&
-    !data.status &&
-    !data.previous_status &&
-    !data.bank &&
-    !data.product &&
-    !data.liquid_value &&
-    !data.gross_value &&
-    !data.number_of_payments &&
-    !data.installment_value &&
-    !data.table_name &&
-    !data.formalization_link &&
-    !data.created_at &&
-    !data.status_updated_at
+    !data.proposal_status &&
+    !data.previous_proposal_status &&
+    !data.proposal_bank &&
+    !data.proposal_product &&
+    !data.proposal_liquid_value &&
+    !data.proposal_gross_value &&
+    !data.proposal_number_of_payments &&
+    !data.proposal_installment_value &&
+    !data.proposal_table_name &&
+    !data.proposal_formalization_link &&
+    !data.proposal_created_at &&
+    !data.proposal_status_updated_at
   ) {
     return <span className="text-gray-400">-</span>;
   }
@@ -318,40 +305,38 @@ function ProposalDetails({
     <div className="min-w-[260px] space-y-1">
       <div className="font-medium text-gray-900">{data.proposal_id || "-"}</div>
       <DetailLine label="Número" value={data.proposal_number || "-"} />
-      <DetailLine label="Status" value={data.status || "-"} />
-      <DetailLine label="Status anterior" value={data.previous_status || "-"} />
-      <DetailLine label="Produto" value={productLabel(data.product || "-")} />
-      <DetailLine label="Banco" value={bankLabel(data.bank || "-")} />
-      <DetailLine label="Valor líquido" value={formatCurrency(data.liquid_value)} />
-      <DetailLine label="Valor bruto" value={formatCurrency(data.gross_value)} />
-      <DetailLine label="Parcela" value={formatCurrency(data.installment_value)} />
-      <DetailLine label="Parcelas" value={data.number_of_payments ? String(data.number_of_payments) : "-"} />
-      <DetailLine label="Tabela" value={data.table_name || data.table_id || "-"} />
-      {data.formalization_link ? (
+      <DetailLine label="Status" value={data.proposal_status || "-"} />
+      <DetailLine label="Status anterior" value={data.previous_proposal_status || "-"} />
+      <DetailLine label="Produto" value={productLabel(data.proposal_product || "-")} />
+      <DetailLine label="Banco" value={bankLabel(data.proposal_bank || "-")} />
+      <DetailLine label="Valor líquido" value={formatCurrency(data.proposal_liquid_value)} />
+      <DetailLine label="Valor bruto" value={formatCurrency(data.proposal_gross_value)} />
+      <DetailLine label="Parcela" value={formatCurrency(data.proposal_installment_value)} />
+      <DetailLine label="Parcelas" value={data.proposal_number_of_payments ? String(data.proposal_number_of_payments) : "-"} />
+      <DetailLine label="Tabela" value={data.proposal_table_name || data.proposal_table_id || "-"} />
+      {data.proposal_formalization_link ? (
         <div className="text-xs text-blue-700">
-          <a href={data.formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+          <a href={data.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
             Link de formalização
           </a>
         </div>
       ) : null}
-      <DetailLine label="Criada em" value={formatDateTime(data.created_at)} />
-      <DetailLine label="Atualizada em" value={formatDateTime(data.status_updated_at)} />
+      <DetailLine label="Criada em" value={formatDateTime(data.proposal_created_at)} />
+      <DetailLine label="Atualizada em" value={formatDateTime(data.proposal_status_updated_at)} />
     </div>
   );
 }
 
-const IntegracoesVendeaiPage = () => {
+export default function IntegracoesVendeaiPage() {
   const initial = useMemo(() => loadFilters(), []);
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
-  const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
-  const [activeTable, setActiveTable] = useState<ActiveTable>("leads");
+  const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
-  const [attemptsPage, setAttemptsPage] = useState(1);
   const [rangeError, setRangeError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<VendeaiExportType | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [manualRefreshLockedUntil, setManualRefreshLockedUntil] = useState(0);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
@@ -365,9 +350,7 @@ const IntegracoesVendeaiPage = () => {
   }, [applied]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNowTs(Date.now());
-    }, 1000);
+    const timer = window.setInterval(() => setNowTs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -382,23 +365,21 @@ const IntegracoesVendeaiPage = () => {
     refetchOnWindowFocus: false,
   });
 
-  const attemptsQuery = useQuery({
-    queryKey: ["vendeai:attempts", attemptsPage, fromIso, toIso, applied.direction],
-    queryFn: ({ signal }) =>
-      listVendeaiAttempts({ page: attemptsPage, perPage: 20, from: fromIso, to: toIso, direction: applied.direction, sort: "received_at" }, signal),
-    placeholderData: keepPreviousData,
-    staleTime: 15_000,
-    gcTime: 120_000,
-    retry: 1,
-    refetchInterval: AUTO_REFRESH_MS,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: false,
-  });
-
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction],
+    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.newcorbanFilter],
     queryFn: ({ signal }) =>
-      listVendeaiLeads({ page: leadsPage, perPage: 20, from: fromIso, to: toIso, direction: applied.direction, sort: "first_received_at" }, signal),
+      listVendeaiLeads(
+        {
+          page: leadsPage,
+          perPage: 20,
+          from: fromIso,
+          to: toIso,
+          direction: applied.direction,
+          sort: "first_received_at",
+          newcorbanFilter: applied.newcorbanFilter,
+        },
+        signal
+      ),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
@@ -413,20 +394,11 @@ const IntegracoesVendeaiPage = () => {
   const currentLeadsPage = leadsQuery.data?.current_page ?? leadsPage;
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
-  const attempts = attemptsQuery.data?.data ?? [];
-  const currentAttemptsPage = attemptsQuery.data?.current_page ?? attemptsPage;
-  const lastAttemptsPage = attemptsQuery.data?.last_page ?? 1;
-  const totalAttempts = attemptsQuery.data?.total ?? 0;
-  const activeCount = activeTable === "leads" ? totalLeads : totalAttempts;
-  const activeModeLabel = activeTable === "leads" ? "Leads VendeAI" : "Propostas NewCorban";
-  const activeCountLabel = activeTable === "leads" ? "leads encontrados" : "propostas encontradas";
-  const activeExportType: VendeaiExportType = activeTable === "leads" ? "leads" : "newcorban-proposal-attempts";
-  const activeExportLabel = activeTable === "leads" ? "CSV leads VendeAI" : "CSV propostas NewCorban";
-  const activeExportIcon = activeTable === "leads" ? "file" : "download";
   const appliedLabels = [
-    `Modo: ${windowModeInput === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
+    `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
     `De ${formatDateTime(fromIso ?? applied.from)}`,
     `Até ${formatDateTime(toIso ?? applied.to)}`,
+    ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
   const applyFilters = (): boolean => {
@@ -444,6 +416,7 @@ const IntegracoesVendeaiPage = () => {
     }
 
     setRangeError(null);
+
     let nextFrom = fromInput;
     let nextTo = toInput;
 
@@ -455,16 +428,19 @@ const IntegracoesVendeaiPage = () => {
       setToInput(nextTo);
     }
 
-    setApplied({ from: nextFrom, to: nextTo, direction: directionInput, windowMode: windowModeInput });
+    setApplied({
+      from: nextFrom,
+      to: nextTo,
+      direction: "desc",
+      windowMode: windowModeInput,
+      newcorbanFilter: newcorbanFilterInput,
+    });
     setLeadsPage(1);
-    setAttemptsPage(1);
     return true;
   };
 
   const handleApplyFilters = () => {
-    if (applyFilters()) {
-      setIsFiltersModalOpen(false);
-    }
+    if (applyFilters()) setIsFiltersModalOpen(false);
   };
 
   const resetFilterInputs = () => {
@@ -472,7 +448,7 @@ const IntegracoesVendeaiPage = () => {
     setFromInput(next.from);
     setToInput(next.to);
     setWindowModeInput(next.windowMode);
-    setDirectionInput(next.direction);
+    setNewcorbanFilterInput(next.newcorbanFilter);
     setRangeError(null);
   };
 
@@ -481,128 +457,111 @@ const IntegracoesVendeaiPage = () => {
     setFromInput(next.from);
     setToInput(next.to);
     setWindowModeInput(next.windowMode);
-    setDirectionInput(next.direction);
+    setNewcorbanFilterInput(next.newcorbanFilter);
     setRangeError(null);
     setApplied(next);
     setLeadsPage(1);
-    setAttemptsPage(1);
   };
 
   const handleManualRefresh = () => {
-    if (metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) return;
+    if (metricsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) return;
     setManualRefreshLockedUntil(Date.now() + MANUAL_REFRESH_COOLDOWN_MS);
     void metricsQuery.refetch();
     void leadsQuery.refetch();
-    void attemptsQuery.refetch();
   };
 
-  const exportCsv = async (type: VendeaiExportType) => {
+  const exportCsv = async () => {
     if (exporting) return;
-    setExporting(type);
+
+    setExporting(true);
     const toastId = toast.loading("Gerando CSV VendeAI...", { duration: Infinity });
 
     try {
-      const { token } = await startVendeaiExport(type, { from: fromIso, to: toIso, direction: applied.direction });
+      const { token } = await startVendeaiExport("leads", {
+        from: fromIso,
+        to: toIso,
+        direction: applied.direction,
+        newcorbanFilter: applied.newcorbanFilter,
+      });
+
       for (let attempt = 0; attempt < 180; attempt += 1) {
         const status = await getVendeaiExportStatus(token);
+
         if (status.status === "ready") {
           toast.success("CSV pronto. Baixando...", { id: toastId });
           await downloadVendeaiExport(token);
           toast.dismiss(toastId);
           return;
         }
+
         if (status.status === "error") throw new Error(status.error || status.message || "Falha ao gerar CSV.");
         if (status.status === "deleted") throw new Error(status.message || "Export expirou antes do download.");
+
         await sleep(pollDelay(attempt));
       }
+
       throw new Error("O export demorou além do esperado.");
     } catch (error) {
       toast.error(errorMessage(error), { id: toastId });
     } finally {
-      setExporting(null);
+      setExporting(false);
     }
   };
 
   return (
-    <div className="p-4 lg:p-6 max-w-full min-w-0 flex flex-col gap-6">
+    <div className="flex min-w-0 max-w-full flex-col gap-6 p-4 lg:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-1">Integração VendeAI</h1>
-          <p className="text-gray-600 text-sm lg:text-base">Métricas de conversas e propostas na New Corban.</p>
-        </div>
-
-        <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
-          <label className="flex w-full max-w-xs flex-col gap-1 text-sm font-medium text-gray-700">
-            Dados da tabela
-            <select
-              value={activeTable}
-              onChange={(event) => {
-                setActiveTable(event.target.value as ActiveTable);
-                setLeadsPage(1);
-                setAttemptsPage(1);
-              }}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="leads">Leads VendeAI</option>
-              <option value="attempts">Propostas NewCorban</option>
-            </select>
-          </label>
+          <h1 className="mb-1 text-xl font-bold text-gray-900 lg:text-2xl">Integração VendeAI</h1>
+          <p className="text-sm text-gray-600 lg:text-base">Métricas de conversas, propostas e integrações com a NewCorban.</p>
         </div>
       </div>
 
       <VendeaiControls
-        modeLabel={activeModeLabel}
-        filteredCount={activeCount}
-        countLabel={activeCountLabel}
-        exportLabel={activeExportLabel}
-        exportLoading={exporting === activeExportType}
-        exportIcon={activeExportIcon}
-        isRefreshing={metricsQuery.isFetching || attemptsQuery.isFetching || leadsQuery.isFetching}
+        modeLabel="Leads VendeAI"
+        filteredCount={totalLeads}
+        countLabel="leads encontrados"
+        exportLabel="CSV filtrado"
+        exportLoading={exporting}
+        exportIcon="file"
+        isRefreshing={metricsQuery.isFetching || leadsQuery.isFetching}
         refreshCountdown={manualRefreshRemaining}
         activeLabels={appliedLabels}
         hasActiveFilters
         onFilterClick={() => setIsFiltersModalOpen(true)}
-        onExportClick={() => void exportCsv(activeExportType)}
+        onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
         onClearFilters={clearFilters}
       />
 
       <VendeaiFiltersModal
         isOpen={isFiltersModalOpen}
-        title={`Filtros de ${activeModeLabel}`}
-        subtitle="Ajuste o período e aplique na visualização atual."
+        title="Filtros dos leads VendeAI"
+        subtitle="Ajuste o período e o recorte de proposta enviada NewCorban."
         from={fromInput}
         to={toInput}
         windowMode={windowModeInput}
+        newcorbanFilter={newcorbanFilterInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
         onFromChange={setFromInput}
         onToChange={setToInput}
         onWindowModeChange={setWindowModeInput}
+        onNewcorbanFilterChange={setNewcorbanFilterInput}
         onReset={resetFilterInputs}
         onApply={handleApplyFilters}
       />
 
       <div>
-        <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {activeTable === "leads" ? "Leads VendeAI" : "Propostas NewCorban"}
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              {activeTable === "leads"
-                ? `${leads.length} nesta página • ${formatNumber(totalLeads)} no total`
-                : `${attempts.length} nesta página • ${formatNumber(totalAttempts)} no total`}
-            </p>
+            <h2 className="text-lg font-semibold text-foreground">Leads VendeAI</h2>
+            <p className="text-sm text-muted-foreground">{`${leads.length} nesta página • ${formatNumber(totalLeads)} no total`}</p>
           </div>
-          <div className="text-sm text-gray-500 flex items-center gap-2">
-            {activeTable === "leads"
-              ? leadsQuery.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              : attemptsQuery.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-            {activeTable === "leads"
-              ? leadsQuery.isFetching ? "Atualizando..." : "Atualiza automaticamente a cada 60s"
-              : attemptsQuery.isFetching ? "Atualizando..." : "Atualiza automaticamente a cada 60s"}
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            {leadsQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+            {leadsQuery.isFetching ? "Atualizando..." : "Atualiza automaticamente a cada 60s"}
           </div>
         </div>
 
@@ -619,295 +578,173 @@ const IntegracoesVendeaiPage = () => {
             </div>
           )}
           {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
-            <div className="bg-blue-50/20 border-b border-gray-200 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
-              {activeTable === "leads" ? (
-                <>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Conversas com IA</span>
-                    <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.leads.total)}</span>
-                  </div>
+            <div className="flex flex-col divide-y divide-gray-100 border-b border-gray-200">
+              {/* Seção 1: Leads/Conversas IA */}
+              <div className="bg-blue-50/20 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
+                <div className="flex flex-col min-w-[120px]">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Conversas com IA</span>
+                  <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.leads.total)}</span>
+                </div>
+                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                  <div className="hidden md:block w-px h-8 bg-gray-200" />
+                )}
+                <div className="flex-1 flex flex-col">
                   {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                    <div className="hidden md:block w-px h-8 bg-gray-200" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
+                      {metrics.leads.by_product.map(item => (
+                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
+                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
+                        </Badge>
+                      ))}
+                    </div>
                   )}
-                  <div className="flex-1 flex flex-col">
-                    {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                        {metrics.leads.by_product.map(item => (
-                          <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                            {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                </div>
+              </div>
+
+              {/* Seção 2: Propostas NewCorban */}
+              <div className="bg-gray-50/30 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
+                <div className="flex items-center gap-6 lg:gap-8">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Propostas Enviadas</span>
+                    <span className="text-2xl font-bold text-gray-700 leading-none">{formatNumber(metrics.attempts.total)}</span>
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-6 lg:gap-8">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Enviadas</span>
-                      <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.attempts.total)}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Criadas</span>
-                      <span className="text-2xl font-bold text-emerald-600 leading-none">{formatNumber(metrics.attempts.success)}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Falhas</span>
-                      <span className="text-2xl font-bold text-rose-600 leading-none">{formatNumber(metrics.attempts.failed)}</span>
-                    </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Criadas NewCorban</span>
+                    <span className="text-2xl font-bold text-emerald-600 leading-none">{formatNumber(metrics.attempts.success)}</span>
                   </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Falhas</span>
+                    <span className="text-2xl font-bold text-rose-600 leading-none">{formatNumber(metrics.attempts.failed)}</span>
+                  </div>
+                </div>
+                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                  <div className="hidden md:block w-px h-8 bg-gray-200" />
+                )}
+                <div className="flex-1 flex flex-col">
                   {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                    <div className="hidden md:block w-px h-8 bg-gray-200" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
+                      {metrics.attempts.by_product.map(item => (
+                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
+                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
+                        </Badge>
+                      ))}
+                    </div>
                   )}
-                  <div className="flex-1 flex flex-col">
-                    {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                        {metrics.attempts.by_product.map(item => (
-                          <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                            {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
+                </div>
+              </div>
             </div>
           )}
 
           <div className="overflow-x-auto">
-            {activeTable === "leads" ? (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">CPF</th>
+                  <th className="px-4 py-3 text-left font-medium">Nome</th>
+                  <th className="px-4 py-3 text-left font-medium">Nascimento</th>
+                  <th className="px-4 py-3 text-left font-medium">Telefone</th>
+                  <th className="px-4 py-3 text-left font-medium">Chat</th>
+                  <th className="px-4 py-3 text-left font-medium">Etapa</th>
+                  <th className="px-4 py-3 text-left font-medium">Tags</th>
+                  <th className="px-4 py-3 text-left font-medium">Dados da simulação</th>
+                  <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
+                  <th className="px-4 py-3 text-left font-medium">Proposta NewCorban</th>
+                  <th className="px-4 py-3 text-left font-medium">Eventos</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {leadsQuery.isLoading ? (
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium">CPF</th>
-                    <th className="px-4 py-3 text-left font-medium">Nome</th>
-                    <th className="px-4 py-3 text-left font-medium">Nascimento</th>
-                    <th className="px-4 py-3 text-left font-medium">Telefone</th>
-                    <th className="px-4 py-3 text-left font-medium">Chat</th>
-                    <th className="px-4 py-3 text-left font-medium">Etapa</th>
-                    <th className="px-4 py-3 text-left font-medium">Tags</th>
-                    <th className="px-4 py-3 text-left font-medium">Simulação</th>
-                    <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
-                    <th className="px-4 py-3 text-left font-medium">Eventos</th>
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                      Carregando leads...
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {leadsQuery.isLoading ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
-                        <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                        Carregando leads...
-                      </td>
-                    </tr>
-                  ) : leadsQuery.isError ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
-                    </tr>
-                  ) : leads.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
-                    </tr>
-                  ) : (
-                    leads.map((lead) => (
-                      <tr key={lead.id} className="align-top hover:bg-gray-50 transition-colors duration-150">
-                        <td className="px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex max-w-[240px] flex-wrap gap-1">
-                            {lead.tags?.length ? (
-                              lead.tags.slice(0, 4).map((tag) => (
-                                <span key={tag} className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
-                                  {tag}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <SimulationDetails data={lead} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <ProposalDetails
-                            data={{
-                              proposal_id: lead.proposal_id,
-                              proposal_number: lead.proposal_number,
-                              bank: lead.proposal_bank,
-                              product: lead.proposal_product,
-                              status: lead.proposal_status,
-                              previous_status: lead.previous_proposal_status,
-                              liquid_value: lead.proposal_liquid_value,
-                              gross_value: lead.proposal_gross_value,
-                              number_of_payments: lead.proposal_number_of_payments,
-                              installment_value: lead.proposal_installment_value,
-                              table_name: lead.proposal_table_name,
-                              table_id: lead.proposal_table_id,
-                              formalization_link: lead.proposal_formalization_link,
-                              created_at: lead.proposal_created_at,
-                              status_updated_at: lead.proposal_status_updated_at,
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-blue-700">{formatDateTime(lead.first_received_at)}</div>
-                          <div className="text-xs text-gray-500">{formatDateTime(lead.last_received_at)}</div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                ) : leadsQuery.isError ? (
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium">Proposta</th>
-                    <th className="px-4 py-3 text-left font-medium">CPF</th>
-                    <th className="px-4 py-3 text-left font-medium">Nome</th>
-                    <th className="px-4 py-3 text-left font-medium">Nascimento</th>
-                    <th className="px-4 py-3 text-left font-medium">Telefone</th>
-                    <th className="px-4 py-3 text-left font-medium">Chat</th>
-                    <th className="px-4 py-3 text-left font-medium">Dados da simulação</th>
-                    <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
-                    <th className="px-4 py-3 text-left font-medium">Proposta New Corban</th>
-                    <th className="px-4 py-3 text-left font-medium">Erro</th>
+                    <td colSpan={11} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {attemptsQuery.isLoading ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
-                        <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                        Carregando propostas...
-                      </td>
-                    </tr>
-                  ) : attemptsQuery.isError ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-red-600">Falha ao carregar propostas.</td>
-                    </tr>
-                  ) : attempts.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">Nenhuma proposta no período.</td>
-                    </tr>
-                  ) : (
-                    attempts.map((attempt) => (
-                      <tr key={attempt.id} className="align-top hover:bg-gray-50 transition-colors duration-150">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">#{attempt.id}</div>
-                          <div className="text-xs text-blue-700">{formatDateTime(attempt.received_at)}</div>
-                          <Badge
-                            variant="outline"
-                            className={
-                              attempt.status === "success"
-                                ? "mt-2 border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : attempt.status === "failed"
-                                  ? "mt-2 border-red-200 bg-red-50 text-red-700"
-                                  : "mt-2 border-amber-200 bg-amber-50 text-amber-700"
-                            }
-                          >
-                            {attempt.status === "success" ? "sucesso" : attempt.status === "failed" ? "falha" : "não enviada"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{formatCPF(attempt.lead.customer_cpf)}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{attempt.lead.customer_name || "-"}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{formatDate(attempt.lead.customer_birth_date)}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{formatPhone(attempt.lead.customer_phone)}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{attempt.lead.chat_id || "-"}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <SimulationDetails data={attempt.lead} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <ProposalDetails
-                            data={{
-                              proposal_id: attempt.lead.proposal_id,
-                              proposal_number: attempt.lead.proposal_number,
-                              bank: attempt.lead.proposal_bank,
-                              product: attempt.lead.proposal_product,
-                              status: attempt.lead.proposal_status,
-                              previous_status: attempt.lead.previous_proposal_status,
-                              liquid_value: attempt.lead.proposal_liquid_value,
-                              gross_value: attempt.lead.proposal_gross_value,
-                              number_of_payments: attempt.lead.proposal_number_of_payments,
-                              installment_value: attempt.lead.proposal_installment_value,
-                              table_name: attempt.lead.proposal_table_name,
-                              table_id: attempt.lead.proposal_table_id,
-                              formalization_link: attempt.lead.proposal_formalization_link,
-                              created_at: attempt.lead.proposal_created_at,
-                              status_updated_at: attempt.lead.proposal_status_updated_at,
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
-                        </td>
-                        <td className="px-4 py-3 max-w-[360px]">
-                          {attempt.newcorban_error ? (
-                            <div className="flex gap-2 text-red-700">
-                              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                              <span className="line-clamp-3">{attempt.newcorban_error}</span>
-                            </div>
+                ) : leads.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
+                  </tr>
+                ) : (
+                  leads.map((lead) => (
+                    <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex max-w-[240px] flex-wrap gap-1">
+                          {lead.tags?.length ? (
+                            lead.tags.slice(0, 4).map((tag) => (
+                              <span key={tag} className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
+                                {tag}
+                              </span>
+                            ))
                           ) : (
                             <span className="text-gray-400">-</span>
                           )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><SimulationDetails data={lead} /></td>
+                      <td className="px-4 py-3">
+                        <ProposalDetails
+                          data={{
+                            proposal_id: lead.proposal_id,
+                            proposal_number: lead.proposal_number,
+                            proposal_bank: lead.proposal_bank,
+                            proposal_product: lead.proposal_product,
+                            proposal_status: lead.proposal_status,
+                            previous_proposal_status: lead.previous_proposal_status,
+                            proposal_liquid_value: lead.proposal_liquid_value,
+                            proposal_gross_value: lead.proposal_gross_value,
+                            proposal_number_of_payments: lead.proposal_number_of_payments,
+                            proposal_installment_value: lead.proposal_installment_value,
+                            proposal_table_name: lead.proposal_table_name,
+                            proposal_table_id: lead.proposal_table_id,
+                            proposal_formalization_link: lead.proposal_formalization_link,
+                            proposal_created_at: lead.proposal_created_at,
+                            proposal_status_updated_at: lead.proposal_status_updated_at,
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        {lead.newcorban_error ? (
+                          <div className="max-w-[320px] text-sm text-red-700">{lead.newcorban_error}</div>
+                        ) : (
+                          <div className="font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-blue-700">{formatDateTime(lead.first_received_at)}</div>
+                        <div className="text-xs text-gray-500">{formatDateTime(lead.last_received_at)}</div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </Card>
 
-        {activeTable === "leads" && lastLeadsPage > 1 && (
+        {lastLeadsPage > 1 ? (
           <div className="mt-4 flex items-center justify-end gap-3">
             <Button variant="outline" size="sm" onClick={() => setLeadsPage((current) => Math.max(1, current - 1))} disabled={currentLeadsPage <= 1 || leadsQuery.isFetching}>
               Anterior
             </Button>
-            <span className="text-sm font-medium text-gray-600 min-w-[100px] text-center">
-              Pág. {currentLeadsPage} de {lastLeadsPage}
-            </span>
+            <span className="min-w-[100px] text-center text-sm font-medium text-gray-600">Pág. {currentLeadsPage} de {lastLeadsPage}</span>
             <Button variant="outline" size="sm" onClick={() => setLeadsPage((current) => Math.min(lastLeadsPage, current + 1))} disabled={currentLeadsPage >= lastLeadsPage || leadsQuery.isFetching}>
               Próxima
             </Button>
           </div>
-        )}
-
-        {activeTable === "attempts" && lastAttemptsPage > 1 && (
-          <div className="mt-4 flex items-center justify-end gap-3">
-            <Button variant="outline" size="sm" onClick={() => setAttemptsPage((current) => Math.max(1, current - 1))} disabled={currentAttemptsPage <= 1 || attemptsQuery.isFetching}>
-              Anterior
-            </Button>
-            <span className="text-sm font-medium text-gray-600 min-w-[100px] text-center">
-              Pág. {currentAttemptsPage} de {lastAttemptsPage}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => setAttemptsPage((current) => Math.min(lastAttemptsPage, current + 1))} disabled={currentAttemptsPage >= lastAttemptsPage || attemptsQuery.isFetching}>
-              Próxima
-            </Button>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
-};
-
-export default IntegracoesVendeaiPage;
+}

@@ -96,10 +96,13 @@ class VendeaiExportController extends Controller
             'to' => ['nullable', 'date', 'after_or_equal:from'],
             'status' => ['nullable', Rule::in(['all', 'success', 'failed', 'pending'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
+            'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
         ]);
 
         if ($type === VendeaiCsvExport::TYPE_LEADS) {
             unset($validated['status']);
+        } else {
+            unset($validated['newcorban_filter']);
         }
 
         $token = (string) Str::uuid();
