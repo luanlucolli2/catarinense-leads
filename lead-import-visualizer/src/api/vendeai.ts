@@ -18,6 +18,9 @@ export interface VendeaiMetricsResponse {
   };
   leads: {
     total: number;
+    offered_total: number;
+    typed_total: number;
+    paid_total: number;
     by_product: VendeaiMetricBucket[];
   };
   attempts: {

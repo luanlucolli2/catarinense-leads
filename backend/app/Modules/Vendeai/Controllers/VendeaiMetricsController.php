@@ -45,6 +45,12 @@ class VendeaiMetricsController extends Controller
             ],
             'leads' => [
                 'total' => (int) (clone $leads)->count(),
+                'offered_total' => $this->sumMoney($leads, "COALESCE(simulation_best_liquid_value, simulation_liquid_value)"),
+                'typed_total' => $this->sumMoney($leads, 'proposal_liquid_value'),
+                'paid_total' => $this->sumMoney(
+                    $leads,
+                    "CASE WHEN proposal_status = 'LIQUIDATED_TO_CUSTOMER' THEN proposal_liquid_value ELSE 0 END"
+                ),
                 'by_product' => $this->countsBy($leads, 'chat_product'),
             ],
             'attempts' => [
@@ -96,5 +102,12 @@ class VendeaiMetricsController extends Controller
         return (int) ((clone $baseQuery)
             ->selectRaw("COUNT(DISTINCT {$expression}) as total")
             ->value('total') ?? 0);
+    }
+
+    private function sumMoney(Builder $baseQuery, string $expression): float
+    {
+        return round((float) ((clone $baseQuery)
+            ->selectRaw("COALESCE(SUM({$expression}), 0) as total")
+            ->value('total') ?? 0), 2);
     }
 }
