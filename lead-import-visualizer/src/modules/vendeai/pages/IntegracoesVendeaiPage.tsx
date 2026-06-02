@@ -607,7 +607,7 @@ export default function IntegracoesVendeaiPage() {
             
             {/* Card Conversas/Leads */}
             <Card className="flex flex-col justify-between p-4 shadow-sm">
-              <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 Conversas com a IA (VendeAI)
               </h3>
               <div className="flex flex-wrap items-end justify-between gap-4">
@@ -620,7 +620,7 @@ export default function IntegracoesVendeaiPage() {
                   <div className="flex flex-wrap gap-2">
                     {metrics.leads.by_product.map(item => (
                       <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                        <span className="text-[10px] text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
                         <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                       </div>
                     ))}
@@ -631,24 +631,24 @@ export default function IntegracoesVendeaiPage() {
 
             {/* Card Integrações/Propostas */}
             <Card className="flex flex-col justify-between p-4 shadow-sm">
-              <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 Criação de Propostas (NewCorban)
               </h3>
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div className="flex items-center gap-4 sm:gap-6">
                   <div className="flex flex-col">
                     <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
-                    <span className="mt-1 text-[10px] font-medium uppercase text-gray-500">Enviadas</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
                   </div>
                   <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
                   <div className="flex flex-col">
                     <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
-                    <span className="mt-1 text-[10px] font-medium uppercase text-emerald-700">Criadas</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
                   </div>
                   <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
                   <div className="flex flex-col">
                     <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
-                    <span className="mt-1 text-[10px] font-medium uppercase text-rose-700">Falhas</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
                   </div>
                 </div>
 
@@ -656,7 +656,7 @@ export default function IntegracoesVendeaiPage() {
                   <div className="flex flex-wrap gap-2">
                     {metrics.attempts.by_product.map(item => (
                       <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                        <span className="text-[10px] text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
                         <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                       </div>
                     ))}
@@ -685,7 +685,7 @@ export default function IntegracoesVendeaiPage() {
         <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">CPF</th>
                   <th className="px-4 py-3 text-left font-medium">Nome</th>
