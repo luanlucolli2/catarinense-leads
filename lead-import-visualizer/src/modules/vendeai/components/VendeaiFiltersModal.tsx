@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-type WindowMode = "rolling" | "fixed";
+type WindowMode = "always" | "rolling" | "fixed";
 type NewcorbanFilter = "all" | "sent";
 type SortDirection = "asc" | "desc";
 
@@ -103,8 +103,26 @@ export function VendeaiFiltersModal({
           </button>
         </div>
 
-        <div className="overflow-y-auto px-6 py-5">
-          <Section title="Período" description="Defina o intervalo usado na tabela e nas métricas.">
+        <div className="space-y-5 overflow-y-auto px-6 py-5">
+          <Section title="Visualização" description="Ajuste a forma de exibição dos leads.">
+            <div>
+              <Label text="Ordenação" />
+              <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
+                <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-gray-400" />
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="shadow-lg">
+                  <SelectItem value="desc">Mais recentes</SelectItem>
+                  <SelectItem value="asc">Mais antigos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </Section>
+
+          <Section title="Filtro de período" description="Defina o intervalo usado na tabela e nas métricas.">
             <div>
               <Label text="Modo de intervalo" />
               <Select value={windowMode} onValueChange={(value) => onWindowModeChange(value as WindowMode)}>
@@ -124,42 +142,44 @@ export function VendeaiFiltersModal({
               </Select>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <Label text="Data inicial" />
-                <div className="relative mt-2">
-                  <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    type="datetime-local"
-                    value={from}
-                    onChange={(event) => onFromChange(event.target.value)}
-                    className={cn(NO_FOCUS, "border-gray-300 pl-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                  />
+            {windowMode === "always" ? null : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <Label text="Data inicial" />
+                  <div className="relative mt-2">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Input
+                      type="datetime-local"
+                      value={from}
+                      onChange={(event) => onFromChange(event.target.value)}
+                      className={cn(NO_FOCUS, "border-gray-300 pl-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <Label text="Data final" />
-                <div className="relative mt-2">
-                  <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    type="datetime-local"
-                    value={to}
-                    onChange={(event) => onToChange(event.target.value)}
-                    className={cn(NO_FOCUS, "border-gray-300 pl-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
-                  />
+                <div>
+                  <Label text="Data final" />
+                  <div className="relative mt-2">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Input
+                      type="datetime-local"
+                      value={to}
+                      onChange={(event) => onToChange(event.target.value)}
+                      className={cn(NO_FOCUS, "border-gray-300 pl-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {rangeError ? (
               <div className="rounded-md border border-rose-100 bg-rose-50/60 p-3 text-sm text-rose-700">{rangeError}</div>
             ) : null}
           </Section>
 
-          <Section title="Proposta enviada NewCorban" description="Filtre os leads com envio realizado para a NewCorban.">
+          <Section title="Filtros adicionais" description="Aplique recortes opcionais na listagem.">
             <div>
-              <Label text="Situação" />
+              <Label text="Proposta enviada NewCorban" />
               <Select value={newcorbanFilter} onValueChange={(value) => onNewcorbanFilterChange(value as NewcorbanFilter)}>
                 <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
                   <div className="flex items-center gap-2">
@@ -170,24 +190,6 @@ export function VendeaiFiltersModal({
                 <SelectContent className="shadow-lg">
                   <SelectItem value="all">Todos os leads</SelectItem>
                   <SelectItem value="sent">Proposta enviada NewCorban</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </Section>
-
-          <Section title="Ordenação" description="Defina a ordem dos leads na tabela.">
-            <div>
-              <Label text="Ordem" />
-              <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
-                <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-gray-400" />
-                    <SelectValue />
-                  </div>
-                </SelectTrigger>
-                <SelectContent className="shadow-lg">
-                  <SelectItem value="desc">Mais recentes</SelectItem>
-                  <SelectItem value="asc">Mais antigos</SelectItem>
                 </SelectContent>
               </Select>
             </div>

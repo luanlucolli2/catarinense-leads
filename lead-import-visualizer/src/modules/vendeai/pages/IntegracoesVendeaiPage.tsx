@@ -25,7 +25,7 @@ type FiltersState = {
   from: string;
   to: string;
   direction: VendeaiSortDirection;
-  windowMode: "rolling" | "fixed";
+  windowMode: "always" | "rolling" | "fixed";
   newcorbanFilter: VendeaiNewcorbanFilter;
 };
 
@@ -35,6 +35,7 @@ const MANUAL_REFRESH_COOLDOWN_MS = 10_000;
 const brMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
+  { value: "always", label: "Sempre" },
   { value: "rolling", label: "Janela móvel" },
   { value: "fixed", label: "Intervalo fixo" },
 ];
@@ -52,10 +53,10 @@ function toUtcIso(value: string): string | undefined {
 
 function defaultFilters(): FiltersState {
   return {
-    from: toDateTimeLocalValue(subHours(new Date(), 24)),
-    to: toDateTimeLocalValue(new Date()),
+    from: "",
+    to: "",
     direction: "desc",
-    windowMode: "rolling",
+    windowMode: "always",
     newcorbanFilter: "all",
   };
 }
@@ -92,7 +93,10 @@ function loadFilters(): FiltersState {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}") as Partial<FiltersState>;
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
-    const windowMode = parsed.windowMode === "fixed" || parsed.windowMode === "rolling" ? parsed.windowMode : fallback.windowMode;
+    const windowMode =
+      parsed.windowMode === "always" || parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
+        ? parsed.windowMode
+        : fallback.windowMode;
     const storedNewcorbanFilter =
       typeof (parsed as { newcorbanFilter?: unknown }).newcorbanFilter === "string"
         ? (parsed as { newcorbanFilter?: string }).newcorbanFilter
@@ -100,12 +104,22 @@ function loadFilters(): FiltersState {
     const newcorbanFilter =
       storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
 
-    if (windowMode === "rolling") {
-      const rolled = rollRangeToNow(from, to);
-      return { from: rolled.from, to: rolled.to, direction: "desc", windowMode, newcorbanFilter };
+    if (windowMode === "always") {
+      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
     }
 
-    return { from, to, direction: "desc", windowMode, newcorbanFilter };
+    if (windowMode === "rolling") {
+      const rolled = rollRangeToNow(from, to);
+      return {
+        from: rolled.from,
+        to: rolled.to,
+        direction: parsed.direction === "asc" ? "asc" : fallback.direction,
+        windowMode,
+        newcorbanFilter,
+      };
+    }
+
+    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
   } catch {
     return fallback;
   }
@@ -394,15 +408,32 @@ export default function IntegracoesVendeaiPage() {
   const currentLeadsPage = leadsQuery.data?.current_page ?? leadsPage;
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
-  const appliedLabels = [
-    `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
-    `De ${formatDateTime(fromIso ?? applied.from)}`,
-    `Até ${formatDateTime(toIso ?? applied.to)}`,
-    `Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`,
+  const controlLabels = [`Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
+  const filterLabels = [
+    ...(applied.windowMode === "always"
+      ? []
+      : [
+          `Período: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
+          `De ${formatDateTime(fromIso ?? applied.from)}`,
+          `Até ${formatDateTime(toIso ?? applied.to)}`,
+        ]),
     ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
   const applyFilters = (): boolean => {
+    if (windowModeInput === "always") {
+      setRangeError(null);
+      setApplied({
+        from: "",
+        to: "",
+        direction: directionInput,
+        windowMode: "always",
+        newcorbanFilter: newcorbanFilterInput,
+      });
+      setLeadsPage(1);
+      return true;
+    }
+
     const fromDate = new Date(fromInput);
     const toDate = new Date(toInput);
 
@@ -455,14 +486,12 @@ export default function IntegracoesVendeaiPage() {
   };
 
   const clearFilters = () => {
-    const next = defaultFilters();
-    setFromInput(next.from);
-    setToInput(next.to);
-    setWindowModeInput(next.windowMode);
-    setDirectionInput(next.direction);
-    setNewcorbanFilterInput(next.newcorbanFilter);
+    setFromInput("");
+    setToInput("");
+    setWindowModeInput("always");
+    setNewcorbanFilterInput("all");
     setRangeError(null);
-    setApplied(next);
+    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all" }));
     setLeadsPage(1);
   };
 
@@ -521,7 +550,7 @@ export default function IntegracoesVendeaiPage() {
       </div>
 
       <VendeaiControls
-        modeLabel="Filtros e Controles"
+        modeLabel="Filtros e Visualização"
         filteredCount={totalLeads}
         countLabel="leads filtrados"
         exportLabel="CSV filtrado"
@@ -529,8 +558,9 @@ export default function IntegracoesVendeaiPage() {
         exportIcon="file"
         isRefreshing={metricsQuery.isFetching || leadsQuery.isFetching}
         refreshCountdown={manualRefreshRemaining}
-        activeLabels={appliedLabels}
-        hasActiveFilters
+        controlLabels={controlLabels}
+        filterLabels={filterLabels}
+        hasActiveFilters={filterLabels.length > 0}
         onFilterClick={() => setIsFiltersModalOpen(true)}
         onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
