@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { AlertCircle, Loader2, TrendingUp, Wallet, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -746,7 +746,7 @@ export default function IntegracoesVendeaiPage() {
       <div className="space-y-4">
         {metricsQuery.isLoading && (
           <div className="flex items-center text-sm text-gray-500">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando resumo do dashboard...
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando resumo de métricas...
           </div>
         )}
         
@@ -758,46 +758,34 @@ export default function IntegracoesVendeaiPage() {
 
         {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
           <div className="space-y-4">
-            {/* 1. Painel Financeiro Consolidado (Funil) */}
-            <Card className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-gray-100 shadow-sm overflow-hidden bg-white">
-              <div className="flex-1 p-5 lg:p-6 flex flex-col justify-center">
-                <div className="flex items-center gap-2 mb-2">
-                  <Wallet className="w-4 h-4 text-blue-500" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Ofertado</h3>
+            {/* LINHA 1: Funil Financeiro (Ofertado -> Digitado -> Pago) */}
+            <Card className="p-5 shadow-sm">
+              <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Resumo Financeiro
+              </h3>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:divide-x md:divide-gray-100">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-gray-500">Ofertado</span>
+                  <span className="mt-1 text-3xl font-bold text-slate-700">{brMoney.format(metrics.leads.offered_total ?? 0)}</span>
                 </div>
-                <div className="text-2xl lg:text-3xl font-bold leading-none text-gray-900 truncate" title={brMoney.format(metrics.leads.offered_total ?? 0)}>
-                  {brMoney.format(metrics.leads.offered_total ?? 0)}
+                <div className="flex flex-col md:pl-6">
+                  <span className="text-sm font-medium text-gray-500">Total digitado</span>
+                  <span className="mt-1 text-3xl font-bold text-blue-600">{brMoney.format(metrics.leads.typed_total ?? 0)}</span>
                 </div>
-              </div>
-
-              <div className="flex-1 p-5 lg:p-6 flex flex-col justify-center">
-                <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="w-4 h-4 text-amber-500" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Digitado</h3>
-                </div>
-                <div className="text-2xl lg:text-3xl font-bold leading-none text-gray-900 truncate" title={brMoney.format(metrics.leads.typed_total ?? 0)}>
-                  {brMoney.format(metrics.leads.typed_total ?? 0)}
-                </div>
-              </div>
-
-              <div className="flex-1 p-5 lg:p-6 flex flex-col justify-center bg-emerald-50/40">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700">Total Pago (Produção)</h3>
-                </div>
-                <div className="text-2xl lg:text-3xl font-bold leading-none text-emerald-600 truncate" title={brMoney.format(metrics.leads.paid_total ?? 0)}>
-                  {brMoney.format(metrics.leads.paid_total ?? 0)}
+                <div className="flex flex-col md:pl-6">
+                  <span className="text-sm font-medium text-gray-500">Total pago (produção)</span>
+                  <span className="mt-1 text-3xl font-bold text-emerald-600">{brMoney.format(metrics.leads.paid_total ?? 0)}</span>
                 </div>
               </div>
             </Card>
 
-            {/* 2. Painéis Operacionais (Lado a Lado) */}
+            {/* LINHA 2: Métricas Operacionais (Conversas e Propostas) */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Card className="flex flex-col justify-between p-5 shadow-sm">
                 <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Conversas com a IA (VendeAI)
                 </h3>
-                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
                     <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
                     <span className="ml-1.5 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
@@ -806,8 +794,8 @@ export default function IntegracoesVendeaiPage() {
                   {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {metrics.leads.by_product.map(item => (
-                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-1">
-                          <span className="text-[10px] font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
                           <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                         </div>
                       ))}
@@ -820,29 +808,29 @@ export default function IntegracoesVendeaiPage() {
                 <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Criação de Propostas (NewCorban)
                 </h3>
-                <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+                <div className="flex flex-wrap items-end justify-between gap-4">
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
-                      <span className="mt-1 text-[10px] font-medium uppercase text-gray-500">Enviadas</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
                     </div>
-                    <div className="h-6 w-px bg-gray-200"></div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
-                      <span className="mt-1 text-[10px] font-medium uppercase text-emerald-700">Criadas</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
                     </div>
-                    <div className="h-6 w-px bg-gray-200"></div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
-                      <span className="mt-1 text-[10px] font-medium uppercase text-rose-700">Falhas</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
                     </div>
                   </div>
 
                   {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {metrics.attempts.by_product.map(item => (
-                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-1">
-                          <span className="text-[10px] font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
                           <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                         </div>
                       ))}
