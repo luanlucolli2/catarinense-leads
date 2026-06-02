@@ -264,11 +264,11 @@ function SimulationDetails({
       <DetailLine label="Produto" value={productLabel(data.simulation_product || "-")} />
       <DetailLine label="Banco" value={bankLabel(data.simulation_bank || "-")} />
       <DetailLine label="Valor líquido" value={formatCurrency(data.simulation_liquid_value)} />
+      <DetailLine label="Melhor valor líquido" value={data.simulation_best_liquid_value ? formatCurrency(data.simulation_best_liquid_value) : "-"} />
       <DetailLine label="Parcela" value={formatCurrency(data.simulation_installment_value)} />
       <DetailLine label="Parcelas" value={data.simulation_number_of_payments ? String(data.simulation_number_of_payments) : "-"} />
       <DetailLine label="Taxa mensal" value={data.simulation_monthly_fee ? `${String(data.simulation_monthly_fee)}%` : "-"} />
       <DetailLine label="Tabela" value={data.simulation_table_name || data.simulation_table_id || "-"} />
-      <DetailLine label="Melhor valor" value={data.simulation_best_liquid_value ? formatCurrency(data.simulation_best_liquid_value) : "-"} />
       <DetailLine label="Melhor tabela" value={data.simulation_best_table_id || "-"} />
       <DetailLine label="Data" value={formatDateTime(data.simulation_received_at)} />
     </div>
