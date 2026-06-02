@@ -516,6 +516,7 @@ export default function IntegracoesVendeaiPage() {
   const metricsQuery = useQuery({
     queryKey: ["vendeai:metrics", fromIso, toIso, applied.product],
     queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso, product: applied.product }, signal),
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
     retry: 1,
@@ -624,17 +625,6 @@ export default function IntegracoesVendeaiPage() {
     if (applyFilters()) setIsFiltersModalOpen(false);
   };
 
-  const resetFilterInputs = () => {
-    const next = defaultFilters();
-    setFromInput(next.from);
-    setToInput(next.to);
-    setWindowModeInput(next.windowMode);
-    setDirectionInput(next.direction);
-    setNewcorbanFilterInput(next.newcorbanFilter);
-    setProductInput(next.product);
-    setRangeError(null);
-  };
-
   const clearFilters = () => {
     setFromInput("");
     setToInput("");
@@ -738,7 +728,7 @@ export default function IntegracoesVendeaiPage() {
         onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
         onProductChange={setProductInput}
-        onReset={resetFilterInputs}
+        onClearFilters={clearFilters}
         onApply={handleApplyFilters}
       />
 

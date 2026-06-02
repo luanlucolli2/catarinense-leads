@@ -34,7 +34,7 @@ type VendeaiFiltersModalProps = {
   onDirectionChange: (value: SortDirection) => void;
   onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
   onProductChange: (value: ProductFilter) => void;
-  onReset: () => void;
+  onClearFilters: () => void;
   onApply: () => void;
 };
 
@@ -121,7 +121,7 @@ export function VendeaiFiltersModal({
   onDirectionChange,
   onNewcorbanFilterChange,
   onProductChange,
-  onReset,
+  onClearFilters,
   onApply,
 }: VendeaiFiltersModalProps) {
   if (!isOpen) return null;
@@ -298,7 +298,7 @@ export function VendeaiFiltersModal({
             variant="outline"
             className={cn("border-gray-300 text-gray-700 hover:bg-gray-50", NO_FOCUS)}
             onClick={() => {
-              onReset();
+              onClearFilters();
               onClose();
             }}
           >
