@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 type WindowMode = "rolling" | "fixed";
 type NewcorbanFilter = "all" | "sent";
+type SortDirection = "asc" | "desc";
 
 type WindowModeOption = {
   value: WindowMode;
@@ -20,6 +21,7 @@ type VendeaiFiltersModalProps = {
   from: string;
   to: string;
   windowMode: WindowMode;
+  direction: SortDirection;
   newcorbanFilter: NewcorbanFilter;
   windowModeOptions: WindowModeOption[];
   rangeError: string | null;
@@ -27,6 +29,7 @@ type VendeaiFiltersModalProps = {
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
+  onDirectionChange: (value: SortDirection) => void;
   onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
   onReset: () => void;
   onApply: () => void;
@@ -63,6 +66,7 @@ export function VendeaiFiltersModal({
   from,
   to,
   windowMode,
+  direction,
   newcorbanFilter,
   windowModeOptions,
   rangeError,
@@ -70,6 +74,7 @@ export function VendeaiFiltersModal({
   onFromChange,
   onToChange,
   onWindowModeChange,
+  onDirectionChange,
   onNewcorbanFilterChange,
   onReset,
   onApply,
@@ -165,6 +170,24 @@ export function VendeaiFiltersModal({
                 <SelectContent className="shadow-lg">
                   <SelectItem value="all">Todos os leads</SelectItem>
                   <SelectItem value="sent">Proposta enviada NewCorban</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </Section>
+
+          <Section title="Ordenação" description="Defina a ordem dos leads na tabela.">
+            <div>
+              <Label text="Ordem" />
+              <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
+                <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-gray-400" />
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="shadow-lg">
+                  <SelectItem value="desc">Mais recentes</SelectItem>
+                  <SelectItem value="asc">Mais antigos</SelectItem>
                 </SelectContent>
               </Select>
             </div>

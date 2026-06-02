@@ -331,6 +331,7 @@ export default function IntegracoesVendeaiPage() {
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
+  const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
@@ -365,7 +366,7 @@ export default function IntegracoesVendeaiPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.newcorbanFilter],
+    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter],
     queryFn: ({ signal }) =>
       listVendeaiLeads(
         {
@@ -397,6 +398,7 @@ export default function IntegracoesVendeaiPage() {
     `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
     `De ${formatDateTime(fromIso ?? applied.from)}`,
     `Até ${formatDateTime(toIso ?? applied.to)}`,
+    `Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`,
     ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
@@ -430,7 +432,7 @@ export default function IntegracoesVendeaiPage() {
     setApplied({
       from: nextFrom,
       to: nextTo,
-      direction: "desc",
+      direction: directionInput,
       windowMode: windowModeInput,
       newcorbanFilter: newcorbanFilterInput,
     });
@@ -447,6 +449,7 @@ export default function IntegracoesVendeaiPage() {
     setFromInput(next.from);
     setToInput(next.to);
     setWindowModeInput(next.windowMode);
+    setDirectionInput(next.direction);
     setNewcorbanFilterInput(next.newcorbanFilter);
     setRangeError(null);
   };
@@ -456,6 +459,7 @@ export default function IntegracoesVendeaiPage() {
     setFromInput(next.from);
     setToInput(next.to);
     setWindowModeInput(next.windowMode);
+    setDirectionInput(next.direction);
     setNewcorbanFilterInput(next.newcorbanFilter);
     setRangeError(null);
     setApplied(next);
@@ -540,6 +544,7 @@ export default function IntegracoesVendeaiPage() {
         from={fromInput}
         to={toInput}
         windowMode={windowModeInput}
+        direction={directionInput}
         newcorbanFilter={newcorbanFilterInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
@@ -547,6 +552,7 @@ export default function IntegracoesVendeaiPage() {
         onFromChange={setFromInput}
         onToChange={setToInput}
         onWindowModeChange={setWindowModeInput}
+        onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
         onReset={resetFilterInputs}
         onApply={handleApplyFilters}
