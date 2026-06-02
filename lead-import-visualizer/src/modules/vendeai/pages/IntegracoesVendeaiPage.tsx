@@ -769,36 +769,38 @@ export default function IntegracoesVendeaiPage() {
               </div>
             </Card>
 
-            {/* LINHA 2: Métricas Operacionais (Conversas e Propostas) */}
+           {/* LINHA 2: Métricas Operacionais (Conversas e Propostas) */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Card className="flex flex-col justify-between p-5 shadow-sm">
-                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Conversas com a IA (VendeAI)
-                </h3>
-                <div className="flex flex-wrap items-end justify-between gap-4">
-                  <div>
-                    <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
-                    <span className="ml-1.5 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
-                  </div>
-
-                  {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {metrics.leads.by_product.map(item => (
-                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
-                          <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
-                        </div>
-                      ))}
+                <div>
+                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    Conversas com a IA (VendeAI)
+                  </h3>
+                  <div className="flex items-center gap-4 sm:gap-6">
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
                     </div>
-                  )}
+                  </div>
                 </div>
+
+                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {metrics.leads.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
 
               <Card className="flex flex-col justify-between p-5 shadow-sm">
-                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Criação de Propostas (NewCorban)
-                </h3>
-                <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    Criação de Propostas (NewCorban)
+                  </h3>
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
@@ -815,18 +817,18 @@ export default function IntegracoesVendeaiPage() {
                       <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
                     </div>
                   </div>
-
-                  {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {metrics.attempts.by_product.map(item => (
-                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
-                          <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
+
+                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {metrics.attempts.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             </div>
           </div>
