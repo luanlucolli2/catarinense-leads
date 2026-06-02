@@ -12,7 +12,8 @@ type VendeaiControlsProps = {
   exportIcon: "file" | "download";
   isRefreshing: boolean;
   refreshCountdown: number;
-  activeLabels: string[];
+  controlLabels: string[];
+  filterLabels: string[];
   hasActiveFilters?: boolean;
   onFilterClick: () => void;
   onExportClick: () => void;
@@ -29,7 +30,8 @@ export function VendeaiControls({
   exportIcon,
   isRefreshing,
   refreshCountdown,
-  activeLabels,
+  controlLabels,
+  filterLabels,
   hasActiveFilters = true,
   onFilterClick,
   onExportClick,
@@ -78,44 +80,61 @@ export function VendeaiControls({
         </div>
       </div>
 
-      {hasActiveFilters && (
-        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-3 flex items-center gap-2">
               <Filter className="h-4 w-4 text-blue-600" />
               <span className="text-sm font-medium text-blue-900">
-                Filtros aplicados
+                Resultados atuais
                 <span className="ml-1 font-normal text-blue-600">
                   · {filteredCount} {countLabel}
                 </span>
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {activeLabels.map((label) => (
-                <span
-                  key={label}
-                  className={cn(
-                    "inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium shadow-sm",
-                    label.startsWith("Modo:")
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-800"
-                      : "border-blue-200 bg-white text-blue-800"
-                  )}
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="space-y-3">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700">Visualização</p>
+                <div className="flex flex-wrap gap-2">
+                  {controlLabels.map((label) => (
+                    <span
+                      key={label}
+                      className={cn("inline-flex items-center rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-800 shadow-sm")}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {hasActiveFilters ? (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700">Filtros</p>
+                  <div className="flex flex-wrap gap-2">
+                    {filterLabels.map((label) => (
+                      <span
+                        key={label}
+                        className={cn("inline-flex items-center rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-800 shadow-sm")}
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-blue-700">Sem filtros adicionais.</p>
+              )}
             </div>
           </div>
-          <Button
-            onClick={onClearFilters}
-            variant="ghost"
-            size="sm"
-            className="h-8 w-full shrink-0 self-start text-xs text-blue-700 hover:bg-blue-100/50 hover:text-blue-800 sm:w-auto mt-2 sm:mt-0"
-          >
-            Limpar todos
-          </Button>
+          {hasActiveFilters ? (
+            <Button
+              onClick={onClearFilters}
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-8 w-full shrink-0 self-start text-xs text-blue-700 hover:bg-blue-100/50 hover:text-blue-800 sm:mt-0 sm:w-auto"
+            >
+              Limpar filtros
+            </Button>
+          ) : null}
         </div>
-      )}
     </div>
   );
 }

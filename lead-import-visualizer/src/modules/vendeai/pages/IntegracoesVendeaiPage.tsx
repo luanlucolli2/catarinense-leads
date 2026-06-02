@@ -16,7 +16,6 @@ import {
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCPF, formatPhone } from "@/lib/formatters";
 import { VendeaiControls } from "../components/VendeaiControls";
@@ -26,7 +25,7 @@ type FiltersState = {
   from: string;
   to: string;
   direction: VendeaiSortDirection;
-  windowMode: "rolling" | "fixed";
+  windowMode: "always" | "rolling" | "fixed";
   newcorbanFilter: VendeaiNewcorbanFilter;
 };
 
@@ -36,6 +35,7 @@ const MANUAL_REFRESH_COOLDOWN_MS = 10_000;
 const brMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
+  { value: "always", label: "Sempre" },
   { value: "rolling", label: "Janela móvel" },
   { value: "fixed", label: "Intervalo fixo" },
 ];
@@ -53,10 +53,10 @@ function toUtcIso(value: string): string | undefined {
 
 function defaultFilters(): FiltersState {
   return {
-    from: toDateTimeLocalValue(subHours(new Date(), 24)),
-    to: toDateTimeLocalValue(new Date()),
+    from: "",
+    to: "",
     direction: "desc",
-    windowMode: "rolling",
+    windowMode: "always",
     newcorbanFilter: "all",
   };
 }
@@ -93,7 +93,10 @@ function loadFilters(): FiltersState {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}") as Partial<FiltersState>;
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
-    const windowMode = parsed.windowMode === "fixed" || parsed.windowMode === "rolling" ? parsed.windowMode : fallback.windowMode;
+    const windowMode =
+      parsed.windowMode === "always" || parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
+        ? parsed.windowMode
+        : fallback.windowMode;
     const storedNewcorbanFilter =
       typeof (parsed as { newcorbanFilter?: unknown }).newcorbanFilter === "string"
         ? (parsed as { newcorbanFilter?: string }).newcorbanFilter
@@ -101,12 +104,22 @@ function loadFilters(): FiltersState {
     const newcorbanFilter =
       storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
 
-    if (windowMode === "rolling") {
-      const rolled = rollRangeToNow(from, to);
-      return { from: rolled.from, to: rolled.to, direction: "desc", windowMode, newcorbanFilter };
+    if (windowMode === "always") {
+      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
     }
 
-    return { from, to, direction: "desc", windowMode, newcorbanFilter };
+    if (windowMode === "rolling") {
+      const rolled = rollRangeToNow(from, to);
+      return {
+        from: rolled.from,
+        to: rolled.to,
+        direction: parsed.direction === "asc" ? "asc" : fallback.direction,
+        windowMode,
+        newcorbanFilter,
+      };
+    }
+
+    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
   } catch {
     return fallback;
   }
@@ -332,6 +345,7 @@ export default function IntegracoesVendeaiPage() {
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
+  const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
@@ -366,7 +380,7 @@ export default function IntegracoesVendeaiPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.newcorbanFilter],
+    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter],
     queryFn: ({ signal }) =>
       listVendeaiLeads(
         {
@@ -394,14 +408,32 @@ export default function IntegracoesVendeaiPage() {
   const currentLeadsPage = leadsQuery.data?.current_page ?? leadsPage;
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
-  const appliedLabels = [
-    `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
-    `De ${formatDateTime(fromIso ?? applied.from)}`,
-    `Até ${formatDateTime(toIso ?? applied.to)}`,
+  const controlLabels = [`Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
+  const filterLabels = [
+    ...(applied.windowMode === "always"
+      ? []
+      : [
+          `Período: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
+          `De ${formatDateTime(fromIso ?? applied.from)}`,
+          `Até ${formatDateTime(toIso ?? applied.to)}`,
+        ]),
     ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
   const applyFilters = (): boolean => {
+    if (windowModeInput === "always") {
+      setRangeError(null);
+      setApplied({
+        from: "",
+        to: "",
+        direction: directionInput,
+        windowMode: "always",
+        newcorbanFilter: newcorbanFilterInput,
+      });
+      setLeadsPage(1);
+      return true;
+    }
+
     const fromDate = new Date(fromInput);
     const toDate = new Date(toInput);
 
@@ -431,7 +463,7 @@ export default function IntegracoesVendeaiPage() {
     setApplied({
       from: nextFrom,
       to: nextTo,
-      direction: "desc",
+      direction: directionInput,
       windowMode: windowModeInput,
       newcorbanFilter: newcorbanFilterInput,
     });
@@ -448,18 +480,18 @@ export default function IntegracoesVendeaiPage() {
     setFromInput(next.from);
     setToInput(next.to);
     setWindowModeInput(next.windowMode);
+    setDirectionInput(next.direction);
     setNewcorbanFilterInput(next.newcorbanFilter);
     setRangeError(null);
   };
 
   const clearFilters = () => {
-    const next = defaultFilters();
-    setFromInput(next.from);
-    setToInput(next.to);
-    setWindowModeInput(next.windowMode);
-    setNewcorbanFilterInput(next.newcorbanFilter);
+    setFromInput("");
+    setToInput("");
+    setWindowModeInput("always");
+    setNewcorbanFilterInput("all");
     setRangeError(null);
-    setApplied(next);
+    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all" }));
     setLeadsPage(1);
   };
 
@@ -518,16 +550,17 @@ export default function IntegracoesVendeaiPage() {
       </div>
 
       <VendeaiControls
-        modeLabel="Leads VendeAI"
+        modeLabel="Filtros e Visualização"
         filteredCount={totalLeads}
-        countLabel="leads encontrados"
+        countLabel="leads filtrados"
         exportLabel="CSV filtrado"
         exportLoading={exporting}
         exportIcon="file"
         isRefreshing={metricsQuery.isFetching || leadsQuery.isFetching}
         refreshCountdown={manualRefreshRemaining}
-        activeLabels={appliedLabels}
-        hasActiveFilters
+        controlLabels={controlLabels}
+        filterLabels={filterLabels}
+        hasActiveFilters={filterLabels.length > 0}
         onFilterClick={() => setIsFiltersModalOpen(true)}
         onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
@@ -541,6 +574,7 @@ export default function IntegracoesVendeaiPage() {
         from={fromInput}
         to={toInput}
         windowMode={windowModeInput}
+        direction={directionInput}
         newcorbanFilter={newcorbanFilterInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
@@ -548,16 +582,99 @@ export default function IntegracoesVendeaiPage() {
         onFromChange={setFromInput}
         onToChange={setToInput}
         onWindowModeChange={setWindowModeInput}
+        onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
         onReset={resetFilterInputs}
         onApply={handleApplyFilters}
       />
 
+      {/* MÉTRICAS GERAIS (Separadas da Tabela) */}
+      <div className="space-y-4">
+        {metricsQuery.isLoading && (
+          <div className="flex items-center text-sm text-gray-500">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando resumo de métricas...
+          </div>
+        )}
+        
+        {metricsQuery.isError && (
+          <div className="flex items-center text-sm text-red-600">
+            <AlertCircle className="mr-2 h-4 w-4" /> Não foi possível carregar as métricas do período.
+          </div>
+        )}
+
+        {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            
+            {/* Card Conversas/Leads */}
+            <Card className="flex flex-col justify-between p-4 shadow-sm">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Conversas com a IA (VendeAI)
+              </h3>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                  <span className="ml-1.5 text-xs font-medium text-gray-500 uppercase">Iniciadas</span>
+                </div>
+                
+                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {metrics.leads.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Card Integrações/Propostas */}
+            <Card className="flex flex-col justify-between p-4 shadow-sm">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Criação de Propostas (NewCorban)
+              </h3>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="flex items-center gap-4 sm:gap-6">
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
+                  </div>
+                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
+                  </div>
+                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
+                    <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
+                  </div>
+                </div>
+
+                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {metrics.attempts.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+          </div>
+        )}
+      </div>
+
+      {/* ÁREA DA TABELA */}
       <div>
         <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Leads VendeAI</h2>
-            <p className="text-sm text-muted-foreground">{`${leads.length} nesta página • ${formatNumber(totalLeads)} no total`}</p>
+            <p className="text-sm text-muted-foreground">{`${leads.length} nesta página • ${formatNumber(totalLeads)} no total filtrado`}</p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-500">
             {leadsQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
@@ -566,80 +683,9 @@ export default function IntegracoesVendeaiPage() {
         </div>
 
         <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
-          {/* HEADER DE MÉTRICAS INTEGRADO */}
-          {metricsQuery.isLoading && (
-            <div className="bg-gray-50/50 border-b border-gray-100 p-4 flex items-center text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Carregando métricas de resumo...
-            </div>
-          )}
-          {metricsQuery.isError && (
-            <div className="bg-red-50/50 border-b border-red-100 p-4 flex items-center text-sm text-red-600">
-              <AlertCircle className="w-4 h-4 mr-2" /> Não foi possível carregar as métricas do período.
-            </div>
-          )}
-          {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
-            <div className="flex flex-col divide-y divide-gray-100 border-b border-gray-200">
-              {/* Seção 1: Leads/Conversas IA */}
-              <div className="bg-blue-50/20 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
-                <div className="flex flex-col min-w-[120px]">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Conversas com IA</span>
-                  <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.leads.total)}</span>
-                </div>
-                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                  <div className="hidden md:block w-px h-8 bg-gray-200" />
-                )}
-                <div className="flex-1 flex flex-col">
-                  {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                      {metrics.leads.by_product.map(item => (
-                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Seção 2: Propostas NewCorban */}
-              <div className="bg-gray-50/30 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
-                <div className="flex items-center gap-6 lg:gap-8">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Propostas Enviadas</span>
-                    <span className="text-2xl font-bold text-gray-700 leading-none">{formatNumber(metrics.attempts.total)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Criadas NewCorban</span>
-                    <span className="text-2xl font-bold text-emerald-600 leading-none">{formatNumber(metrics.attempts.success)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Falhas</span>
-                    <span className="text-2xl font-bold text-rose-600 leading-none">{formatNumber(metrics.attempts.failed)}</span>
-                  </div>
-                </div>
-                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                  <div className="hidden md:block w-px h-8 bg-gray-200" />
-                )}
-                <div className="flex-1 flex flex-col">
-                  {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                      {metrics.attempts.by_product.map(item => (
-                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">CPF</th>
                   <th className="px-4 py-3 text-left font-medium">Nome</th>
