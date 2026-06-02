@@ -97,6 +97,7 @@ class VendeaiExportController extends Controller
             'status' => ['nullable', Rule::in(['all', 'success', 'failed', 'pending'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
             'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
+            'product' => ['nullable', Rule::in(['all', 'clt', 'fgts'])],
         ]);
 
         if ($type === VendeaiCsvExport::TYPE_LEADS) {

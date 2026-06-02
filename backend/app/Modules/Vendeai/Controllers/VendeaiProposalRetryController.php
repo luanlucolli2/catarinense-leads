@@ -20,19 +20,34 @@ class VendeaiProposalRetryController extends Controller
         $validated = $request->validate([
             'account_id' => ['required', 'string', 'max:50'],
             'chat_id' => ['required', 'string', 'max:100'],
+            'product' => ['nullable', 'in:clt,fgts'],
         ]);
 
-        $lead = VendeaiLead::query()
+        $query = VendeaiLead::query()
             ->where('account_id', $validated['account_id'])
-            ->where('chat_id', $validated['chat_id'])
-            ->first();
+            ->where('chat_id', $validated['chat_id']);
 
-        if ($lead === null) {
+        if (($validated['product'] ?? null) !== null) {
+            $query->where('product_key', $validated['product']);
+        }
+
+        $leads = $query->get();
+
+        if ($leads->isEmpty()) {
             return response()->json([
                 'error' => 'not_found',
                 'message' => 'VendeAI lead not found.',
             ], 404);
         }
+
+        if ($leads->count() > 1) {
+            return response()->json([
+                'error' => 'ambiguous_product',
+                'message' => 'More than one VendeAI lead exists for this conversation. Inform the product.',
+            ], 409);
+        }
+
+        $lead = $leads->first();
 
         $webhook = VendeaiProposalCreatedWebhook::query()
             ->where('vendeai_lead_id', $lead->id)

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { format, parseISO, subHours } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +11,7 @@ import {
   startVendeaiExport,
   type VendeaiLead,
   type VendeaiNewcorbanFilter,
+  type VendeaiProductFilter,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Card } from "@/components/ui/card";
@@ -27,12 +26,51 @@ type FiltersState = {
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
   newcorbanFilter: VendeaiNewcorbanFilter;
+  product: VendeaiProductFilter;
 };
 
 const STORAGE_KEY = "vendeai:integracoes:filters:v2";
 const AUTO_REFRESH_MS = 60_000;
 const MANUAL_REFRESH_COOLDOWN_MS = 10_000;
+const BRAZIL_TIME_ZONE = "America/Sao_Paulo";
 const brMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const brazilDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: BRAZIL_TIME_ZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  hourCycle: "h23",
+});
+const brazilDateFormatter = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: BRAZIL_TIME_ZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+const brazilDateTimePartsFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: BRAZIL_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  hourCycle: "h23",
+});
+
+type BrazilDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
 
 const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
   { value: "always", label: "Sempre" },
@@ -41,14 +79,14 @@ const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: strin
 ];
 
 function toDateTimeLocalValue(date: Date): string {
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  const parts = getBrazilDateTimeParts(date);
+  return `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
 function toUtcIso(value: string): string | undefined {
   if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  const date = parseBrazilDateTimeLocalToUtcDate(value);
+  return date ? date.toISOString() : undefined;
 }
 
 function defaultFilters(): FiltersState {
@@ -58,31 +96,124 @@ function defaultFilters(): FiltersState {
     direction: "desc",
     windowMode: "always",
     newcorbanFilter: "all",
+    product: "all",
   };
 }
 
 function isValidDateTimeLocal(value: unknown): value is string {
   if (typeof value !== "string" || value.trim() === "") return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime());
+  return parseBrazilDateTimeLocalToUtcDate(value) !== null;
 }
 
-function rollRangeToNow(fromValue: string, toValue: string): { from: string; to: string } {
-  const fromDate = new Date(fromValue);
-  const toDate = new Date(toValue);
+function rollRangeToNow(fromValue: string, toValue: string, baseNow: Date = new Date()): { from: string; to: string } {
+  const fromDate = parseBrazilDateTimeLocalToUtcDate(fromValue);
+  const toDate = parseBrazilDateTimeLocalToUtcDate(toValue);
 
-  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
-    const now = new Date();
-    return { from: toDateTimeLocalValue(subHours(now, 24)), to: toDateTimeLocalValue(now) };
+  if (fromDate === null || toDate === null || fromDate > toDate) {
+    const now = baseNow;
+    return { from: toDateTimeLocalValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)), to: toDateTimeLocalValue(now) };
   }
 
   const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
-  const now = new Date();
+  const now = baseNow;
 
   return {
     from: toDateTimeLocalValue(new Date(now.getTime() - durationMs)),
     to: toDateTimeLocalValue(now),
   };
+}
+
+function pad(value: number, size: number = 2): string {
+  return String(value).padStart(size, "0");
+}
+
+function getBrazilDateTimeParts(date: Date): BrazilDateTimeParts {
+  const mapped = Object.fromEntries(
+    brazilDateTimePartsFormatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  ) as Record<string, string>;
+
+  return {
+    year: Number(mapped.year),
+    month: Number(mapped.month),
+    day: Number(mapped.day),
+    hour: Number(mapped.hour),
+    minute: Number(mapped.minute),
+    second: Number(mapped.second),
+  };
+}
+
+function parseDateOnlyParts(value: string): { year: number; month: number; day: number } | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function parseDateTimeLocalParts(value: string): BrazilDateTimeParts | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6] ?? "0"),
+  };
+}
+
+function formatLocalParts(parts: BrazilDateTimeParts): string {
+  return `${pad(parts.day)}/${pad(parts.month)}/${pad(parts.year, 4)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+}
+
+function toPseudoUtcTimestamp(parts: BrazilDateTimeParts): number {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+function parseBrazilDateTimeLocalToUtcDate(value: string): Date | null {
+  const target = parseDateTimeLocalParts(value);
+  if (!target) return null;
+
+  let timestamp = toPseudoUtcTimestamp(target);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const current = getBrazilDateTimeParts(new Date(timestamp));
+    const diff = toPseudoUtcTimestamp(target) - toPseudoUtcTimestamp(current);
+    timestamp += diff;
+    if (diff === 0) break;
+  }
+
+  const roundTrip = getBrazilDateTimeParts(new Date(timestamp));
+  if (
+    roundTrip.year !== target.year ||
+    roundTrip.month !== target.month ||
+    roundTrip.day !== target.day ||
+    roundTrip.hour !== target.hour ||
+    roundTrip.minute !== target.minute
+  ) {
+    return null;
+  }
+
+  return new Date(timestamp);
+}
+
+function parseUtcDateTimeString(value: string): Date | null {
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/.test(value) && !/[zZ]|[+-]\d{2}:\d{2}$/.test(value)) {
+    const normalized = value.replace(" ", "T");
+    const hasSeconds = normalized.length > 16;
+    return new Date(`${normalized}${hasSeconds ? "" : ":00"}Z`);
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function loadFilters(): FiltersState {
@@ -103,9 +234,10 @@ function loadFilters(): FiltersState {
         : null;
     const newcorbanFilter =
       storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
+    const product = parsed.product === "clt" || parsed.product === "fgts" ? parsed.product : fallback.product;
 
     if (windowMode === "always") {
-      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
+      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
     }
 
     if (windowMode === "rolling") {
@@ -116,10 +248,11 @@ function loadFilters(): FiltersState {
         direction: parsed.direction === "asc" ? "asc" : fallback.direction,
         windowMode,
         newcorbanFilter,
+        product,
       };
     }
 
-    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter };
+    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
   } catch {
     return fallback;
   }
@@ -127,20 +260,20 @@ function loadFilters(): FiltersState {
 
 function formatDateTime(value: string | null): string {
   if (!value) return "-";
-  try {
-    return format(parseISO(value), "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
-  } catch {
-    return "-";
-  }
+  const localParts = parseDateTimeLocalParts(value);
+  if (localParts) return formatLocalParts(localParts);
+
+  const parsed = parseUtcDateTimeString(value);
+  return parsed ? brazilDateTimeFormatter.format(parsed) : "-";
 }
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
-  try {
-    return format(parseISO(value), "dd/MM/yyyy", { locale: ptBR });
-  } catch {
-    return "-";
-  }
+  const dateOnly = parseDateOnlyParts(value);
+  if (dateOnly) return `${pad(dateOnly.day)}/${pad(dateOnly.month)}/${pad(dateOnly.year, 4)}`;
+
+  const parsed = parseUtcDateTimeString(value);
+  return parsed ? brazilDateFormatter.format(parsed) : "-";
 }
 
 function formatNumber(value: number | null | undefined): string {
@@ -264,11 +397,11 @@ function SimulationDetails({
       <DetailLine label="Produto" value={productLabel(data.simulation_product || "-")} />
       <DetailLine label="Banco" value={bankLabel(data.simulation_bank || "-")} />
       <DetailLine label="Valor líquido" value={formatCurrency(data.simulation_liquid_value)} />
+      <DetailLine label="Melhor valor líquido" value={data.simulation_best_liquid_value ? formatCurrency(data.simulation_best_liquid_value) : "-"} />
       <DetailLine label="Parcela" value={formatCurrency(data.simulation_installment_value)} />
       <DetailLine label="Parcelas" value={data.simulation_number_of_payments ? String(data.simulation_number_of_payments) : "-"} />
       <DetailLine label="Taxa mensal" value={data.simulation_monthly_fee ? `${String(data.simulation_monthly_fee)}%` : "-"} />
       <DetailLine label="Tabela" value={data.simulation_table_name || data.simulation_table_id || "-"} />
-      <DetailLine label="Melhor valor" value={data.simulation_best_liquid_value ? formatCurrency(data.simulation_best_liquid_value) : "-"} />
       <DetailLine label="Melhor tabela" value={data.simulation_best_table_id || "-"} />
       <DetailLine label="Data" value={formatDateTime(data.simulation_received_at)} />
     </div>
@@ -347,6 +480,7 @@ export default function IntegracoesVendeaiPage() {
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
+  const [productInput, setProductInput] = useState<VendeaiProductFilter>(initial.product);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -355,8 +489,19 @@ export default function IntegracoesVendeaiPage() {
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
 
-  const fromIso = useMemo(() => toUtcIso(applied.from), [applied.from]);
-  const toIso = useMemo(() => toUtcIso(applied.to), [applied.to]);
+  const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
+  const effectiveRange = useMemo(() => {
+    if (applied.windowMode === "rolling") {
+      return rollRangeToNow(applied.from, applied.to, new Date(rollingTick * AUTO_REFRESH_MS));
+    }
+
+    return {
+      from: applied.from,
+      to: applied.to,
+    };
+  }, [applied.from, applied.to, applied.windowMode, rollingTick]);
+  const fromIso = useMemo(() => toUtcIso(effectiveRange.from), [effectiveRange.from]);
+  const toIso = useMemo(() => toUtcIso(effectiveRange.to), [effectiveRange.to]);
   const manualRefreshRemaining = Math.max(0, Math.ceil((manualRefreshLockedUntil - nowTs) / 1000));
 
   useEffect(() => {
@@ -369,8 +514,9 @@ export default function IntegracoesVendeaiPage() {
   }, []);
 
   const metricsQuery = useQuery({
-    queryKey: ["vendeai:metrics", fromIso, toIso],
-    queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso }, signal),
+    queryKey: ["vendeai:metrics", fromIso, toIso, applied.product],
+    queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso, product: applied.product }, signal),
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
     retry: 1,
@@ -380,7 +526,7 @@ export default function IntegracoesVendeaiPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter],
+    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter, applied.product],
     queryFn: ({ signal }) =>
       listVendeaiLeads(
         {
@@ -391,6 +537,7 @@ export default function IntegracoesVendeaiPage() {
           direction: applied.direction,
           sort: "first_received_at",
           newcorbanFilter: applied.newcorbanFilter,
+          product: applied.product,
         },
         signal
       ),
@@ -414,9 +561,10 @@ export default function IntegracoesVendeaiPage() {
       ? []
       : [
           `Período: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
-          `De ${formatDateTime(fromIso ?? applied.from)}`,
-          `Até ${formatDateTime(toIso ?? applied.to)}`,
+          `De ${formatDateTime(fromIso ?? effectiveRange.from)}`,
+          `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
+    ...(applied.product === "all" ? [] : [`Produto: ${productLabel(applied.product)}`]),
     ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
 
@@ -429,15 +577,16 @@ export default function IntegracoesVendeaiPage() {
         direction: directionInput,
         windowMode: "always",
         newcorbanFilter: newcorbanFilterInput,
+        product: productInput,
       });
       setLeadsPage(1);
       return true;
     }
 
-    const fromDate = new Date(fromInput);
-    const toDate = new Date(toInput);
+    const fromDate = parseBrazilDateTimeLocalToUtcDate(fromInput);
+    const toDate = parseBrazilDateTimeLocalToUtcDate(toInput);
 
-    if (!fromInput || !toInput || Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    if (!fromInput || !toInput || fromDate === null || toDate === null) {
       setRangeError("Preencha um intervalo válido com data e hora.");
       return false;
     }
@@ -466,6 +615,7 @@ export default function IntegracoesVendeaiPage() {
       direction: directionInput,
       windowMode: windowModeInput,
       newcorbanFilter: newcorbanFilterInput,
+      product: productInput,
     });
     setLeadsPage(1);
     return true;
@@ -475,23 +625,14 @@ export default function IntegracoesVendeaiPage() {
     if (applyFilters()) setIsFiltersModalOpen(false);
   };
 
-  const resetFilterInputs = () => {
-    const next = defaultFilters();
-    setFromInput(next.from);
-    setToInput(next.to);
-    setWindowModeInput(next.windowMode);
-    setDirectionInput(next.direction);
-    setNewcorbanFilterInput(next.newcorbanFilter);
-    setRangeError(null);
-  };
-
   const clearFilters = () => {
     setFromInput("");
     setToInput("");
     setWindowModeInput("always");
     setNewcorbanFilterInput("all");
+    setProductInput("all");
     setRangeError(null);
-    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all" }));
+    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all", product: "all" }));
     setLeadsPage(1);
   };
 
@@ -514,6 +655,7 @@ export default function IntegracoesVendeaiPage() {
         to: toIso,
         direction: applied.direction,
         newcorbanFilter: applied.newcorbanFilter,
+        product: applied.product,
       });
 
       for (let attempt = 0; attempt < 180; attempt += 1) {
@@ -576,6 +718,7 @@ export default function IntegracoesVendeaiPage() {
         windowMode={windowModeInput}
         direction={directionInput}
         newcorbanFilter={newcorbanFilterInput}
+        product={productInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
@@ -584,11 +727,12 @@ export default function IntegracoesVendeaiPage() {
         onWindowModeChange={setWindowModeInput}
         onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
-        onReset={resetFilterInputs}
+        onProductChange={setProductInput}
+        onClearFilters={clearFilters}
         onApply={handleApplyFilters}
       />
 
-      {/* MÉTRICAS GERAIS (Separadas da Tabela) */}
+      {/* DASHBOARD GERAL DE MÉTRICAS */}
       <div className="space-y-4">
         {metricsQuery.isLoading && (
           <div className="flex items-center text-sm text-gray-500">
@@ -603,68 +747,88 @@ export default function IntegracoesVendeaiPage() {
         )}
 
         {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            
-            {/* Card Conversas/Leads */}
-            <Card className="flex flex-col justify-between p-4 shadow-sm">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Conversas com a IA (VendeAI)
+          <div className="space-y-4">
+            {/* LINHA 1: Funil Financeiro (Ofertado -> Digitado -> Pago) */}
+            <Card className="p-5 shadow-sm">
+              <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Resumo Financeiro
               </h3>
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
-                  <span className="ml-1.5 text-xs font-medium text-gray-500 uppercase">Iniciadas</span>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:divide-x md:divide-gray-100">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-gray-500">Ofertado</span>
+                  <span className="mt-1 text-3xl font-bold text-slate-700">{brMoney.format(metrics.leads.offered_total ?? 0)}</span>
                 </div>
-                
-                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {metrics.leads.by_product.map(item => (
-                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
-                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="flex flex-col md:pl-6">
+                  <span className="text-sm font-medium text-gray-500">Total digitado</span>
+                  <span className="mt-1 text-3xl font-bold text-blue-600">{brMoney.format(metrics.leads.typed_total ?? 0)}</span>
+                </div>
+                <div className="flex flex-col md:pl-6">
+                  <span className="text-sm font-medium text-gray-500">Total pago (produção)</span>
+                  <span className="mt-1 text-3xl font-bold text-emerald-600">{brMoney.format(metrics.leads.paid_total ?? 0)}</span>
+                </div>
               </div>
             </Card>
 
-            {/* Card Integrações/Propostas */}
-            <Card className="flex flex-col justify-between p-4 shadow-sm">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Criação de Propostas (NewCorban)
-              </h3>
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div className="flex items-center gap-4 sm:gap-6">
-                  <div className="flex flex-col">
-                    <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
-                    <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
+            {/* LINHA 2: Métricas Operacionais (Conversas e Propostas) */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card className="flex flex-col justify-between p-5 shadow-sm">
+                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Conversas com a IA (VendeAI)
+                </h3>
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                    <span className="ml-1.5 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
                   </div>
-                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
-                  <div className="flex flex-col">
-                    <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
-                    <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
-                  </div>
-                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
-                  <div className="flex flex-col">
-                    <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
-                    <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
-                  </div>
+
+                  {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {metrics.leads.by_product.map(item => (
+                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                          <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              </Card>
 
-                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {metrics.attempts.by_product.map(item => (
-                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
-                        <span className="text-xs font-medium text-gray-500 uppercase">{productLabel(item.label)}</span>
-                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
-                      </div>
-                    ))}
+              <Card className="flex flex-col justify-between p-5 shadow-sm">
+                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Criação de Propostas (NewCorban)
+                </h3>
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div className="flex items-center gap-4 sm:gap-6">
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
+                    </div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
+                    </div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
+                    </div>
                   </div>
-                )}
-              </div>
-            </Card>
 
+                  {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {metrics.attempts.by_product.map(item => (
+                        <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                          <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
+                          <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
         )}
       </div>
@@ -762,9 +926,15 @@ export default function IntegracoesVendeaiPage() {
                       </td>
                       <td className="px-4 py-3">
                         {lead.newcorban_error ? (
-                          <div className="max-w-[320px] text-sm text-red-700">{lead.newcorban_error}</div>
+                          <div className="max-w-[320px] space-y-1">
+                            <div className="text-sm text-red-700">{lead.newcorban_error}</div>
+                            <div className="text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
+                          </div>
                         ) : (
-                          <div className="font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
+                          <div className="space-y-1">
+                            <div className="font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
+                            <div className="text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
