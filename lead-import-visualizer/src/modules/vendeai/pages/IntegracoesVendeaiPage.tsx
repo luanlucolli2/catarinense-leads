@@ -16,7 +16,6 @@ import {
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCPF, formatPhone } from "@/lib/formatters";
 import { VendeaiControls } from "../components/VendeaiControls";
@@ -518,9 +517,9 @@ export default function IntegracoesVendeaiPage() {
       </div>
 
       <VendeaiControls
-        modeLabel="Leads VendeAI"
+        modeLabel="Filtros e Controles"
         filteredCount={totalLeads}
-        countLabel="leads encontrados"
+        countLabel="leads filtrados"
         exportLabel="CSV filtrado"
         exportLoading={exporting}
         exportIcon="file"
@@ -553,11 +552,93 @@ export default function IntegracoesVendeaiPage() {
         onApply={handleApplyFilters}
       />
 
+      {/* MÉTRICAS GERAIS (Separadas da Tabela) */}
+      <div className="space-y-4">
+        {metricsQuery.isLoading && (
+          <div className="flex items-center text-sm text-gray-500">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando resumo de métricas...
+          </div>
+        )}
+        
+        {metricsQuery.isError && (
+          <div className="flex items-center text-sm text-red-600">
+            <AlertCircle className="mr-2 h-4 w-4" /> Não foi possível carregar as métricas do período.
+          </div>
+        )}
+
+        {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            
+            {/* Card Conversas/Leads */}
+            <Card className="flex flex-col justify-between p-4 shadow-sm">
+              <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                Conversas com a IA (VendeAI)
+              </h3>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <span className="text-3xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                  <span className="ml-1.5 text-xs font-medium text-gray-500 uppercase">Iniciadas</span>
+                </div>
+                
+                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {metrics.leads.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-[10px] text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Card Integrações/Propostas */}
+            <Card className="flex flex-col justify-between p-4 shadow-sm">
+              <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                Criação de Propostas (NewCorban)
+              </h3>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="flex items-center gap-4 sm:gap-6">
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
+                    <span className="mt-1 text-[10px] font-medium uppercase text-gray-500">Enviadas</span>
+                  </div>
+                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
+                    <span className="mt-1 text-[10px] font-medium uppercase text-emerald-700">Criadas</span>
+                  </div>
+                  <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
+                    <span className="mt-1 text-[10px] font-medium uppercase text-rose-700">Falhas</span>
+                  </div>
+                </div>
+
+                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {metrics.attempts.by_product.map(item => (
+                      <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                        <span className="text-[10px] text-gray-500 uppercase">{productLabel(item.label)}</span>
+                        <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+          </div>
+        )}
+      </div>
+
+      {/* ÁREA DA TABELA */}
       <div>
         <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Leads VendeAI</h2>
-            <p className="text-sm text-muted-foreground">{`${leads.length} nesta página • ${formatNumber(totalLeads)} no total`}</p>
+            <p className="text-sm text-muted-foreground">{`${leads.length} nesta página • ${formatNumber(totalLeads)} no total filtrado`}</p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-500">
             {leadsQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
@@ -566,77 +647,6 @@ export default function IntegracoesVendeaiPage() {
         </div>
 
         <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
-          {/* HEADER DE MÉTRICAS INTEGRADO */}
-          {metricsQuery.isLoading && (
-            <div className="bg-gray-50/50 border-b border-gray-100 p-4 flex items-center text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Carregando métricas de resumo...
-            </div>
-          )}
-          {metricsQuery.isError && (
-            <div className="bg-red-50/50 border-b border-red-100 p-4 flex items-center text-sm text-red-600">
-              <AlertCircle className="w-4 h-4 mr-2" /> Não foi possível carregar as métricas do período.
-            </div>
-          )}
-          {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
-            <div className="flex flex-col divide-y divide-gray-100 border-b border-gray-200">
-              {/* Seção 1: Leads/Conversas IA */}
-              <div className="bg-blue-50/20 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
-                <div className="flex flex-col min-w-[120px]">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Conversas com IA</span>
-                  <span className="text-2xl font-bold text-blue-600 leading-none">{formatNumber(metrics.leads.total)}</span>
-                </div>
-                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                  <div className="hidden md:block w-px h-8 bg-gray-200" />
-                )}
-                <div className="flex-1 flex flex-col">
-                  {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                      {metrics.leads.by_product.map(item => (
-                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Seção 2: Propostas NewCorban */}
-              <div className="bg-gray-50/30 p-4 flex flex-col md:flex-row md:items-center gap-4 lg:gap-8">
-                <div className="flex items-center gap-6 lg:gap-8">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Propostas Enviadas</span>
-                    <span className="text-2xl font-bold text-gray-700 leading-none">{formatNumber(metrics.attempts.total)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Criadas NewCorban</span>
-                    <span className="text-2xl font-bold text-emerald-600 leading-none">{formatNumber(metrics.attempts.success)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Falhas</span>
-                    <span className="text-2xl font-bold text-rose-600 leading-none">{formatNumber(metrics.attempts.failed)}</span>
-                  </div>
-                </div>
-                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                  <div className="hidden md:block w-px h-8 bg-gray-200" />
-                )}
-                <div className="flex-1 flex flex-col">
-                  {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">Por Produto:</span>
-                      {metrics.attempts.by_product.map(item => (
-                        <Badge key={item.label} variant="outline" className="bg-white border-gray-200 text-gray-700 shadow-sm font-medium py-0.5">
-                          {productLabel(item.label)} <span className="ml-1.5 font-bold text-gray-900">{formatNumber(item.total)}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
