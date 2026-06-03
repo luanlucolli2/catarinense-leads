@@ -91,8 +91,11 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
                     fwrite($out, "\xEF\xBB\xBF");
                 }
 
-                fwrite($out, V8FgtsSchema::headerCsvLine(';') . $finalEol);
-                fgets($in);
+                $headerLine = fgets($in);
+                if ($headerLine === false) {
+                    $headerLine = V8FgtsSchema::headerCsvLine(';');
+                }
+                fwrite($out, rtrim((string) $headerLine, "\r\n") . $finalEol);
 
                 while (!feof($in)) {
                     $chunk = fread($in, 1024 * 256);

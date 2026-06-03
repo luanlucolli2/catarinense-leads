@@ -184,8 +184,11 @@ class V8FgtsConsultController extends Controller
                     fseek($fh, 0);
                 }
 
-                fgets($fh);
-                echo V8FgtsSchema::headerCsvLine(';') . $finalEol;
+                $headerLine = fgets($fh);
+                if ($headerLine === false) {
+                    $headerLine = V8FgtsSchema::headerCsvLine(';');
+                }
+                echo rtrim((string) $headerLine, "\r\n") . $finalEol;
                 fpassthru($fh);
             } finally {
                 flock($fh, LOCK_UN);

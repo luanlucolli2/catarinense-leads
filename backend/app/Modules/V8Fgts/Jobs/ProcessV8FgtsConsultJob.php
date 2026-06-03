@@ -317,7 +317,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
             return [
                 'type' => 'row',
                 'row' => $this->finalRow($cpf, 'FALHA', $classified['message'], [
-                    'balance_start_response_body' => $this->formatResponseBodyForCsv($resp['raw_body'] ?? null),
+                    'balance_start_response_body' => $this->formatResponseBodyForCsv('iniciar_saldo', $resp['raw_body'] ?? null),
                 ]),
             ];
         }
@@ -327,7 +327,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return [
             'type' => 'row',
             'row' => $this->finalRow($cpf, 'FALHA', 'Não foi possível iniciar a consulta de saldo.', [
-                'balance_start_response_body' => $this->formatResponseBodyForCsv($resp['raw_body'] ?? null),
+                'balance_start_response_body' => $this->formatResponseBodyForCsv('iniciar_saldo', $resp['raw_body'] ?? null),
             ]),
         ];
     }
@@ -949,7 +949,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return $row;
     }
 
-    private function formatResponseBodyForCsv(mixed $body): ?string
+    private function formatResponseBodyForCsv(string $stage, mixed $body): ?string
     {
         if (!is_string($body)) {
             return null;
@@ -957,7 +957,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
 
         $body = trim($body);
 
-        return $body !== '' ? $body : null;
+        return $body !== '' ? ($stage . ' | ' . $body) : null;
     }
 
     private function isCancelled(): bool
