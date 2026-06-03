@@ -1,0 +1,35 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Modules\V8Fgts\Support\V8FgtsBalanceClassifier;
+use PHPUnit\Framework\TestCase;
+
+class V8FgtsBalanceClassifierTest extends TestCase
+{
+    public function test_it_marks_documented_retryable_errors(): void
+    {
+        $this->assertSame(
+            V8FgtsBalanceClassifier::RETRYABLE,
+            V8FgtsBalanceClassifier::classify(400, 'BadRequestError', 'Tente novamente')
+        );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::RETRYABLE,
+            V8FgtsBalanceClassifier::classify(400, 'AppError', 'CPF: 1 | Não foi possível consultar o saldo no momento!')
+        );
+    }
+
+    public function test_it_marks_documented_business_errors_as_nao_elegivel(): void
+    {
+        $this->assertSame(
+            V8FgtsBalanceClassifier::NAO_ELEGIVEL,
+            V8FgtsBalanceClassifier::classify(400, 'AppError', 'CPF: 1 | Trabalhador não possui adesão ao saque aniversário vigente na data corrente.')
+        );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::NAO_ELEGIVEL,
+            V8FgtsBalanceClassifier::classifyPollingStatus('fail', 'Instituição Fiduciária não possui autorização do Trabalhador para Operação Fiduciária.')
+        );
+    }
+}
