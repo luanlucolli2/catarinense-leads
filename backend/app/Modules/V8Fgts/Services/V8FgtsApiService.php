@@ -60,9 +60,14 @@ class V8FgtsApiService
 
     public function getBalance(string $cpf): array
     {
-        return $this->get('/fgts/balance', [
+        return $this->listBalances([
             'search' => $cpf,
         ]);
+    }
+
+    public function listBalances(array $query): array
+    {
+        return $this->get('/fgts/balance', $query);
     }
 
     public function getSimulationFees(): array

@@ -8,6 +8,7 @@ use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
 use App\Modules\V8Fgts\Support\V8FgtsSpool;
 use App\Support\Cpf;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -147,6 +148,10 @@ class V8FgtsConsultController extends Controller
             ->findOrFail($id);
 
         $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
+        if (!empty($job->spool_path)) {
+            $this->fixDiskPathPermissions($disk, dirname($job->spool_path), true);
+            $this->fixDiskPathPermissions($disk, $job->spool_path);
+        }
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
@@ -202,6 +207,8 @@ class V8FgtsConsultController extends Controller
         }
 
         $disk = Storage::disk($job->file_disk);
+        $this->fixDiskPathPermissions($disk, dirname($job->file_path), true);
+        $this->fixDiskPathPermissions($disk, $job->file_path);
         if (!$disk->exists($job->file_path)) {
             return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
         }
@@ -390,6 +397,7 @@ class V8FgtsConsultController extends Controller
         if (!$disk->exists($dirSpool)) {
             $disk->makeDirectory($dirSpool);
         }
+        $this->fixDiskPathPermissions($disk, $dirSpool, true);
 
         $spoolPath = "{$dirSpool}/{$finalPrefix}_{$jobId}.spool.csv";
         $cpfsPath = "{$dirSpool}/{$finalPrefix}_{$jobId}.cpfs.txt";
@@ -446,7 +454,34 @@ class V8FgtsConsultController extends Controller
         } catch (\Throwable) {
         }
 
+        $this->fixDiskPathPermissions($disk, $spoolPath);
+        $this->fixDiskPathPermissions($disk, $cpfsPath);
+
         return [$spoolPath, $cpfsPath, $bytes, $count];
+    }
+
+    private function fixDiskPathPermissions(FilesystemAdapter $disk, ?string $relativePath, bool $directory = false): void
+    {
+        if (!is_string($relativePath) || $relativePath === '') {
+            return;
+        }
+
+        try {
+            $absolutePath = $disk->path($relativePath);
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($absolutePath === '' || !file_exists($absolutePath)) {
+            return;
+        }
+
+        $uid = (int) env('WWWUSER', 1000);
+        $gid = (int) env('WWWGROUP', 1000);
+
+        @chown($absolutePath, $uid);
+        @chgrp($absolutePath, $gid);
+        @chmod($absolutePath, $directory ? 0775 : 0664);
     }
 
     private function safeCleanupInit(int $jobId): void

@@ -44,10 +44,16 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private int $pollingTimeoutSeconds;
     private int $pollingMaxRounds;
     private int $selectionToleranceSeconds;
+    private int $phase2PageLimit;
+    private int $phase2SearchFallbackLimit;
+    private int $phase2SearchFallbackRoundStart;
+    private int $phase2SearchFallbackPendingThreshold;
+    private int $phase2PlainSearchLastResortRoundStart;
     private int $phase1MinIntervalMs;
     private int $pollingMinIntervalMs;
     private int $feesMinIntervalMs;
     private int $simulationMinIntervalMs;
+    private int $phase1RateLimitCooldownMs;
 
     private array $pendFiles = [];
     private $spoolFp = null;
@@ -60,6 +66,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private int $accFail = 0;
     private ?array $feeContext = null;
     private ?string $feeErrorMessage = null;
+    private bool $phase1PacingEscalated = false;
 
     public function __construct(int $jobId)
     {
@@ -73,19 +80,28 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         $this->flushEveryRows = max(1, (int) config('v8_fgts.job.flush_rows', 4000));
         $this->flushEverySecs = max(1, (int) config('v8_fgts.job.flush_seconds', 5));
         $this->flushBytesStep = max(1024, (int) config('v8_fgts.job.flush_bytes_step', 262144));
-        $this->dedupeBlockSize = max(1000, (int) config('v8_fgts.job.dedupe_block_size', 10000));
-        $this->startBuffer = max(1, (int) config('v8_fgts.job.start_buffer', 20));
-        $this->pollingBuffer = max(1, (int) config('v8_fgts.job.polling_buffer', 25));
+        $this->dedupeBlockSize = max(1000, (int) config('v8_fgts.job.dedupe_block_size', 5000));
+        $this->startBuffer = max(1, (int) config('v8_fgts.job.start_buffer', 12));
+        $this->pollingBuffer = max(1, (int) config('v8_fgts.job.polling_buffer', 80));
         $this->startMaxAttempts = max(1, (int) config('v8_fgts.job.start_max_attempts', 3));
-        $this->startRetryDelaySeconds = max(0, (int) config('v8_fgts.job.start_retry_delay_seconds', 20));
+        $this->startRetryDelaySeconds = max(0, (int) config('v8_fgts.job.start_retry_delay_seconds', 30));
         $this->pollingRoundDelaySeconds = max(0, (int) config('v8_fgts.job.polling_round_delay_seconds', 20));
         $this->pollingTimeoutSeconds = max(60, (int) config('v8_fgts.job.polling_timeout_seconds', 900));
         $this->pollingMaxRounds = max(1, (int) config('v8_fgts.job.polling_max_rounds', 30));
         $this->selectionToleranceSeconds = max(0, (int) config('v8_fgts.job.selection_tolerance_seconds', 5));
-        $this->phase1MinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_phase1', 300));
-        $this->pollingMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_polling', 1500));
+        $this->phase2PageLimit = max(1, min(50, (int) config('v8_fgts.job.phase2_page_limit', 50)));
+        $this->phase2SearchFallbackLimit = max(1, (int) config('v8_fgts.job.phase2_search_fallback_limit', 50));
+        $this->phase2SearchFallbackRoundStart = max(1, (int) config('v8_fgts.job.phase2_search_fallback_round_start', 3));
+        $this->phase2SearchFallbackPendingThreshold = max(1, (int) config('v8_fgts.job.phase2_search_fallback_pending_threshold', 50));
+        $this->phase2PlainSearchLastResortRoundStart = max(1, (int) config('v8_fgts.job.phase2_plain_search_last_resort_round_start', 25));
+        $this->phase1MinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_phase1', 10000));
+        $this->pollingMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_polling', 10000));
         $this->feesMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_fees', 2000));
         $this->simulationMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_simulation', 2000));
+        $this->phase1RateLimitCooldownMs = max(
+            1000,
+            (((int) config('v8_fgts.http.rate_limit_sleep_seconds', 15)) * 1000) + 1000
+        );
     }
 
     public function handle(V8FgtsApiService $api): void
@@ -201,13 +217,17 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
 
                 $buffer[] = $cpf;
                 if (count($buffer) >= $this->startBuffer) {
-                    $this->processStartBuffer($api, $job, $buffer, $pendingHandle);
+                    if (!$this->processStartBuffer($api, $job, $buffer, $pendingHandle)) {
+                        return false;
+                    }
                     $buffer = [];
                 }
             }
 
             if ($buffer !== []) {
-                $this->processStartBuffer($api, $job, $buffer, $pendingHandle);
+                if (!$this->processStartBuffer($api, $job, $buffer, $pendingHandle)) {
+                    return false;
+                }
             }
         } finally {
             fclose($reader);
@@ -218,12 +238,13 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return true;
     }
 
-    private function processStartBuffer(V8FgtsApiService $api, V8FgtsConsultJob $job, array $cpfs, $pendingHandle): void
+    private function processStartBuffer(V8FgtsApiService $api, V8FgtsConsultJob $job, array $cpfs, $pendingHandle): bool
     {
-        $api->setRateLimitMs($this->phase1MinIntervalMs);
         $rows = [];
 
         foreach ($cpfs as $cpf) {
+            $api->setRateLimitMs($this->phase1MinIntervalMs);
+
             if (!Cpf::isValid($cpf)) {
                 $rows[] = $this->finalRow($cpf, 'FALHA', 'CPF inválido (dígitos verificadores).');
                 $this->accFail++;
@@ -231,6 +252,10 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
             }
 
             $result = $this->startBalanceWithRetries($api, $job, $cpf);
+            if ($result['type'] === 'cancelled') {
+                return false;
+            }
+
             if ($result['type'] === 'accepted') {
                 fwrite($pendingHandle, $cpf . ';0;' . $result['accepted_at'] . "\n");
                 continue;
@@ -242,6 +267,8 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         if ($rows !== []) {
             $this->spoolAppendManyPersist($job, $rows);
         }
+
+        return true;
     }
 
     private function startBalanceWithRetries(V8FgtsApiService $api, V8FgtsConsultJob $job, string $cpf): array
@@ -249,12 +276,15 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         for ($attempt = 1; $attempt <= $this->startMaxAttempts; $attempt++) {
             if ($this->finishIfCancelled($job)) {
                 return [
-                    'type' => 'row',
-                    'row' => $this->finalRow($cpf, 'FALHA', 'Processamento cancelado.'),
+                    'type' => 'cancelled',
                 ];
             }
 
             $resp = $api->startBalance($cpf);
+            if (($resp['status'] ?? null) === 429) {
+                $this->escalatePhase1Pacing();
+            }
+
             if ($resp['ok'] ?? false) {
                 return [
                     'type' => 'accepted',
@@ -275,8 +305,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
             if ($classified['classification'] === V8FgtsBalanceClassifier::RETRYABLE && $attempt < $this->startMaxAttempts) {
                 if (!$this->sleepWithCancel($job, $this->startRetryDelaySeconds)) {
                     return [
-                        'type' => 'row',
-                        'row' => $this->finalRow($cpf, 'FALHA', 'Processamento cancelado.'),
+                        'type' => 'cancelled',
                     ];
                 }
 
@@ -299,6 +328,23 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         ];
     }
 
+    private function escalatePhase1Pacing(): void
+    {
+        if ($this->phase1MinIntervalMs < $this->phase1RateLimitCooldownMs) {
+            $this->phase1MinIntervalMs = $this->phase1RateLimitCooldownMs;
+        }
+
+        if ($this->phase1PacingEscalated) {
+            return;
+        }
+
+        $this->phase1PacingEscalated = true;
+        Log::warning("[V8-FGTS] Fase 1 entrou em pacing conservador após 429.", [
+            'job_id' => $this->jobId,
+            'phase1_min_interval_ms' => $this->phase1MinIntervalMs,
+        ]);
+    }
+
     private function runPhase2(V8FgtsApiService $api, V8FgtsConsultJob $job, string $initialPendingRel): bool
     {
         $currentPendingRel = $initialPendingRel;
@@ -313,16 +359,17 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
                 return true;
             }
 
+            $pendingEntries = $this->loadPendingEntries($currentReal);
+            if ($pendingEntries === []) {
+                @unlink($currentReal);
+                return true;
+            }
+
             $nextRel = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.pending.round{$round}.txt";
             $this->pendFiles[] = $nextRel;
             $nextReal = Storage::disk($this->disk)->path($nextRel);
-
-            $reader = fopen($currentReal, 'r');
             $nextHandle = fopen($nextReal, 'w');
-            if ($reader === false || $nextHandle === false) {
-                if (is_resource($reader)) {
-                    fclose($reader);
-                }
+            if ($nextHandle === false) {
                 if (is_resource($nextHandle)) {
                     fclose($nextHandle);
                 }
@@ -331,29 +378,81 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
             }
 
             try {
-                $buffer = [];
-                while (($line = fgets($reader)) !== false) {
-                    if ($this->finishIfCancelled($job)) {
-                        return false;
-                    }
-
-                    $entry = $this->parsePendingLine($line);
-                    if ($entry === null) {
+                $rows = [];
+                $activeEntries = [];
+                foreach ($pendingEntries as $cpf => $entry) {
+                    if ($this->isPendingExpired($entry['accepted_at']) || ($entry['attempts'] + 1) >= $this->pollingMaxRounds) {
+                        $rows[] = $this->finalRow($cpf, 'FALHA', 'Timeout aguardando retorno do saldo FGTS.');
+                        $this->accFail++;
                         continue;
                     }
 
-                    $buffer[] = $entry;
-                    if (count($buffer) >= $this->pollingBuffer) {
-                        $this->processPendingBuffer($api, $job, $buffer, $nextHandle);
-                        $buffer = [];
-                    }
+                    $activeEntries[$cpf] = $entry;
                 }
 
-                if ($buffer !== []) {
-                    $this->processPendingBuffer($api, $job, $buffer, $nextHandle);
+                if ($activeEntries === []) {
+                    if ($rows !== []) {
+                        $this->spoolAppendManyPersist($job, $rows);
+                    }
+                } else {
+                    [$windowStart, $windowEnd] = $this->resolvePhase2Window($job);
+                    $scan = $this->fetchPhase2MatchesByWindow($api, $job, $activeEntries, $windowStart, $windowEnd);
+
+                    if (!($scan['ok'] ?? false)) {
+                        if (!empty($scan['stopped'])) {
+                            return false;
+                        }
+
+                        if (!empty($scan['retriable'])) {
+                            $this->writePendingEntries($nextHandle, $activeEntries, true);
+                        } else {
+                            $this->appendPendingEntriesAsErrorRows($job, $activeEntries, (string) ($scan['error'] ?? 'Falha ao consultar saldo FGTS.'));
+                        }
+
+                        if ($rows !== []) {
+                            $this->spoolAppendManyPersist($job, $rows);
+                        }
+                    } else {
+                        $matches = is_array($scan['matches'] ?? null) ? $scan['matches'] : [];
+                        $remainingEntries = array_diff_key($activeEntries, $matches);
+
+                        $fallbackRows = [];
+                        if (
+                            $remainingEntries !== []
+                            && $this->shouldUseSearchFallback($round, count($remainingEntries))
+                        ) {
+                            $fallback = $this->resolvePhase2SearchFallbacks($api, $job, $remainingEntries, $round, $windowStart, $windowEnd);
+                            if (!empty($fallback['stopped'])) {
+                                return false;
+                            }
+
+                            $matches = array_replace($matches, $fallback['matches'] ?? []);
+                            $fallbackRows = $fallback['rows'] ?? [];
+                            $remainingEntries = $fallback['requeue'] ?? [];
+                        }
+
+                        foreach ($activeEntries as $cpf => $entry) {
+                            if (isset($matches[$cpf]) && is_array($matches[$cpf])) {
+                                $rows[] = $this->rowFromMatchedBalanceItem($api, $cpf, $matches[$cpf]);
+                                continue;
+                            }
+
+                            if (isset($fallbackRows[$cpf]) && is_array($fallbackRows[$cpf])) {
+                                $rows[] = $fallbackRows[$cpf];
+                                continue;
+                            }
+
+                            if (isset($remainingEntries[$cpf])) {
+                                fwrite($nextHandle, $cpf . ';' . ($entry['attempts'] + 1) . ';' . $entry['accepted_at'] . "\n");
+                            }
+                        }
+
+                        if ($rows !== []) {
+                            $this->spoolAppendManyPersist($job, $rows);
+                        }
+                    }
                 }
             } finally {
-                fclose($reader);
                 fflush($nextHandle);
                 fclose($nextHandle);
             }
@@ -380,80 +479,301 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return true;
     }
 
-    private function processPendingBuffer(V8FgtsApiService $api, V8FgtsConsultJob $job, array $entries, $nextHandle): void
+    private function fetchPhase2MatchesByWindow(
+        V8FgtsApiService $api,
+        V8FgtsConsultJob $job,
+        array $pendingEntries,
+        CarbonImmutable $startDate,
+        CarbonImmutable $endDate
+    ): array
     {
-        $api->setRateLimitMs($this->pollingMinIntervalMs);
+        $matches = [];
+        $page = 1;
+        $totalPages = 1;
+        $queryBase = [
+            'startDate' => $this->formatApiDateTime($startDate),
+            'endDate' => $this->formatApiDateTime($endDate),
+            'limit' => $this->phase2PageLimit,
+        ];
+
+        while ($page <= $totalPages) {
+            if ($this->finishIfCancelled($job)) {
+                return [
+                    'ok' => false,
+                    'stopped' => true,
+                ];
+            }
+
+            $api->setRateLimitMs($this->pollingMinIntervalMs);
+            $resp = $api->listBalances($queryBase + ['page' => $page]);
+            if (!($resp['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'error' => (string) ($resp['error'] ?? 'Falha ao consultar saldo FGTS.'),
+                    'retriable' => (bool) ($resp['retriable'] ?? false),
+                ];
+            }
+
+            $pages = $resp['data']['pages'] ?? [];
+            if (is_array($pages) && isset($pages['totalPages'])) {
+                $totalPages = max(1, (int) $pages['totalPages']);
+            }
+
+            $items = $resp['data']['data'] ?? [];
+            if (is_array($items)) {
+                foreach ($items as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+
+                    $cpf = preg_replace('/\D+/', '', (string) ($item['documentNumber'] ?? ''));
+                    if ($cpf === '' || !isset($pendingEntries[$cpf])) {
+                        continue;
+                    }
+
+                    $acceptedAt = $pendingEntries[$cpf]['accepted_at'];
+                    $candidates = isset($matches[$cpf]) ? [$matches[$cpf], $item] : [$item];
+                    $selected = V8FgtsBalanceSelector::selectLatestRelevant(
+                        $candidates,
+                        $cpf,
+                        $api->provider(),
+                        $acceptedAt,
+                        $this->selectionToleranceSeconds
+                    );
+
+                    if ($selected !== null) {
+                        $matches[$cpf] = $selected;
+                    }
+                }
+            }
+
+            $page++;
+        }
+
+        return [
+            'ok' => true,
+            'matches' => $matches,
+        ];
+    }
+
+    private function resolvePhase2SearchFallbacks(
+        V8FgtsApiService $api,
+        V8FgtsConsultJob $job,
+        array $entries,
+        int $round,
+        CarbonImmutable $startDate,
+        CarbonImmutable $endDate
+    ): array {
+        $matches = [];
         $rows = [];
+        $requeue = [];
 
-        foreach ($entries as $entry) {
-            $cpf = $entry['cpf'];
-            $attempts = $entry['attempts'];
-            $acceptedAt = $entry['accepted_at'];
+        foreach ($entries as $cpf => $entry) {
+            if ($this->finishIfCancelled($job)) {
+                return ['stopped' => true];
+            }
 
-            if ($this->isPendingExpired($acceptedAt) || ($attempts + 1) >= $this->pollingMaxRounds) {
-                $rows[] = $this->finalRow($cpf, 'FALHA', 'Timeout aguardando retorno do saldo FGTS.');
-                $this->accFail++;
+            $result = $this->findBalanceBySearch($api, $entry, $startDate, $endDate);
+            if (($result['type'] ?? null) === 'not_found' && $round >= $this->phase2PlainSearchLastResortRoundStart) {
+                $result = $this->findBalanceBySearch($api, $entry, null, null);
+            }
+
+            if (($result['type'] ?? null) === 'match') {
+                $matches[$cpf] = $result['match'];
                 continue;
             }
 
-            $resp = $api->getBalance($cpf);
+            if (($result['type'] ?? null) === 'row') {
+                $rows[$cpf] = $result['row'];
+                continue;
+            }
+
+            $requeue[$cpf] = $entry;
+        }
+
+        return [
+            'matches' => $matches,
+            'rows' => $rows,
+            'requeue' => $requeue,
+        ];
+    }
+
+    private function findBalanceBySearch(
+        V8FgtsApiService $api,
+        array $entry,
+        ?CarbonImmutable $startDate,
+        ?CarbonImmutable $endDate
+    ): array {
+        $cpf = $entry['cpf'];
+        $acceptedAt = $entry['accepted_at'];
+        $page = 1;
+        $totalPages = 1;
+        $bestMatch = null;
+
+        while ($page <= $totalPages) {
+            $query = [
+                'search' => $cpf,
+                'limit' => $this->phase2SearchFallbackLimit,
+                'page' => $page,
+            ];
+
+            if ($startDate !== null && $endDate !== null) {
+                $query['startDate'] = $this->formatApiDateTime($startDate);
+                $query['endDate'] = $this->formatApiDateTime($endDate);
+            }
+
+            $api->setRateLimitMs($this->pollingMinIntervalMs);
+            $resp = $api->listBalances($query);
             if (!($resp['ok'] ?? false)) {
-                $retriable = (bool) ($resp['retriable'] ?? false);
-                if ($retriable) {
-                    fwrite($nextHandle, $cpf . ';' . ($attempts + 1) . ';' . $acceptedAt . "\n");
-                    continue;
+                if ((bool) ($resp['retriable'] ?? false)) {
+                    return ['type' => 'requeue'];
                 }
 
                 $classified = V8FgtsBalanceClassifier::classifyApiFailure($resp);
                 if ($classified['classification'] === V8FgtsBalanceClassifier::NAO_ELEGIVEL) {
-                    $rows[] = $this->finalRow($cpf, 'NAO_ELEGIVEL', $classified['message']);
                     $this->accNaoElegivel++;
-                } else {
-                    $rows[] = $this->finalRow($cpf, 'FALHA', $classified['message']);
-                    $this->accFail++;
+                    return [
+                        'type' => 'row',
+                        'row' => $this->finalRow($cpf, 'NAO_ELEGIVEL', $classified['message']),
+                    ];
                 }
-                continue;
+
+                $this->accFail++;
+                return [
+                    'type' => 'row',
+                    'row' => $this->finalRow($cpf, 'FALHA', $classified['message']),
+                ];
             }
 
-            $items = is_array($resp['data']['data'] ?? null) ? $resp['data']['data'] : [];
-            $match = V8FgtsBalanceSelector::selectLatestRelevant(
-                $items,
-                $cpf,
-                $api->provider(),
-                $acceptedAt,
-                $this->selectionToleranceSeconds
-            );
-
-            if ($match === null) {
-                fwrite($nextHandle, $cpf . ';' . ($attempts + 1) . ';' . $acceptedAt . "\n");
-                continue;
+            $pages = $resp['data']['pages'] ?? [];
+            if (is_array($pages) && isset($pages['totalPages'])) {
+                $totalPages = max(1, (int) $pages['totalPages']);
             }
 
-            $status = strtolower(trim((string) ($match['status'] ?? '')));
-            if ($status !== 'success') {
-                $statusInfo = is_string($match['statusInfo'] ?? null) ? trim((string) $match['statusInfo']) : 'Saldo FGTS não retornou sucesso.';
-                $classification = V8FgtsBalanceClassifier::classifyPollingStatus($status, $statusInfo);
+            $items = $resp['data']['data'] ?? [];
+            if (is_array($items)) {
+                $candidates = $bestMatch !== null ? array_merge([$bestMatch], $items) : $items;
+                $bestMatch = V8FgtsBalanceSelector::selectLatestRelevant(
+                    $candidates,
+                    $cpf,
+                    $api->provider(),
+                    $acceptedAt,
+                    $this->selectionToleranceSeconds
+                );
+            }
 
-                if ($classification === V8FgtsBalanceClassifier::NAO_ELEGIVEL) {
-                    $rows[] = $this->finalRow($cpf, 'NAO_ELEGIVEL', $statusInfo, [
-                        'provider' => $api->provider(),
-                    ]);
-                    $this->accNaoElegivel++;
-                } else {
-                    $rows[] = $this->finalRow($cpf, 'FALHA', $statusInfo, [
-                        'provider' => $api->provider(),
-                    ]);
-                    $this->accFail++;
+            $page++;
+        }
+
+        if ($bestMatch !== null) {
+            return [
+                'type' => 'match',
+                'match' => $bestMatch,
+            ];
+        }
+
+        return ['type' => 'not_found'];
+    }
+
+    private function rowFromMatchedBalanceItem(V8FgtsApiService $api, string $cpf, array $match): array
+    {
+        $status = strtolower(trim((string) ($match['status'] ?? '')));
+        if ($status === 'success') {
+            return $this->simulateFromBalanceItem($api, $cpf, $match);
+        }
+
+        $statusInfo = is_string($match['statusInfo'] ?? null) ? trim((string) $match['statusInfo']) : 'Saldo FGTS não retornou sucesso.';
+        $classification = V8FgtsBalanceClassifier::classifyPollingStatus($status, $statusInfo);
+        $extra = [
+            'provider' => strtolower(trim((string) ($match['provider'] ?? $api->provider()))),
+        ];
+
+        if ($classification === V8FgtsBalanceClassifier::NAO_ELEGIVEL) {
+            $this->accNaoElegivel++;
+            return $this->finalRow($cpf, 'NAO_ELEGIVEL', $statusInfo, $extra);
+        }
+
+        $this->accFail++;
+        return $this->finalRow($cpf, 'FALHA', $statusInfo, $extra);
+    }
+
+    private function shouldUseSearchFallback(int $round, int $remainingCount): bool
+    {
+        return $round >= $this->phase2SearchFallbackRoundStart
+            || $remainingCount <= $this->phase2SearchFallbackPendingThreshold;
+    }
+
+    private function loadPendingEntries(string $realPath): array
+    {
+        $entries = [];
+        $reader = fopen($realPath, 'r');
+        if ($reader === false) {
+            return $entries;
+        }
+
+        try {
+            while (($line = fgets($reader)) !== false) {
+                $entry = $this->parsePendingLine($line);
+                if ($entry === null) {
+                    continue;
                 }
+
+                $entries[$entry['cpf']] = $entry;
+            }
+        } finally {
+            fclose($reader);
+        }
+
+        return $entries;
+    }
+
+    private function writePendingEntries($handle, array $entries, bool $incrementAttempts = true): int
+    {
+        $written = 0;
+
+        foreach ($entries as $entry) {
+            $attempts = max(0, (int) ($entry['attempts'] ?? 0)) + ($incrementAttempts ? 1 : 0);
+            $acceptedAt = trim((string) ($entry['accepted_at'] ?? ''));
+            $cpf = preg_replace('/\D+/', '', (string) ($entry['cpf'] ?? ''));
+            if ($cpf === '' || strlen($cpf) !== 11 || $acceptedAt === '') {
                 continue;
             }
 
-            $rows[] = $this->simulateFromBalanceItem($api, $cpf, $match);
+            fwrite($handle, $cpf . ';' . $attempts . ';' . $acceptedAt . "\n");
+            $written++;
+        }
+
+        return $written;
+    }
+
+    private function appendPendingEntriesAsErrorRows(V8FgtsConsultJob $job, array $entries, string $message): void
+    {
+        $rows = [];
+        foreach ($entries as $entry) {
+            $rows[] = $this->finalRow($entry['cpf'], 'FALHA', $message);
+            $this->accFail++;
         }
 
         if ($rows !== []) {
             $this->spoolAppendManyPersist($job, $rows);
         }
+    }
+
+    private function resolvePhase2Window(V8FgtsConsultJob $job): array
+    {
+        $startedAt = $job->started_at instanceof Carbon
+            ? CarbonImmutable::instance($job->started_at)->utc()
+            : CarbonImmutable::now('UTC');
+
+        return [
+            $startedAt->subSeconds($this->selectionToleranceSeconds),
+            CarbonImmutable::now('UTC'),
+        ];
+    }
+
+    private function formatApiDateTime(CarbonImmutable $date): string
+    {
+        return $date->utc()->format('Y-m-d\TH:i:s\Z');
     }
 
     private function simulateFromBalanceItem(V8FgtsApiService $api, string $cpf, array $match): array

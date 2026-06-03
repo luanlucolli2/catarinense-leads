@@ -12,7 +12,7 @@ Esta documentação descreve o fluxo necessário para integrar com a API da V8 D
 
 Esta documentação **não cobre criação de proposta, formalização, bancos, pendências, cancelamento ou pós-venda**, pois o escopo definido para a automação é chegar somente até a simulação.
 
-Também foi definido que **não será utilizado webhook** neste fluxo. O resultado da consulta de saldo deverá ser obtido por consulta ativa via `GET /fgts/balance?search=<CPF>`.
+Também foi definido que **não será utilizado webhook** neste fluxo. O resultado da consulta de saldo deverá ser obtido por consulta ativa via `GET /fgts/balance`, podendo usar filtros opcionais como `search`, `startDate`, `endDate`, `limit` e `page`.
 
 ---
 
@@ -154,8 +154,14 @@ O fluxo correto para chegar até a simulação é:
 2. POST /fgts/balance
    Iniciar consulta de saldo para o CPF e provider.
 
-3. GET /fgts/balance?search=<CPF>
+3. GET /fgts/balance
    Consultar o resultado da consulta de saldo.
+   Filtros opcionais:
+   - search
+   - startDate
+   - endDate
+   - limit
+   - page
 
 4. GET /fgts/simulations/fees
    Obter as tabelas de taxas disponíveis.
@@ -178,7 +184,7 @@ O fluxo correto para chegar até a simulação é:
 
 Este endpoint inicia a consulta de saldo FGTS do cliente.
 
-O processamento é assíncrono. No fluxo desta integração, não será utilizado webhook. Após iniciar a consulta, o resultado deverá ser obtido via `GET /fgts/balance?search=<CPF>`.
+O processamento é assíncrono. No fluxo desta integração, não será utilizado webhook. Após iniciar a consulta, o resultado deverá ser obtido via `GET /fgts/balance`, com ou sem filtros opcionais.
 
 ### Endpoint
 
@@ -271,7 +277,7 @@ Regra:
 
 ```text
 Consulta aceita.
-Prosseguir para a consulta do resultado via GET /fgts/balance?search=<CPF>.
+Prosseguir para a consulta do resultado via GET /fgts/balance, usando os filtros necessários.
 ```
 
 ---
@@ -574,7 +580,7 @@ Não seguir para simulação sem balanceId válido.
 
 | Tipo | Status HTTP | title | detail/Condição | Retentar? | Decisão |
 |---|---:|---|---|---:|---|
-| Sucesso | 200 | - | `null` | Não | Prosseguir para `GET /fgts/balance?search=<CPF>` |
+| Sucesso | 200 | - | `null` | Não | Prosseguir para `GET /fgts/balance` |
 | Temporário | 400 | `BadRequestError` | `Tente novamente` | Sim | Tentar novamente para o mesmo CPF |
 | Temporário | 400 | `AppError` | `Ocorreu um erro inesperado` | Sim | Tentar novamente para o mesmo CPF |
 | Temporário | 400 | `AppError` | Contém `Não foi possível consultar o saldo no momento!` | Sim | Tentar novamente para o mesmo CPF |
@@ -587,27 +593,131 @@ Não seguir para simulação sem balanceId válido.
 
 ## 8. Consulta do resultado do saldo FGTS
 
-Após iniciar a consulta com `POST /fgts/balance`, o resultado deve ser consultado pelo CPF.
+Após iniciar a consulta com `POST /fgts/balance`, o resultado deve ser consultado pelo endpoint `GET /fgts/balance`.
 
-### Endpoint
+Neste fluxo, **não será usado webhook**. A consulta final deve ser feita de forma ativa.
+
+A collection do Postman possui variações deste endpoint com:
+
+- consulta sem `search`, usando filtros date-time e paginação;
+- consulta com `search` por CPF;
+- consulta combinando `search`, filtros date-time e paginação.
+
+### Endpoint base
+
+```text
+GET https://bff.v8sistema.com/fgts/balance
+```
+
+### Endpoint — consulta com filtros date-time e paginação, sem CPF
+
+```text
+GET https://bff.v8sistema.com/fgts/balance?startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>
+```
+
+### Endpoint — consulta por CPF
 
 ```text
 GET https://bff.v8sistema.com/fgts/balance?search=<CPF>
+```
+
+### Endpoint — consulta por CPF com filtros date-time e paginação
+
+```text
+GET https://bff.v8sistema.com/fgts/balance?search=<CPF>&startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>
 ```
 
 ### Query params
 
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---:|---:|---|
-| `search` | string | Sim | CPF consultado, preferencialmente somente números. |
+| `search` | string | Não | Filtro textual. Pode ser usado para buscar por CPF. Deve ser enviado preferencialmente somente com números quando usado para CPF. |
+| `startDate` | string | Não | Data/hora inicial do filtro. Deve ser enviada no formato date-time aceito pela API. |
+| `endDate` | string | Não | Data/hora final do filtro. Deve ser enviada no formato date-time aceito pela API. |
+| `limit` | number | Não | Quantidade de registros por página. |
+| `page` | number | Não | Página desejada da consulta. |
 
-### Exemplo de requisição
+### Observação sobre obrigatoriedade do search
+
+O parâmetro `search` **não é obrigatório**.
+
+É possível consultar o saldo final sem informar CPF, usando apenas filtros date-time e paginação:
+
+```text
+GET /fgts/balance?startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>
+```
+
+Para o fluxo automatizado por CPF, o uso de `search=<CPF>` continua sendo recomendado quando a intenção for localizar diretamente o retorno de um CPF específico, mas ele não deve ser tratado como obrigatório pela documentação.
+
+### Observação sobre filtros de data
+
+Na collection do Postman, os filtros são enviados como:
+
+```text
+startDate={{start_date_time}}
+endDate={{end_date_time}}
+limit={{limit}}
+page={{page}}
+```
+
+Exemplo recomendado de formato para date-time:
+
+```text
+2026-04-24T00:00:00.000Z
+2026-04-24T23:59:59.999Z
+```
+
+Usar timezone de forma consistente para evitar divergência entre o horário local e o horário armazenado pela API.
+
+### Exemplo de requisição com filtros date-time e paginação, sem CPF
+
+```http
+GET /fgts/balance?startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1 HTTP/1.1
+Host: bff.v8sistema.com
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+### Exemplo de requisição por CPF
 
 ```http
 GET /fgts/balance?search=00089909216 HTTP/1.1
 Host: bff.v8sistema.com
 Authorization: Bearer <access_token>
 Content-Type: application/json
+```
+
+### Exemplo de requisição por CPF com filtros date-time e paginação
+
+```http
+GET /fgts/balance?search=00089909216&startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1 HTTP/1.1
+Host: bff.v8sistema.com
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+### Exemplo usando cURL — filtros date-time e paginação, sem CPF
+
+```bash
+curl --request GET 'https://bff.v8sistema.com/fgts/balance?startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1' \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json'
+```
+
+### Exemplo usando cURL — consulta por CPF
+
+```bash
+curl --request GET 'https://bff.v8sistema.com/fgts/balance?search=00089909216' \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json'
+```
+
+### Exemplo usando cURL — consulta por CPF com filtros date-time e paginação
+
+```bash
+curl --request GET 'https://bff.v8sistema.com/fgts/balance?search=00089909216&startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1' \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json'
 ```
 
 ### Exemplo de resposta de sucesso
@@ -648,16 +758,25 @@ Content-Type: application/json
 
 | Campo | Tipo | Descrição |
 |---|---:|---|
-| `data` | array | Lista de consultas encontradas para o CPF. |
+| `data` | array | Lista de consultas encontradas conforme os filtros informados. |
 | `data[].id` | string | Identificador da consulta de saldo. Este valor será usado como `balanceId` na simulação. |
 | `data[].documentNumber` | string | CPF consultado. |
+| `data[].partnerId` | string | Código do parceiro/usuário que iniciou a consulta. |
 | `data[].status` | string | Status da consulta. Exemplo: `success` ou `fail`. |
 | `data[].statusInfo` | string/null | Detalhe de erro quando houver falha. |
+| `data[].createdAt` | string | Data/hora de criação da consulta. |
+| `data[].updatedAt` | string | Data/hora de atualização/retorno da consulta. |
 | `data[].amount` | number | Valor total disponível retornado pela consulta. |
 | `data[].provider` | string | Provider usado na consulta. |
 | `data[].periods` | array | Lista de períodos disponíveis para simulação. |
 | `data[].periods[].amount` | number | Valor disponível no período. |
 | `data[].periods[].dueDate` | string | Data do período no formato `YYYY-MM-DD`. |
+| `pages.limit` | number | Limite de registros por página. |
+| `pages.total` | number | Total de registros encontrados. |
+| `pages.current` | number | Página atual. |
+| `pages.hasNext` | boolean | Indica se existe próxima página. |
+| `pages.hasPrev` | boolean | Indica se existe página anterior. |
+| `pages.totalPages` | number | Total de páginas. |
 
 ### Seleção do resultado
 
@@ -686,6 +805,55 @@ O campo `periods` será usado para montar:
 
 ```text
 desiredInstallments
+```
+
+### Critério recomendado quando houver múltiplos resultados
+
+Quando a resposta retornar mais de um registro em `data`, selecionar preferencialmente o registro que atenda a todos os critérios disponíveis.
+
+Se a consulta foi feita por CPF, usar:
+
+```text
+documentNumber = CPF consultado
+status = success
+provider = provider usado no POST /fgts/balance
+```
+
+Se a consulta foi feita sem `search`, usando apenas filtros date-time e paginação, usar:
+
+```text
+status = success
+provider = provider esperado
+```
+
+Quando houver múltiplos registros válidos, usar o registro mais recente pelo campo:
+
+```text
+updatedAt
+```
+
+Caso `updatedAt` esteja ausente ou inválido, usar `createdAt`.
+
+### Paginação
+
+Quando `pages.hasNext` for `true`, existem mais registros disponíveis.
+
+Para consultar a próxima página, incrementar o parâmetro:
+
+```text
+page
+```
+
+Exemplo sem `search`:
+
+```text
+GET /fgts/balance?startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=2
+```
+
+Exemplo com `search`:
+
+```text
+GET /fgts/balance?search=00089909216&startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=2
 ```
 
 ---
@@ -954,7 +1122,7 @@ POST https://bff.v8sistema.com/fgts/simulations
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---:|---:|---|
 | `simulationFeesId` | string | Sim | ID da tabela de taxas obtido em `/fgts/simulations/fees`. |
-| `balanceId` | string | Sim | ID da consulta de saldo obtido em `/fgts/balance?search=<CPF>`. |
+| `balanceId` | string | Sim | ID da consulta de saldo obtido em `GET /fgts/balance`. |
 | `targetAmount` | number | Sim | Valor desejado. Enviar `0` quando não houver valor específico. |
 | `documentNumber` | string | Sim | CPF do cliente. |
 | `desiredInstallments` | array | Sim | Parcelas desejadas montadas a partir de `periods`. |
@@ -1072,11 +1240,23 @@ documentNumber
 provider
 ```
 
-### GET /fgts/balance?search=<CPF>
+### GET /fgts/balance
+
+```text
+Nenhum query param obrigatório.
+```
+
+Filtros opcionais:
 
 ```text
 search
+startDate
+endDate
+limit
+page
 ```
+
+O parâmetro `search` não é obrigatório. Ele pode ser usado quando a consulta precisar localizar diretamente um CPF específico.
 
 ### GET /fgts/simulations/fees
 
@@ -1103,8 +1283,8 @@ provider
 |---:|---|---|---|
 | 1 | `POST /oauth/token` | `access_token` | Todos os endpoints protegidos |
 | 2 | `POST /fgts/balance` | Aceite da consulta (`null`) | Libera consulta posterior por CPF |
-| 3 | `GET /fgts/balance?search=<CPF>` | `data[].id` | `balanceId` da simulação |
-| 3 | `GET /fgts/balance?search=<CPF>` | `data[].periods` | `desiredInstallments` da simulação |
+| 3 | `GET /fgts/balance` com filtros opcionais (`search`, `startDate`, `endDate`, `limit`, `page`) | `data[].id` | `balanceId` da simulação |
+| 3 | `GET /fgts/balance` com filtros opcionais (`search`, `startDate`, `endDate`, `limit`, `page`) | `data[].periods` | `desiredInstallments` da simulação |
 | 4 | `GET /fgts/simulations/fees` | `id_simulation_fees` da tabela `normal` | `simulationFeesId` da simulação |
 | 5 | `POST /fgts/simulations` | `id`, `availableBalance`, `installments` | Resultado final da simulação |
 
@@ -1123,6 +1303,10 @@ provider
 | `POST /fgts/balance` | Regra de negócio | 400 | `detail` contém `Trabalhador não possui adesão ao saque aniversário vigente na data corrente` | Não tentar novamente |
 | `POST /fgts/balance` | Regra de negócio | 400 | `detail` contém `não possui autorização do Trabalhador` | Não tentar novamente |
 | `POST /fgts/balance` | Regra de negócio | 400 | `detail` contém `Existe uma Operação Fiduciária em andamento` | Não tentar novamente |
+| `GET /fgts/balance` | Sucesso | 200 | `data[].status = success` | Usar `id` e `periods` |
+| `GET /fgts/balance?startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>` | Sucesso | 200 | `data[].status = success` | Usar `id` e `periods` |
+| `GET /fgts/balance` | Sucesso | 200 | `data[].status = success` | Usar `id` e `periods` |
+| `GET /fgts/balance?startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>` | Sucesso | 200 | `data[].status = success` | Usar `id` e `periods` |
 | `GET /fgts/balance?search=<CPF>` | Sucesso | 200 | `data[].status = success` | Usar `id` e `periods` |
 | `GET /fgts/simulations/fees` | Sucesso | 200 | Lista de tabelas | Selecionar `label = normal` |
 | `POST /fgts/simulations` | Sucesso | 200 | `id` da simulação presente | Simulação concluída |
@@ -1175,8 +1359,26 @@ null
 
 ### 3. Consultar resultado do saldo
 
+Consulta com filtros date-time e paginação, sem CPF:
+
+```bash
+curl --request GET 'https://bff.v8sistema.com/fgts/balance?startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1' \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json'
+```
+
+Consulta por CPF:
+
 ```bash
 curl --request GET 'https://bff.v8sistema.com/fgts/balance?search=00089909216' \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json'
+```
+
+Consulta por CPF com filtros date-time e paginação:
+
+```bash
+curl --request GET 'https://bff.v8sistema.com/fgts/balance?search=00089909216&startDate=2026-04-24T00:00:00.000Z&endDate=2026-04-24T23:59:59.999Z&limit=10&page=1' \
   --header 'Authorization: Bearer <access_token>' \
   --header 'Content-Type: application/json'
 ```
@@ -1339,12 +1541,22 @@ provider = bms
 Embora a documentação da V8 mencione webhook para retorno de consulta de saldo, neste fluxo a integração deve consultar o resultado pelo endpoint:
 
 ```text
-GET /fgts/balance?search=<CPF>
+GET /fgts/balance
 ```
+
+O endpoint aceita filtros opcionais. Exemplos:
+
+```text
+GET /fgts/balance?startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>
+GET /fgts/balance?search=<CPF>
+GET /fgts/balance?search=<CPF>&startDate=<START_DATE_TIME>&endDate=<END_DATE_TIME>&limit=<LIMIT>&page=<PAGE>
+```
+
+O parâmetro `search` não é obrigatório.
 
 ### 16.2 Não repetir POST de saldo sem necessidade
 
-Após receber `200 OK` com `null` em `POST /fgts/balance`, a consulta foi aceita. O próximo passo é consultar o resultado com `GET /fgts/balance?search=<CPF>`.
+Após receber `200 OK` com `null` em `POST /fgts/balance`, a consulta foi aceita. O próximo passo é consultar o resultado com `GET /fgts/balance`, podendo usar `search`, `startDate`, `endDate`, `limit` e `page` conforme a necessidade.
 
 ### 16.3 Tabela normal
 
@@ -1362,7 +1574,7 @@ Manter o mesmo provider entre as etapas:
 
 ```text
 POST /fgts/balance
-GET /fgts/balance?search=<CPF>
+GET /fgts/balance
 POST /fgts/simulations
 ```
 

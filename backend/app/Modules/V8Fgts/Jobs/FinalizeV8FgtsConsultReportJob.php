@@ -59,6 +59,7 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
             if (!$disk->exists($dirReports)) {
                 $disk->makeDirectory($dirReports);
             }
+            $this->fixDiskPathPermissions($disk, $dirReports, true);
 
             $ts = Carbon::now()->format('Ymd_His');
             $fileName = "{$finalPrefix}_{$job->id}_{$ts}.csv";
@@ -111,7 +112,10 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
                 fclose($out);
             }
 
+            $this->fixAbsolutePathPermissions($tmpReal);
+
             $disk->put($path, fopen($tmpReal, 'rb'));
+            $this->fixDiskPathPermissions($disk, $path);
             @unlink($tmpReal);
 
             if (!$disk->exists($path)) {
@@ -240,5 +244,34 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
                 'spool_bytes' => 0,
             ]);
         }
+    }
+
+    private function fixDiskPathPermissions(FilesystemAdapter $disk, ?string $relativePath, bool $directory = false): void
+    {
+        if (!is_string($relativePath) || $relativePath === '') {
+            return;
+        }
+
+        try {
+            $absolutePath = $disk->path($relativePath);
+        } catch (Throwable) {
+            return;
+        }
+
+        $this->fixAbsolutePathPermissions($absolutePath, $directory);
+    }
+
+    private function fixAbsolutePathPermissions(?string $absolutePath, bool $directory = false): void
+    {
+        if (!is_string($absolutePath) || $absolutePath === '' || !file_exists($absolutePath)) {
+            return;
+        }
+
+        $uid = (int) env('WWWUSER', 1000);
+        $gid = (int) env('WWWGROUP', 1000);
+
+        @chown($absolutePath, $uid);
+        @chgrp($absolutePath, $gid);
+        @chmod($absolutePath, $directory ? 0775 : 0664);
     }
 }

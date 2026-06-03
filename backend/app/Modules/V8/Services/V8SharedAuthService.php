@@ -148,6 +148,17 @@ class V8SharedAuthService
             return;
         }
 
+        $cooldownUntilMs = (int) floor(microtime(true) * 1000) + ($sleepSeconds * 1000);
+        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock->block(5);
+
+        try {
+            $last = (int) Cache::get('v8_http_last_at_ms', 0);
+            Cache::put('v8_http_last_at_ms', max($last, $cooldownUntilMs), 3600);
+        } finally {
+            optional($lock)->release();
+        }
+
         sleep($sleepSeconds);
     }
 
