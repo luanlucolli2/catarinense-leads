@@ -25,6 +25,7 @@ final class V8FgtsSchema
         'iof',
         'tc',
         'finished_at',
+        'balance_start_response_body',
     ];
 
     public const TITLES = [
@@ -48,6 +49,7 @@ final class V8FgtsSchema
         'IOF',
         'TC',
         'Finalizado em',
+        'Body Inicio Saldo',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string

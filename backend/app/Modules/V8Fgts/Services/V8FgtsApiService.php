@@ -95,7 +95,7 @@ class V8FgtsApiService
         try {
             $token = $this->sharedAuth->getToken();
             if (!is_string($token) || $token === '') {
-                return $this->errorResult('V8 OAuth: token ausente.', null, false, null, null);
+                return $this->errorResult('V8 OAuth: token ausente.', null, false, null, null, null);
             }
 
             $resp = $this->sendWithRetry(function () use ($method, $path, $data, $token) {
@@ -116,7 +116,7 @@ class V8FgtsApiService
                 $this->sharedAuth->forgetToken();
                 $token = $this->sharedAuth->getToken();
                 if (!is_string($token) || $token === '') {
-                    return $this->errorResult('V8 OAuth: token ausente.', null, false, 401, null);
+                    return $this->errorResult('V8 OAuth: token ausente.', null, false, 401, null, null);
                 }
 
                 $resp = $this->sendWithRetry(function () use ($method, $path, $data, $token) {
@@ -144,17 +144,31 @@ class V8FgtsApiService
 
             [$message, $title] = $this->extractError($resp);
 
-            return $this->errorResult($message, $title, $this->isRetriable($resp->status()), $resp->status(), $resp->json());
+            return $this->errorResult(
+                $message,
+                $title,
+                $this->isRetriable($resp->status()),
+                $resp->status(),
+                $resp->json(),
+                $this->extractRawBody($resp)
+            );
         } catch (ConnectionException $e) {
-            return $this->errorResult('V8: falha de conexão.', null, true, null, null);
+            return $this->errorResult('V8: falha de conexão.', null, true, null, null, null);
         } catch (\Throwable $e) {
             Log::warning('[V8-FGTS] Erro inesperado na requisição: ' . $e->getMessage(), [
                 'job_id' => $this->jobId,
                 'path' => $path,
             ]);
 
-            return $this->errorResult('V8: erro inesperado.', null, false, null, null);
+            return $this->errorResult('V8: erro inesperado.', null, false, null, null, null);
         }
+    }
+
+    private function extractRawBody(HttpResponse $resp): ?string
+    {
+        $body = trim((string) $resp->body());
+
+        return $body !== '' ? $body : null;
     }
 
     private function sendWithRetry(callable $caller, string $path): HttpResponse
@@ -224,12 +238,13 @@ class V8FgtsApiService
         return $status === 429 || $status >= 500;
     }
 
-    private function errorResult(string $message, ?string $title, bool $retriable, ?int $status, mixed $data): array
+    private function errorResult(string $message, ?string $title, bool $retriable, ?int $status, mixed $data, ?string $rawBody): array
     {
         return [
             'ok' => false,
             'status' => $status,
             'data' => $data,
+            'raw_body' => $rawBody,
             'error' => $message,
             'title' => $title,
             'retriable' => $retriable,
