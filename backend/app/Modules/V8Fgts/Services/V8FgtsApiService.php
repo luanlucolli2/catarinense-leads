@@ -19,6 +19,9 @@ class V8FgtsApiService
     private int $httpRateLimitSleepSeconds;
     private ?int $jobId = null;
     private ?int $rateLimitOverrideMs = null;
+    private bool $nonBlockingRateLimit = false;
+    private bool $rateLimitSlotReserved = false;
+    private ?int $lastSuggestedDelayMs = null;
     private V8SharedAuthService $sharedAuth;
 
     public function __construct()
@@ -48,6 +51,25 @@ class V8FgtsApiService
     public function provider(): string
     {
         return $this->provider;
+    }
+
+    public function setNonBlockingRateLimit(bool $enabled): void
+    {
+        $this->nonBlockingRateLimit = $enabled;
+    }
+
+    public function lastSuggestedDelayMs(): ?int
+    {
+        return $this->lastSuggestedDelayMs;
+    }
+
+    public function reserveRateLimitSlotOrDelay(): int
+    {
+        $delayMs = $this->sharedAuth->claimThrottleSlotOrDelay($this->rateLimitOverrideMs);
+        $this->lastSuggestedDelayMs = $delayMs > 0 ? $delayMs : null;
+        $this->rateLimitSlotReserved = $delayMs === 0;
+
+        return $delayMs;
     }
 
     public function startBalance(string $cpf): array
@@ -168,9 +190,14 @@ class V8FgtsApiService
     {
         $attempts = max(1, $this->httpRetry + 1);
         $lastResponse = null;
+        $this->lastSuggestedDelayMs = null;
 
         for ($attempt = 0; $attempt < $attempts; $attempt++) {
-            $this->sharedAuth->throttleRequests($this->rateLimitOverrideMs);
+            if ($attempt === 0 && $this->rateLimitSlotReserved) {
+                $this->rateLimitSlotReserved = false;
+            } else {
+                $this->sharedAuth->throttleRequests($this->rateLimitOverrideMs);
+            }
 
             try {
                 $resp = $caller();
@@ -189,11 +216,18 @@ class V8FgtsApiService
                     'attempt' => $attempt + 1,
                 ]);
 
-                $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+                if ($this->nonBlockingRateLimit) {
+                    $this->lastSuggestedDelayMs = $this->sharedAuth->scheduleRateLimitCooldown($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+                } else {
+                    $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+                }
             }
 
             $lastResponse = $resp;
             $status = $resp->status();
+            if ($status === 429 && $this->nonBlockingRateLimit) {
+                return $resp;
+            }
             if (($status === 429 || $status >= 500) && $attempt < $attempts - 1) {
                 continue;
             }

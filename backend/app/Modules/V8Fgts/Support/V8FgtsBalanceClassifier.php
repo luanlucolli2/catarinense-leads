@@ -39,6 +39,10 @@ final class V8FgtsBalanceClassifier
             return self::RETRYABLE;
         }
 
+        if ($status === 400 && str_contains(mb_strtolower($detail ?? ''), 'limite de requisições excedido')) {
+            return self::RETRYABLE;
+        }
+
         if (
             $status === 400
             && $title === 'AppError'

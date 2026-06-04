@@ -126,15 +126,40 @@ class V8SharedAuthService
 
         try {
             $now = (int) floor(microtime(true) * 1000);
-            $last = (int) Cache::get('v8_http_last_at_ms', 0);
-            $elapsed = $now - $last;
+            $readyAt = (int) Cache::get('v8_http_last_at_ms', 0);
+            $delayMs = max(0, $readyAt - $now);
 
-            if ($elapsed < $minInterval) {
-                usleep((int) max(0, $minInterval - $elapsed) * 1000);
+            if ($delayMs > 0) {
+                usleep($delayMs * 1000);
                 $now = (int) floor(microtime(true) * 1000);
             }
 
-            Cache::put('v8_http_last_at_ms', $now, 3600);
+            Cache::put('v8_http_last_at_ms', $now + $minInterval, 3600);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    public function claimThrottleSlotOrDelay(?int $overrideMs = null): int
+    {
+        $minInterval = $overrideMs !== null ? max(0, $overrideMs) : $this->httpMinIntervalMs;
+        if ($minInterval <= 0) {
+            return 0;
+        }
+
+        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock->block(5);
+
+        try {
+            $now = (int) floor(microtime(true) * 1000);
+            $readyAt = (int) Cache::get('v8_http_last_at_ms', 0);
+            if ($readyAt > $now) {
+                return $readyAt - $now;
+            }
+
+            Cache::put('v8_http_last_at_ms', $now + $minInterval, 3600);
+
+            return 0;
         } finally {
             optional($lock)->release();
         }
@@ -142,10 +167,17 @@ class V8SharedAuthService
 
     public function pauseOnRateLimit(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null): void
     {
+        $delayMs = $this->scheduleRateLimitCooldown($sleepSeconds, $fallbackIntervalMs);
+        if ($delayMs > 0) {
+            usleep($delayMs * 1000);
+        }
+    }
+
+    public function scheduleRateLimitCooldown(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null): int
+    {
         $sleepSeconds = $sleepSeconds !== null ? max(0, $sleepSeconds) : $this->httpRateLimitSleepSeconds;
         if ($sleepSeconds <= 0) {
-            $this->throttleRequests($fallbackIntervalMs);
-            return;
+            return $this->claimThrottleSlotOrDelay($fallbackIntervalMs);
         }
 
         $cooldownUntilMs = (int) floor(microtime(true) * 1000) + ($sleepSeconds * 1000);
@@ -153,13 +185,14 @@ class V8SharedAuthService
         $lock->block(5);
 
         try {
-            $last = (int) Cache::get('v8_http_last_at_ms', 0);
-            Cache::put('v8_http_last_at_ms', max($last, $cooldownUntilMs), 3600);
+            $readyAt = (int) Cache::get('v8_http_last_at_ms', 0);
+            $scheduledAt = max($readyAt, $cooldownUntilMs);
+            Cache::put('v8_http_last_at_ms', $scheduledAt, 3600);
+
+            return max(0, $scheduledAt - (int) floor(microtime(true) * 1000));
         } finally {
             optional($lock)->release();
         }
-
-        sleep($sleepSeconds);
     }
 
     private function sendWithRetry(callable $caller): HttpResponse

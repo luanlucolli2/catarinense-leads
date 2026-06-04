@@ -23,8 +23,8 @@ return [
     'job' => [
         'queue' => env('V8_FGTS_JOB_QUEUE', env('FGTS_OFF_JOB_QUEUE', 'fgts')),
         'timeout_seconds' => (int) env('V8_FGTS_JOB_TIMEOUT', 21600),
-        'dedupe_block_size' => (int) env('V8_FGTS_DEDUPE_BLOCK_SIZE', 5000),
-        'start_buffer' => (int) env('V8_FGTS_START_BUFFER', 12),
+        'prepare_insert_chunk' => (int) env('V8_FGTS_PREPARE_INSERT_CHUNK', 2000),
+        'dedupe_in_memory_limit' => (int) env('V8_FGTS_DEDUPE_IN_MEMORY_LIMIT', 100000),
         'start_max_attempts' => (int) env('V8_FGTS_START_MAX_ATTEMPTS', 3),
         'start_retry_delay_seconds' => (int) env('V8_FGTS_START_RETRY_DELAY_SECONDS', 30),
         'polling_round_delay_seconds' => (int) env('V8_FGTS_POLLING_ROUND_DELAY_SECONDS', 20),
@@ -32,9 +32,10 @@ return [
         'polling_max_rounds' => (int) env('V8_FGTS_POLLING_MAX_ROUNDS', 30),
         'selection_tolerance_seconds' => (int) env('V8_FGTS_SELECTION_TOLERANCE_SECONDS', 5),
         'phase2_search_limit' => (int) env('V8_FGTS_PHASE2_SEARCH_LIMIT', env('V8_FGTS_PHASE2_SEARCH_FALLBACK_LIMIT', 50)),
-        'flush_rows' => (int) env('V8_FGTS_FLUSH_ROWS', 4000),
-        'flush_seconds' => (int) env('V8_FGTS_FLUSH_SECONDS', 5),
-        'flush_bytes_step' => (int) env('V8_FGTS_FLUSH_BYTES_STEP', 262144),
+        'max_requests_per_run' => (int) env('V8_FGTS_MAX_REQUESTS_PER_RUN', 8),
+        'max_runtime_seconds' => (int) env('V8_FGTS_MAX_RUNTIME_SECONDS', 90),
+        'batch_lock_seconds' => (int) env('V8_FGTS_BATCH_LOCK_SECONDS', 180),
+        'schedule_min_delay_seconds' => (int) env('V8_FGTS_SCHEDULE_MIN_DELAY_SECONDS', 1),
     ],
 
     'preview' => [
@@ -51,5 +52,14 @@ return [
     'csv' => [
         'embed_bom' => (bool) env('V8_FGTS_CSV_EMBED_BOM', true),
         'final_eol' => env('V8_FGTS_CSV_FINAL_EOL', 'LF'),
+    ],
+
+    'logging' => [
+        'batch_summary' => (bool) env('V8_FGTS_LOG_BATCH_SUMMARY', true),
+        'phase2_requests' => (bool) env('V8_FGTS_LOG_PHASE2_REQUESTS', false),
+        'phase2_success_responses' => (bool) env('V8_FGTS_LOG_PHASE2_SUCCESS_RESPONSES', false),
+        'phase2_error_responses' => (bool) env('V8_FGTS_LOG_PHASE2_ERROR_RESPONSES', true),
+        'phase2_pending_requeues' => (bool) env('V8_FGTS_LOG_PHASE2_PENDING_REQUEUES', false),
+        'store_phase2_snapshots' => (bool) env('V8_FGTS_STORE_PHASE2_SNAPSHOTS', false),
     ],
 ];

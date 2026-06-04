@@ -3,6 +3,7 @@
 namespace App\Modules\V8Fgts\Jobs;
 
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
+use App\Modules\V8Fgts\Models\V8FgtsConsultJobItem;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
 use App\Modules\V8Fgts\Support\V8FgtsSpool;
 use Illuminate\Bus\Queueable;
@@ -68,6 +69,25 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
             $finalEol = strtoupper((string) config('v8_fgts.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
             $srcReal = $disk->path($spoolPath);
             $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+
+            if (!$embedBom && $finalEol === "\n" && @rename($srcReal, $disk->path($path))) {
+                $this->fixDiskPathPermissions($disk, $path);
+                $job->update([
+                    'file_disk' => $diskName,
+                    'file_path' => $path,
+                    'file_name' => $fileName,
+                ]);
+
+                $this->cleanupSpool($job);
+
+                $job->update([
+                    'status' => $this->targetStatus,
+                    'phase' => null,
+                    'finished_at' => Carbon::now(),
+                ]);
+
+                return;
+            }
 
             $in = @fopen($srcReal, 'rb');
             $out = @fopen($tmpReal, 'wb');
@@ -177,20 +197,15 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
                 $disk->delete($cpfsPath);
             }
 
-            $dirSpool = (string) config('v8_fgts.storage.dir_spool', 'v8-fgts-spool');
-            $prefix = (string) config('v8_fgts.storage.final_prefix', 'v8-fgts-consulta') . '_' . $job->id;
-
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    $base = basename($rel);
+            $jobDir = $this->jobSpoolDir($job);
+            if ($jobDir && $disk->exists($jobDir)) {
+                foreach ($disk->files($jobDir) as $rel) {
                     if ($rel === $spoolPath) {
                         continue;
                     }
-                    if (str_starts_with($base, $prefix)) {
-                        try {
-                            $disk->delete($rel);
-                        } catch (Throwable) {
-                        }
+                    try {
+                        $disk->delete($rel);
+                    } catch (Throwable) {
                     }
                 }
             }
@@ -210,35 +225,16 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
             'spool_cpfs_path' => null,
             'spool_bytes' => $spoolBytes,
         ]);
+        V8FgtsConsultJobItem::query()->where('job_id', $job->id)->delete();
     }
 
     private function cleanupSpool(V8FgtsConsultJob $job): void
     {
         try {
             $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
-                $path = $job->{$field} ?? null;
-                if ($path && $disk->exists($path)) {
-                    try {
-                        $disk->delete($path);
-                    } catch (Throwable) {
-                    }
-                }
-            }
-
-            $dirSpool = (string) config('v8_fgts.storage.dir_spool', 'v8-fgts-spool');
-            $prefix = (string) config('v8_fgts.storage.final_prefix', 'v8-fgts-consulta') . '_' . $job->id;
-
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    $base = basename($rel);
-                    if (str_starts_with($base, $prefix)) {
-                        try {
-                            $disk->delete($rel);
-                        } catch (Throwable) {
-                        }
-                    }
-                }
+            $jobDir = $this->jobSpoolDir($job);
+            if ($jobDir && $disk->exists($jobDir)) {
+                $disk->deleteDirectory($jobDir);
             }
         } finally {
             $job->updateQuietly([
@@ -246,6 +242,7 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
                 'spool_cpfs_path' => null,
                 'spool_bytes' => 0,
             ]);
+            V8FgtsConsultJobItem::query()->where('job_id', $job->id)->delete();
         }
     }
 
@@ -276,5 +273,17 @@ class FinalizeV8FgtsConsultReportJob implements ShouldQueue
         @chown($absolutePath, $uid);
         @chgrp($absolutePath, $gid);
         @chmod($absolutePath, $directory ? 0775 : 0664);
+    }
+
+    private function jobSpoolDir(V8FgtsConsultJob $job): ?string
+    {
+        $path = $job->spool_path ?: $job->spool_cpfs_path;
+        if (!is_string($path) || $path === '') {
+            return null;
+        }
+
+        $dir = dirname($path);
+
+        return $dir === '.' ? null : $dir;
     }
 }

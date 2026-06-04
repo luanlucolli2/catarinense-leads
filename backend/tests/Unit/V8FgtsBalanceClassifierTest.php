@@ -18,6 +18,11 @@ class V8FgtsBalanceClassifierTest extends TestCase
             V8FgtsBalanceClassifier::RETRYABLE,
             V8FgtsBalanceClassifier::classify(400, 'AppError', 'CPF: 1 | Não foi possível consultar o saldo no momento!')
         );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::RETRYABLE,
+            V8FgtsBalanceClassifier::classify(400, null, 'Limite de requisições excedido, tente novamente mais tarde')
+        );
     }
 
     public function test_it_marks_documented_business_errors_as_nao_elegivel(): void

@@ -7,7 +7,6 @@ use App\Modules\V8Fgts\Jobs\ProcessV8FgtsConsultJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
 use App\Modules\V8Fgts\Support\V8FgtsSpool;
-use App\Support\Cpf;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -91,7 +90,7 @@ class V8FgtsConsultController extends Controller
         try {
             [$spoolPath, $cpfsPath, $spoolBytes, $cpfsCount] = $this->createInitialSpool(
                 $job->id,
-                $this->tokenizeCpfsLazy($rawCpfs)
+                $rawCpfs
             );
         } catch (\Throwable $e) {
             $this->safeCleanupInit($job->id);
@@ -306,11 +305,9 @@ class V8FgtsConsultController extends Controller
 
         try {
             $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_cpfs_path'] as $field) {
-                $path = $job->{$field};
-                if ($path && $disk->exists($path)) {
-                    $disk->delete($path);
-                }
+            $dir = $this->jobSpoolDir($job->id);
+            if ($disk->exists($dir)) {
+                $disk->deleteDirectory($dir);
             }
         } catch (\Throwable $e) {
             Log::warning("[V8-FGTS] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
@@ -363,47 +360,19 @@ class V8FgtsConsultController extends Controller
         ]);
     }
 
-    private function tokenizeCpfsLazy($cpfs): \Generator
-    {
-        if (is_string($cpfs)) {
-            $delims = " \t\n\r,;";
-            $tok = strtok($cpfs, $delims);
-            while ($tok !== false) {
-                yield $tok;
-                $tok = strtok($delims);
-            }
-
-            return;
-        }
-
-        if (is_array($cpfs)) {
-            foreach ($cpfs as $entry) {
-                yield $entry;
-            }
-
-            return;
-        }
-
-        if ($cpfs instanceof \Traversable) {
-            foreach ($cpfs as $entry) {
-                yield $entry;
-            }
-        }
-    }
-
-    private function createInitialSpool(int $jobId, iterable $allCpfs): array
+    private function createInitialSpool(int $jobId, mixed $rawCpfs): array
     {
         $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
-        $dirSpool = (string) (config('v8_fgts.storage.dir_spool') ?? 'v8-fgts-spool');
+        $jobDir = $this->jobSpoolDir($jobId);
         $finalPrefix = $this->finalPrefix();
 
-        if (!$disk->exists($dirSpool)) {
-            $disk->makeDirectory($dirSpool);
+        if (!$disk->exists($jobDir)) {
+            $disk->makeDirectory($jobDir);
         }
-        $this->fixDiskPathPermissions($disk, $dirSpool, true);
+        $this->fixDiskPathPermissions($disk, $jobDir, true);
 
-        $spoolPath = "{$dirSpool}/{$finalPrefix}_{$jobId}.spool.csv";
-        $cpfsPath = "{$dirSpool}/{$finalPrefix}_{$jobId}.cpfs.txt";
+        $spoolPath = "{$jobDir}/{$finalPrefix}_{$jobId}.spool.csv";
+        $cpfsPath = "{$jobDir}/{$finalPrefix}_{$jobId}.input.txt";
 
         $fp = fopen($disk->path($spoolPath), 'c+');
         if ($fp === false) {
@@ -430,19 +399,22 @@ class V8FgtsConsultController extends Controller
         try {
             if (flock($fp2, LOCK_EX)) {
                 ftruncate($fp2, 0);
-                foreach ($allCpfs as $raw) {
-                    $norm = Cpf::normalize((string) $raw);
-                    if ($norm === null) {
-                        continue;
+                if (is_string($rawCpfs)) {
+                    $payload = trim($rawCpfs);
+                    if ($payload !== '') {
+                        fwrite($fp2, $rawCpfs);
+                        $count = 1;
                     }
+                } elseif (is_array($rawCpfs) || $rawCpfs instanceof \Traversable) {
+                    foreach ($rawCpfs as $raw) {
+                        $value = trim((string) $raw);
+                        if ($value === '') {
+                            continue;
+                        }
 
-                    $digits = preg_replace('/\D+/', '', $norm);
-                    if ($digits === '' || strlen($digits) !== 11) {
-                        continue;
+                        fwrite($fp2, $value . "\n");
+                        $count++;
                     }
-
-                    fwrite($fp2, $digits . "\n");
-                    $count++;
                 }
                 fflush($fp2);
                 flock($fp2, LOCK_UN);
@@ -491,16 +463,9 @@ class V8FgtsConsultController extends Controller
     {
         try {
             $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
-            $dirSpool = (string) (config('v8_fgts.storage.dir_spool') ?? 'v8-fgts-spool');
-            $prefix = $this->finalPrefix();
-
-            foreach ([
-                "{$dirSpool}/{$prefix}_{$jobId}.spool.csv",
-                "{$dirSpool}/{$prefix}_{$jobId}.cpfs.txt",
-            ] as $path) {
-                if ($disk->exists($path)) {
-                    $disk->delete($path);
-                }
+            $dir = $this->jobSpoolDir($jobId);
+            if ($disk->exists($dir)) {
+                $disk->deleteDirectory($dir);
             }
         } catch (\Throwable $e) {
             Log::warning("[V8-FGTS] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
@@ -515,6 +480,11 @@ class V8FgtsConsultController extends Controller
                 if ($path && $disk->exists($path)) {
                     $disk->delete($path);
                 }
+
+                $dir = is_string($path) ? dirname($path) : null;
+                if ($dir && $dir !== '.' && $disk->exists($dir)) {
+                    $disk->deleteDirectory($dir);
+                }
             }
         } catch (\Throwable $e) {
             Log::warning("[V8-FGTS] Erro limpando arquivos: " . $e->getMessage());
@@ -524,26 +494,28 @@ class V8FgtsConsultController extends Controller
     private function cleanupSpoolArtifacts($disk, int $jobId, ?string $preserveRel = null): void
     {
         try {
-            $dirSpool = (string) config('v8_fgts.storage.dir_spool', 'v8-fgts-spool');
-            $prefix = $this->finalPrefix() . '_' . $jobId;
-
-            if (!$disk->exists($dirSpool)) {
+            $jobDir = $this->jobSpoolDir($jobId);
+            if (!$disk->exists($jobDir)) {
                 return;
             }
 
-            foreach ($disk->files($dirSpool) as $rel) {
-                $base = basename($rel);
+            foreach ($disk->files($jobDir) as $rel) {
                 if ($preserveRel !== null && $rel === $preserveRel) {
                     continue;
                 }
-                if (str_starts_with($base, $prefix)) {
-                    try {
-                        $disk->delete($rel);
-                    } catch (\Throwable) {
-                    }
+                try {
+                    $disk->delete($rel);
+                } catch (\Throwable) {
                 }
             }
         } catch (\Throwable) {
         }
+    }
+
+    private function jobSpoolDir(int $jobId): string
+    {
+        $dirSpool = (string) (config('v8_fgts.storage.dir_spool') ?? 'v8-fgts-spool');
+
+        return "{$dirSpool}/{$jobId}";
     }
 }
