@@ -150,6 +150,8 @@ class V8FgtsApiService
             }
 
             if ($resp->ok()) {
+                $this->sharedAuth->resetRateLimitBackoff();
+
                 return [
                     'ok' => true,
                     'status' => $resp->status(),
@@ -161,11 +163,9 @@ class V8FgtsApiService
             $isRateLimitMessage = $this->isRateLimitMessage($message);
 
             if ($isRateLimitMessage) {
-                if ($this->nonBlockingRateLimit) {
-                    $this->lastSuggestedDelayMs = $this->sharedAuth->scheduleRateLimitCooldown($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
-                } else {
-                    $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
-                }
+                $this->applyRateLimitCooldown();
+            } else {
+                $this->sharedAuth->resetRateLimitBackoff();
             }
 
             return $this->errorResult(
@@ -225,11 +225,9 @@ class V8FgtsApiService
                     'attempt' => $attempt + 1,
                 ]);
 
-                if ($this->nonBlockingRateLimit) {
-                    $this->lastSuggestedDelayMs = $this->sharedAuth->scheduleRateLimitCooldown($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
-                } else {
-                    $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
-                }
+                $this->applyRateLimitCooldown();
+            } else {
+                $this->sharedAuth->resetRateLimitBackoff();
             }
 
             $lastResponse = $resp;
@@ -277,6 +275,16 @@ class V8FgtsApiService
     private function isRateLimitMessage(?string $message): bool
     {
         return is_string($message) && str_contains(mb_strtolower($message), 'limite de requisições excedido');
+    }
+
+    private function applyRateLimitCooldown(): void
+    {
+        $delayMs = $this->sharedAuth->scheduleProgressiveRateLimitCooldown($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+        $this->lastSuggestedDelayMs = $delayMs > 0 ? $delayMs : null;
+
+        if (!$this->nonBlockingRateLimit && $delayMs > 0) {
+            usleep($delayMs * 1000);
+        }
     }
 
     private function errorResult(string $message, ?string $title, bool $retriable, ?int $status, mixed $data, ?string $rawBody): array

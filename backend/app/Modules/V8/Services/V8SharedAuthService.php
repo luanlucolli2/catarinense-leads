@@ -195,6 +195,37 @@ class V8SharedAuthService
         }
     }
 
+    public function scheduleProgressiveRateLimitCooldown(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null): int
+    {
+        $sleepSeconds = $sleepSeconds !== null ? max(0, $sleepSeconds) : $this->httpRateLimitSleepSeconds;
+        if ($sleepSeconds <= 0) {
+            return $this->claimThrottleSlotOrDelay($fallbackIntervalMs);
+        }
+
+        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock->block(5);
+
+        try {
+            $streak = max(0, (int) Cache::get('v8_http_rate_limit_streak', 0)) + 1;
+            Cache::put('v8_http_rate_limit_streak', $streak, 3600);
+
+            $multiplier = $streak <= 1 ? 1 : ($streak === 2 ? 2 : 4);
+            $cooldownMs = $sleepSeconds * $multiplier * 1000;
+            $readyAt = (int) Cache::get('v8_http_last_at_ms', 0);
+            $scheduledAt = max($readyAt, (int) floor(microtime(true) * 1000) + $cooldownMs);
+            Cache::put('v8_http_last_at_ms', $scheduledAt, 3600);
+
+            return max(0, $scheduledAt - (int) floor(microtime(true) * 1000));
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    public function resetRateLimitBackoff(): void
+    {
+        Cache::forget('v8_http_rate_limit_streak');
+    }
+
     private function sendWithRetry(callable $caller): HttpResponse
     {
         $attempts = max(1, $this->httpRetry + 1);
