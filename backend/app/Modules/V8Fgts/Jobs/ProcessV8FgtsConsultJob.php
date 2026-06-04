@@ -37,7 +37,6 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private int $flushBytesStep;
     private int $dedupeBlockSize;
     private int $startBuffer;
-    private int $pollingBuffer;
     private int $startMaxAttempts;
     private int $startRetryDelaySeconds;
     private int $pollingRoundDelaySeconds;
@@ -79,7 +78,6 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         $this->flushBytesStep = max(1024, (int) config('v8_fgts.job.flush_bytes_step', 262144));
         $this->dedupeBlockSize = max(1000, (int) config('v8_fgts.job.dedupe_block_size', 5000));
         $this->startBuffer = max(1, (int) config('v8_fgts.job.start_buffer', 12));
-        $this->pollingBuffer = max(1, (int) config('v8_fgts.job.polling_buffer', 80));
         $this->startMaxAttempts = max(1, (int) config('v8_fgts.job.start_max_attempts', 3));
         $this->startRetryDelaySeconds = max(0, (int) config('v8_fgts.job.start_retry_delay_seconds', 30));
         $this->pollingRoundDelaySeconds = max(0, (int) config('v8_fgts.job.polling_round_delay_seconds', 20));
@@ -604,38 +602,6 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         }
 
         return $entries;
-    }
-
-    private function writePendingEntries($handle, array $entries, bool $incrementAttempts = true): int
-    {
-        $written = 0;
-
-        foreach ($entries as $entry) {
-            $attempts = max(0, (int) ($entry['attempts'] ?? 0)) + ($incrementAttempts ? 1 : 0);
-            $acceptedAt = trim((string) ($entry['accepted_at'] ?? ''));
-            $cpf = preg_replace('/\D+/', '', (string) ($entry['cpf'] ?? ''));
-            if ($cpf === '' || strlen($cpf) !== 11 || $acceptedAt === '') {
-                continue;
-            }
-
-            fwrite($handle, $cpf . ';' . $attempts . ';' . $acceptedAt . "\n");
-            $written++;
-        }
-
-        return $written;
-    }
-
-    private function appendPendingEntriesAsErrorRows(V8FgtsConsultJob $job, array $entries, string $message): void
-    {
-        $rows = [];
-        foreach ($entries as $entry) {
-            $rows[] = $this->finalRow($entry['cpf'], 'FALHA', $message);
-            $this->accFail++;
-        }
-
-        if ($rows !== []) {
-            $this->spoolAppendManyPersist($job, $rows);
-        }
     }
 
     private function simulateFromBalanceItem(V8FgtsApiService $api, string $cpf, array $match): array

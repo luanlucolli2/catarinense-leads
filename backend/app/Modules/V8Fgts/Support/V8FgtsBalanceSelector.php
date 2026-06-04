@@ -6,17 +6,6 @@ use Carbon\CarbonImmutable;
 
 final class V8FgtsBalanceSelector
 {
-    public static function selectSuccessful(array $items, string $cpf, string $provider, string $acceptedAt, int $toleranceSeconds = 5): ?array
-    {
-        $match = self::selectLatestRelevant($items, $cpf, $provider, $acceptedAt, $toleranceSeconds);
-
-        if (!is_array($match) || strtolower((string) ($match['status'] ?? '')) !== 'success') {
-            return null;
-        }
-
-        return $match;
-    }
-
     public static function selectLatestRelevant(array $items, string $cpf, string $provider, string $acceptedAt, int $toleranceSeconds = 5): ?array
     {
         $accepted = self::parseTimestamp($acceptedAt);
