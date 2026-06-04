@@ -48,6 +48,16 @@ class V8FgtsBalanceClassifierTest extends TestCase
 
         $this->assertSame(
             V8FgtsBalanceClassifier::NAO_ELEGIVEL,
+            V8FgtsBalanceClassifier::classify(400, 'BadRequestError', 'Saldo insuficiente, parcelas menores R$100,00')
+        );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::NAO_ELEGIVEL,
+            V8FgtsBalanceClassifier::classify(400, 'AppError', 'Erro ao buscar saldo disponível no provedor')
+        );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::NAO_ELEGIVEL,
             V8FgtsBalanceClassifier::classifyPollingStatus('fail', 'Instituição Fiduciária não possui autorização do Trabalhador para Operação Fiduciária.')
         );
     }

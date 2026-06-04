@@ -158,11 +158,20 @@ class V8FgtsApiService
             }
 
             [$message, $title] = $this->extractError($resp);
+            $isRateLimitMessage = $this->isRateLimitMessage($message);
+
+            if ($isRateLimitMessage) {
+                if ($this->nonBlockingRateLimit) {
+                    $this->lastSuggestedDelayMs = $this->sharedAuth->scheduleRateLimitCooldown($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+                } else {
+                    $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->rateLimitOverrideMs);
+                }
+            }
 
             return $this->errorResult(
                 $message,
                 $title,
-                $this->isRetriable($resp->status()),
+                $this->isRetriable($resp->status()) || $isRateLimitMessage,
                 $resp->status(),
                 $resp->json(),
                 $this->extractRawBody($resp)
@@ -263,6 +272,11 @@ class V8FgtsApiService
     private function isRetriable(int $status): bool
     {
         return $status === 429 || $status >= 500;
+    }
+
+    private function isRateLimitMessage(?string $message): bool
+    {
+        return is_string($message) && str_contains(mb_strtolower($message), 'limite de requisições excedido');
     }
 
     private function errorResult(string $message, ?string $title, bool $retriable, ?int $status, mixed $data, ?string $rawBody): array
