@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Calendar, Check, Clock, Filter, Info, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -124,6 +125,15 @@ export function VendeaiFiltersModal({
   onClearFilters,
   onApply,
 }: VendeaiFiltersModalProps) {
+  useEffect(() => {
+    if (isOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const chips = [
