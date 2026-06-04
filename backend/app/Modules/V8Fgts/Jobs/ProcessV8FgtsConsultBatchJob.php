@@ -68,8 +68,8 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
         $this->selectionToleranceSeconds = max(0, (int) config('v8_fgts.job.selection_tolerance_seconds', 5));
         $this->phase2SearchLimit = max(1, (int) config('v8_fgts.job.phase2_search_limit', 50));
         $this->phase1MinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_phase1', 10000));
-        $this->feesMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_fees', 2000));
-        $this->simulationMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_simulation', 2000));
+        $this->feesMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_fees', 5000));
+        $this->simulationMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_simulation', 5000));
         $this->maxRequestsPerRun = max(1, (int) config('v8_fgts.job.max_requests_per_run', 8));
         $this->maxRuntimeSeconds = max(10, (int) config('v8_fgts.job.max_runtime_seconds', 90));
         $this->batchLockSeconds = max(30, (int) config('v8_fgts.job.batch_lock_seconds', 180));

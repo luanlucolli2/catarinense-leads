@@ -32,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { V8FgtsConsultJobListItem, V8FgtsJobPhase, V8FgtsJobStatus } from "@/api/v8Fgts";
+import { V8FgtsConsultJobListItem, V8FgtsJobStatus } from "@/api/v8Fgts";
 
 type Props = {
   items: V8FgtsConsultJobListItem[];
@@ -85,24 +85,6 @@ function getStatusInfo(status: V8FgtsJobStatus) {
         label: "Pendente",
       };
   }
-}
-
-function getPhaseInfo(phase: V8FgtsJobPhase) {
-  if (phase === "iniciar_saldo") {
-    return {
-      className:
-        "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
-      label: "Fase 1 • Iniciar saldo",
-    };
-  }
-  if (phase === "polling_e_simulacao") {
-    return {
-      className:
-        "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800",
-      label: "Fase 2 • Polling e simulação",
-    };
-  }
-  return null;
 }
 
 function calcSegments(i: V8FgtsConsultJobListItem) {
@@ -271,9 +253,6 @@ export const V8FgtsHistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status);
-          const phaseInfo = i.phase && (i.status === "pendente" || i.status === "em_progresso")
-            ? getPhaseInfo(i.phase)
-            : null;
           const finalReady = canDownloadFinal(i);
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
@@ -330,17 +309,6 @@ export const V8FgtsHistoryTable = ({
                     </div>
 
                     <div className="ml-4 hidden flex-wrap items-center justify-end gap-2 sm:flex sm:gap-3">
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "pointer-events-none select-none px-2.5 py-1 text-xs font-medium",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
@@ -397,17 +365,6 @@ export const V8FgtsHistoryTable = ({
 
                   <div className="flex flex-wrap items-center justify-between gap-2 sm:hidden">
                     <div className="flex items-center gap-2">
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "pointer-events-none select-none px-2.5 py-1 text-xs font-medium",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>

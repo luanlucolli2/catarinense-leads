@@ -15,8 +15,8 @@ return [
         'retry' => (int) env('V8_FGTS_HTTP_RETRY', 1),
         'retry_delay_ms' => (int) env('V8_FGTS_HTTP_RETRY_DELAY_MS', 200),
         'min_interval_ms_phase1' => (int) env('V8_FGTS_HTTP_MIN_INTERVAL_MS_PHASE1', 10000),
-        'min_interval_ms_fees' => (int) env('V8_FGTS_HTTP_MIN_INTERVAL_MS_FEES', 2000),
-        'min_interval_ms_simulation' => (int) env('V8_FGTS_HTTP_MIN_INTERVAL_MS_SIMULATION', 2000),
+        'min_interval_ms_fees' => (int) env('V8_FGTS_HTTP_MIN_INTERVAL_MS_FEES', 5000),
+        'min_interval_ms_simulation' => (int) env('V8_FGTS_HTTP_MIN_INTERVAL_MS_SIMULATION', 5000),
         'rate_limit_sleep_seconds' => (int) env('V8_FGTS_HTTP_429_SLEEP_SECONDS', 15),
     ],
 

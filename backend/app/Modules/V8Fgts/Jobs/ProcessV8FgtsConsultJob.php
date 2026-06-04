@@ -4,6 +4,7 @@ namespace App\Modules\V8Fgts\Jobs;
 
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJobItem;
+use App\Support\Cpf;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -183,12 +184,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
 
     private function normalizeCpf(string $value): ?string
     {
-        $digits = preg_replace('/\D+/', '', $value);
-        if ($digits === null || strlen($digits) !== 11) {
-            return null;
-        }
-
-        return $digits;
+        return Cpf::normalize($value);
     }
 
     private function dispatchFinalize(string $targetStatus): void
