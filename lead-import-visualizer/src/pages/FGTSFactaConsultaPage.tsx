@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { FgtsOffControls } from "@/components/FgtsOffControls";
@@ -31,23 +31,32 @@ function formatDateTimeBR(iso: string | null | undefined) {
   });
 }
 
-const FGTSOfflineConsultaPage = () => {
+function getErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null) {
+    const maybeError = error as {
+      message?: string;
+      status?: number;
+      response?: { data?: { message?: string } };
+    };
+
+    return maybeError.response?.data?.message || maybeError.message || fallback;
+  }
+
+  return fallback;
+}
+
+const FGTSFactaConsultaPage = () => {
   const qc = useQueryClient();
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-
   const [page, setPage] = useState(1);
-  // persiste o job observado entre reloads/voltas
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
     "fgtsOff:watchJobId",
     null
   );
-
-  // 🔒 evita cliques repetidos (um lock por jobId)
   const inFlight = useRef<Set<number>>(new Set());
 
-  /** ---------- LISTA (React Query) ---------- */
   const {
     data: jobsPage,
     isLoading: listLoading,
@@ -57,16 +66,17 @@ const FGTSOfflineConsultaPage = () => {
     queryFn: () => listFgtsOffConsultJobs(page),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
-    refetchInterval: 30000, // polling lento fixo (30s)
+    refetchInterval: 30000,
   });
 
-  const items = jobsPage?.data ?? [];
+  const items = useMemo(() => jobsPage?.data ?? [], [jobsPage?.data]);
   const lastPage = jobsPage?.last_page ?? 1;
 
-  const titleOf = (id: number) =>
-    (jobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
+  const titleOf = useCallback(
+    (id: number) => (jobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`,
+    [jobsPage?.data]
+  );
 
-  /** ---------- WATCH de 1 job (React Query) ---------- */
   const { data: watchedJob } = useQuery<FgtsOffConsultJobShow>({
     queryKey: ["fgtsOff:job", watchingJobId],
     queryFn: () => getFgtsOffConsultJob(watchingJobId as number),
@@ -74,7 +84,6 @@ const FGTSOfflineConsultaPage = () => {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchOnMount: "always",
-    // polling rápido (5s) somente quando aberto
     refetchInterval: (query) => {
       const job = query.state.data as FgtsOffConsultJobShow | undefined;
       if (!job) return false;
@@ -86,7 +95,6 @@ const FGTSOfflineConsultaPage = () => {
     },
   });
 
-  /** 🔁 Overlay do watchedJob por cima da lista para refletir progresso/status na UI */
   const itemsWithOverlay: FgtsOffConsultJobListItem[] = useMemo(() => {
     if (!watchedJob) return items;
     return items.map((i) => {
@@ -108,7 +116,6 @@ const FGTSOfflineConsultaPage = () => {
     return itemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [itemsWithOverlay, searchValue]);
 
-  /** Reações a mudanças do job observado (somente término) */
   useEffect(() => {
     if (!watchedJob) return;
 
@@ -121,22 +128,20 @@ const FGTSOfflineConsultaPage = () => {
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
       else if (watchedJob.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
 
-      setWatchingJobId(null); // para o polling do job (e limpa persistência)
+      setWatchingJobId(null);
       void qc.invalidateQueries({ queryKey: ["fgtsOff:list"] });
     }
-  }, [watchedJob, qc, setWatchingJobId]);
-
-  /** ---------- MUTATIONS ---------- */
+  }, [watchedJob, qc, setWatchingJobId, titleOf]);
 
   const createMutation = useMutation({
     mutationFn: createFgtsOffConsultJob,
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
-      toast.success(`Consulta "${(vars as any).title}" criada.`);
+      toast.success(`Consulta "${(vars as { title?: string }).title}" criada.`);
       setPage(1);
       void qc.invalidateQueries({ queryKey: ["fgtsOff:list"] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
+    onError: (e: Error) => toast.error(e.message ?? "Falha ao criar consulta"),
   });
 
   const cancelMutation = useMutation({
@@ -148,7 +153,7 @@ const FGTSOfflineConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["fgtsOff:list"] });
       void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível cancelar"),
   });
 
   const deleteMutation = useMutation({
@@ -159,26 +164,29 @@ const FGTSOfflineConsultaPage = () => {
       void qc.invalidateQueries({ queryKey: ["fgtsOff:list"] });
       void qc.removeQueries({ queryKey: ["fgtsOff:job", id] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível excluir"),
   });
-
-  /** ---------- Helpers ---------- */
-
-  /** ---------- Handlers ---------- */
 
   const handleNewConsult = async (
     titulo: string,
     cpfs: string,
     opts?: { runAt?: string | null; endAt?: string | null; timezone?: string | null }
   ) => {
-    const payload: any = { title: titulo, cpfs };
+    const payload: {
+      title: string;
+      cpfs: string;
+      run_at?: string | null;
+      end_at?: string | null;
+      timezone?: string | null;
+    } = { title: titulo, cpfs };
+
     if (opts?.runAt) payload.run_at = opts.runAt;
     if (opts?.endAt) payload.end_at = opts.endAt;
     if (opts?.timezone) payload.timezone = opts.timezone;
+
     await createMutation.mutateAsync(payload);
   };
 
-  /** Botão único: decide final vs. prévia sob demanda. */
   const handleDownload = async (id: number, opts?: { preview?: boolean }) => {
     if (inFlight.current.has(id)) {
       toast.warning("Já estamos gerando/baixando para este job.");
@@ -192,30 +200,30 @@ const FGTSOfflineConsultaPage = () => {
         queryFn: () => getFgtsOffConsultJob(id),
       });
 
-      // FINAL disponível → baixa CSV final
       if (!opts?.preview && j.has_file) {
         await downloadFgtsOffReport(id);
         inFlight.current.delete(id);
         return;
       }
 
-      // Sem final (ou intenção explícita de prévia): tenta baixar PRÉVIA CSV do spool
       try {
         await downloadFgtsOffPreview(id);
-      } catch (e: any) {
-        if (e?.status === 409) {
+      } catch (error: unknown) {
+        const status = typeof error === "object" && error !== null
+          ? (error as { status?: number }).status
+          : undefined;
+
+        if (status === 409) {
           toast.info("Prévia indisponível ainda. Aguarde o início do processamento.");
         } else {
-          const apiMsg = e?.response?.data?.message || e?.message;
-          toast.error(apiMsg ?? "Falha ao baixar a prévia");
+          toast.error(getErrorMessage(error, "Falha ao baixar a prévia"));
         }
       } finally {
         inFlight.current.delete(id);
         void qc.invalidateQueries({ queryKey: ["fgtsOff:job", id] });
       }
-    } catch (e: any) {
-      const apiMsg = e?.response?.data?.message || e?.message;
-      toast.error(apiMsg ?? "Falha no download");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Falha no download"));
       inFlight.current.delete(id);
     }
   };
@@ -229,37 +237,25 @@ const FGTSOfflineConsultaPage = () => {
   };
 
   return (
-    <div className="p-4 lg:p-6 max-w-full min-w-0">
-      <div className="mb-6 max-w-full">
-        <h1 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2">
-          Consulta FGTS (Base Offline)
-        </h1>
-        <p className="text-gray-600 text-sm lg:text-base">
-          Faça consultas em massa na FGTS Base Offline (Facta). Os resultados são gerados em <b>.csv</b> e, quando possível, vinculados automaticamente aos leads cadastrados.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <FgtsOffControls
+        onNewConsultClick={() => setIsNewConsultModalOpen(true)}
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+      />
 
-      <div className="space-y-6">
-        <FgtsOffControls
-          onNewConsultClick={() => setIsNewConsultModalOpen(true)}
-          searchValue={searchValue}
-          onSearchChange={setSearchValue}
-        />
-
-        <FgtsOffHistoryTable
-          items={filteredItems}
-          // evita “piscar” em refetch: só mostra loading no 1º load (sem dados ainda)
-          loading={!!(listLoading && !jobsPage)}
-          onDownload={handleDownload}
-          onCancel={handleCancel}
-          onDelete={handleDelete}
-          onRefresh={() => refetchList()}
-          page={page}
-          lastPage={lastPage}
-          onPageChange={(p) => setPage(p)}
-          formatDateTimeBR={formatDateTimeBR}
-        />
-      </div>
+      <FgtsOffHistoryTable
+        items={filteredItems}
+        loading={!!(listLoading && !jobsPage)}
+        onDownload={handleDownload}
+        onCancel={handleCancel}
+        onDelete={handleDelete}
+        onRefresh={() => refetchList()}
+        page={page}
+        lastPage={lastPage}
+        onPageChange={(p) => setPage(p)}
+        formatDateTimeBR={formatDateTimeBR}
+      />
 
       <NewFgtsOffConsultModal
         isOpen={isNewConsultModalOpen}
@@ -270,4 +266,4 @@ const FGTSOfflineConsultaPage = () => {
   );
 };
 
-export default FGTSOfflineConsultaPage;
+export default FGTSFactaConsultaPage;

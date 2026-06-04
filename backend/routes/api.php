@@ -10,6 +10,7 @@ use App\Modules\Leads\Controllers\LeadExportController;
 use App\Modules\Leads\Controllers\RollbackController;
 use App\Modules\CLT\Controllers\CltConsultController;
 use App\Modules\V8\Controllers\V8ConsultController;
+use App\Modules\V8Fgts\Controllers\V8FgtsConsultController;
 use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
@@ -155,6 +156,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/v8/consult-jobs/{id}/resume', [V8ConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/v8/consult-jobs/{id}/cancel', [V8ConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/v8/consult-jobs/{id}', [V8ConsultController::class, 'destroy'])->whereNumber('id');
+
+    /* V8 FGTS */
+    Route::get('/v8-fgts/consult-jobs', [V8FgtsConsultController::class, 'index']);
+    Route::post('/v8-fgts/consult-jobs', [V8FgtsConsultController::class, 'store']);
+    Route::get('/v8-fgts/consult-jobs/{id}', [V8FgtsConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/v8-fgts/consult-jobs/{id}/download', [V8FgtsConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/v8-fgts/consult-jobs/{id}/preview/generate', [V8FgtsConsultController::class, 'requestPreview'])->whereNumber('id');
+    Route::get('/v8-fgts/consult-jobs/{id}/preview', [V8FgtsConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/v8-fgts/consult-jobs/{id}/cancel', [V8FgtsConsultController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/v8-fgts/consult-jobs/{id}', [V8FgtsConsultController::class, 'destroy'])->whereNumber('id');
 
     /* FGTS Offline */
     Route::get('/fgts-off/consult-jobs', [FgtsOfflineController::class, 'index']);
