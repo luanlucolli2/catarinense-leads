@@ -44,13 +44,8 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private int $pollingTimeoutSeconds;
     private int $pollingMaxRounds;
     private int $selectionToleranceSeconds;
-    private int $phase2PageLimit;
-    private int $phase2SearchFallbackLimit;
-    private int $phase2SearchFallbackRoundStart;
-    private int $phase2SearchFallbackPendingThreshold;
-    private int $phase2PlainSearchLastResortRoundStart;
+    private int $phase2SearchLimit;
     private int $phase1MinIntervalMs;
-    private int $pollingMinIntervalMs;
     private int $feesMinIntervalMs;
     private int $simulationMinIntervalMs;
     private int $phase1RateLimitCooldownMs;
@@ -67,6 +62,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private ?array $feeContext = null;
     private ?string $feeErrorMessage = null;
     private bool $phase1PacingEscalated = false;
+    private array $phase2LastResponses = [];
 
     public function __construct(int $jobId)
     {
@@ -89,13 +85,8 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         $this->pollingTimeoutSeconds = max(60, (int) config('v8_fgts.job.polling_timeout_seconds', 900));
         $this->pollingMaxRounds = max(1, (int) config('v8_fgts.job.polling_max_rounds', 30));
         $this->selectionToleranceSeconds = max(0, (int) config('v8_fgts.job.selection_tolerance_seconds', 5));
-        $this->phase2PageLimit = max(1, min(50, (int) config('v8_fgts.job.phase2_page_limit', 50)));
-        $this->phase2SearchFallbackLimit = max(1, (int) config('v8_fgts.job.phase2_search_fallback_limit', 50));
-        $this->phase2SearchFallbackRoundStart = max(1, (int) config('v8_fgts.job.phase2_search_fallback_round_start', 3));
-        $this->phase2SearchFallbackPendingThreshold = max(1, (int) config('v8_fgts.job.phase2_search_fallback_pending_threshold', 50));
-        $this->phase2PlainSearchLastResortRoundStart = max(1, (int) config('v8_fgts.job.phase2_plain_search_last_resort_round_start', 25));
+        $this->phase2SearchLimit = max(1, (int) config('v8_fgts.job.phase2_search_limit', 50));
         $this->phase1MinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_phase1', 10000));
-        $this->pollingMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_polling', 10000));
         $this->feesMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_fees', 2000));
         $this->simulationMinIntervalMs = max(0, (int) config('v8_fgts.http.min_interval_ms_simulation', 2000));
         $this->phase1RateLimitCooldownMs = max(
@@ -386,6 +377,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
                 $activeEntries = [];
                 foreach ($pendingEntries as $cpf => $entry) {
                     if ($this->isPendingExpired($entry['accepted_at']) || ($entry['attempts'] + 1) >= $this->pollingMaxRounds) {
+                        $this->logPhase2Timeout($cpf, $entry, $round);
                         $rows[] = $this->finalRow($cpf, 'FALHA', 'Timeout aguardando retorno do saldo FGTS.');
                         $this->accFail++;
                         continue;
@@ -399,61 +391,34 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
                         $this->spoolAppendManyPersist($job, $rows);
                     }
                 } else {
-                    [$windowStart, $windowEnd] = $this->resolvePhase2Window($job);
-                    $scan = $this->fetchPhase2MatchesByWindow($api, $job, $activeEntries, $windowStart, $windowEnd);
+                    $search = $this->resolvePhase2PlainSearchResults($api, $job, $activeEntries, $round);
+                    if (!empty($search['stopped'])) {
+                        return false;
+                    }
 
-                    if (!($scan['ok'] ?? false)) {
-                        if (!empty($scan['stopped'])) {
-                            return false;
+                    $matches = is_array($search['matches'] ?? null) ? $search['matches'] : [];
+                    $searchRows = is_array($search['rows'] ?? null) ? $search['rows'] : [];
+                    $remainingEntries = is_array($search['requeue'] ?? null) ? $search['requeue'] : [];
+
+                    foreach ($activeEntries as $cpf => $entry) {
+                        if (isset($matches[$cpf]) && is_array($matches[$cpf])) {
+                            $rows[] = $this->rowFromMatchedBalanceItem($api, $cpf, $matches[$cpf]);
+                            continue;
                         }
 
-                        if (!empty($scan['retriable'])) {
-                            $this->writePendingEntries($nextHandle, $activeEntries, true);
-                        } else {
-                            $this->appendPendingEntriesAsErrorRows($job, $activeEntries, (string) ($scan['error'] ?? 'Falha ao consultar saldo FGTS.'));
+                        if (isset($searchRows[$cpf]) && is_array($searchRows[$cpf])) {
+                            $rows[] = $searchRows[$cpf];
+                            continue;
                         }
 
-                        if ($rows !== []) {
-                            $this->spoolAppendManyPersist($job, $rows);
+                        if (isset($remainingEntries[$cpf])) {
+                            $this->logPhase2Requeue($cpf, $entry, $round, 'saldo_nao_localizado');
+                            fwrite($nextHandle, $cpf . ';' . ($entry['attempts'] + 1) . ';' . $entry['accepted_at'] . "\n");
                         }
-                    } else {
-                        $matches = is_array($scan['matches'] ?? null) ? $scan['matches'] : [];
-                        $remainingEntries = array_diff_key($activeEntries, $matches);
+                    }
 
-                        $fallbackRows = [];
-                        if (
-                            $remainingEntries !== []
-                            && $this->shouldUseSearchFallback($round, count($remainingEntries))
-                        ) {
-                            $fallback = $this->resolvePhase2SearchFallbacks($api, $job, $remainingEntries, $round, $windowStart, $windowEnd);
-                            if (!empty($fallback['stopped'])) {
-                                return false;
-                            }
-
-                            $matches = array_replace($matches, $fallback['matches'] ?? []);
-                            $fallbackRows = $fallback['rows'] ?? [];
-                            $remainingEntries = $fallback['requeue'] ?? [];
-                        }
-
-                        foreach ($activeEntries as $cpf => $entry) {
-                            if (isset($matches[$cpf]) && is_array($matches[$cpf])) {
-                                $rows[] = $this->rowFromMatchedBalanceItem($api, $cpf, $matches[$cpf]);
-                                continue;
-                            }
-
-                            if (isset($fallbackRows[$cpf]) && is_array($fallbackRows[$cpf])) {
-                                $rows[] = $fallbackRows[$cpf];
-                                continue;
-                            }
-
-                            if (isset($remainingEntries[$cpf])) {
-                                fwrite($nextHandle, $cpf . ';' . ($entry['attempts'] + 1) . ';' . $entry['accepted_at'] . "\n");
-                            }
-                        }
-
-                        if ($rows !== []) {
-                            $this->spoolAppendManyPersist($job, $rows);
-                        }
+                    if ($rows !== []) {
+                        $this->spoolAppendManyPersist($job, $rows);
                     }
                 }
             } finally {
@@ -483,90 +448,11 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return true;
     }
 
-    private function fetchPhase2MatchesByWindow(
-        V8FgtsApiService $api,
-        V8FgtsConsultJob $job,
-        array $pendingEntries,
-        CarbonImmutable $startDate,
-        CarbonImmutable $endDate
-    ): array
-    {
-        $matches = [];
-        $page = 1;
-        $totalPages = 1;
-        $queryBase = [
-            'startDate' => $this->formatApiDateTime($startDate),
-            'endDate' => $this->formatApiDateTime($endDate),
-            'limit' => $this->phase2PageLimit,
-        ];
-
-        while ($page <= $totalPages) {
-            if ($this->finishIfCancelled($job)) {
-                return [
-                    'ok' => false,
-                    'stopped' => true,
-                ];
-            }
-
-            $api->setRateLimitMs($this->pollingMinIntervalMs);
-            $resp = $api->listBalances($queryBase + ['page' => $page]);
-            if (!($resp['ok'] ?? false)) {
-                return [
-                    'ok' => false,
-                    'error' => (string) ($resp['error'] ?? 'Falha ao consultar saldo FGTS.'),
-                    'retriable' => (bool) ($resp['retriable'] ?? false),
-                ];
-            }
-
-            $pages = $resp['data']['pages'] ?? [];
-            if (is_array($pages) && isset($pages['totalPages'])) {
-                $totalPages = max(1, (int) $pages['totalPages']);
-            }
-
-            $items = $resp['data']['data'] ?? [];
-            if (is_array($items)) {
-                foreach ($items as $item) {
-                    if (!is_array($item)) {
-                        continue;
-                    }
-
-                    $cpf = preg_replace('/\D+/', '', (string) ($item['documentNumber'] ?? ''));
-                    if ($cpf === '' || !isset($pendingEntries[$cpf])) {
-                        continue;
-                    }
-
-                    $acceptedAt = $pendingEntries[$cpf]['accepted_at'];
-                    $candidates = isset($matches[$cpf]) ? [$matches[$cpf], $item] : [$item];
-                    $selected = V8FgtsBalanceSelector::selectLatestRelevant(
-                        $candidates,
-                        $cpf,
-                        $api->provider(),
-                        $acceptedAt,
-                        $this->selectionToleranceSeconds
-                    );
-
-                    if ($selected !== null) {
-                        $matches[$cpf] = $selected;
-                    }
-                }
-            }
-
-            $page++;
-        }
-
-        return [
-            'ok' => true,
-            'matches' => $matches,
-        ];
-    }
-
-    private function resolvePhase2SearchFallbacks(
+    private function resolvePhase2PlainSearchResults(
         V8FgtsApiService $api,
         V8FgtsConsultJob $job,
         array $entries,
-        int $round,
-        CarbonImmutable $startDate,
-        CarbonImmutable $endDate
+        int $round
     ): array {
         $matches = [];
         $rows = [];
@@ -577,10 +463,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
                 return ['stopped' => true];
             }
 
-            $result = $this->findBalanceBySearch($api, $entry, $startDate, $endDate);
-            if (($result['type'] ?? null) === 'not_found' && $round >= $this->phase2PlainSearchLastResortRoundStart) {
-                $result = $this->findBalanceBySearch($api, $entry, null, null);
-            }
+            $result = $this->findBalanceBySearch($api, $entry, $round);
 
             if (($result['type'] ?? null) === 'match') {
                 $matches[$cpf] = $result['match'];
@@ -605,8 +488,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private function findBalanceBySearch(
         V8FgtsApiService $api,
         array $entry,
-        ?CarbonImmutable $startDate,
-        ?CarbonImmutable $endDate
+        int $round = 0
     ): array {
         $cpf = $entry['cpf'];
         $acceptedAt = $entry['accepted_at'];
@@ -617,19 +499,17 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         while ($page <= $totalPages) {
             $query = [
                 'search' => $cpf,
-                'limit' => $this->phase2SearchFallbackLimit,
+                'limit' => $this->phase2SearchLimit,
                 'page' => $page,
             ];
 
-            if ($startDate !== null && $endDate !== null) {
-                $query['startDate'] = $this->formatApiDateTime($startDate);
-                $query['endDate'] = $this->formatApiDateTime($endDate);
-            }
-
-            $api->setRateLimitMs($this->pollingMinIntervalMs);
+            $api->setRateLimitMs($this->phase1MinIntervalMs);
+            $this->logPhase2ApiRequest('plain_search', $round, $query, $api->provider(), [$cpf]);
             $resp = $api->listBalances($query);
+            $this->logPhase2ApiResponse('plain_search', $round, $query, $resp, [$cpf]);
             if (!($resp['ok'] ?? false)) {
                 if ((bool) ($resp['retriable'] ?? false)) {
+                    $this->logPhase2Requeue($cpf, $entry, $round, 'erro_retentavel_busca');
                     return ['type' => 'requeue'];
                 }
 
@@ -701,12 +581,6 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         return $this->finalRow($cpf, 'FALHA', $statusInfo, $extra);
     }
 
-    private function shouldUseSearchFallback(int $round, int $remainingCount): bool
-    {
-        return $round >= $this->phase2SearchFallbackRoundStart
-            || $remainingCount <= $this->phase2SearchFallbackPendingThreshold;
-    }
-
     private function loadPendingEntries(string $realPath): array
     {
         $entries = [];
@@ -761,23 +635,6 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         if ($rows !== []) {
             $this->spoolAppendManyPersist($job, $rows);
         }
-    }
-
-    private function resolvePhase2Window(V8FgtsConsultJob $job): array
-    {
-        $startedAt = $job->started_at instanceof Carbon
-            ? CarbonImmutable::instance($job->started_at)->utc()
-            : CarbonImmutable::now('UTC');
-
-        return [
-            $startedAt->subSeconds($this->selectionToleranceSeconds),
-            CarbonImmutable::now('UTC'),
-        ];
-    }
-
-    private function formatApiDateTime(CarbonImmutable $date): string
-    {
-        return $date->utc()->format('Y-m-d\TH:i:s\Z');
     }
 
     private function simulateFromBalanceItem(V8FgtsApiService $api, string $cpf, array $match): array
@@ -920,6 +777,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
                     continue;
                 }
 
+                $this->logPhase2Timeout($entry['cpf'], $entry, $this->pollingMaxRounds);
                 $rows[] = $this->finalRow($entry['cpf'], 'FALHA', 'Timeout aguardando retorno do saldo FGTS.');
                 $this->accFail++;
             }
@@ -947,6 +805,195 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         }
 
         return $row;
+    }
+
+    private function logPhase2ApiRequest(string $mode, int $round, array $query, string $provider, array $focusCpfs = []): void
+    {
+        Log::warning('[V8-FGTS] Fase 2 requisicao da consulta de saldo', [
+            'job_id' => $this->jobId,
+            'round' => $round,
+            'mode' => $mode,
+            'method' => 'GET',
+            'path' => '/fgts/balance',
+            'provider' => $provider,
+            'query' => $query,
+            'focus_cpfs_count' => count($focusCpfs),
+            'focus_cpfs' => array_slice(array_values($focusCpfs), 0, 20),
+        ]);
+    }
+
+    private function logPhase2ApiResponse(string $mode, int $round, array $query, array $resp, array $focusCpfs = []): void
+    {
+        $context = [
+            'job_id' => $this->jobId,
+            'round' => $round,
+            'mode' => $mode,
+            'query' => $query,
+            'status' => $resp['status'] ?? null,
+            'ok' => (bool) ($resp['ok'] ?? false),
+            'retriable' => (bool) ($resp['retriable'] ?? false),
+        ];
+
+        if (!($resp['ok'] ?? false)) {
+            $context['error'] = $resp['error'] ?? null;
+            $context['raw_body'] = $resp['raw_body'] ?? null;
+            $context['data'] = $resp['data'] ?? null;
+
+            $this->rememberPhase2ResponsesForCpfs($focusCpfs, [
+                'mode' => $mode,
+                'round' => $round,
+                'query' => $query,
+                'status' => $resp['status'] ?? null,
+                'ok' => false,
+                'retriable' => (bool) ($resp['retriable'] ?? false),
+                'error' => $resp['error'] ?? null,
+                'raw_body' => $resp['raw_body'] ?? null,
+                'data' => $resp['data'] ?? null,
+            ]);
+
+            Log::warning('[V8-FGTS] Fase 2 resposta da consulta de saldo', $context);
+            return;
+        }
+
+        $data = is_array($resp['data'] ?? null) ? $resp['data'] : [];
+        $items = is_array($data['data'] ?? null) ? $data['data'] : [];
+        $focusMap = [];
+        foreach ($focusCpfs as $cpf) {
+            $focusMap[(string) $cpf] = true;
+        }
+
+        $relevantItems = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $cpf = preg_replace('/\D+/', '', (string) ($item['documentNumber'] ?? ''));
+            if ($focusMap !== [] && !isset($focusMap[$cpf])) {
+                continue;
+            }
+
+            $relevantItems[] = $this->summarizePhase2BalanceItem($item);
+        }
+
+        $context['pages'] = $data['pages'] ?? null;
+        $context['items_count'] = count($items);
+        $context['relevant_items_count'] = count($relevantItems);
+        $context['relevant_items'] = array_slice($relevantItems, 0, 20);
+
+        $this->rememberSuccessfulPhase2ResponsesForCpfs($focusCpfs, $mode, $round, $query, $data, $items);
+
+        Log::warning('[V8-FGTS] Fase 2 resposta da consulta de saldo', $context);
+    }
+
+    private function summarizePhase2BalanceItem(array $item): array
+    {
+        return [
+            'id' => $item['id'] ?? null,
+            'documentNumber' => $item['documentNumber'] ?? null,
+            'provider' => $item['provider'] ?? null,
+            'status' => $item['status'] ?? null,
+            'statusInfo' => $item['statusInfo'] ?? null,
+            'createdAt' => $item['createdAt'] ?? null,
+            'updatedAt' => $item['updatedAt'] ?? null,
+            'amount' => $item['amount'] ?? null,
+        ];
+    }
+
+    private function logPhase2Requeue(string $cpf, array $entry, int $round, string $reason): void
+    {
+        Log::info('[V8-FGTS] Fase 2 CPF mantido em pending', [
+            'job_id' => $this->jobId,
+            'round' => $round,
+            'cpf' => $cpf,
+            'reason' => $reason,
+            'accepted_at' => $entry['accepted_at'] ?? null,
+            'attempts' => $entry['attempts'] ?? null,
+            'elapsed_seconds' => $this->elapsedPendingSeconds($entry['accepted_at'] ?? null),
+        ]);
+    }
+
+    private function logPhase2Timeout(string $cpf, array $entry, int $round): void
+    {
+        Log::warning('[V8-FGTS] Fase 2 timeout aguardando saldo', [
+            'job_id' => $this->jobId,
+            'round' => $round,
+            'cpf' => $cpf,
+            'accepted_at' => $entry['accepted_at'] ?? null,
+            'attempts' => $entry['attempts'] ?? null,
+            'elapsed_seconds' => $this->elapsedPendingSeconds($entry['accepted_at'] ?? null),
+            'polling_timeout_seconds' => $this->pollingTimeoutSeconds,
+            'polling_max_rounds' => $this->pollingMaxRounds,
+            'last_phase2_response' => $this->phase2LastResponses[$cpf] ?? null,
+        ]);
+    }
+
+    private function rememberSuccessfulPhase2ResponsesForCpfs(
+        array $focusCpfs,
+        string $mode,
+        int $round,
+        array $query,
+        array $data,
+        array $items
+    ): void {
+        $itemsByCpf = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $cpf = preg_replace('/\D+/', '', (string) ($item['documentNumber'] ?? ''));
+            if ($cpf === '') {
+                continue;
+            }
+
+            $itemsByCpf[$cpf][] = $this->summarizePhase2BalanceItem($item);
+        }
+
+        foreach ($focusCpfs as $cpf) {
+            $cpf = (string) $cpf;
+            if ($cpf === '') {
+                continue;
+            }
+
+            $this->phase2LastResponses[$cpf] = [
+                'mode' => $mode,
+                'round' => $round,
+                'query' => $query,
+                'status' => 200,
+                'ok' => true,
+                'retriable' => false,
+                'pages' => $data['pages'] ?? null,
+                'items_count' => count($items),
+                'relevant_items_count' => count($itemsByCpf[$cpf] ?? []),
+                'relevant_items' => array_slice($itemsByCpf[$cpf] ?? [], 0, 20),
+            ];
+        }
+    }
+
+    private function rememberPhase2ResponsesForCpfs(array $focusCpfs, array $snapshot): void
+    {
+        foreach ($focusCpfs as $cpf) {
+            $cpf = (string) $cpf;
+            if ($cpf === '') {
+                continue;
+            }
+
+            $this->phase2LastResponses[$cpf] = $snapshot;
+        }
+    }
+
+    private function elapsedPendingSeconds(?string $acceptedAt): ?int
+    {
+        if (!is_string($acceptedAt) || trim($acceptedAt) === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($acceptedAt)->diffInSeconds(CarbonImmutable::now('UTC'));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function formatResponseBodyForCsv(string $stage, mixed $body): ?string
