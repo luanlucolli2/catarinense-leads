@@ -49,7 +49,7 @@ final class V8FgtsSchema
         'IOF',
         'TC',
         'Finalizado em',
-        'Body Inicio Saldo',
+        'Contexto Erro API',
     ];
 
     public static function headerCsvLine(string $sep = ';'): string

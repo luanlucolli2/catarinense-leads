@@ -61,6 +61,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
     private int $accFail = 0;
     private ?array $feeContext = null;
     private ?string $feeErrorMessage = null;
+    private mixed $feeErrorResponseBody = null;
     private bool $phase1PacingEscalated = false;
     private array $phase2LastResponses = [];
 
@@ -653,13 +654,17 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
 
         if ($balanceId === '' || $desiredInstallments === []) {
             $this->accFail++;
-            return $this->finalRow($cpf, 'FALHA', 'Consulta sem balanceId ou parcelas válidas para simulação.', $rowBase);
+            return $this->finalRow($cpf, 'FALHA', 'Consulta sem balanceId ou parcelas válidas para simulação.', array_merge($rowBase, [
+                'balance_start_response_body' => $this->formatResponseBodyForCsv('simulacao_preparacao', null),
+            ]));
         }
 
         $fee = $this->feeContext;
         if ($fee === null) {
             $this->accFail++;
-            return $this->finalRow($cpf, 'FALHA', $this->feeErrorMessage ?? 'Tabela normal indisponível para simulação.', $rowBase);
+            return $this->finalRow($cpf, 'FALHA', $this->feeErrorMessage ?? 'Tabela normal indisponível para simulação.', array_merge($rowBase, [
+                'balance_start_response_body' => $this->formatResponseBodyForCsv('simulacao_taxas', $this->feeErrorResponseBody),
+            ]));
         }
 
         $rowBase['simulation_fee_label'] = $fee['label'];
@@ -676,8 +681,16 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         ]);
 
         if (!($simResp['ok'] ?? false)) {
+            $classified = V8FgtsBalanceClassifier::classifyApiFailure($simResp);
+            if ($classified['classification'] === V8FgtsBalanceClassifier::NAO_ELEGIVEL) {
+                $this->accNaoElegivel++;
+                return $this->finalRow($cpf, 'NAO_ELEGIVEL', $classified['message'], $rowBase);
+            }
+
             $this->accFail++;
-            return $this->finalRow($cpf, 'FALHA', (string) ($simResp['error'] ?? 'Falha ao criar simulação FGTS.'), $rowBase);
+            return $this->finalRow($cpf, 'FALHA', (string) ($simResp['error'] ?? 'Falha ao criar simulação FGTS.'), array_merge($rowBase, [
+                'balance_start_response_body' => $this->formatResponseBodyForCsv('simulacao', $simResp['raw_body'] ?? null),
+            ]));
         }
 
         $data = is_array($simResp['data'] ?? null) ? $simResp['data'] : [];
@@ -714,6 +727,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         $resp = $api->getSimulationFees();
         if (!($resp['ok'] ?? false)) {
             $this->feeErrorMessage = (string) ($resp['error'] ?? 'Falha ao consultar tabelas de taxas.');
+            $this->feeErrorResponseBody = $resp['raw_body'] ?? $resp['data'] ?? null;
             return;
         }
 
@@ -721,6 +735,7 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
         $selected = V8FgtsSimulationMapper::selectNormalFee($fees, (string) config('v8_fgts.bff.fee_label', 'normal'));
         if ($selected === null) {
             $this->feeErrorMessage = 'Tabela normal não encontrada para simulação.';
+            $this->feeErrorResponseBody = $fees;
             return;
         }
 
@@ -998,13 +1013,17 @@ class ProcessV8FgtsConsultJob implements ShouldQueue
 
     private function formatResponseBodyForCsv(string $stage, mixed $body): ?string
     {
+        if (is_array($body) || is_object($body)) {
+            $body = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
         if (!is_string($body)) {
-            return null;
+            return $stage;
         }
 
         $body = trim($body);
 
-        return $body !== '' ? ($stage . ' | ' . $body) : null;
+        return $body !== '' ? ($stage . ' | ' . $body) : $stage;
     }
 
     private function isCancelled(): bool
