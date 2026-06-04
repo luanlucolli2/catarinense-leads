@@ -29,6 +29,15 @@ class V8FgtsBalanceClassifierTest extends TestCase
 
         $this->assertSame(
             V8FgtsBalanceClassifier::NAO_ELEGIVEL,
+            V8FgtsBalanceClassifier::classify(
+                400,
+                'AppError',
+                'Não foi possível consultar o saldo no momento! - Mudanças cadastrais na conta do FGTS foram realizadas, que impedem a contratação. Entre em contato com o setor de FGTS da CAIXA.'
+            )
+        );
+
+        $this->assertSame(
+            V8FgtsBalanceClassifier::NAO_ELEGIVEL,
             V8FgtsBalanceClassifier::classifyPollingStatus('fail', 'Instituição Fiduciária não possui autorização do Trabalhador para Operação Fiduciária.')
         );
     }

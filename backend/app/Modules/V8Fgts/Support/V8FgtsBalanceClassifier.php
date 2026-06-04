@@ -75,7 +75,8 @@ final class V8FgtsBalanceClassifier
 
         return str_contains($detail, 'Trabalhador não possui adesão ao saque aniversário vigente na data corrente')
             || str_contains($detail, 'não possui autorização do Trabalhador')
-            || str_contains($detail, 'Existe uma Operação Fiduciária em andamento');
+            || str_contains($detail, 'Existe uma Operação Fiduciária em andamento')
+            || str_contains($detail, 'Mudanças cadastrais na conta do FGTS foram realizadas, que impedem a contratação');
     }
 
     private static function normalizeText(mixed $value): ?string
