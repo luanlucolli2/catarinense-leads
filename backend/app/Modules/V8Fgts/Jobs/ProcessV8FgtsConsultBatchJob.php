@@ -180,11 +180,13 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
         }
 
         $classified = V8FgtsBalanceClassifier::classifyApiFailure($resp);
+        $isRetriable = (bool) ($resp['retriable'] ?? false) || $classified['classification'] === V8FgtsBalanceClassifier::RETRYABLE;
+        $isRateLimited = (bool) ($resp['rate_limited'] ?? false);
         $attempts = $item->start_attempts + 1;
 
         if (
-            $classified['classification'] === V8FgtsBalanceClassifier::RETRYABLE
-            && $attempts < $this->startMaxAttempts
+            ($isRateLimited || $isRetriable)
+            && ($isRateLimited || $attempts < $this->startMaxAttempts)
         ) {
             $delaySeconds = max(
                 $this->startRetryDelaySeconds,
@@ -192,7 +194,7 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
             );
 
             $item->forceFill([
-                'start_attempts' => $attempts,
+                'start_attempts' => $isRateLimited ? $item->start_attempts : $attempts,
                 'last_message' => $classified['message'],
                 'next_run_at' => Carbon::now()->addSeconds($delaySeconds),
             ])->save();
