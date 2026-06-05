@@ -475,21 +475,23 @@ class PresencaApiService
 
         $simulacaoResult = $this->consultarSimulacaoDisponivel($cpf, $nome, $phoneContext, $margem);
         if ($simulacaoResult['outcome'] === 'success') {
-            $simulacao = $simulacaoResult['simulacao'];
-            $row['simulacao_id'] = isset($simulacao['id']) ? (string) $simulacao['id'] : null;
-            $row['simulacao_nome'] = isset($simulacao['nome']) ? (string) $simulacao['nome'] : null;
-            $row['simulacao_prazo'] = isset($simulacao['prazo']) ? (string) $simulacao['prazo'] : null;
-            $row['simulacao_taxa_juros'] = $this->toMoneyString($simulacao['taxaJuros'] ?? null);
-            $row['simulacao_valor_liberado'] = $this->toMoneyString($simulacao['valorLiberado'] ?? null);
-            $row['simulacao_valor_parcela'] = $this->toMoneyString($simulacao['valorParcela'] ?? null);
-            $row['simulacao_tipo_credito'] = isset($simulacao['tipoCredito']['name']) ? (string) $simulacao['tipoCredito']['name'] : null;
-            $row['simulacao_type'] = isset($simulacao['type']) ? (string) $simulacao['type'] : null;
-            $row['simulacao_taxa_seguro'] = $this->toMoneyString($simulacao['taxaSeguro'] ?? null);
-            $row['simulacao_valor_seguro'] = $this->toMoneyString($simulacao['valorSeguro'] ?? null);
+            $simulacao = is_array($simulacaoResult['simulacao'] ?? null) ? $simulacaoResult['simulacao'] : null;
+            if ($simulacao !== null) {
+                $row['simulacao_id'] = isset($simulacao['id']) ? (string) $simulacao['id'] : null;
+                $row['simulacao_nome'] = isset($simulacao['nome']) ? (string) $simulacao['nome'] : null;
+                $row['simulacao_prazo'] = isset($simulacao['prazo']) ? (string) $simulacao['prazo'] : null;
+                $row['simulacao_taxa_juros'] = $this->toMoneyString($simulacao['taxaJuros'] ?? null);
+                $row['simulacao_valor_liberado'] = $this->toMoneyString($simulacao['valorLiberado'] ?? null);
+                $row['simulacao_valor_parcela'] = $this->toMoneyString($simulacao['valorParcela'] ?? null);
+                $row['simulacao_tipo_credito'] = isset($simulacao['tipoCredito']['name']) ? (string) $simulacao['tipoCredito']['name'] : null;
+                $row['simulacao_type'] = isset($simulacao['type']) ? (string) $simulacao['type'] : null;
+                $row['simulacao_taxa_seguro'] = $this->toMoneyString($simulacao['taxaSeguro'] ?? null);
+                $row['simulacao_valor_seguro'] = $this->toMoneyString($simulacao['valorSeguro'] ?? null);
+            }
 
             $row['status'] = 'SUCESSO';
-            $row['status_code'] = '200';
-            $row['mensagem'] = 'Simulação disponível.';
+            $row['status_code'] = (string) ($simulacaoResult['status_code'] ?? '200');
+            $row['mensagem'] = (string) ($simulacaoResult['message'] ?? 'Simulação disponível.');
             return ['outcome' => 'success', 'row' => $row];
         }
 
@@ -640,6 +642,14 @@ class PresencaApiService
                         'outcome' => 'failed',
                         'status_code' => 400,
                         'message' => $this->joinMessages($messages, 'Falha temporária ao realizar simulação.'),
+                    ];
+                }
+
+                if ($this->containsSimulacao400QueContaComoSucesso($messages)) {
+                    return [
+                        'outcome' => 'success',
+                        'status_code' => 400,
+                        'message' => $this->joinMessages($messages, 'Simulação tratada como sucesso.'),
                     ];
                 }
 
@@ -1522,6 +1532,22 @@ class PresencaApiService
         foreach ($messages as $message) {
             $norm = $this->normalizeText($message);
             if (str_contains($norm, 'falha ao realizar simulacao')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function containsSimulacao400QueContaComoSucesso(array $messages): bool
+    {
+        foreach ($messages as $message) {
+            $norm = $this->normalizeText($message);
+            if (str_contains($norm, 'o valor solicitado') && str_contains($norm, 'maior que o valor maximo permitido')) {
+                return true;
+            }
+
+            if (str_contains($norm, 'o valor da parcela') && str_contains($norm, 'maior que o maximo permitido')) {
                 return true;
             }
         }
