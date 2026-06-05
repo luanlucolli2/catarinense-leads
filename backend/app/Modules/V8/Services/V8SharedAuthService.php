@@ -255,16 +255,27 @@ class V8SharedAuthService
 
         try {
             $levelKey = $this->scopedKey('v8_http_rate_limit_level', $scope);
+            $streakKey = $this->scopedKey('v8_http_rate_limit_streak', $scope);
             $successKey = $this->scopedKey('v8_http_rate_limit_success_streak', $scope);
             $level = max(0, (int) Cache::get($levelKey, 0));
             if ($level <= 0) {
+                Cache::forget($streakKey);
                 Cache::forget($successKey);
                 return;
             }
 
             $successes = max(0, (int) Cache::get($successKey, 0)) + 1;
             if ($successes >= $this->httpRateLimitRecoverySuccesses) {
-                $this->resetRateLimitBackoff($scope);
+                $nextLevel = max(0, $level - 1);
+                Cache::forget($streakKey);
+
+                if ($nextLevel <= 0) {
+                    $this->resetRateLimitBackoff($scope);
+                    return;
+                }
+
+                Cache::put($levelKey, $nextLevel, 3600);
+                Cache::forget($successKey);
                 return;
             }
 
