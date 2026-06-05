@@ -23,6 +23,7 @@ class V8SharedAuthService
     private int $httpRetry;
     private int $httpMinIntervalMs;
     private int $httpRateLimitSleepSeconds;
+    private int $httpRateLimitRecoverySuccesses;
 
     public function __construct(?array $oauth = null, ?array $http = null)
     {
@@ -44,6 +45,7 @@ class V8SharedAuthService
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpMinIntervalMs = (int) ($http['min_interval_ms'] ?? 2000);
         $this->httpRateLimitSleepSeconds = (int) ($http['rate_limit_sleep_seconds'] ?? 15);
+        $this->httpRateLimitRecoverySuccesses = max(1, (int) ($http['rate_limit_recovery_successes'] ?? 5));
     }
 
     public function getToken(?callable $responseLogger = null): ?string
@@ -114,52 +116,185 @@ class V8SharedAuthService
         Cache::forget('v8_oauth_token');
     }
 
-    public function throttleRequests(?int $overrideMs = null): void
+    public function throttleRequests(?int $overrideMs = null, ?string $scope = null): void
     {
-        $minInterval = $overrideMs !== null ? max(0, $overrideMs) : $this->httpMinIntervalMs;
+        $minInterval = $this->effectiveMinInterval(
+            $overrideMs !== null ? max(0, $overrideMs) : $this->httpMinIntervalMs,
+            $scope
+        );
         if ($minInterval <= 0) {
             return;
         }
 
-        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
         $lock->block(5);
 
         try {
             $now = (int) floor(microtime(true) * 1000);
-            $last = (int) Cache::get('v8_http_last_at_ms', 0);
-            $elapsed = $now - $last;
+            $readyAt = (int) Cache::get($this->scopedKey('v8_http_last_at_ms', $scope), 0);
+            $delayMs = max(0, $readyAt - $now);
 
-            if ($elapsed < $minInterval) {
-                usleep((int) max(0, $minInterval - $elapsed) * 1000);
+            if ($delayMs > 0) {
+                usleep($delayMs * 1000);
                 $now = (int) floor(microtime(true) * 1000);
             }
 
-            Cache::put('v8_http_last_at_ms', $now, 3600);
+            Cache::put($this->scopedKey('v8_http_last_at_ms', $scope), $now + $minInterval, 3600);
         } finally {
             optional($lock)->release();
         }
     }
 
-    public function pauseOnRateLimit(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null): void
+    public function claimThrottleSlotOrDelay(?int $overrideMs = null, ?string $scope = null): int
     {
-        $sleepSeconds = $sleepSeconds !== null ? max(0, $sleepSeconds) : $this->httpRateLimitSleepSeconds;
-        if ($sleepSeconds <= 0) {
-            $this->throttleRequests($fallbackIntervalMs);
-            return;
+        $minInterval = $this->effectiveMinInterval(
+            $overrideMs !== null ? max(0, $overrideMs) : $this->httpMinIntervalMs,
+            $scope
+        );
+        if ($minInterval <= 0) {
+            return 0;
         }
 
-        $cooldownUntilMs = (int) floor(microtime(true) * 1000) + ($sleepSeconds * 1000);
-        $lock = Cache::lock('v8_http_rate_lock', 10);
+        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
         $lock->block(5);
 
         try {
-            $last = (int) Cache::get('v8_http_last_at_ms', 0);
-            Cache::put('v8_http_last_at_ms', max($last, $cooldownUntilMs), 3600);
+            $now = (int) floor(microtime(true) * 1000);
+            $readyAt = (int) Cache::get($this->scopedKey('v8_http_last_at_ms', $scope), 0);
+            if ($readyAt > $now) {
+                return $readyAt - $now;
+            }
+
+            Cache::put($this->scopedKey('v8_http_last_at_ms', $scope), $now + $minInterval, 3600);
+
+            return 0;
         } finally {
             optional($lock)->release();
         }
+    }
 
-        sleep($sleepSeconds);
+    public function pauseOnRateLimit(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null, ?string $scope = null): void
+    {
+        $delayMs = $this->scheduleRateLimitCooldown($sleepSeconds, $fallbackIntervalMs, $scope);
+        if ($delayMs > 0) {
+            usleep($delayMs * 1000);
+        }
+    }
+
+    public function scheduleRateLimitCooldown(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null, ?string $scope = null): int
+    {
+        $sleepSeconds = $sleepSeconds !== null ? max(0, $sleepSeconds) : $this->httpRateLimitSleepSeconds;
+        if ($sleepSeconds <= 0) {
+            return $this->claimThrottleSlotOrDelay($fallbackIntervalMs, $scope);
+        }
+
+        $cooldownUntilMs = (int) floor(microtime(true) * 1000) + ($sleepSeconds * 1000);
+        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
+        $lock->block(5);
+
+        try {
+            $readyAt = (int) Cache::get($this->scopedKey('v8_http_last_at_ms', $scope), 0);
+            $scheduledAt = max($readyAt, $cooldownUntilMs);
+            Cache::put($this->scopedKey('v8_http_last_at_ms', $scope), $scheduledAt, 3600);
+
+            return max(0, $scheduledAt - (int) floor(microtime(true) * 1000));
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    public function scheduleProgressiveRateLimitCooldown(?int $sleepSeconds = null, ?int $fallbackIntervalMs = null, ?string $scope = null): int
+    {
+        $sleepSeconds = $sleepSeconds !== null ? max(0, $sleepSeconds) : $this->httpRateLimitSleepSeconds;
+        if ($sleepSeconds <= 0) {
+            return $this->claimThrottleSlotOrDelay($fallbackIntervalMs, $scope);
+        }
+
+        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
+        $lock->block(5);
+
+        try {
+            $streakKey = $this->scopedKey('v8_http_rate_limit_streak', $scope);
+            $levelKey = $this->scopedKey('v8_http_rate_limit_level', $scope);
+            $successKey = $this->scopedKey('v8_http_rate_limit_success_streak', $scope);
+            $readyAtKey = $this->scopedKey('v8_http_last_at_ms', $scope);
+
+            $streak = max(0, (int) Cache::get($streakKey, 0)) + 1;
+            Cache::put($streakKey, $streak, 3600);
+            Cache::put($levelKey, min(2, max(0, (int) Cache::get($levelKey, 0)) + 1), 3600);
+            Cache::forget($successKey);
+
+            $multiplier = $streak <= 1 ? 1 : ($streak === 2 ? 2 : 4);
+            $cooldownMs = $sleepSeconds * $multiplier * 1000;
+            $readyAt = (int) Cache::get($readyAtKey, 0);
+            $scheduledAt = max($readyAt, (int) floor(microtime(true) * 1000) + $cooldownMs);
+            Cache::put($readyAtKey, $scheduledAt, 3600);
+
+            return max(0, $scheduledAt - (int) floor(microtime(true) * 1000));
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    public function resetRateLimitBackoff(?string $scope = null): void
+    {
+        Cache::forget($this->scopedKey('v8_http_rate_limit_streak', $scope));
+        Cache::forget($this->scopedKey('v8_http_rate_limit_level', $scope));
+        Cache::forget($this->scopedKey('v8_http_rate_limit_success_streak', $scope));
+    }
+
+    public function registerNonRateLimitedResponse(?string $scope = null): void
+    {
+        if ($scope === null || $scope === '') {
+            $this->resetRateLimitBackoff();
+            return;
+        }
+
+        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
+        $lock->block(5);
+
+        try {
+            $levelKey = $this->scopedKey('v8_http_rate_limit_level', $scope);
+            $successKey = $this->scopedKey('v8_http_rate_limit_success_streak', $scope);
+            $level = max(0, (int) Cache::get($levelKey, 0));
+            if ($level <= 0) {
+                Cache::forget($successKey);
+                return;
+            }
+
+            $successes = max(0, (int) Cache::get($successKey, 0)) + 1;
+            if ($successes >= $this->httpRateLimitRecoverySuccesses) {
+                $this->resetRateLimitBackoff($scope);
+                return;
+            }
+
+            Cache::put($successKey, $successes, 3600);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private function effectiveMinInterval(int $baseMs, ?string $scope): int
+    {
+        $baseMs = max(0, $baseMs);
+        $level = max(0, (int) Cache::get($this->scopedKey('v8_http_rate_limit_level', $scope), 0));
+
+        if ($level <= 0) {
+            return $baseMs;
+        }
+
+        if ($level === 1) {
+            return max($baseMs, 15000);
+        }
+
+        return max($baseMs, 30000);
+    }
+
+    private function scopedKey(string $base, ?string $scope): string
+    {
+        $scope = trim((string) $scope);
+
+        return $scope === '' ? $base : "{$base}:{$scope}";
     }
 
     private function sendWithRetry(callable $caller): HttpResponse

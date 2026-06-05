@@ -28,6 +28,7 @@ final class VendeaiCsvExport
                 'Nome',
                 'Data nascimento',
                 'Telefone',
+                'Numero IA',
                 'Account ID',
                 'Chat ID',
                 'Proposal ID VendeAI',
@@ -62,6 +63,7 @@ final class VendeaiCsvExport
             'Nome',
             'Data nascimento',
             'Telefone',
+            'Numero IA',
             'Email',
             'Account ID',
             'Chat ID',
@@ -163,6 +165,7 @@ final class VendeaiCsvExport
                 'vendeai_leads.customer_name',
                 'vendeai_leads.customer_birth_date',
                 'vendeai_leads.customer_phone',
+                'vendeai_leads.inbox_phone_number',
                 'vendeai_leads.customer_email',
                 'vendeai_leads.simulation_product',
                 'vendeai_leads.simulation_bank',
@@ -227,6 +230,7 @@ final class VendeaiCsvExport
                 'leads.customer_name',
                 'leads.customer_birth_date',
                 'leads.customer_phone',
+                'leads.inbox_phone_number',
                 'leads.proposal_id',
                 'leads.proposal_bank',
                 'leads.proposal_product',
@@ -291,6 +295,7 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->customer_name ?? null),
             self::sanitizeCsvValue(self::formatDate($lead->customer_birth_date ?? null)),
             self::sanitizeCsvValue(self::csvPhone($lead->customer_phone ?? null)),
+            self::sanitizeCsvValue(self::csvPhone($lead->inbox_phone_number ?? null)),
             self::sanitizeCsvValue($lead->customer_email ?? null),
             self::sanitizeCsvValue($lead->account_id ?? null),
             self::sanitizeCsvValue($lead->chat_id ?? null),
@@ -340,6 +345,7 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($attempt->customer_name ?? null),
             self::sanitizeCsvValue(self::formatDate($attempt->customer_birth_date ?? null)),
             self::sanitizeCsvValue(self::csvPhone($attempt->customer_phone ?? null)),
+            self::sanitizeCsvValue(self::csvPhone($attempt->inbox_phone_number ?? null)),
             self::sanitizeCsvValue($attempt->account_id ?? null),
             self::sanitizeCsvValue($attempt->chat_id ?? null),
             self::sanitizeCsvValue($attempt->proposal_id ?? null),
@@ -469,6 +475,10 @@ final class VendeaiCsvExport
 
         if ($digits === null || $digits === '') {
             return null;
+        }
+
+        if (strlen($digits) > 11 && str_starts_with($digits, '55')) {
+            $digits = substr($digits, 2);
         }
 
         return $digits;

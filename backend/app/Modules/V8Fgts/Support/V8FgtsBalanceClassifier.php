@@ -39,6 +39,10 @@ final class V8FgtsBalanceClassifier
             return self::RETRYABLE;
         }
 
+        if ($status === 400 && str_contains(mb_strtolower($detail ?? ''), 'limite de requisições excedido')) {
+            return self::RETRYABLE;
+        }
+
         if (
             $status === 400
             && $title === 'AppError'
@@ -75,7 +79,11 @@ final class V8FgtsBalanceClassifier
 
         return str_contains($detail, 'Trabalhador não possui adesão ao saque aniversário vigente na data corrente')
             || str_contains($detail, 'não possui autorização do Trabalhador')
-            || str_contains($detail, 'Existe uma Operação Fiduciária em andamento');
+            || str_contains($detail, 'Existe uma Operação Fiduciária em andamento')
+            || str_contains($detail, 'Mudanças cadastrais na conta do FGTS foram realizadas, que impedem a contratação')
+            || str_contains($detail, 'Erro ao buscar saldo disponível no provedor')
+            || str_contains($detail, 'Saldo insuficiente, parcelas menores R$100,00')
+            || str_contains($detail, 'Valor da emissão inferior ao mínimo permitido');
     }
 
     private static function normalizeText(mixed $value): ?string

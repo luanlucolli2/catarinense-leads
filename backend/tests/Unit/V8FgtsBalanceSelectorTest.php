@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 
 class V8FgtsBalanceSelectorTest extends TestCase
 {
-    public function test_it_selects_the_latest_success_after_acceptance_timestamp(): void
+    public function test_it_selects_the_latest_relevant_balance_after_acceptance_timestamp(): void
     {
         $items = [
             [
@@ -36,7 +36,7 @@ class V8FgtsBalanceSelectorTest extends TestCase
             ],
         ];
 
-        $selected = V8FgtsBalanceSelector::selectSuccessful(
+        $selected = V8FgtsBalanceSelector::selectLatestRelevant(
             $items,
             '12345678901',
             'bms',
