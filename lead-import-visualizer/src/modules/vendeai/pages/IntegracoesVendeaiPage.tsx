@@ -353,7 +353,7 @@ function stageLabel(label: string | null): string {
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value || value === "-") return null;
   return (
-    <div className="text-xs text-gray-600">
+    <div className="text-xs text-gray-600 whitespace-nowrap">
       <span className="font-medium text-gray-700">{label}:</span> {value}
     </div>
   );
@@ -449,7 +449,7 @@ function ProposalDetails({
 
   return (
     <div className="min-w-[260px] space-y-1">
-      <div className="font-medium text-gray-900">{data.proposal_id || "-"}</div>
+      <div className="font-medium text-gray-900 whitespace-nowrap">{data.proposal_id || "-"}</div>
       <DetailLine label="Número" value={data.proposal_number || "-"} />
       <DetailLine label="Status" value={data.proposal_status || "-"} />
       <DetailLine label="Status anterior" value={data.previous_proposal_status || "-"} />
@@ -461,7 +461,7 @@ function ProposalDetails({
       <DetailLine label="Parcelas" value={data.proposal_number_of_payments ? String(data.proposal_number_of_payments) : "-"} />
       <DetailLine label="Tabela" value={data.proposal_table_name || data.proposal_table_id || "-"} />
       {data.proposal_formalization_link ? (
-        <div className="text-xs text-blue-700">
+        <div className="text-xs text-blue-700 whitespace-nowrap">
           <a href={data.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
             Link de formalização
           </a>
@@ -849,48 +849,52 @@ export default function IntegracoesVendeaiPage() {
         </div>
 
         <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
-          <div className="overflow-x-auto">
+          {/* Adicionando max-h e overflow-y para manter o header fixo e permitir o scroll horizontal sempre visível na base */}
+          <div className="overflow-auto max-h-[600px] w-full relative">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+              {/* O thead agora é sticky para que o cabeçalho permaneça no topo durante a rolagem vertical */}
+              <thead className="sticky top-0 z-10 bg-gray-50 text-xs uppercase tracking-wide text-gray-500 shadow-sm">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium">CPF</th>
-                  <th className="px-4 py-3 text-left font-medium">Nome</th>
-                  <th className="px-4 py-3 text-left font-medium">Nascimento</th>
-                  <th className="px-4 py-3 text-left font-medium">Telefone</th>
-                  <th className="px-4 py-3 text-left font-medium">Chat</th>
-                  <th className="px-4 py-3 text-left font-medium">Etapa</th>
-                  <th className="px-4 py-3 text-left font-medium">Tags</th>
-                  <th className="px-4 py-3 text-left font-medium">Dados da simulação</th>
-                  <th className="px-4 py-3 text-left font-medium">Dados da proposta</th>
-                  <th className="px-4 py-3 text-left font-medium">Proposta NewCorban</th>
-                  <th className="px-4 py-3 text-left font-medium">Eventos</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">CPF</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Nome</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Nascimento</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Telefone</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Número IA</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Chat</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Etapa</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Tags</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium min-w-[200px]">Dados da simulação</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium min-w-[200px]">Dados da proposta</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Proposta NewCorban</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Eventos</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {leadsQuery.isLoading ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
                       <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                       Carregando leads...
                     </td>
                   </tr>
                 ) : leadsQuery.isError ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
+                    <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
                   </tr>
                 ) : leads.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
+                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
                   </tr>
                 ) : (
                   leads.map((lead) => (
                     <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
+                      <td className="min-w-[180px] px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.inbox_phone_number)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
                       <td className="px-4 py-3">
                         <div className="flex max-w-[240px] flex-wrap gap-1">
                           {lead.tags?.length ? (
@@ -930,16 +934,16 @@ export default function IntegracoesVendeaiPage() {
                         {lead.newcorban_error ? (
                           <div className="max-w-[320px] space-y-1">
                             <div className="text-sm text-red-700">{lead.newcorban_error}</div>
-                            <div className="text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
+                            <div className="whitespace-nowrap text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
                           </div>
                         ) : (
                           <div className="space-y-1">
-                            <div className="font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
-                            <div className="text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
+                            <div className="whitespace-nowrap font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
+                            <div className="whitespace-nowrap text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3">
                         <div className="font-medium text-blue-700">{formatDateTime(lead.first_received_at)}</div>
                         <div className="text-xs text-gray-500">{formatDateTime(lead.last_received_at)}</div>
                       </td>

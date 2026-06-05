@@ -52,6 +52,7 @@ export interface VendeaiAttempt {
     customer_name: string | null;
     customer_birth_date: string | null;
     customer_phone: string | null;
+    inbox_phone_number: string | null;
     stage: string | null;
     simulation_product: string | null;
     simulation_bank: string | null;
@@ -114,6 +115,7 @@ export interface VendeaiLead {
   customer_name: string | null;
   customer_birth_date: string | null;
   customer_phone: string | null;
+  inbox_phone_number: string | null;
   simulation_product: string | null;
   simulation_bank: string | null;
   simulation_liquid_value: string | null;
