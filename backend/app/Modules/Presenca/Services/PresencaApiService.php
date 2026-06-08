@@ -314,6 +314,13 @@ class PresencaApiService
                         continue;
                     }
 
+                    if ($this->containsCpfNaoElegivel($messages)) {
+                        $row['status'] = 'RECUSA_POLITICA';
+                        $row['status_code'] = 'TERMO_400';
+                        $row['mensagem'] = $this->joinMessages($messages, 'CPF não elegível.');
+                        return ['outcome' => 'policy_declined', 'row' => $row];
+                    }
+
                     $row['status'] = 'FALHA';
                     $row['status_code'] = 'TERMO_400';
                     $row['mensagem'] = $this->joinMessages($messages, 'Erro ao gerar termo de autorização.');
@@ -1560,6 +1567,18 @@ class PresencaApiService
         foreach ($messages as $message) {
             $norm = $this->normalizeText($message);
             if (str_contains($norm, 'telefone ja utilizado') && str_contains($norm, 'outro cliente')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function containsCpfNaoElegivel(array $messages): bool
+    {
+        foreach ($messages as $message) {
+            $norm = $this->normalizeText($message);
+            if (str_contains($norm, 'cpf nao elegivel')) {
                 return true;
             }
         }
