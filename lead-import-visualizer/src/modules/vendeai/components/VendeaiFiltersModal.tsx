@@ -10,6 +10,7 @@ type WindowMode = "always" | "rolling" | "fixed";
 type NewcorbanFilter = "all" | "sent";
 type ProductFilter = "all" | "clt" | "fgts";
 type SortDirection = "asc" | "desc";
+type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
 
 type WindowModeOption = {
   value: WindowMode;
@@ -23,6 +24,7 @@ type VendeaiFiltersModalProps = {
   from: string;
   to: string;
   windowMode: WindowMode;
+  periodPreset: PeriodPreset;
   direction: SortDirection;
   newcorbanFilter: NewcorbanFilter;
   product: ProductFilter;
@@ -35,6 +37,7 @@ type VendeaiFiltersModalProps = {
   onDirectionChange: (value: SortDirection) => void;
   onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
   onProductChange: (value: ProductFilter) => void;
+  onPeriodPresetChange: (value: PeriodPreset) => void;
   onClearFilters: () => void;
   onApply: () => void;
 };
@@ -110,6 +113,7 @@ export function VendeaiFiltersModal({
   from,
   to,
   windowMode,
+  periodPreset,
   direction,
   newcorbanFilter,
   product,
@@ -122,6 +126,7 @@ export function VendeaiFiltersModal({
   onDirectionChange,
   onNewcorbanFilterChange,
   onProductChange,
+  onPeriodPresetChange,
   onClearFilters,
   onApply,
 }: VendeaiFiltersModalProps) {
@@ -137,7 +142,8 @@ export function VendeaiFiltersModal({
   if (!isOpen) return null;
 
   const chips = [
-    ...(windowMode === "always" ? [] : [`Período · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
+    ...(periodPreset === "always" ? [] : [`Período · ${periodPreset === "today" ? "Hoje" : periodPreset === "yesterday" ? "Ontem" : periodPreset === "last7Days" ? "7 dias" : periodPreset === "last30Days" ? "30 dias" : "Personalizado"}`]),
+    ...(windowMode === "always" ? [] : [`Modo · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
     ...(product === "all" ? [] : [`Produto · ${product === "clt" ? "Crédito do Trabalhador" : "FGTS"}`]),
     ...(newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
   ];
@@ -208,27 +214,51 @@ export function VendeaiFiltersModal({
 
           <Group title="Filtros">
             <div className="[grid-column:1/-1]">
-              <Section title="Período" description="Defina o intervalo usado na tabela e nas métricas." active={windowMode !== "always"}>
+              <Section title="Período" description="Defina o intervalo usado na tabela e nas métricas." active={periodPreset !== "always"}>
                 <div>
-                  <Label text="Modo de intervalo" />
-                  <Select value={windowMode} onValueChange={(value) => onWindowModeChange(value as WindowMode)}>
+                  <Label text="Período" />
+                  <Select value={periodPreset} onValueChange={(value) => onPeriodPresetChange(value as PeriodPreset)}>
                     <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
                       <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-gray-400" />
+                        <Calendar className="h-4 w-4 text-gray-400" />
                         <SelectValue />
                       </div>
                     </SelectTrigger>
                     <SelectContent className="shadow-lg">
-                      {windowModeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="always">Sempre</SelectItem>
+                      <SelectItem value="today">Hoje</SelectItem>
+                      <SelectItem value="yesterday">Ontem</SelectItem>
+                      <SelectItem value="last7Days">7 dias</SelectItem>
+                      <SelectItem value="last30Days">30 dias</SelectItem>
+                      <SelectItem value="custom">Personalizado</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {windowMode === "always" ? null : (
+                {periodPreset === "always" ? null : (
+                  <div>
+                    <Label text="Modo do período" />
+                    <Select value={windowMode} onValueChange={(value) => onWindowModeChange(value as WindowMode)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-gray-400" />
+                          <SelectValue />
+                        </div>
+                      </SelectTrigger>
+                      <SelectContent className="shadow-lg">
+                        {windowModeOptions
+                          .filter((option) => option.value !== "always")
+                          .map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {periodPreset !== "custom" || windowMode === "always" ? null : (
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                     <div className="min-w-0">
                       <Label text="Data inicial" />
