@@ -738,6 +738,20 @@ export default function IntegracoesVendeaiPage() {
     if (applyFilters()) setIsFiltersModalOpen(false);
   };
 
+  const handleFromInputChange = (value: string) => {
+    if (periodPresetInput !== "custom") {
+      setPeriodPresetInput("custom");
+    }
+    setFromInput(value);
+  };
+
+  const handleToInputChange = (value: string) => {
+    if (periodPresetInput !== "custom") {
+      setPeriodPresetInput("custom");
+    }
+    setToInput(value);
+  };
+
   const applyPeriodPreset = (preset: PeriodPreset) => {
     setPeriodPresetInput(preset);
 
@@ -758,6 +772,9 @@ export default function IntegracoesVendeaiPage() {
     }
 
     const next = presetRange(preset);
+    if (windowModeInput === "always") {
+      setWindowModeInput("fixed");
+    }
     setFromInput(next.from);
     setToInput(next.to);
     setRangeError(null);
@@ -862,8 +879,8 @@ export default function IntegracoesVendeaiPage() {
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
-        onFromChange={setFromInput}
-        onToChange={setToInput}
+        onFromChange={handleFromInputChange}
+        onToChange={handleToInputChange}
         onWindowModeChange={setWindowModeInput}
         onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}

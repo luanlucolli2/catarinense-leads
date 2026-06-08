@@ -258,7 +258,7 @@ export function VendeaiFiltersModal({
                   </div>
                 )}
 
-                {periodPreset !== "custom" || windowMode === "always" ? null : (
+                {periodPreset === "always" || windowMode === "always" ? null : (
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                     <div className="min-w-0">
                       <Label text="Data inicial" />
