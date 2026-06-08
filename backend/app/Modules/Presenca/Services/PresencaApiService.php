@@ -397,7 +397,8 @@ class PresencaApiService
             [],
             true,
             $this->vinculosRequestAttempts,
-            static fn (HttpResponse $response): bool => $response->status() >= 500,
+            fn (HttpResponse $response): bool => $response->status() >= 500
+                || ($response->status() === 400 && $this->containsVinculosFalhaTemporaria($this->extractMessages($response))),
             '[PRESENCA] Consulta de vínculos com falha temporária; nova tentativa via throttle global.'
         );
 
@@ -1107,6 +1108,11 @@ class PresencaApiService
 
             if ($retryResponse && $attempt < $attempts) {
                 $this->logStageRetry($retryLogMessage, $attempt, $attempts, $response);
+
+                if ($this->shouldSleepBeforeStageRetry($path, $response)) {
+                    $this->sleepDefaultRetryDelay();
+                }
+
                 continue;
             }
 
@@ -1128,9 +1134,12 @@ class PresencaApiService
 
     private function sleepFor429(HttpResponse $response): void
     {
-        $retryAfter = $this->extractRetryAfterSeconds($response);
-        $sleep = $retryAfter ?? $this->default429DelaySeconds;
-        sleep(max(1, $sleep));
+        $this->sleepDefaultRetryDelay();
+    }
+
+    private function sleepDefaultRetryDelay(): void
+    {
+        sleep(max(1, $this->default429DelaySeconds));
     }
 
     private function extractRetryAfterSeconds(HttpResponse $response): ?int
@@ -1562,11 +1571,37 @@ class PresencaApiService
         return false;
     }
 
+    private function shouldSleepBeforeStageRetry(string $path, HttpResponse $response): bool
+    {
+        if ($path !== '/v3/operacoes/consignado-privado/consultar-vinculos') {
+            return false;
+        }
+
+        if ($response->status() !== 400) {
+            return false;
+        }
+
+        return $this->containsVinculosFalhaTemporaria($this->extractMessages($response));
+    }
+
     private function containsTelefoneJaUtilizado(array $messages): bool
     {
         foreach ($messages as $message) {
             $norm = $this->normalizeText($message);
             if (str_contains($norm, 'telefone ja utilizado') && str_contains($norm, 'outro cliente')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function containsVinculosFalhaTemporaria(array $messages): bool
+    {
+        foreach ($messages as $message) {
+            $norm = $this->normalizeText($message);
+            if (str_contains($norm, 'nao foi possivel retornar a consulta')
+                && str_contains($norm, 'tente novamente em alguns minutos')) {
                 return true;
             }
         }
