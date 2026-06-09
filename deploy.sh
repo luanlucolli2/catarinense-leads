@@ -27,33 +27,27 @@ git pull origin "${GIT_BRANCH}"
 echo ">>> 2/11: Build das imagens (cache inteligente)..."
 docker compose -f "${COMPOSE_FILE}" build --pull
 
-# 2) Manutenção
-if [ "$(docker ps -q -f name=leads-backend)" ]; then
-    echo ">>> 3/11: Habilitando manutenção..."
-    docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan down || true
-fi
-
-# 3) Subir/atualizar containers sem derrubar tudo
-echo ">>> 4/11: Subindo/atualizando base (mysql/redis)..."
+# 2) Subir/atualizar containers sem derrubar tudo
+echo ">>> 3/11: Subindo/atualizando base (mysql/redis)..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans mysql redis
 
-echo ">>> 4.1/11: Recriando serviços da aplicação (evita versão antiga)..."
+echo ">>> 3.1/11: Recriando serviços da aplicação (evita versão antiga)..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans --force-recreate laravel leads-workers frontend
 
 sleep 3 # Pequena pausa para garantir que os containers estejam estáveis antes de rodar comandos dentro deles
 
-# 4) Migrations
-echo ">>> 5/11: Rodando migrações..."
+# 3) Migrations
+echo ">>> 4/11: Rodando migrações..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan migrate --force
 
-# 5) Permissões de Pasta (Storage)
-echo ">>> 6/11: Ajustando permissões do storage..."
+# 4) Permissões de Pasta (Storage)
+echo ">>> 5/11: Ajustando permissões do storage..."
 # Aplica tanto no container web quanto no worker (compartilham volume)
 docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chown -R www-data:www-data /var/www/html/storage
 docker compose -f "${COMPOSE_FILE}" exec -T --user root "${LARAVEL_SERVICE}" chmod -R 775 /var/www/html/storage
 
-# 6) Otimização Laravel
-echo ">>> 7/11: Otimizando caches..."
+# 5) Otimização Laravel
+echo ">>> 6/11: Otimizando caches..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan optimize:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan config:cache
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:clear
@@ -62,12 +56,8 @@ docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan vie
 # Reinicia sinalizadores de fila (embora o container tenha sido recriado, boa prática)
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart
 
-# 7) Volta da manutenção
-echo ">>> 8/11: Desabilitando manutenção..."
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan up
-
-# 8) Limpeza inteligente (economiza espaço sem destruir todo cache)
-echo ">>> 9/11: Limpando imagens/cache antigos..."
+# 6) Limpeza inteligente (economiza espaço sem destruir todo cache)
+echo ">>> 7/11: Limpando imagens/cache antigos..."
 docker image prune -f --filter "until=${IMAGE_PRUNE_UNTIL}" || true
 docker builder prune -f --filter "until=${BUILDER_PRUNE_UNTIL}" --keep-storage "${BUILDER_CACHE_KEEP}" || \
 docker builder prune -f --filter "until=${BUILDER_PRUNE_UNTIL}" || true

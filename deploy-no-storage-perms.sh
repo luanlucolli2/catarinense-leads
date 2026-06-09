@@ -27,27 +27,21 @@ git pull origin "${GIT_BRANCH}"
 echo ">>> 2/10: Build das imagens (cache inteligente)..."
 docker compose -f "${COMPOSE_FILE}" build --pull
 
-# 2) Manutenção
-if [ "$(docker ps -q -f name=leads-backend)" ]; then
-    echo ">>> 3/10: Habilitando manutenção..."
-    docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan down || true
-fi
-
-# 3) Subir/atualizar containers sem derrubar tudo
-echo ">>> 4/10: Subindo/atualizando base (mysql/redis)..."
+# 2) Subir/atualizar containers sem derrubar tudo
+echo ">>> 3/10: Subindo/atualizando base (mysql/redis)..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans mysql redis
 
-echo ">>> 4.1/10: Recriando serviços da aplicação (evita versão antiga)..."
+echo ">>> 3.1/10: Recriando serviços da aplicação (evita versão antiga)..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans --force-recreate laravel leads-workers frontend
 
 sleep 3 # Pequena pausa para garantir que os containers estejam estáveis antes de rodar comandos dentro deles
 
-# 4) Migrations
-echo ">>> 5/10: Rodando migrações..."
+# 3) Migrations
+echo ">>> 4/10: Rodando migrações..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan migrate --force
 
-# 5) Otimização Laravel
-echo ">>> 6/10: Otimizando caches..."
+# 4) Otimização Laravel
+echo ">>> 5/10: Otimizando caches..."
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan optimize:clear
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan config:cache
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan route:clear
@@ -56,12 +50,8 @@ docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan vie
 # Reinicia sinalizadores de fila (embora o container tenha sido recriado, boa prática)
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart
 
-# 6) Volta da manutenção
-echo ">>> 7/10: Desabilitando manutenção..."
-docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan up
-
-# 7) Limpeza inteligente (economiza espaço sem destruir todo cache)
-echo ">>> 8/10: Limpando imagens/cache antigos..."
+# 5) Limpeza inteligente (economiza espaço sem destruir todo cache)
+echo ">>> 6/10: Limpando imagens/cache antigos..."
 docker image prune -f --filter "until=${IMAGE_PRUNE_UNTIL}" || true
 docker builder prune -f --filter "until=${BUILDER_PRUNE_UNTIL}" --keep-storage "${BUILDER_CACHE_KEEP}" || \
 docker builder prune -f --filter "until=${BUILDER_PRUNE_UNTIL}" || true
