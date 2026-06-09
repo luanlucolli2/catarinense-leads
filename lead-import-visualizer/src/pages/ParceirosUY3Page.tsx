@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { format, parseISO, subHours } from "date-fns";
+import { endOfDay, format, parseISO, startOfDay, subDays, subHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertCircle,
@@ -27,11 +27,13 @@ import { toast } from "sonner";
 
 type SortDirection = "desc" | "asc";
 type Uy3WindowMode = "rolling" | "fixed";
+type Uy3PeriodPreset = "custom" | "today" | "yesterday" | "last7Days" | "last30Days";
 type Uy3PersistedFilters = {
   from: string;
   to: string;
   sortDirection: SortDirection;
   windowMode: Uy3WindowMode;
+  periodPreset: Uy3PeriodPreset;
 };
 
 const UY3_FILTERS_STORAGE_KEY = "uy3:filters:v1";
@@ -44,6 +46,14 @@ const sortOptions: Array<{ value: SortDirection; label: string }> = [
 const windowModeOptions: Array<{ value: Uy3WindowMode; label: string }> = [
   { value: "rolling", label: "Janela móvel" },
   { value: "fixed", label: "Intervalo fixo" },
+];
+
+const periodPresetOptions: Array<{ value: Uy3PeriodPreset; label: string }> = [
+  { value: "custom", label: "Personalizado" },
+  { value: "today", label: "Hoje" },
+  { value: "yesterday", label: "Ontem" },
+  { value: "last7Days", label: "7 dias" },
+  { value: "last30Days", label: "30 dias" },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -76,6 +86,7 @@ const buildDefaultFilters = (): Uy3PersistedFilters => ({
   to: toDateTimeLocalValue(new Date()),
   sortDirection: "desc",
   windowMode: "rolling",
+  periodPreset: "custom",
 });
 
 const isValidDateTimeLocal = (value: unknown): value is string => {
@@ -104,13 +115,21 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
       parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
         ? parsed.windowMode
         : fallback.windowMode;
+    const periodPreset =
+      parsed.periodPreset === "today" ||
+      parsed.periodPreset === "yesterday" ||
+      parsed.periodPreset === "last7Days" ||
+      parsed.periodPreset === "last30Days" ||
+      parsed.periodPreset === "custom"
+        ? parsed.periodPreset
+        : fallback.periodPreset;
 
     if (windowMode === "rolling") {
-      const rolled = rollRangeToNow(from, to);
-      return { from: rolled.from, to: rolled.to, sortDirection, windowMode };
+      const rolled = periodPreset === "custom" ? rollRangeToNow(from, to) : presetRangeToNow(periodPreset);
+      return { from: rolled.from, to: rolled.to, sortDirection, windowMode, periodPreset };
     }
 
-    return { from, to, sortDirection, windowMode };
+    return { from, to, sortDirection, windowMode, periodPreset };
   } catch {
     return fallback;
   }
@@ -121,15 +140,17 @@ const persistFilters = (filters: Uy3PersistedFilters): void => {
 
   try {
     window.localStorage.setItem(UY3_FILTERS_STORAGE_KEY, JSON.stringify(filters));
-  } catch {}
+  } catch {
+    return;
+  }
 };
 
-const rollRangeToNow = (fromValue: string, toValue: string): { from: string; to: string } => {
+const rollRangeToNow = (fromValue: string, toValue: string, baseNow: Date = new Date()): { from: string; to: string } => {
   const fromDate = new Date(fromValue);
   const toDate = new Date(toValue);
 
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
-    const now = new Date();
+    const now = baseNow;
     return {
       from: toDateTimeLocalValue(subHours(now, 24)),
       to: toDateTimeLocalValue(now),
@@ -137,12 +158,35 @@ const rollRangeToNow = (fromValue: string, toValue: string): { from: string; to:
   }
 
   const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
-  const now = new Date();
+  const now = baseNow;
   const nextFrom = new Date(now.getTime() - durationMs);
 
   return {
     from: toDateTimeLocalValue(nextFrom),
     to: toDateTimeLocalValue(now),
+  };
+};
+
+const presetRangeToNow = (preset: Exclude<Uy3PeriodPreset, "custom">, baseNow: Date = new Date()): { from: string; to: string } => {
+  if (preset === "today") {
+    return {
+      from: toDateTimeLocalValue(startOfDay(baseNow)),
+      to: toDateTimeLocalValue(baseNow),
+    };
+  }
+
+  if (preset === "yesterday") {
+    const previousDay = subDays(baseNow, 1);
+    return {
+      from: toDateTimeLocalValue(startOfDay(previousDay)),
+      to: toDateTimeLocalValue(endOfDay(previousDay)),
+    };
+  }
+
+  const days = preset === "last7Days" ? 6 : 29;
+  return {
+    from: toDateTimeLocalValue(startOfDay(subDays(baseNow, days))),
+    to: toDateTimeLocalValue(baseNow),
   };
 };
 
@@ -259,6 +303,7 @@ const ParceirosUY3Page = () => {
   const initialFilters = useMemo(() => loadPersistedFilters(), []);
   const [fromInput, setFromInput] = useState<string>(initialFilters.from);
   const [toInput, setToInput] = useState<string>(initialFilters.to);
+  const [periodPresetInput, setPeriodPresetInput] = useState<Uy3PeriodPreset>(initialFilters.periodPreset);
   const [appliedRange, setAppliedRange] = useState<{ from: string; to: string }>(() => ({
     from: initialFilters.from,
     to: initialFilters.to,
@@ -267,13 +312,31 @@ const ParceirosUY3Page = () => {
   const [appliedSortDirection, setAppliedSortDirection] = useState<SortDirection>(initialFilters.sortDirection);
   const [windowModeInput, setWindowModeInput] = useState<Uy3WindowMode>(initialFilters.windowMode);
   const [appliedWindowMode, setAppliedWindowMode] = useState<Uy3WindowMode>(initialFilters.windowMode);
+  const [appliedPeriodPreset, setAppliedPeriodPreset] = useState<Uy3PeriodPreset>(initialFilters.periodPreset);
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
-  const appliedFromIso = useMemo(() => toUtcIsoFromDateTimeLocal(appliedRange.from), [appliedRange.from]);
-  const appliedToIso = useMemo(() => toUtcIsoFromDateTimeLocal(appliedRange.to), [appliedRange.to]);
+  const effectiveRange = useMemo(() => {
+    if (appliedPeriodPreset !== "custom") {
+      if (appliedWindowMode === "rolling") {
+        return presetRangeToNow(appliedPeriodPreset, new Date(nowTs));
+      }
+
+      return appliedRange;
+    }
+
+    if (appliedWindowMode === "rolling") {
+      return rollRangeToNow(appliedRange.from, appliedRange.to, new Date(nowTs));
+    }
+
+    return appliedRange;
+  }, [appliedPeriodPreset, appliedRange, appliedWindowMode, nowTs]);
+
+  const appliedFromIso = useMemo(() => toUtcIsoFromDateTimeLocal(effectiveRange.from), [effectiveRange.from]);
+  const appliedToIso = useMemo(() => toUtcIsoFromDateTimeLocal(effectiveRange.to), [effectiveRange.to]);
 
   useEffect(() => {
     persistFilters({
@@ -281,8 +344,14 @@ const ParceirosUY3Page = () => {
       to: appliedRange.to,
       sortDirection: appliedSortDirection,
       windowMode: appliedWindowMode,
+      periodPreset: appliedPeriodPreset,
     });
-  }, [appliedRange.from, appliedRange.to, appliedSortDirection, appliedWindowMode]);
+  }, [appliedRange.from, appliedRange.to, appliedSortDirection, appliedWindowMode, appliedPeriodPreset]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["uy3:posts", page, appliedFromIso, appliedToIso, appliedSortDirection],
@@ -327,6 +396,19 @@ const ParceirosUY3Page = () => {
   };
 
   const applyFilters = () => {
+    if (periodPresetInput !== "custom") {
+      const nextRange = presetRangeToNow(periodPresetInput);
+      setRangeError(null);
+      setFromInput(nextRange.from);
+      setToInput(nextRange.to);
+      setAppliedRange(nextRange);
+      setAppliedSortDirection(sortDirectionInput);
+      setAppliedWindowMode(windowModeInput);
+      setAppliedPeriodPreset(periodPresetInput);
+      resetPage();
+      return;
+    }
+
     const fromDate = new Date(fromInput);
     const toDate = new Date(toInput);
 
@@ -355,7 +437,22 @@ const ParceirosUY3Page = () => {
     setAppliedRange({ from: nextFrom, to: nextTo });
     setAppliedSortDirection(sortDirectionInput);
     setAppliedWindowMode(windowModeInput);
+    setAppliedPeriodPreset("custom");
     resetPage();
+  };
+
+  const applyPeriodPreset = (preset: Uy3PeriodPreset) => {
+    setPeriodPresetInput(preset);
+
+    if (preset === "custom") {
+      setRangeError(null);
+      return;
+    }
+
+    const nextRange = presetRangeToNow(preset);
+    setFromInput(nextRange.from);
+    setToInput(nextRange.to);
+    setRangeError(null);
   };
 
   const handleExportCsv = async () => {
@@ -395,10 +492,11 @@ const ParceirosUY3Page = () => {
       }
 
       throw new Error("O export demorou além do esperado. Tente novamente em instantes.");
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const record = error as { response?: { data?: { message?: string } }; message?: string };
       const message =
-        error?.response?.data?.message ||
-        error?.message ||
+        record.response?.data?.message ||
+        record.message ||
         "Não foi possível exportar o CSV.";
       toast.error(message, { id: toastId });
     } finally {
@@ -438,6 +536,27 @@ const ParceirosUY3Page = () => {
       {/* FILTER SECTION - SEM CARD, COM DELIMITAÇÃO SUTIL E LABELS CLAROS */}
       <div className="py-5 border-y border-gray-100 bg-transparent">
         <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+          <div className="w-full lg:w-auto flex-1 space-y-1.5">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              Período
+            </label>
+            <Select
+              value={periodPresetInput}
+              onValueChange={(value) => applyPeriodPreset(value as Uy3PeriodPreset)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent>
+                {periodPresetOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           
           <div className="w-full lg:w-auto flex-1 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
@@ -447,7 +566,10 @@ const ParceirosUY3Page = () => {
             <Input
               type="datetime-local"
               value={fromInput}
-              onChange={(e) => setFromInput(e.target.value)}
+              onChange={(e) => {
+                setPeriodPresetInput("custom");
+                setFromInput(e.target.value);
+              }}
               className="w-full"
             />
           </div>
@@ -460,7 +582,10 @@ const ParceirosUY3Page = () => {
             <Input
               type="datetime-local"
               value={toInput}
-              onChange={(e) => setToInput(e.target.value)}
+              onChange={(e) => {
+                setPeriodPresetInput("custom");
+                setToInput(e.target.value);
+              }}
               className="w-full"
             />
           </div>

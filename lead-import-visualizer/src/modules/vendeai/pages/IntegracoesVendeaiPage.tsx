@@ -25,9 +25,12 @@ type FiltersState = {
   to: string;
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
+  periodPreset: PeriodPreset;
   newcorbanFilter: VendeaiNewcorbanFilter;
   product: VendeaiProductFilter;
 };
+
+type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
 
 const STORAGE_KEY = "vendeai:integracoes:filters:v2";
 const AUTO_REFRESH_MS = 60_000;
@@ -83,6 +86,10 @@ function toDateTimeLocalValue(date: Date): string {
   return `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
+function toDateTimeLocalFromParts(year: number, month: number, day: number, hour: number, minute: number): string {
+  return `${pad(year, 4)}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
+}
+
 function toUtcIso(value: string): string | undefined {
   if (!value) return undefined;
   const date = parseBrazilDateTimeLocalToUtcDate(value);
@@ -95,6 +102,7 @@ function defaultFilters(): FiltersState {
     to: "",
     direction: "desc",
     windowMode: "always",
+    periodPreset: "always",
     newcorbanFilter: "all",
     product: "all",
   };
@@ -153,6 +161,17 @@ function parseDateOnlyParts(value: string): { year: number; month: number; day: 
     year: Number(match[1]),
     month: Number(match[2]),
     day: Number(match[3]),
+  };
+}
+
+function shiftBrazilDate(parts: { year: number; month: number; day: number }, days: number): { year: number; month: number; day: number } {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
   };
 }
 
@@ -228,6 +247,17 @@ function loadFilters(): FiltersState {
       parsed.windowMode === "always" || parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
         ? parsed.windowMode
         : fallback.windowMode;
+    const periodPreset =
+      parsed.periodPreset === "always" ||
+      parsed.periodPreset === "today" ||
+      parsed.periodPreset === "yesterday" ||
+      parsed.periodPreset === "last7Days" ||
+      parsed.periodPreset === "last30Days" ||
+      parsed.periodPreset === "custom"
+        ? parsed.periodPreset
+        : windowMode === "always"
+          ? "always"
+          : "custom";
     const storedNewcorbanFilter =
       typeof (parsed as { newcorbanFilter?: unknown }).newcorbanFilter === "string"
         ? (parsed as { newcorbanFilter?: string }).newcorbanFilter
@@ -237,25 +267,81 @@ function loadFilters(): FiltersState {
     const product = parsed.product === "clt" || parsed.product === "fgts" ? parsed.product : fallback.product;
 
     if (windowMode === "always") {
-      return { from: "", to: "", direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
-    }
-
-    if (windowMode === "rolling") {
-      const rolled = rollRangeToNow(from, to);
       return {
-        from: rolled.from,
-        to: rolled.to,
+        from: "",
+        to: "",
         direction: parsed.direction === "asc" ? "asc" : fallback.direction,
         windowMode,
+        periodPreset: "always",
         newcorbanFilter,
         product,
       };
     }
 
-    return { from, to, direction: parsed.direction === "asc" ? "asc" : fallback.direction, windowMode, newcorbanFilter, product };
+    if (windowMode === "rolling") {
+      const rolled =
+        periodPreset === "custom" || periodPreset === "always"
+          ? rollRangeToNow(from, to)
+          : presetRange(periodPreset);
+      return {
+        from: rolled.from,
+        to: rolled.to,
+        direction: parsed.direction === "asc" ? "asc" : fallback.direction,
+        windowMode,
+        periodPreset,
+        newcorbanFilter,
+        product,
+      };
+    }
+
+    return {
+      from,
+      to,
+      direction: parsed.direction === "asc" ? "asc" : fallback.direction,
+      windowMode,
+      periodPreset,
+      newcorbanFilter,
+      product,
+    };
   } catch {
     return fallback;
   }
+}
+
+function presetRange(preset: Exclude<PeriodPreset, "always" | "custom">, baseNow: Date = new Date()): { from: string; to: string } {
+  const now = getBrazilDateTimeParts(baseNow);
+
+  if (preset === "today") {
+    return {
+      from: toDateTimeLocalFromParts(now.year, now.month, now.day, 0, 0),
+      to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
+    };
+  }
+
+  if (preset === "yesterday") {
+    const previous = shiftBrazilDate(now, -1);
+
+    return {
+      from: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 0, 0),
+      to: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 23, 59),
+    };
+  }
+
+  const start = shiftBrazilDate(now, preset === "last7Days" ? -6 : -29);
+
+  return {
+    from: toDateTimeLocalFromParts(start.year, start.month, start.day, 0, 0),
+    to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
+  };
+}
+
+function periodPresetLabel(value: PeriodPreset): string {
+  if (value === "today") return "Hoje";
+  if (value === "yesterday") return "Ontem";
+  if (value === "last7Days") return "7 dias";
+  if (value === "last30Days") return "30 dias";
+  if (value === "custom") return "Personalizado";
+  return "Sempre";
 }
 
 function formatDateTime(value: string | null): string {
@@ -478,6 +564,7 @@ export default function IntegracoesVendeaiPage() {
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
+  const [periodPresetInput, setPeriodPresetInput] = useState<PeriodPreset>(initial.periodPreset);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
   const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
   const [productInput, setProductInput] = useState<VendeaiProductFilter>(initial.product);
@@ -492,6 +579,10 @@ export default function IntegracoesVendeaiPage() {
   const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
   const effectiveRange = useMemo(() => {
     if (applied.windowMode === "rolling") {
+      if (applied.periodPreset !== "always" && applied.periodPreset !== "custom") {
+        return presetRange(applied.periodPreset, new Date(rollingTick * AUTO_REFRESH_MS));
+      }
+
       return rollRangeToNow(applied.from, applied.to, new Date(rollingTick * AUTO_REFRESH_MS));
     }
 
@@ -499,7 +590,7 @@ export default function IntegracoesVendeaiPage() {
       from: applied.from,
       to: applied.to,
     };
-  }, [applied.from, applied.to, applied.windowMode, rollingTick]);
+  }, [applied.from, applied.to, applied.windowMode, applied.periodPreset, rollingTick]);
   const fromIso = useMemo(() => toUtcIso(effectiveRange.from), [effectiveRange.from]);
   const toIso = useMemo(() => toUtcIso(effectiveRange.to), [effectiveRange.to]);
   const manualRefreshRemaining = Math.max(0, Math.ceil((manualRefreshLockedUntil - nowTs) / 1000));
@@ -557,10 +648,11 @@ export default function IntegracoesVendeaiPage() {
   const totalLeads = leadsQuery.data?.total ?? 0;
   const controlLabels = [`Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
   const filterLabels = [
-    ...(applied.windowMode === "always"
+    ...(applied.periodPreset === "always"
       ? []
       : [
-          `Período: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
+          `Período: ${periodPresetLabel(applied.periodPreset)}`,
+          `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
           `De ${formatDateTime(fromIso ?? effectiveRange.from)}`,
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
@@ -569,13 +661,33 @@ export default function IntegracoesVendeaiPage() {
   ];
 
   const applyFilters = (): boolean => {
-    if (windowModeInput === "always") {
+    if (windowModeInput === "always" || periodPresetInput === "always") {
       setRangeError(null);
       setApplied({
         from: "",
         to: "",
         direction: directionInput,
         windowMode: "always",
+        periodPreset: "always",
+        newcorbanFilter: newcorbanFilterInput,
+        product: productInput,
+      });
+      setLeadsPage(1);
+      return true;
+    }
+
+    if (periodPresetInput !== "custom") {
+      const nextRange = presetRange(periodPresetInput);
+
+      setRangeError(null);
+      setFromInput(nextRange.from);
+      setToInput(nextRange.to);
+      setApplied({
+        from: nextRange.from,
+        to: nextRange.to,
+        direction: directionInput,
+        windowMode: windowModeInput,
+        periodPreset: periodPresetInput,
         newcorbanFilter: newcorbanFilterInput,
         product: productInput,
       });
@@ -614,6 +726,7 @@ export default function IntegracoesVendeaiPage() {
       to: nextTo,
       direction: directionInput,
       windowMode: windowModeInput,
+      periodPreset: "custom",
       newcorbanFilter: newcorbanFilterInput,
       product: productInput,
     });
@@ -625,14 +738,57 @@ export default function IntegracoesVendeaiPage() {
     if (applyFilters()) setIsFiltersModalOpen(false);
   };
 
+  const handleFromInputChange = (value: string) => {
+    if (periodPresetInput !== "custom") {
+      setPeriodPresetInput("custom");
+    }
+    setFromInput(value);
+  };
+
+  const handleToInputChange = (value: string) => {
+    if (periodPresetInput !== "custom") {
+      setPeriodPresetInput("custom");
+    }
+    setToInput(value);
+  };
+
+  const applyPeriodPreset = (preset: PeriodPreset) => {
+    setPeriodPresetInput(preset);
+
+    if (preset === "always") {
+      setWindowModeInput("always");
+      setFromInput("");
+      setToInput("");
+      setRangeError(null);
+      return;
+    }
+
+    if (preset === "custom") {
+      if (windowModeInput === "always") {
+        setWindowModeInput("fixed");
+      }
+      setRangeError(null);
+      return;
+    }
+
+    const next = presetRange(preset);
+    if (windowModeInput === "always") {
+      setWindowModeInput("fixed");
+    }
+    setFromInput(next.from);
+    setToInput(next.to);
+    setRangeError(null);
+  };
+
   const clearFilters = () => {
     setFromInput("");
     setToInput("");
     setWindowModeInput("always");
+    setPeriodPresetInput("always");
     setNewcorbanFilterInput("all");
     setProductInput("all");
     setRangeError(null);
-    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", newcorbanFilter: "all", product: "all" }));
+    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", periodPreset: "always", newcorbanFilter: "all", product: "all" }));
     setLeadsPage(1);
   };
 
@@ -716,18 +872,20 @@ export default function IntegracoesVendeaiPage() {
         from={fromInput}
         to={toInput}
         windowMode={windowModeInput}
+        periodPreset={periodPresetInput}
         direction={directionInput}
         newcorbanFilter={newcorbanFilterInput}
         product={productInput}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
-        onFromChange={setFromInput}
-        onToChange={setToInput}
+        onFromChange={handleFromInputChange}
+        onToChange={handleToInputChange}
         onWindowModeChange={setWindowModeInput}
         onDirectionChange={setDirectionInput}
         onNewcorbanFilterChange={setNewcorbanFilterInput}
         onProductChange={setProductInput}
+        onPeriodPresetChange={applyPeriodPreset}
         onClearFilters={clearFilters}
         onApply={handleApplyFilters}
       />
