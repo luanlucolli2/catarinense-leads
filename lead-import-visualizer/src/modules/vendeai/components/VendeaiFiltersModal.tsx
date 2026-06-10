@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Calendar, Check, Clock, Filter, Info, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -145,7 +146,7 @@ export function VendeaiFiltersModal({
     ...(periodPreset === "always" ? [] : [`Período · ${periodPreset === "today" ? "Hoje" : periodPreset === "yesterday" ? "Ontem" : periodPreset === "last7Days" ? "7 dias" : periodPreset === "last30Days" ? "30 dias" : "Personalizado"}`]),
     ...(windowMode === "always" ? [] : [`Modo · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
     ...(product === "all" ? [] : [`Produto · ${product === "clt" ? "Crédito do Trabalhador" : "FGTS"}`]),
-    ...(newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
+    ...(newcorbanFilter === "sent" ? ["Somente com envio para a New Corban"] : []),
   ];
 
   return (
@@ -294,22 +295,20 @@ export function VendeaiFiltersModal({
               </Section>
             </div>
 
-            <Section title="Proposta enviada NewCorban" description="Aplique um recorte opcional por envio." active={newcorbanFilter !== "all"}>
-              <div>
-                <Label text="Situação" />
-                <Select value={newcorbanFilter} onValueChange={(value) => onNewcorbanFilterChange(value as NewcorbanFilter)}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todos os leads</SelectItem>
-                    <SelectItem value="sent">Proposta enviada NewCorban</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <Section title="Envio para a New Corban" description="Mostre só as conversas já enviadas." active={newcorbanFilter !== "all"}>
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3">
+                <Checkbox
+                  checked={newcorbanFilter === "sent"}
+                  onCheckedChange={(checked) => onNewcorbanFilterChange(checked ? "sent" : "all")}
+                  className="mt-0.5 border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white"
+                />
+                <div className="space-y-1">
+                  <div className={cn("text-sm font-medium", newcorbanFilter !== "all" ? "text-blue-700" : "text-gray-800")}>
+                    Somente com envio para a New Corban
+                  </div>
+                  <p className="text-xs text-gray-500">Inclui sucesso e erro.</p>
+                </div>
+              </label>
             </Section>
 
             <Section title="Produto" description="Aplique um recorte opcional por produto." active={product !== "all"}>
