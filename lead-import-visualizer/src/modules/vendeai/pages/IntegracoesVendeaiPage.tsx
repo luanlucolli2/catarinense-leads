@@ -657,7 +657,7 @@ export default function IntegracoesVendeaiPage() {
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
     ...(applied.product === "all" ? [] : [`Produto: ${productLabel(applied.product)}`]),
-    ...(applied.newcorbanFilter === "sent" ? ["Proposta enviada NewCorban"] : []),
+    ...(applied.newcorbanFilter === "sent" ? ["Somente com envio para a New Corban"] : []),
   ];
 
   const applyFilters = (): boolean => {
