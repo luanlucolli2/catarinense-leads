@@ -477,10 +477,6 @@ final class VendeaiCsvExport
             return null;
         }
 
-        if (strlen($digits) > 11 && str_starts_with($digits, '55')) {
-            $digits = substr($digits, 2);
-        }
-
         return $digits;
     }
 }
