@@ -56,6 +56,10 @@ docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan vie
 # Reinicia sinalizadores de fila (embora o container tenha sido recriado, boa prática)
 docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan queue:restart
 
+# Religa automaticamente jobs ativos que ficaram órfãos durante o recreate
+echo ">>> 6.1/11: Religando jobs ativos..."
+docker compose -f "${COMPOSE_FILE}" exec -T "${LARAVEL_SERVICE}" php artisan consult-jobs:resume-active-after-deploy
+
 # 6) Limpeza inteligente (economiza espaço sem destruir todo cache)
 echo ">>> 7/11: Limpando imagens/cache antigos..."
 docker image prune -f --filter "until=${IMAGE_PRUNE_UNTIL}" || true
