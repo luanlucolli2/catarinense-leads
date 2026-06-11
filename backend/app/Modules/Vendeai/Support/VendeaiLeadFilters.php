@@ -92,6 +92,10 @@ final class VendeaiLeadFilters
         $normalized = mb_strtolower($normalized);
         $normalized = str_replace([' ', 'ç'], ['_', 'c'], $normalized);
 
+        if ($normalized === 'mercantil_api') {
+            return 'mercantil';
+        }
+
         return $normalized;
     }
 
@@ -109,8 +113,9 @@ final class VendeaiLeadFilters
     public static function bankExpression(string $leadAlias = 'vendeai_leads'): string
     {
         $base = "COALESCE(NULLIF({$leadAlias}.proposal_bank, ''), NULLIF({$leadAlias}.simulation_bank, ''))";
+        $normalized = "LOWER(REPLACE(REPLACE(TRIM(COALESCE({$base}, '')), ' ', '_'), 'ç', 'c'))";
 
-        return "LOWER(REPLACE(REPLACE(TRIM(COALESCE({$base}, '')), ' ', '_'), 'ç', 'c'))";
+        return "CASE WHEN {$normalized} = 'mercantil_api' THEN 'mercantil' ELSE {$normalized} END";
     }
 
     public static function digitsExpression(string $column): string

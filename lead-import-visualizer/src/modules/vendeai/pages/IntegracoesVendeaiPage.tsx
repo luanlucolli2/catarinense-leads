@@ -410,7 +410,7 @@ function productLabel(label: string): string {
 
 function bankLabel(label: string): string {
   const normalized = label.toLowerCase();
-  if (normalized === "mercantil") return "Mercantil";
+  if (normalized === "mercantil" || normalized === "mercantil_api") return "Mercantil";
   if (normalized === "presenca" || normalized === "presença") return "Presença Bank";
   if (normalized === "facta") return "FACTA";
   if (normalized === "v8") return "V8";
