@@ -1,12 +1,15 @@
-import { Download, FileDown, Filter, Loader2, RefreshCw } from "lucide-react";
+import { Download, FileDown, Filter, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type VendeaiControlsProps = {
   modeLabel: string;
   filteredCount: number;
   countLabel: string;
+  searchValue: string;
+  searchPlaceholder: string;
   exportLabel: string;
   exportLoading: boolean;
   exportIcon: "file" | "download";
@@ -15,6 +18,7 @@ type VendeaiControlsProps = {
   controlLabels: string[];
   filterLabels: string[];
   hasActiveFilters?: boolean;
+  onSearchChange: (value: string) => void;
   onFilterClick: () => void;
   onExportClick: () => void;
   onRefreshClick: () => void;
@@ -25,6 +29,8 @@ export function VendeaiControls({
   modeLabel,
   filteredCount,
   countLabel,
+  searchValue,
+  searchPlaceholder,
   exportLabel,
   exportLoading,
   exportIcon,
@@ -33,6 +39,7 @@ export function VendeaiControls({
   controlLabels,
   filterLabels,
   hasActiveFilters = true,
+  onSearchChange,
   onFilterClick,
   onExportClick,
   onRefreshClick,
@@ -43,9 +50,23 @@ export function VendeaiControls({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-gray-900">{modeLabel}</p>
           <p className="mt-1 text-sm text-gray-500">Controle a visualização e exporte somente os dados filtrados.</p>
+
+          <label className="mt-3 block w-full max-w-md">
+            <span className="mb-1 block text-xs font-medium text-gray-700">Busca rápida</span>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                type="text"
+                placeholder={searchPlaceholder}
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+                className="h-10 w-full pl-9"
+              />
+            </div>
+          </label>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row sm:items-end">

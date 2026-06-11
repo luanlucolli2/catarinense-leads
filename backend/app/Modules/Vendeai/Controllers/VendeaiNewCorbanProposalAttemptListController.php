@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Support\VendeaiDateRange;
+use App\Modules\Vendeai\Support\VendeaiLeadFilters;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -15,15 +16,11 @@ class VendeaiNewCorbanProposalAttemptListController extends Controller
 {
     public function __invoke(Request $request): Response
     {
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge([
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'status' => ['nullable', Rule::in(['all', 'success', 'failed', 'pending'])],
             'sort' => ['nullable', Rule::in(['received_at', 'newcorban_sent_at', 'id'])],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-        ]);
+        ], VendeaiLeadFilters::rules(includeAttemptStatus: true)));
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
         $perPage = (int) ($validated['per_page'] ?? 20);
@@ -47,6 +44,7 @@ class VendeaiNewCorbanProposalAttemptListController extends Controller
                 'leads.customer_name',
                 'leads.customer_birth_date',
                 'leads.customer_phone',
+                'leads.inbox_phone_number',
                 'leads.stage',
                 'leads.simulation_product',
                 'leads.simulation_bank',
@@ -76,7 +74,13 @@ class VendeaiNewCorbanProposalAttemptListController extends Controller
                 'leads.proposal_status_updated_at',
             ]);
 
-        $this->applyDateFilter($query, 'attempts.received_at', $from, $to);
+        VendeaiLeadFilters::applyFilters($query, $validated, [
+            'lead_alias' => 'leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'attempts.received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
         $this->applyStatusFilter($query, (string) ($validated['status'] ?? 'all'));
 
         $sortColumn = match ($sort) {
@@ -107,6 +111,7 @@ class VendeaiNewCorbanProposalAttemptListController extends Controller
                         'customer_name' => $row->customer_name,
                         'customer_birth_date' => $this->date($row->customer_birth_date),
                         'customer_phone' => $row->customer_phone,
+                        'inbox_phone_number' => $row->inbox_phone_number,
                         'stage' => $row->stage,
                         'simulation_product' => $row->simulation_product,
                         'simulation_bank' => $row->simulation_bank,
@@ -154,17 +159,6 @@ class VendeaiNewCorbanProposalAttemptListController extends Controller
                     ],
                 ])
         );
-    }
-
-    private function applyDateFilter(Builder $query, string $column, ?Carbon $from, ?Carbon $to): void
-    {
-        if ($from !== null) {
-            $query->where($column, '>=', $from);
-        }
-
-        if ($to !== null) {
-            $query->where($column, '<=', $to);
-        }
     }
 
     private function applyStatusFilter(Builder $query, string $status): void

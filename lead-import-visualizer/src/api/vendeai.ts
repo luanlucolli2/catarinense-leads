@@ -2,8 +2,8 @@ import axiosClient from "./axiosClient";
 
 export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
-export type VendeaiNewcorbanFilter = "all" | "sent";
 export type VendeaiProductFilter = "all" | "clt" | "fgts";
+export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "success" | "failed";
 export type VendeaiExportStatus = "queued" | "running" | "ready" | "error" | "none" | "deleted";
 export type VendeaiExportType = "leads" | "newcorban-proposal-attempts";
 
@@ -33,6 +33,14 @@ export interface VendeaiMetricsResponse {
     success_rate: number;
     by_product: VendeaiMetricBucket[];
   };
+}
+
+export interface VendeaiFilterOptionsResponse {
+  banks: string[];
+  stages: string[];
+  proposal_statuses: string[];
+  inbox_phone_numbers: string[];
+  tags: string[];
 }
 
 export interface VendeaiAttempt {
@@ -111,6 +119,7 @@ export interface VendeaiLead {
   chat_product: string | null;
   stage: string | null;
   tags: string[] | null;
+  campaign: string | null;
   customer_cpf: string | null;
   customer_name: string | null;
   customer_birth_date: string | null;
@@ -177,8 +186,14 @@ export interface VendeaiFilters {
   to?: string;
   status?: VendeaiAttemptStatus;
   direction?: VendeaiSortDirection;
-  newcorbanFilter?: VendeaiNewcorbanFilter;
   product?: VendeaiProductFilter;
+  search?: string;
+  bank?: string;
+  stage?: string;
+  proposalStatus?: string;
+  newcorbanStatus?: VendeaiNewcorbanStatusFilter;
+  inboxPhoneNumber?: string;
+  tags?: string[];
 }
 
 export interface ListVendeaiAttemptsParams extends VendeaiFilters {
@@ -193,21 +208,39 @@ export interface ListVendeaiLeadsParams extends VendeaiFilters {
   sort?: "first_received_at" | "last_received_at" | "id";
 }
 
-function buildParams(params: VendeaiFilters): Record<string, string | number> {
-  const query: Record<string, string | number> = {};
+function buildParams(params: VendeaiFilters): Record<string, string | number | string[]> {
+  const query: Record<string, string | number | string[]> = {};
 
   if (params.from) query.from = params.from;
   if (params.to) query.to = params.to;
   if (params.status && params.status !== "all") query.status = params.status;
   if (params.direction) query.direction = params.direction;
-  if (params.newcorbanFilter && params.newcorbanFilter !== "all") query.newcorban_filter = params.newcorbanFilter;
   if (params.product && params.product !== "all") query.product = params.product;
+  if (params.search?.trim()) query.search = params.search.trim();
+  if (params.bank && params.bank !== "all") query.bank = params.bank;
+  if (params.stage && params.stage !== "all") query.stage = params.stage;
+  if (params.proposalStatus && params.proposalStatus !== "all") query.proposal_status = params.proposalStatus;
+  if (params.newcorbanStatus && params.newcorbanStatus !== "all") query.newcorban_status = params.newcorbanStatus;
+  if (params.inboxPhoneNumber && params.inboxPhoneNumber !== "all") query.inbox_phone_number = params.inboxPhoneNumber;
+  if (params.tags?.length) query.tags = params.tags;
 
   return query;
 }
 
 export async function getVendeaiMetrics(params: VendeaiFilters, signal?: AbortSignal): Promise<VendeaiMetricsResponse> {
   const { data } = await axiosClient.get<VendeaiMetricsResponse>("/vendeai/metrics", {
+    params: buildParams(params),
+    signal,
+  });
+
+  return data;
+}
+
+export async function getVendeaiFilterOptions(
+  params: Pick<VendeaiFilters, "from" | "to" | "product">,
+  signal?: AbortSignal
+): Promise<VendeaiFilterOptionsResponse> {
+  const { data } = await axiosClient.get<VendeaiFilterOptionsResponse>("/vendeai/filter-options", {
     params: buildParams(params),
     signal,
   });

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiLead;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
 use App\Modules\Vendeai\Support\VendeaiDateRange;
+use App\Modules\Vendeai\Support\VendeaiLeadFilters;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -15,17 +16,12 @@ class VendeaiLeadListController extends Controller
 {
     public function __invoke(Request $request): Response
     {
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge([
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
             'view' => ['nullable', Rule::in(['summary'])],
             'sort' => ['nullable', Rule::in(['first_received_at', 'last_received_at', 'id'])],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
-            'product' => ['nullable', Rule::in(['all', 'clt', 'fgts'])],
-        ]);
+        ], VendeaiLeadFilters::rules()));
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
         $perPage = (int) ($validated['per_page'] ?? 20);
@@ -42,10 +38,13 @@ class VendeaiLeadListController extends Controller
                     ->join('vendeai_leads', 'vendeai_leads.id', '=', 'vendeai_newcorban_proposal_attempts.vendeai_lead_id')
                     ->whereNotNull('vendeai_leads.customer_cpf')
                     ->where('vendeai_leads.customer_cpf', '<>', '')
-                    ->when(
-                        in_array(($validated['product'] ?? 'all'), ['clt', 'fgts'], true),
-                        fn ($query) => $query->where('vendeai_leads.product_key', $validated['product'])
-                    )
+                    ->tap(fn ($query) => VendeaiLeadFilters::applyFilters($query, $validated, [
+                        'lead_alias' => 'vendeai_leads',
+                        'attempt_alias' => 'vendeai_newcorban_proposal_attempts',
+                        'date_column' => 'vendeai_leads.first_received_at',
+                        'from' => $from,
+                        'to' => $to,
+                    ]))
                     ->orderBy($summarySort, $direction)
                     ->select([
                         'vendeai_newcorban_proposal_attempts.id',
@@ -64,10 +63,7 @@ class VendeaiLeadListController extends Controller
             );
         }
 
-        $latestAttempts = DB::table('vendeai_newcorban_proposal_attempts')
-            ->selectRaw('MAX(id) as id, vendeai_lead_id')
-            ->whereNotNull('vendeai_lead_id')
-            ->groupBy('vendeai_lead_id');
+        $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
         $query = VendeaiLead::query()
             ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
@@ -81,21 +77,17 @@ class VendeaiLeadListController extends Controller
                 'attempts.newcorban_sent_at',
             ]);
 
-        if ($from !== null) {
-            $query->where('vendeai_leads.first_received_at', '>=', $from);
+        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
+            $validated['newcorban_status'] = 'sent';
         }
 
-        if ($to !== null) {
-            $query->where('vendeai_leads.first_received_at', '<=', $to);
-        }
-
-        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
-            $query->whereNotNull('attempts.newcorban_sent_at');
-        }
-
-        if (in_array(($validated['product'] ?? 'all'), ['clt', 'fgts'], true)) {
-            $query->where('vendeai_leads.product_key', $validated['product']);
-        }
+        VendeaiLeadFilters::applyFilters($query, $validated, [
+            'lead_alias' => 'vendeai_leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'vendeai_leads.first_received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
 
         $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);
 

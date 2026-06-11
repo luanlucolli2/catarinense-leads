@@ -16,6 +16,7 @@ use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 use App\Modules\Vendeai\Controllers\VendeaiExportController;
+use App\Modules\Vendeai\Controllers\VendeaiFilterOptionsController;
 use App\Modules\Vendeai\Controllers\VendeaiLeadListController;
 use App\Modules\Vendeai\Controllers\VendeaiMetricsController;
 use App\Modules\Vendeai\Controllers\VendeaiNewCorbanProposalAttemptListController;
@@ -87,6 +88,9 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('throttle:120,1');
 
     Route::get('/vendeai/metrics', VendeaiMetricsController::class)
+        ->middleware('throttle:120,1');
+
+    Route::get('/vendeai/filter-options', VendeaiFilterOptionsController::class)
         ->middleware('throttle:120,1');
 
     Route::get('/vendeai/newcorban-proposal-attempts', VendeaiNewCorbanProposalAttemptListController::class)

@@ -6,36 +6,54 @@ import { toast } from "sonner";
 import {
   downloadVendeaiExport,
   getVendeaiExportStatus,
+  getVendeaiFilterOptions,
   getVendeaiMetrics,
   listVendeaiLeads,
   startVendeaiExport,
   type VendeaiLead,
-  type VendeaiNewcorbanFilter,
+  type VendeaiNewcorbanStatusFilter,
   type VendeaiProductFilter,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { formatCPF, formatPhone } from "@/lib/formatters";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
 
+type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
+
 type FiltersState = {
   from: string;
   to: string;
+  search: string;
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
   periodPreset: PeriodPreset;
-  newcorbanFilter: VendeaiNewcorbanFilter;
   product: VendeaiProductFilter;
+  bank: string;
+  stage: string;
+  proposalStatus: string;
+  newcorbanStatus: VendeaiNewcorbanStatusFilter;
+  inboxPhoneNumber: string;
+  tags: string[];
 };
 
-type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
+type BrazilDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
 
-const STORAGE_KEY = "vendeai:integracoes:filters:v2";
+const STORAGE_KEY = "vendeai:integracoes:filters:v3";
 const AUTO_REFRESH_MS = 60_000;
 const MANUAL_REFRESH_COOLDOWN_MS = 10_000;
 const BRAZIL_TIME_ZONE = "America/Sao_Paulo";
+const NO_PROPOSAL_VALUE = "no_proposal";
+
 const brMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const brazilDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
   timeZone: BRAZIL_TIME_ZONE,
@@ -66,70 +84,11 @@ const brazilDateTimePartsFormatter = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
-type BrazilDateTimeParts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-};
-
 const windowModeOptions: Array<{ value: FiltersState["windowMode"]; label: string }> = [
   { value: "always", label: "Sempre" },
   { value: "rolling", label: "Janela móvel" },
   { value: "fixed", label: "Intervalo fixo" },
 ];
-
-function toDateTimeLocalValue(date: Date): string {
-  const parts = getBrazilDateTimeParts(date);
-  return `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
-}
-
-function toDateTimeLocalFromParts(year: number, month: number, day: number, hour: number, minute: number): string {
-  return `${pad(year, 4)}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
-}
-
-function toUtcIso(value: string): string | undefined {
-  if (!value) return undefined;
-  const date = parseBrazilDateTimeLocalToUtcDate(value);
-  return date ? date.toISOString() : undefined;
-}
-
-function defaultFilters(): FiltersState {
-  return {
-    from: "",
-    to: "",
-    direction: "desc",
-    windowMode: "always",
-    periodPreset: "always",
-    newcorbanFilter: "all",
-    product: "all",
-  };
-}
-
-function isValidDateTimeLocal(value: unknown): value is string {
-  if (typeof value !== "string" || value.trim() === "") return false;
-  return parseBrazilDateTimeLocalToUtcDate(value) !== null;
-}
-
-function rollRangeToNow(fromValue: string, toValue: string, baseNow: Date = new Date()): { from: string; to: string } {
-  const fromDate = parseBrazilDateTimeLocalToUtcDate(fromValue);
-  const toDate = parseBrazilDateTimeLocalToUtcDate(toValue);
-
-  if (fromDate === null || toDate === null || fromDate > toDate) {
-    const now = baseNow;
-    return { from: toDateTimeLocalValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)), to: toDateTimeLocalValue(now) };
-  }
-
-  const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
-  const now = baseNow;
-
-  return {
-    from: toDateTimeLocalValue(new Date(now.getTime() - durationMs)),
-    to: toDateTimeLocalValue(now),
-  };
-}
 
 function pad(value: number, size: number = 2): string {
   return String(value).padStart(size, "0");
@@ -153,6 +112,15 @@ function getBrazilDateTimeParts(date: Date): BrazilDateTimeParts {
   };
 }
 
+function toDateTimeLocalValue(date: Date): string {
+  const parts = getBrazilDateTimeParts(date);
+  return `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
+}
+
+function toDateTimeLocalFromParts(year: number, month: number, day: number, hour: number, minute: number): string {
+  return `${pad(year, 4)}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
+}
+
 function parseDateOnlyParts(value: string): { year: number; month: number; day: number } | null {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -161,17 +129,6 @@ function parseDateOnlyParts(value: string): { year: number; month: number; day: 
     year: Number(match[1]),
     month: Number(match[2]),
     day: Number(match[3]),
-  };
-}
-
-function shiftBrazilDate(parts: { year: number; month: number; day: number }, days: number): { year: number; month: number; day: number } {
-  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  date.setUTCDate(date.getUTCDate() + days);
-
-  return {
-    year: date.getUTCFullYear(),
-    month: date.getUTCMonth() + 1,
-    day: date.getUTCDate(),
   };
 }
 
@@ -189,12 +146,12 @@ function parseDateTimeLocalParts(value: string): BrazilDateTimeParts | null {
   };
 }
 
-function formatLocalParts(parts: BrazilDateTimeParts): string {
-  return `${pad(parts.day)}/${pad(parts.month)}/${pad(parts.year, 4)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
-}
-
 function toPseudoUtcTimestamp(parts: BrazilDateTimeParts): number {
   return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+function formatLocalParts(parts: BrazilDateTimeParts): string {
+  return `${pad(parts.day)}/${pad(parts.month)}/${pad(parts.year, 4)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
 }
 
 function parseBrazilDateTimeLocalToUtcDate(value: string): Date | null {
@@ -224,15 +181,87 @@ function parseBrazilDateTimeLocalToUtcDate(value: string): Date | null {
   return new Date(timestamp);
 }
 
-function parseUtcDateTimeString(value: string): Date | null {
-  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/.test(value) && !/[zZ]|[+-]\d{2}:\d{2}$/.test(value)) {
-    const normalized = value.replace(" ", "T");
-    const hasSeconds = normalized.length > 16;
-    return new Date(`${normalized}${hasSeconds ? "" : ":00"}Z`);
+function isValidDateTimeLocal(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && parseBrazilDateTimeLocalToUtcDate(value) !== null;
+}
+
+function toUtcIso(value: string): string | undefined {
+  if (!value) return undefined;
+  const date = parseBrazilDateTimeLocalToUtcDate(value);
+  return date ? date.toISOString() : undefined;
+}
+
+function shiftBrazilDate(parts: { year: number; month: number; day: number }, days: number): { year: number; month: number; day: number } {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function presetRange(preset: Exclude<PeriodPreset, "always" | "custom">, baseNow: Date = new Date()): { from: string; to: string } {
+  const now = getBrazilDateTimeParts(baseNow);
+
+  if (preset === "today") {
+    return {
+      from: toDateTimeLocalFromParts(now.year, now.month, now.day, 0, 0),
+      to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
+    };
   }
 
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+  if (preset === "yesterday") {
+    const previous = shiftBrazilDate(now, -1);
+    return {
+      from: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 0, 0),
+      to: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 23, 59),
+    };
+  }
+
+  const start = shiftBrazilDate(now, preset === "last7Days" ? -6 : -29);
+
+  return {
+    from: toDateTimeLocalFromParts(start.year, start.month, start.day, 0, 0),
+    to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
+  };
+}
+
+function rollRangeToNow(fromValue: string, toValue: string, baseNow: Date = new Date()): { from: string; to: string } {
+  const fromDate = parseBrazilDateTimeLocalToUtcDate(fromValue);
+  const toDate = parseBrazilDateTimeLocalToUtcDate(toValue);
+
+  if (fromDate === null || toDate === null || fromDate > toDate) {
+    const now = baseNow;
+    return { from: toDateTimeLocalValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)), to: toDateTimeLocalValue(now) };
+  }
+
+  const durationMs = Math.max(60_000, toDate.getTime() - fromDate.getTime());
+  const now = baseNow;
+
+  return {
+    from: toDateTimeLocalValue(new Date(now.getTime() - durationMs)),
+    to: toDateTimeLocalValue(now),
+  };
+}
+
+function defaultFilters(): FiltersState {
+  return {
+    from: "",
+    to: "",
+    search: "",
+    direction: "desc",
+    windowMode: "always",
+    periodPreset: "always",
+    product: "all",
+    bank: "all",
+    stage: "all",
+    proposalStatus: "all",
+    newcorbanStatus: "all",
+    inboxPhoneNumber: "all",
+    tags: [],
+  };
 }
 
 function loadFilters(): FiltersState {
@@ -240,9 +269,13 @@ function loadFilters(): FiltersState {
   if (typeof window === "undefined") return fallback;
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}") as Partial<FiltersState>;
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}") as Partial<FiltersState> & {
+      newcorbanFilter?: string;
+    };
+
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
+    const search = typeof parsed.search === "string" ? parsed.search : fallback.search;
     const windowMode =
       parsed.windowMode === "always" || parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
         ? parsed.windowMode
@@ -258,81 +291,48 @@ function loadFilters(): FiltersState {
         : windowMode === "always"
           ? "always"
           : "custom";
-    const storedNewcorbanFilter =
-      typeof (parsed as { newcorbanFilter?: unknown }).newcorbanFilter === "string"
-        ? (parsed as { newcorbanFilter?: string }).newcorbanFilter
-        : null;
-    const newcorbanFilter =
-      storedNewcorbanFilter === "created" || storedNewcorbanFilter === "sent" ? "sent" : fallback.newcorbanFilter;
     const product = parsed.product === "clt" || parsed.product === "fgts" ? parsed.product : fallback.product;
+    const bank = typeof parsed.bank === "string" ? parsed.bank : fallback.bank;
+    const stage = typeof parsed.stage === "string" ? parsed.stage : fallback.stage;
+    const proposalStatus = typeof parsed.proposalStatus === "string" ? parsed.proposalStatus : fallback.proposalStatus;
+    const newcorbanStatus: VendeaiNewcorbanStatusFilter =
+      parsed.newcorbanStatus === "not_sent" ||
+      parsed.newcorbanStatus === "success" ||
+      parsed.newcorbanStatus === "failed" ||
+      parsed.newcorbanStatus === "all"
+        ? parsed.newcorbanStatus
+        : parsed.newcorbanFilter === "created" || parsed.newcorbanFilter === "sent"
+          ? "success"
+          : fallback.newcorbanStatus;
+    const inboxPhoneNumber = typeof parsed.inboxPhoneNumber === "string" ? parsed.inboxPhoneNumber : fallback.inboxPhoneNumber;
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((value): value is string => typeof value === "string") : fallback.tags;
+    const direction = parsed.direction === "asc" ? "asc" : fallback.direction;
+
+    const base = {
+      search,
+      direction,
+      product,
+      bank,
+      stage,
+      proposalStatus,
+      newcorbanStatus,
+      inboxPhoneNumber,
+      tags,
+    };
 
     if (windowMode === "always") {
-      return {
-        from: "",
-        to: "",
-        direction: parsed.direction === "asc" ? "asc" : fallback.direction,
-        windowMode,
-        periodPreset: "always",
-        newcorbanFilter,
-        product,
-      };
+      return { from: "", to: "", windowMode, periodPreset: "always", ...base };
     }
 
     if (windowMode === "rolling") {
-      const rolled =
-        periodPreset === "custom" || periodPreset === "always"
-          ? rollRangeToNow(from, to)
-          : presetRange(periodPreset);
-      return {
-        from: rolled.from,
-        to: rolled.to,
-        direction: parsed.direction === "asc" ? "asc" : fallback.direction,
-        windowMode,
-        periodPreset,
-        newcorbanFilter,
-        product,
-      };
+      const rolled = periodPreset === "custom" || periodPreset === "always" ? rollRangeToNow(from, to) : presetRange(periodPreset);
+      return { from: rolled.from, to: rolled.to, windowMode, periodPreset, ...base };
     }
 
-    return {
-      from,
-      to,
-      direction: parsed.direction === "asc" ? "asc" : fallback.direction,
-      windowMode,
-      periodPreset,
-      newcorbanFilter,
-      product,
-    };
+    return { from, to, windowMode, periodPreset, ...base };
   } catch {
     return fallback;
   }
-}
-
-function presetRange(preset: Exclude<PeriodPreset, "always" | "custom">, baseNow: Date = new Date()): { from: string; to: string } {
-  const now = getBrazilDateTimeParts(baseNow);
-
-  if (preset === "today") {
-    return {
-      from: toDateTimeLocalFromParts(now.year, now.month, now.day, 0, 0),
-      to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
-    };
-  }
-
-  if (preset === "yesterday") {
-    const previous = shiftBrazilDate(now, -1);
-
-    return {
-      from: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 0, 0),
-      to: toDateTimeLocalFromParts(previous.year, previous.month, previous.day, 23, 59),
-    };
-  }
-
-  const start = shiftBrazilDate(now, preset === "last7Days" ? -6 : -29);
-
-  return {
-    from: toDateTimeLocalFromParts(start.year, start.month, start.day, 0, 0),
-    to: toDateTimeLocalFromParts(now.year, now.month, now.day, now.hour, now.minute),
-  };
 }
 
 function periodPresetLabel(value: PeriodPreset): string {
@@ -342,6 +342,17 @@ function periodPresetLabel(value: PeriodPreset): string {
   if (value === "last30Days") return "30 dias";
   if (value === "custom") return "Personalizado";
   return "Sempre";
+}
+
+function parseUtcDateTimeString(value: string): Date | null {
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/.test(value) && !/[zZ]|[+-]\d{2}:\d{2}$/.test(value)) {
+    const normalized = value.replace(" ", "T");
+    const hasSeconds = normalized.length > 16;
+    return new Date(`${normalized}${hasSeconds ? "" : ":00"}Z`);
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDateTime(value: string | null): string {
@@ -399,7 +410,7 @@ function productLabel(label: string): string {
 
 function bankLabel(label: string): string {
   const normalized = label.toLowerCase();
-  if (normalized === "mercantil") return "Mercantil";
+  if (normalized === "mercantil" || normalized === "mercantil_api") return "Mercantil";
   if (normalized === "presenca" || normalized === "presença") return "Presença Bank";
   if (normalized === "facta") return "FACTA";
   if (normalized === "v8") return "V8";
@@ -417,7 +428,7 @@ function stageLabel(label: string | null): string {
   if (normalized === "send_authorization") return "Envio de autorização";
   if (normalized === "vendedor") return "Vendedor";
   if (normalized === "oferta") return "Oferta";
-  if (normalized === "cross_sell" || normalized === "_cross_sell") return "Cross sell";
+  if (normalized === "cross_sell" || normalized === "_cross_sell") return "Crossell";
   if (normalized === "get_sim_data") return "Coleta de dados da simulação";
   if (normalized === "first_message") return "Primeira mensagem";
   if (normalized === "simulation") return "Simulação";
@@ -436,10 +447,33 @@ function stageLabel(label: string | null): string {
   return label.replace(/_/g, " ");
 }
 
+function proposalStatusLabel(label: string | null): string {
+  if (!label) return "-";
+  const normalized = label.toLowerCase();
+  if (normalized === NO_PROPOSAL_VALUE) return "Sem proposta";
+  if (normalized === "formalization_requested") return "Pendente formalização";
+  if (normalized === "liquidated_to_customer") return "Pago ao cliente";
+  if (normalized === "waiting_risk_analysis") return "Aguardando análise de risco";
+  if (normalized === "pended_bank") return "Pendente no banco";
+  if (normalized === "processing") return "Em processamento";
+  if (normalized === "pended_ai_handle") return "Pendente de atendimento";
+  return label
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function newcorbanStatusLabel(value: VendeaiNewcorbanStatusFilter): string {
+  if (value === "not_sent") return "Não enviada para a New Corban";
+  if (value === "success") return "Enviada com sucesso";
+  if (value === "failed") return "Enviada com erro";
+  return "Todas";
+}
+
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value || value === "-") return null;
   return (
-    <div className="text-xs text-gray-600 whitespace-nowrap">
+    <div className="whitespace-nowrap text-xs text-gray-600">
       <span className="font-medium text-gray-700">{label}:</span> {value}
     </div>
   );
@@ -535,10 +569,10 @@ function ProposalDetails({
 
   return (
     <div className="min-w-[260px] space-y-1">
-      <div className="font-medium text-gray-900 whitespace-nowrap">{data.proposal_id || "-"}</div>
+      <div className="whitespace-nowrap font-medium text-gray-900">{data.proposal_id || "-"}</div>
       <DetailLine label="Número" value={data.proposal_number || "-"} />
-      <DetailLine label="Status" value={data.proposal_status || "-"} />
-      <DetailLine label="Status anterior" value={data.previous_proposal_status || "-"} />
+      <DetailLine label="Status" value={proposalStatusLabel(data.proposal_status)} />
+      <DetailLine label="Status anterior" value={proposalStatusLabel(data.previous_proposal_status)} />
       <DetailLine label="Produto" value={productLabel(data.proposal_product || "-")} />
       <DetailLine label="Banco" value={bankLabel(data.proposal_bank || "-")} />
       <DetailLine label="Valor líquido" value={formatCurrency(data.proposal_liquid_value)} />
@@ -547,7 +581,7 @@ function ProposalDetails({
       <DetailLine label="Parcelas" value={data.proposal_number_of_payments ? String(data.proposal_number_of_payments) : "-"} />
       <DetailLine label="Tabela" value={data.proposal_table_name || data.proposal_table_id || "-"} />
       {data.proposal_formalization_link ? (
-        <div className="text-xs text-blue-700 whitespace-nowrap">
+        <div className="whitespace-nowrap text-xs text-blue-700">
           <a href={data.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
             Link de formalização
           </a>
@@ -563,11 +597,17 @@ export default function IntegracoesVendeaiPage() {
   const initial = useMemo(() => loadFilters(), []);
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
+  const [searchInput, setSearchInput] = useState(initial.search);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [periodPresetInput, setPeriodPresetInput] = useState<PeriodPreset>(initial.periodPreset);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
-  const [newcorbanFilterInput, setNewcorbanFilterInput] = useState<VendeaiNewcorbanFilter>(initial.newcorbanFilter);
   const [productInput, setProductInput] = useState<VendeaiProductFilter>(initial.product);
+  const [bankInput, setBankInput] = useState(initial.bank);
+  const [stageInput, setStageInput] = useState(initial.stage);
+  const [proposalStatusInput, setProposalStatusInput] = useState(initial.proposalStatus);
+  const [newcorbanStatusInput, setNewcorbanStatusInput] = useState<VendeaiNewcorbanStatusFilter>(initial.newcorbanStatus);
+  const [inboxPhoneNumberInput, setInboxPhoneNumberInput] = useState(initial.inboxPhoneNumber);
+  const [tagsInput, setTagsInput] = useState<string[]>(initial.tags);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -577,6 +617,7 @@ export default function IntegracoesVendeaiPage() {
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
 
   const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
+
   const effectiveRange = useMemo(() => {
     if (applied.windowMode === "rolling") {
       if (applied.periodPreset !== "always" && applied.periodPreset !== "custom") {
@@ -586,11 +627,9 @@ export default function IntegracoesVendeaiPage() {
       return rollRangeToNow(applied.from, applied.to, new Date(rollingTick * AUTO_REFRESH_MS));
     }
 
-    return {
-      from: applied.from,
-      to: applied.to,
-    };
+    return { from: applied.from, to: applied.to };
   }, [applied.from, applied.to, applied.windowMode, applied.periodPreset, rollingTick]);
+
   const fromIso = useMemo(() => toUtcIso(effectiveRange.from), [effectiveRange.from]);
   const toIso = useMemo(() => toUtcIso(effectiveRange.to), [effectiveRange.to]);
   const manualRefreshRemaining = Math.max(0, Math.ceil((manualRefreshLockedUntil - nowTs) / 1000));
@@ -604,9 +643,51 @@ export default function IntegracoesVendeaiPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const nextSearch = searchInput.trim();
+    const timer = window.setTimeout(() => {
+      setApplied((current) => {
+        if (current.search === nextSearch) return current;
+        return { ...current, search: nextSearch };
+      });
+      setLeadsPage(1);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  const sharedFilters = useMemo(
+    () => ({
+      from: fromIso,
+      to: toIso,
+      direction: applied.direction,
+      product: applied.product,
+      search: applied.search,
+      bank: applied.bank,
+      stage: applied.stage,
+      proposalStatus: applied.proposalStatus,
+      newcorbanStatus: applied.newcorbanStatus,
+      inboxPhoneNumber: applied.inboxPhoneNumber,
+      tags: applied.tags,
+    }),
+    [
+      fromIso,
+      toIso,
+      applied.direction,
+      applied.product,
+      applied.search,
+      applied.bank,
+      applied.stage,
+      applied.proposalStatus,
+      applied.newcorbanStatus,
+      applied.inboxPhoneNumber,
+      applied.tags,
+    ]
+  );
+
   const metricsQuery = useQuery({
-    queryKey: ["vendeai:metrics", fromIso, toIso, applied.product],
-    queryFn: ({ signal }) => getVendeaiMetrics({ from: fromIso, to: toIso, product: applied.product }, signal),
+    queryKey: ["vendeai:metrics", sharedFilters],
+    queryFn: ({ signal }) => getVendeaiMetrics(sharedFilters, signal),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
     gcTime: 120_000,
@@ -617,18 +698,14 @@ export default function IntegracoesVendeaiPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["vendeai:leads", leadsPage, fromIso, toIso, applied.direction, applied.newcorbanFilter, applied.product],
+    queryKey: ["vendeai:leads", leadsPage, sharedFilters],
     queryFn: ({ signal }) =>
       listVendeaiLeads(
         {
           page: leadsPage,
           perPage: 20,
-          from: fromIso,
-          to: toIso,
-          direction: applied.direction,
           sort: "first_received_at",
-          newcorbanFilter: applied.newcorbanFilter,
-          product: applied.product,
+          ...sharedFilters,
         },
         signal
       ),
@@ -641,11 +718,73 @@ export default function IntegracoesVendeaiPage() {
     refetchOnWindowFocus: false,
   });
 
+  const filterOptionsRange = useMemo(() => {
+    if (periodPresetInput === "always" || windowModeInput === "always") {
+      return { from: undefined, to: undefined };
+    }
+
+    if (periodPresetInput !== "custom") {
+      const nextRange = presetRange(periodPresetInput);
+      return { from: toUtcIso(nextRange.from), to: toUtcIso(nextRange.to) };
+    }
+
+    if (!isValidDateTimeLocal(fromInput) || !isValidDateTimeLocal(toInput)) {
+      return { from: fromIso, to: toIso };
+    }
+
+    if (windowModeInput === "rolling") {
+      const rolled = rollRangeToNow(fromInput, toInput);
+      return { from: toUtcIso(rolled.from), to: toUtcIso(rolled.to) };
+    }
+
+    return { from: toUtcIso(fromInput), to: toUtcIso(toInput) };
+  }, [periodPresetInput, windowModeInput, fromInput, toInput, fromIso, toIso]);
+
+  const filterOptionsQuery = useQuery({
+    queryKey: ["vendeai:filter-options", filterOptionsRange.from, filterOptionsRange.to, productInput],
+    queryFn: ({ signal }) =>
+      getVendeaiFilterOptions(
+        {
+          from: filterOptionsRange.from,
+          to: filterOptionsRange.to,
+          product: productInput,
+        },
+        signal
+      ),
+    enabled: isFiltersModalOpen,
+    staleTime: 30_000,
+    gcTime: 120_000,
+    retry: 1,
+  });
+
   const metrics = metricsQuery.data;
   const leads = leadsQuery.data?.data ?? [];
   const currentLeadsPage = leadsQuery.data?.current_page ?? leadsPage;
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
+
+  const bankOptions = useMemo(
+    () => (filterOptionsQuery.data?.banks ?? []).map((value) => ({ value, label: bankLabel(value) })),
+    [filterOptionsQuery.data?.banks]
+  );
+  const stageOptions = useMemo(
+    () => (filterOptionsQuery.data?.stages ?? []).map((value) => ({ value, label: stageLabel(value) })),
+    [filterOptionsQuery.data?.stages]
+  );
+  const proposalStatusOptions = useMemo(
+    () => (filterOptionsQuery.data?.proposal_statuses ?? []).map((value) => ({ value, label: proposalStatusLabel(value) })),
+    [filterOptionsQuery.data?.proposal_statuses]
+  );
+  const inboxPhoneNumberOptions = useMemo(
+    () =>
+      (filterOptionsQuery.data?.inbox_phone_numbers ?? []).map((value) => ({
+        value,
+        label: formatPhone(value) || value,
+      })),
+    [filterOptionsQuery.data?.inbox_phone_numbers]
+  );
+  const tagOptions = filterOptionsQuery.data?.tags ?? [];
+
   const controlLabels = [`Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
   const filterLabels = [
     ...(applied.periodPreset === "always"
@@ -656,41 +795,44 @@ export default function IntegracoesVendeaiPage() {
           `De ${formatDateTime(fromIso ?? effectiveRange.from)}`,
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
+    ...(applied.search ? [`Busca: ${applied.search}`] : []),
     ...(applied.product === "all" ? [] : [`Produto: ${productLabel(applied.product)}`]),
-    ...(applied.newcorbanFilter === "sent" ? ["Somente com envio para a New Corban"] : []),
+    ...(applied.bank === "all" ? [] : [`Banco: ${bankLabel(applied.bank)}`]),
+    ...(applied.stage === "all" ? [] : [`Etapa: ${stageLabel(applied.stage)}`]),
+    ...(applied.inboxPhoneNumber === "all" ? [] : [`Número da IA: ${formatPhone(applied.inboxPhoneNumber)}`]),
+    ...(applied.proposalStatus === "all" ? [] : [`Status da proposta: ${proposalStatusLabel(applied.proposalStatus)}`]),
+    ...(applied.newcorbanStatus === "all" ? [] : [`New Corban: ${newcorbanStatusLabel(applied.newcorbanStatus)}`]),
+    ...(applied.tags.length ? [`Tags: ${applied.tags.length === 1 ? applied.tags[0] : `${applied.tags[0]} +${applied.tags.length - 1}`}`] : []),
   ];
 
   const applyFilters = (): boolean => {
+    const nextBase = {
+      search: searchInput.trim(),
+      direction: directionInput,
+      windowMode: windowModeInput,
+      periodPreset: periodPresetInput,
+      product: productInput,
+      bank: bankInput,
+      stage: stageInput,
+      proposalStatus: proposalStatusInput,
+      newcorbanStatus: newcorbanStatusInput,
+      inboxPhoneNumber: inboxPhoneNumberInput,
+      tags: tagsInput,
+    };
+
     if (windowModeInput === "always" || periodPresetInput === "always") {
       setRangeError(null);
-      setApplied({
-        from: "",
-        to: "",
-        direction: directionInput,
-        windowMode: "always",
-        periodPreset: "always",
-        newcorbanFilter: newcorbanFilterInput,
-        product: productInput,
-      });
+      setApplied({ from: "", to: "", ...nextBase, windowMode: "always", periodPreset: "always" });
       setLeadsPage(1);
       return true;
     }
 
     if (periodPresetInput !== "custom") {
       const nextRange = presetRange(periodPresetInput);
-
       setRangeError(null);
       setFromInput(nextRange.from);
       setToInput(nextRange.to);
-      setApplied({
-        from: nextRange.from,
-        to: nextRange.to,
-        direction: directionInput,
-        windowMode: windowModeInput,
-        periodPreset: periodPresetInput,
-        newcorbanFilter: newcorbanFilterInput,
-        product: productInput,
-      });
+      setApplied({ from: nextRange.from, to: nextRange.to, ...nextBase });
       setLeadsPage(1);
       return true;
     }
@@ -721,15 +863,7 @@ export default function IntegracoesVendeaiPage() {
       setToInput(nextTo);
     }
 
-    setApplied({
-      from: nextFrom,
-      to: nextTo,
-      direction: directionInput,
-      windowMode: windowModeInput,
-      periodPreset: "custom",
-      newcorbanFilter: newcorbanFilterInput,
-      product: productInput,
-    });
+    setApplied({ from: nextFrom, to: nextTo, ...nextBase, periodPreset: "custom" });
     setLeadsPage(1);
     return true;
   };
@@ -739,16 +873,12 @@ export default function IntegracoesVendeaiPage() {
   };
 
   const handleFromInputChange = (value: string) => {
-    if (periodPresetInput !== "custom") {
-      setPeriodPresetInput("custom");
-    }
+    if (periodPresetInput !== "custom") setPeriodPresetInput("custom");
     setFromInput(value);
   };
 
   const handleToInputChange = (value: string) => {
-    if (periodPresetInput !== "custom") {
-      setPeriodPresetInput("custom");
-    }
+    if (periodPresetInput !== "custom") setPeriodPresetInput("custom");
     setToInput(value);
   };
 
@@ -764,31 +894,35 @@ export default function IntegracoesVendeaiPage() {
     }
 
     if (preset === "custom") {
-      if (windowModeInput === "always") {
-        setWindowModeInput("fixed");
-      }
+      if (windowModeInput === "always") setWindowModeInput("fixed");
       setRangeError(null);
       return;
     }
 
     const next = presetRange(preset);
-    if (windowModeInput === "always") {
-      setWindowModeInput("fixed");
-    }
+    if (windowModeInput === "always") setWindowModeInput("fixed");
     setFromInput(next.from);
     setToInput(next.to);
     setRangeError(null);
   };
 
   const clearFilters = () => {
-    setFromInput("");
-    setToInput("");
-    setWindowModeInput("always");
-    setPeriodPresetInput("always");
-    setNewcorbanFilterInput("all");
-    setProductInput("all");
+    const defaults = defaultFilters();
+    setFromInput(defaults.from);
+    setToInput(defaults.to);
+    setSearchInput(defaults.search);
+    setWindowModeInput(defaults.windowMode);
+    setPeriodPresetInput(defaults.periodPreset);
+    setDirectionInput(defaults.direction);
+    setProductInput(defaults.product);
+    setBankInput(defaults.bank);
+    setStageInput(defaults.stage);
+    setProposalStatusInput(defaults.proposalStatus);
+    setNewcorbanStatusInput(defaults.newcorbanStatus);
+    setInboxPhoneNumberInput(defaults.inboxPhoneNumber);
+    setTagsInput(defaults.tags);
     setRangeError(null);
-    setApplied((current) => ({ ...current, from: "", to: "", windowMode: "always", periodPreset: "always", newcorbanFilter: "all", product: "all" }));
+    setApplied(defaults);
     setLeadsPage(1);
   };
 
@@ -806,13 +940,7 @@ export default function IntegracoesVendeaiPage() {
     const toastId = toast.loading("Gerando CSV VendeAI...", { duration: Infinity });
 
     try {
-      const { token } = await startVendeaiExport("leads", {
-        from: fromIso,
-        to: toIso,
-        direction: applied.direction,
-        newcorbanFilter: applied.newcorbanFilter,
-        product: applied.product,
-      });
+      const { token } = await startVendeaiExport("leads", sharedFilters);
 
       for (let attempt = 0; attempt < 180; attempt += 1) {
         const status = await getVendeaiExportStatus(token);
@@ -851,6 +979,8 @@ export default function IntegracoesVendeaiPage() {
         modeLabel="Filtros e Visualização"
         filteredCount={totalLeads}
         countLabel="leads filtrados"
+        searchValue={searchInput}
+        searchPlaceholder="Nome, CPF, telefone, chat ou proposta"
         exportLabel="CSV filtrado"
         exportLoading={exporting}
         exportIcon="file"
@@ -859,6 +989,7 @@ export default function IntegracoesVendeaiPage() {
         controlLabels={controlLabels}
         filterLabels={filterLabels}
         hasActiveFilters={filterLabels.length > 0}
+        onSearchChange={setSearchInput}
         onFilterClick={() => setIsFiltersModalOpen(true)}
         onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
@@ -868,36 +999,52 @@ export default function IntegracoesVendeaiPage() {
       <VendeaiFiltersModal
         isOpen={isFiltersModalOpen}
         title="Filtros dos leads VendeAI"
-        subtitle="Ajuste o período e o recorte de proposta enviada NewCorban."
+        subtitle="Ajuste visualização, busca, conversa, proposta VendeAI e New Corban."
         from={fromInput}
         to={toInput}
+        search={searchInput}
         windowMode={windowModeInput}
         periodPreset={periodPresetInput}
         direction={directionInput}
-        newcorbanFilter={newcorbanFilterInput}
         product={productInput}
+        bank={bankInput}
+        stage={stageInput}
+        proposalStatus={proposalStatusInput}
+        newcorbanStatus={newcorbanStatusInput}
+        inboxPhoneNumber={inboxPhoneNumberInput}
+        tags={tagsInput}
+        bankOptions={bankOptions}
+        stageOptions={stageOptions}
+        proposalStatusOptions={proposalStatusOptions}
+        inboxPhoneNumberOptions={inboxPhoneNumberOptions}
+        tagOptions={tagOptions}
         windowModeOptions={windowModeOptions}
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
+        onSearchChange={setSearchInput}
         onFromChange={handleFromInputChange}
         onToChange={handleToInputChange}
         onWindowModeChange={setWindowModeInput}
         onDirectionChange={setDirectionInput}
-        onNewcorbanFilterChange={setNewcorbanFilterInput}
         onProductChange={setProductInput}
+        onBankChange={setBankInput}
+        onStageChange={setStageInput}
+        onProposalStatusChange={setProposalStatusInput}
+        onNewcorbanStatusChange={setNewcorbanStatusInput}
+        onInboxPhoneNumberChange={setInboxPhoneNumberInput}
+        onTagsChange={setTagsInput}
         onPeriodPresetChange={applyPeriodPreset}
         onClearFilters={clearFilters}
         onApply={handleApplyFilters}
       />
 
-      {/* DASHBOARD GERAL DE MÉTRICAS */}
       <div className="space-y-4">
         {metricsQuery.isLoading && (
           <div className="flex items-center text-sm text-gray-500">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando resumo de métricas...
           </div>
         )}
-        
+
         {metricsQuery.isError && (
           <div className="flex items-center text-sm text-red-600">
             <AlertCircle className="mr-2 h-4 w-4" /> Não foi possível carregar as métricas do período.
@@ -906,11 +1053,8 @@ export default function IntegracoesVendeaiPage() {
 
         {!metricsQuery.isLoading && !metricsQuery.isError && metrics && (
           <div className="space-y-4">
-            {/* LINHA 1: Funil Financeiro (Ofertado -> Digitado -> Pago) */}
             <Card className="p-5 shadow-sm">
-              <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Resumo Financeiro
-              </h3>
+              <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Resumo Financeiro</h3>
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:divide-x md:divide-gray-100">
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-gray-500">Ofertado</span>
@@ -927,13 +1071,10 @@ export default function IntegracoesVendeaiPage() {
               </div>
             </Card>
 
-           {/* LINHA 2: Métricas Operacionais (Conversas e Propostas) */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Card className="flex flex-col justify-between p-5 shadow-sm">
                 <div>
-                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                    Conversas com a IA (VendeAI)
-                  </h3>
+                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Conversas com a IA (VendeAI)</h3>
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
@@ -942,34 +1083,32 @@ export default function IntegracoesVendeaiPage() {
                   </div>
                 </div>
 
-                {metrics.leads.by_product && metrics.leads.by_product.length > 0 && (
+                {metrics.leads.by_product?.length ? (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {metrics.leads.by_product.map(item => (
+                    {metrics.leads.by_product.map((item) => (
                       <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
                         <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
                         <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </Card>
 
               <Card className="flex flex-col justify-between p-5 shadow-sm">
                 <div>
-                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                    Criação de Propostas (NewCorban)
-                  </h3>
+                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Criação de Propostas (NewCorban)</h3>
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
                       <span className="mt-1 text-xs font-medium uppercase text-gray-500">Enviadas</span>
                     </div>
-                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block" />
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-emerald-600">{formatNumber(metrics.attempts.success)}</span>
                       <span className="mt-1 text-xs font-medium uppercase text-emerald-700">Criadas</span>
                     </div>
-                    <div className="hidden h-6 w-px bg-gray-200 sm:block"></div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block" />
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-rose-600">{formatNumber(metrics.attempts.failed)}</span>
                       <span className="mt-1 text-xs font-medium uppercase text-rose-700">Falhas</span>
@@ -977,23 +1116,22 @@ export default function IntegracoesVendeaiPage() {
                   </div>
                 </div>
 
-                {metrics.attempts.by_product && metrics.attempts.by_product.length > 0 && (
+                {metrics.attempts.by_product?.length ? (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {metrics.attempts.by_product.map(item => (
+                    {metrics.attempts.by_product.map((item) => (
                       <div key={item.label} className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
                         <span className="text-xs font-medium uppercase text-gray-500">{productLabel(item.label)}</span>
                         <span className="text-xs font-bold text-gray-700">{formatNumber(item.total)}</span>
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </Card>
             </div>
           </div>
         )}
       </div>
 
-      {/* ÁREA DA TABELA */}
       <div>
         <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
@@ -1006,11 +1144,9 @@ export default function IntegracoesVendeaiPage() {
           </div>
         </div>
 
-        <Card className="overflow-hidden border border-gray-200 shadow-sm flex flex-col">
-          {/* Adicionando max-h e overflow-y para manter o header fixo e permitir o scroll horizontal sempre visível na base */}
-          <div className="overflow-auto max-h-[600px] w-full relative">
+        <Card className="flex flex-col overflow-hidden border border-gray-200 shadow-sm">
+          <div className="relative max-h-[600px] w-full overflow-auto">
             <table className="w-full text-sm">
-              {/* O thead agora é sticky para que o cabeçalho permaneça no topo durante a rolagem vertical */}
               <thead className="sticky top-0 z-10 bg-gray-50 text-xs uppercase tracking-wide text-gray-500 shadow-sm">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">CPF</th>
@@ -1021,8 +1157,8 @@ export default function IntegracoesVendeaiPage() {
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Chat</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Etapa</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Tags</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium min-w-[200px]">Dados da simulação</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium min-w-[200px]">Dados da proposta</th>
+                  <th className="min-w-[200px] whitespace-nowrap px-4 py-3 text-left font-medium">Dados da simulação</th>
+                  <th className="min-w-[200px] whitespace-nowrap px-4 py-3 text-left font-medium">Dados da proposta</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Proposta NewCorban</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Eventos</th>
                 </tr>
@@ -1066,7 +1202,9 @@ export default function IntegracoesVendeaiPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3"><SimulationDetails data={lead} /></td>
+                      <td className="px-4 py-3">
+                        <SimulationDetails data={lead} />
+                      </td>
                       <td className="px-4 py-3">
                         <ProposalDetails
                           data={{

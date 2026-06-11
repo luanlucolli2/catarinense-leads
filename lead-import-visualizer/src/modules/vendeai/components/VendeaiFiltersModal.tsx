@@ -1,20 +1,25 @@
 import { useEffect } from "react";
-import { Calendar, Check, Clock, Filter, Info, X } from "lucide-react";
+import { Calendar, Check, Clock, Filter, Info, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type WindowMode = "always" | "rolling" | "fixed";
-type NewcorbanFilter = "all" | "sent";
 type ProductFilter = "all" | "clt" | "fgts";
 type SortDirection = "asc" | "desc";
 type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
+type NewcorbanStatusFilter = "all" | "not_sent" | "success" | "failed";
 
 type WindowModeOption = {
   value: WindowMode;
+  label: string;
+};
+
+type FilterOption = {
+  value: string;
   label: string;
 };
 
@@ -24,20 +29,37 @@ type VendeaiFiltersModalProps = {
   subtitle: string;
   from: string;
   to: string;
+  search: string;
   windowMode: WindowMode;
   periodPreset: PeriodPreset;
   direction: SortDirection;
-  newcorbanFilter: NewcorbanFilter;
   product: ProductFilter;
+  bank: string;
+  stage: string;
+  proposalStatus: string;
+  newcorbanStatus: NewcorbanStatusFilter;
+  inboxPhoneNumber: string;
+  tags: string[];
+  bankOptions: FilterOption[];
+  stageOptions: FilterOption[];
+  proposalStatusOptions: FilterOption[];
+  inboxPhoneNumberOptions: FilterOption[];
+  tagOptions: string[];
   windowModeOptions: WindowModeOption[];
   rangeError: string | null;
   onClose: () => void;
+  onSearchChange: (value: string) => void;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
   onDirectionChange: (value: SortDirection) => void;
-  onNewcorbanFilterChange: (value: NewcorbanFilter) => void;
   onProductChange: (value: ProductFilter) => void;
+  onBankChange: (value: string) => void;
+  onStageChange: (value: string) => void;
+  onProposalStatusChange: (value: string) => void;
+  onNewcorbanStatusChange: (value: NewcorbanStatusFilter) => void;
+  onInboxPhoneNumberChange: (value: string) => void;
+  onTagsChange: (value: string[]) => void;
   onPeriodPresetChange: (value: PeriodPreset) => void;
   onClearFilters: () => void;
   onApply: () => void;
@@ -88,8 +110,8 @@ function Group({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 last:mb-0">
-      <div className="mb-3 border-b border-gray-200 pb-2">
+    <div className="mb-8 last:mb-0">
+      <div className="mb-4 border-b border-gray-200 pb-2">
         <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
       </div>
       <div
@@ -107,26 +129,48 @@ function Group({
 
 const Label = ({ text }: { text: string }) => <label className="text-xs font-medium text-gray-700">{text}</label>;
 
+function optionLabel(options: FilterOption[], value: string): string {
+  return options.find((option) => option.value === value)?.label ?? value;
+}
+
 export function VendeaiFiltersModal({
   isOpen,
   title,
   subtitle,
   from,
   to,
+  search,
   windowMode,
   periodPreset,
   direction,
-  newcorbanFilter,
   product,
+  bank,
+  stage,
+  proposalStatus,
+  newcorbanStatus,
+  inboxPhoneNumber,
+  tags,
+  bankOptions,
+  stageOptions,
+  proposalStatusOptions,
+  inboxPhoneNumberOptions,
+  tagOptions,
   windowModeOptions,
   rangeError,
   onClose,
+  onSearchChange,
   onFromChange,
   onToChange,
   onWindowModeChange,
   onDirectionChange,
-  onNewcorbanFilterChange,
   onProductChange,
+  onBankChange,
+  onStageChange,
+  onProposalStatusChange,
+  onNewcorbanStatusChange,
+  onCampaignChange,
+  onInboxPhoneNumberChange,
+  onTagsChange,
   onPeriodPresetChange,
   onClearFilters,
   onApply,
@@ -145,13 +189,29 @@ export function VendeaiFiltersModal({
   const chips = [
     ...(periodPreset === "always" ? [] : [`Período · ${periodPreset === "today" ? "Hoje" : periodPreset === "yesterday" ? "Ontem" : periodPreset === "last7Days" ? "7 dias" : periodPreset === "last30Days" ? "30 dias" : "Personalizado"}`]),
     ...(windowMode === "always" ? [] : [`Modo · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
+    ...(search.trim() ? [`Busca · ${search.trim()}`] : []),
     ...(product === "all" ? [] : [`Produto · ${product === "clt" ? "Crédito do Trabalhador" : "FGTS"}`]),
-    ...(newcorbanFilter === "sent" ? ["Somente com envio para a New Corban"] : []),
+    ...(bank === "all" ? [] : [`Banco · ${optionLabel(bankOptions, bank)}`]),
+    ...(stage === "all" ? [] : [`Etapa · ${optionLabel(stageOptions, stage)}`]),
+    ...(inboxPhoneNumber === "all" ? [] : [`Número IA · ${optionLabel(inboxPhoneNumberOptions, inboxPhoneNumber)}`]),
+    ...(proposalStatus === "all" ? [] : [`Status proposta · ${optionLabel(proposalStatusOptions, proposalStatus)}`]),
+    ...(newcorbanStatus === "all"
+      ? []
+      : [
+          `New Corban · ${
+            newcorbanStatus === "not_sent"
+              ? "Não enviada"
+              : newcorbanStatus === "success"
+                ? "Enviada com sucesso"
+                : "Enviada com erro"
+          }`,
+        ]),
+    ...(tags.length ? [`Tags · ${tags.length === 1 ? tags[0] : `${tags[0]} +${tags.length - 1}`}`] : []),
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
-      <div className="filters-modal flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
+      <div className="filters-modal flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
         <header className="flex flex-shrink-0 flex-col gap-3 border-b bg-white/90 p-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/70 sm:p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -194,26 +254,6 @@ export function VendeaiFiltersModal({
 
         <main className="flex-1 overflow-y-auto bg-gradient-to-b from-white to-gray-50 px-6 py-5">
           <Group title="Visualização">
-            <Section title="Ordenação" description="Ajuste a ordem de exibição dos leads.">
-              <div>
-                <Label text="Ordem" />
-                <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="desc">Mais recentes</SelectItem>
-                    <SelectItem value="asc">Mais antigos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </Section>
-          </Group>
-
-          <Group title="Filtros">
             <div className="[grid-column:1/-1]">
               <Section title="Período" description="Defina o intervalo usado na tabela e nas métricas." active={periodPreset !== "always"}>
                 <div>
@@ -295,23 +335,45 @@ export function VendeaiFiltersModal({
               </Section>
             </div>
 
-            <Section title="Envio para a New Corban" description="Mostre só as conversas já enviadas." active={newcorbanFilter !== "all"}>
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3">
-                <Checkbox
-                  checked={newcorbanFilter === "sent"}
-                  onCheckedChange={(checked) => onNewcorbanFilterChange(checked ? "sent" : "all")}
-                  className="mt-0.5 border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white"
-                />
-                <div className="space-y-1">
-                  <div className={cn("text-sm font-medium", newcorbanFilter !== "all" ? "text-blue-700" : "text-gray-800")}>
-                    Somente com envio para a New Corban
-                  </div>
-                  <p className="text-xs text-gray-500">Inclui sucesso e erro.</p>
-                </div>
-              </label>
+            <Section title="Ordenação" description="Ajuste a ordem de exibição dos leads.">
+              <div>
+                <Label text="Ordem" />
+                <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="desc">Mais recentes</SelectItem>
+                    <SelectItem value="asc">Mais antigos</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </Section>
+          </Group>
 
-            <Section title="Produto" description="Aplique um recorte opcional por produto." active={product !== "all"}>
+          <Group title="Busca">
+            <Section title="Busca geral" description="Busque por nome, CPF, telefone, chat, account ou proposta.">
+              <div>
+                <Label text="Busca rápida" />
+                <div className="relative mt-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <Input
+                    type="text"
+                    value={search}
+                    onChange={(event) => onSearchChange(event.target.value)}
+                    placeholder="Nome, CPF, telefone, chat ou proposta"
+                    className={cn(NO_FOCUS, "w-full border-gray-300 pl-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}
+                  />
+                </div>
+              </div>
+            </Section>
+          </Group>
+
+          <Group title="Conversa">
+            <Section title="Produto" description="Aplique um recorte por produto." active={product !== "all"}>
               <div>
                 <Label text="Produto" />
                 <Select value={product} onValueChange={(value) => onProductChange(value as ProductFilter)}>
@@ -325,6 +387,134 @@ export function VendeaiFiltersModal({
                     <SelectItem value="all">Todos os produtos</SelectItem>
                     <SelectItem value="clt">Crédito do Trabalhador</SelectItem>
                     <SelectItem value="fgts">FGTS</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title="Banco" description="Considere o banco da proposta ou da simulação." active={bank !== "all"}>
+              <div>
+                <Label text="Banco" />
+                <Select value={bank} onValueChange={onBankChange}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todos os bancos</SelectItem>
+                    {bankOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title="Etapa" description="Filtre pela etapa atual da conversa." active={stage !== "all"}>
+              <div>
+                <Label text="Etapa" />
+                <Select value={stage} onValueChange={onStageChange}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todas as etapas</SelectItem>
+                    {stageOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title="Número da IA" description="Filtre pelo número que atendeu a conversa." active={inboxPhoneNumber !== "all"}>
+              <div>
+                <Label text="Número da IA" />
+                <Select value={inboxPhoneNumber} onValueChange={onInboxPhoneNumberChange}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todos os números</SelectItem>
+                    {inboxPhoneNumberOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title="Tags" description="Inclui a conversa se tiver pelo menos uma das tags selecionadas." active={tags.length > 0}>
+              <div>
+                <Label text="Tags" />
+                <div className="mt-2">
+                  <MultiSelect
+                    options={tagOptions}
+                    selected={tags}
+                    onChange={onTagsChange}
+                    placeholder="Selecionar tags..."
+                    searchPlaceholder="Pesquisar tags..."
+                    emptyMessage="Nenhuma tag encontrada."
+                  />
+                </div>
+              </div>
+            </Section>
+          </Group>
+
+          <Group title="Proposta VendeAI">
+            <Section title="Status da proposta" description="Filtre pelo status atual da proposta na VendeAI." active={proposalStatus !== "all"}>
+              <div>
+                <Label text="Status da proposta" />
+                <Select value={proposalStatus} onValueChange={onProposalStatusChange}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todos os status</SelectItem>
+                    {proposalStatusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Section>
+          </Group>
+
+          <Group title="New Corban">
+            <Section title="Situação do envio" description="Filtre pela situação do envio para a New Corban." active={newcorbanStatus !== "all"}>
+              <div>
+                <Label text="Situação do envio" />
+                <Select value={newcorbanStatus} onValueChange={(value) => onNewcorbanStatusChange(value as NewcorbanStatusFilter)}>
+                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="shadow-lg">
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="not_sent">Não enviada para a New Corban</SelectItem>
+                    <SelectItem value="success">Enviada com sucesso</SelectItem>
+                    <SelectItem value="failed">Enviada com erro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -140,10 +140,11 @@ final class VendeaiCsvExport
         [$from, $to] = VendeaiDateRange::fromValidated($filters);
         $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 
-        $latestAttempts = DB::table('vendeai_newcorban_proposal_attempts')
-            ->selectRaw('MAX(id) as id, vendeai_lead_id')
-            ->whereNotNull('vendeai_lead_id')
-            ->groupBy('vendeai_lead_id');
+        if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($filters['newcorban_status'])) {
+            $filters['newcorban_status'] = 'sent';
+        }
+
+        $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
         $query = DB::table('vendeai_leads')
             ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
@@ -198,12 +199,13 @@ final class VendeaiCsvExport
                 'attempts.newcorban_sent_at',
             ]);
 
-        self::applyDateFilter($query, 'vendeai_leads.first_received_at', $from, $to);
-        self::applyProductFilter($query, (string) ($filters['product'] ?? 'all'), 'vendeai_leads.product_key');
-
-        if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
-            $query->whereNotNull('attempts.newcorban_sent_at');
-        }
+        VendeaiLeadFilters::applyFilters($query, $filters, [
+            'lead_alias' => 'vendeai_leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'vendeai_leads.first_received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
 
         return $query->orderBy('vendeai_leads.first_received_at', $direction)->orderBy('vendeai_leads.id', $direction);
     }
@@ -249,22 +251,16 @@ final class VendeaiCsvExport
             ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.vendedor')) as request_vendedor")
             ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.login_digitacao')) as request_login_digitacao");
 
-        self::applyDateFilter($query, 'attempts.received_at', $from, $to);
-        self::applyProductFilter($query, (string) ($filters['product'] ?? 'all'), 'leads.product_key');
+        VendeaiLeadFilters::applyFilters($query, $filters, [
+            'lead_alias' => 'leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'attempts.received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
         self::applyAttemptStatusFilter($query, (string) ($filters['status'] ?? 'all'));
 
         return $query->orderBy('attempts.received_at', $direction)->orderBy('attempts.id', $direction);
-    }
-
-    private static function applyDateFilter(Builder $query, string $column, ?Carbon $from, ?Carbon $to): void
-    {
-        if ($from !== null) {
-            $query->where($column, '>=', $from);
-        }
-
-        if ($to !== null) {
-            $query->where($column, '<=', $to);
-        }
     }
 
     private static function applyAttemptStatusFilter(Builder $query, string $status): void
@@ -277,15 +273,6 @@ final class VendeaiCsvExport
             'pending' => $query->whereNull('attempts.newcorban_sent_at'),
             default => null,
         };
-    }
-
-    private static function applyProductFilter(Builder $query, string $product, string $column): void
-    {
-        if (! in_array($product, ['clt', 'fgts'], true)) {
-            return;
-        }
-
-        $query->where($column, $product);
     }
 
     private static function mapLead(object $lead): array
