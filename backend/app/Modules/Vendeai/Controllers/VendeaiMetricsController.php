@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Support\VendeaiDateRange;
+use App\Modules\Vendeai\Support\VendeaiLeadFilters;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -14,23 +15,37 @@ class VendeaiMetricsController extends Controller
 {
     public function __invoke(Request $request): Response
     {
-        $validated = $request->validate([
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'product' => ['nullable', 'in:all,clt,fgts'],
-        ]);
+        $validated = $request->validate(VendeaiLeadFilters::rules(includeDirection: false));
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
-        $product = (string) ($validated['product'] ?? 'all');
+        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
+            $validated['newcorban_status'] = 'sent';
+        }
 
-        $leads = DB::table('vendeai_leads');
+        $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
+
+        $leads = DB::table('vendeai_leads')
+            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
+                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+            })
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id');
         $attempts = DB::table('vendeai_newcorban_proposal_attempts as attempts')
             ->leftJoin('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id');
 
-        $this->applyDateFilter($leads, 'first_received_at', $from, $to);
-        $this->applyDateFilter($attempts, 'attempts.received_at', $from, $to);
-        $this->applyProductFilter($leads, $product, 'product_key');
-        $this->applyProductFilter($attempts, $product, 'leads.product_key');
+        VendeaiLeadFilters::applyFilters($leads, $validated, [
+            'lead_alias' => 'vendeai_leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'vendeai_leads.first_received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
+        VendeaiLeadFilters::applyFilters($attempts, $validated, [
+            'lead_alias' => 'leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => 'attempts.received_at',
+            'from' => $from,
+            'to' => $to,
+        ]);
 
         $attemptsTotal = (int) (clone $attempts)->count();
         $attemptsSuccess = (int) (clone $attempts)->whereNotNull('attempts.newcorban_proposta_id')->count();
@@ -46,14 +61,14 @@ class VendeaiMetricsController extends Controller
                 'to' => $to?->toIso8601String(),
             ],
             'leads' => [
-                'total' => (int) (clone $leads)->count(),
-                'offered_total' => $this->sumMoney($leads, "COALESCE(simulation_best_liquid_value, simulation_liquid_value)"),
-                'typed_total' => $this->sumMoney($leads, 'proposal_liquid_value'),
+                'total' => (int) (clone $leads)->distinct('vendeai_leads.id')->count('vendeai_leads.id'),
+                'offered_total' => $this->sumMoney($leads, "COALESCE(vendeai_leads.simulation_best_liquid_value, vendeai_leads.simulation_liquid_value)"),
+                'typed_total' => $this->sumMoney($leads, 'vendeai_leads.proposal_liquid_value'),
                 'paid_total' => $this->sumMoney(
                     $leads,
-                    "CASE WHEN proposal_status = 'LIQUIDATED_TO_CUSTOMER' THEN proposal_liquid_value ELSE 0 END"
+                    "CASE WHEN vendeai_leads.proposal_status = 'LIQUIDATED_TO_CUSTOMER' THEN vendeai_leads.proposal_liquid_value ELSE 0 END"
                 ),
-                'by_product' => $this->countsBy($leads, 'product_key'),
+                'by_product' => $this->countsBy($leads, 'vendeai_leads.product_key', 'vendeai_leads.id'),
             ],
             'attempts' => [
                 'conversations_total' => $this->distinctAttemptConversations($attempts),
@@ -67,23 +82,13 @@ class VendeaiMetricsController extends Controller
         ]);
     }
 
-    private function applyDateFilter(Builder $query, string $column, ?Carbon $from, ?Carbon $to): void
-    {
-        if ($from !== null) {
-            $query->where($column, '>=', $from);
-        }
-
-        if ($to !== null) {
-            $query->where($column, '<=', $to);
-        }
-    }
-
-    private function countsBy(Builder $baseQuery, string $column): array
+    private function countsBy(Builder $baseQuery, string $column, ?string $distinctColumn = null): array
     {
         $expression = "COALESCE(NULLIF(CAST({$column} AS CHAR), ''), 'sem_valor')";
+        $aggregate = $distinctColumn === null ? 'COUNT(*)' : "COUNT(DISTINCT {$distinctColumn})";
 
         return (clone $baseQuery)
-            ->selectRaw("{$expression} as label, COUNT(*) as total")
+            ->selectRaw("{$expression} as label, {$aggregate} as total")
             ->groupByRaw($expression)
             ->orderByDesc('total')
             ->limit(10)
@@ -111,14 +116,5 @@ class VendeaiMetricsController extends Controller
         return round((float) ((clone $baseQuery)
             ->selectRaw("COALESCE(SUM({$expression}), 0) as total")
             ->value('total') ?? 0), 2);
-    }
-
-    private function applyProductFilter(Builder $query, string $product, string $column): void
-    {
-        if (! in_array($product, ['clt', 'fgts'], true)) {
-            return;
-        }
-
-        $query->where($column, $product);
     }
 }

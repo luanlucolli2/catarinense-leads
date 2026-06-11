@@ -6,11 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Jobs\GenerateVendeaiExportJob;
 use App\Modules\Vendeai\Support\VendeaiCsvExport;
 use App\Modules\Vendeai\Support\VendeaiExportCacheState;
+use App\Modules\Vendeai\Support\VendeaiLeadFilters;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
 class VendeaiExportController extends Controller
@@ -91,19 +91,10 @@ class VendeaiExportController extends Controller
 
     private function startExport(Request $request, string $type): Response
     {
-        $validated = $request->validate([
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'status' => ['nullable', Rule::in(['all', 'success', 'failed', 'pending'])],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
-            'product' => ['nullable', Rule::in(['all', 'clt', 'fgts'])],
-        ]);
+        $validated = $request->validate(VendeaiLeadFilters::rules(includeAttemptStatus: true));
 
         if ($type === VendeaiCsvExport::TYPE_LEADS) {
             unset($validated['status']);
-        } else {
-            unset($validated['newcorban_filter']);
         }
 
         $token = (string) Str::uuid();
