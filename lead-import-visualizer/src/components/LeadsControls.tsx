@@ -36,6 +36,8 @@ interface LeadsControlsProps {
   onNamesMassFilterChange: (value: string) => void;
   phonesMassFilter: string;
   onPhonesMassFilterChange: (value: string) => void;
+  withPhonesFilter: boolean;
+  onWithPhonesFilterChange: (value: boolean) => void;
   noPhonesFilter: boolean;
   onNoPhonesFilterChange: (value: boolean) => void;
 
@@ -213,6 +215,8 @@ export const LeadsControls = ({
   onNamesMassFilterChange,
   phonesMassFilter,
   onPhonesMassFilterChange,
+  withPhonesFilter,
+  onWithPhonesFilterChange,
   noPhonesFilter,
   onNoPhonesFilterChange,
   dateFromFilter,
@@ -411,6 +415,7 @@ export const LeadsControls = ({
     if (cpfMassFilter) items.push(`CPFs: ${cpfMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
     if (namesMassFilter) items.push(`Nomes: ${namesMassFilter.split(/\r?\n/).map((v) => v.trim()).filter(Boolean).length}`);
     if (phonesMassFilter) items.push(`Telefones: ${phonesMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (withPhonesFilter) items.push("Com telefone");
     if (noPhonesFilter) items.push("Sem telefone");
     if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
 
@@ -487,7 +492,7 @@ export const LeadsControls = ({
     fgtsConsultaToFilter, higienizacaoFilter, mercantilConsultaFrom, mercantilConsultaTo,
     mercantilOrigensFilter, mercantilParcelaMax, mercantilParcelaMin, mercantilQtdParcelasMax,
     mercantilQtdParcelasMin, mercantilSituacao, mercantilStatusFilter, mode, motivosFilter,
-    namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter,
+    namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter, withPhonesFilter,
   ]);
 
   const currentSortLabel = sortBy ? sortLabels[sortBy] ?? sortBy : null;
@@ -654,6 +659,8 @@ export const LeadsControls = ({
         onNamesMassFilterChange={onNamesMassFilterChange}
         phonesMassFilter={phonesMassFilter}
         onPhonesMassFilterChange={onPhonesMassFilterChange}
+        withPhonesFilter={withPhonesFilter}
+        onWithPhonesFilterChange={onWithPhonesFilterChange}
         noPhonesFilter={noPhonesFilter}
         onNoPhonesFilterChange={onNoPhonesFilterChange}
         dateFromFilter={dateFromFilter}

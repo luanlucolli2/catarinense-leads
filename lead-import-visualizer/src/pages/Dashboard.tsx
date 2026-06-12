@@ -142,6 +142,7 @@ const Dashboard = () => {
   const [baseCpfMassFilter, setBaseCpfMassFilter] = usePersistedState<string>("dashboard-base:cpfMassFilter", "")
   const [baseNamesMassFilter, setBaseNamesMassFilter] = usePersistedState<string>("dashboard-base:namesMassFilter", "")
   const [basePhonesMassFilter, setBasePhonesMassFilter] = usePersistedState<string>("dashboard-base:phonesMassFilter", "")
+  const [baseWithPhonesFilter, setBaseWithPhonesFilter] = usePersistedState<boolean>("dashboard-base:withPhonesFilter", false)
   const [baseNoPhonesFilter, setBaseNoPhonesFilter] = usePersistedState<boolean>("dashboard-base:noPhonesFilter", false)
   const [baseBirthMonthFilter, setBaseBirthMonthFilter] = usePersistedState<string[]>("dashboard-base:birthMonthFilter", [])
   const [baseSortBy, setBaseSortBy] = usePersistedState<LeadSort>("dashboard-base:sortBy", BASE_SORT_DEFAULT)
@@ -159,6 +160,7 @@ const Dashboard = () => {
   const [cpfMassFilter, setCpfMassFilter] = usePersistedState<string>("dashboard:cpfMassFilter", "")
   const [namesMassFilter, setNamesMassFilter] = usePersistedState<string>("dashboard:namesMassFilter", "")
   const [phonesMassFilter, setPhonesMassFilter] = usePersistedState<string>("dashboard:phonesMassFilter", "")
+  const [withPhonesFilter, setWithPhonesFilter] = usePersistedState<boolean>("dashboard:withPhonesFilter", false)
   const [noPhonesFilter, setNoPhonesFilter] = usePersistedState<boolean>("dashboard:noPhonesFilter", false)
   const [vendorsFilter, setVendorsFilter] = usePersistedState<string[]>("dashboard:vendorsFilter", [])
   const [birthMonthFilter, setBirthMonthFilter] = usePersistedState<string[]>("dashboard:birthMonthFilter", [])
@@ -184,6 +186,7 @@ const Dashboard = () => {
   const [cltCpfMassFilter, setCltCpfMassFilter] = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
   const [cltNamesMassFilter, setCltNamesMassFilter] = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
   const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-clt:phonesMassFilter", "")
+  const [cltWithPhonesFilter, setCltWithPhonesFilter] = usePersistedState<boolean>("dashboard-clt:withPhonesFilter", false)
   const [cltNoPhonesFilter, setCltNoPhonesFilter] = usePersistedState<boolean>("dashboard-clt:noPhonesFilter", false)
   const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
   const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
@@ -221,6 +224,7 @@ const Dashboard = () => {
   const [mercantilCpfMassFilter, setMercantilCpfMassFilter] = usePersistedState<string>("dashboard-mercantil:cpfMassFilter", "")
   const [mercantilNamesMassFilter, setMercantilNamesMassFilter] = usePersistedState<string>("dashboard-mercantil:namesMassFilter", "")
   const [mercantilPhonesMassFilter, setMercantilPhonesMassFilter] = usePersistedState<string>("dashboard-mercantil:phonesMassFilter", "")
+  const [mercantilWithPhonesFilter, setMercantilWithPhonesFilter] = usePersistedState<boolean>("dashboard-mercantil:withPhonesFilter", false)
   const [mercantilNoPhonesFilter, setMercantilNoPhonesFilter] = usePersistedState<boolean>("dashboard-mercantil:noPhonesFilter", false)
   const [mercantilBirthMonthFilter, setMercantilBirthMonthFilter] = usePersistedState<string[]>("dashboard-mercantil:birthMonthFilter", [])
   const [mercantilSituacao, setMercantilSituacao] = usePersistedState<"todos" | "consultado" | "sem_consulta">(
@@ -281,18 +285,19 @@ const Dashboard = () => {
       baseCpfMassFilter,
       baseNamesMassFilter,
       basePhonesMassFilter,
+      baseWithPhonesFilter,
       baseNoPhonesFilter,
       baseBirthMonthFilter,
       baseSortBy,
       // FGTS
       searchValue, statusFilter, motivosFilter, origemFilter, higienizacaoFilter,
       dateFromFilter, dateToFilter, contractDateFromFilter, contractDateToFilter,
-      cpfMassFilter, namesMassFilter, phonesMassFilter, noPhonesFilter, vendorsFilter, birthMonthFilter,
+      cpfMassFilter, namesMassFilter, phonesMassFilter, withPhonesFilter, noPhonesFilter, vendorsFilter, birthMonthFilter,
       fgtsAuthorizedFilter, fgtsConsultaFromFilter, fgtsConsultaToFilter,
       // CLT
       cltSearchValue, cltStatusFilter, cltMotivosFilter, cltOrigemFilter, cltHigienizacaoFilter,
       cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
-      cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltNoPhonesFilter, cltVendorsFilter, cltBirthMonthFilter,
+      cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltWithPhonesFilter, cltNoPhonesFilter, cltVendorsFilter, cltBirthMonthFilter,
       cltConsultado, cltSituacao,
       cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
@@ -302,7 +307,7 @@ const Dashboard = () => {
       // MERCANTIL
       mercantilSearchValue,
       mercantilOrigemFilter,
-      mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter, mercantilNoPhonesFilter,
+      mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter, mercantilWithPhonesFilter, mercantilNoPhonesFilter,
       mercantilBirthMonthFilter,
       mercantilSituacao, mercantilStatusEffective,
       mercantilConsultaFrom, mercantilConsultaTo,
@@ -320,6 +325,7 @@ const Dashboard = () => {
           cpf: baseCpfMassFilter,
           names: baseNamesMassFilter,
           phones: basePhonesMassFilter,
+          with_phones: baseWithPhonesFilter || undefined,
           without_phones: baseNoPhonesFilter || undefined,
           birth_month: baseBirthMonthFilter,
           sort: baseSortBy,
@@ -341,6 +347,7 @@ const Dashboard = () => {
           cpf: cpfMassFilter,
           names: namesMassFilter,
           phones: phonesMassFilter,
+          with_phones: withPhonesFilter || undefined,
           without_phones: noPhonesFilter || undefined,
           vendors: vendorsFilter,
           birth_month: birthMonthFilter,
@@ -362,6 +369,7 @@ const Dashboard = () => {
           cpf: cltCpfMassFilter,
           names: cltNamesMassFilter,
           phones: cltPhonesMassFilter,
+          with_phones: cltWithPhonesFilter || undefined,
           without_phones: cltNoPhonesFilter || undefined,
           birth_month: cltBirthMonthFilter,
           clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
@@ -401,6 +409,7 @@ const Dashboard = () => {
         cpf: mercantilCpfMassFilter,
         names: mercantilNamesMassFilter,
         phones: mercantilPhonesMassFilter,
+        with_phones: mercantilWithPhonesFilter || undefined,
         without_phones: mercantilNoPhonesFilter || undefined,
         birth_month: mercantilBirthMonthFilter,
         mercantil_situacao:
@@ -658,6 +667,7 @@ const Dashboard = () => {
     setBaseCpfMassFilter("")
     setBaseNamesMassFilter("")
     setBasePhonesMassFilter("")
+    setBaseWithPhonesFilter(false)
     setBaseNoPhonesFilter(false)
     setBaseBirthMonthFilter([])
     setBaseSortBy(BASE_SORT_DEFAULT)
@@ -676,6 +686,7 @@ const Dashboard = () => {
     setCpfMassFilter("")
     setNamesMassFilter("")
     setPhonesMassFilter("")
+    setWithPhonesFilter(false)
     setNoPhonesFilter(false)
     setVendorsFilter([])
     setBirthMonthFilter([])
@@ -697,6 +708,7 @@ const Dashboard = () => {
     setCltCpfMassFilter("")
     setCltNamesMassFilter("")
     setCltPhonesMassFilter("")
+    setCltWithPhonesFilter(false)
     setCltNoPhonesFilter(false)
     setCltVendorsFilter([])
     setCltBirthMonthFilter([])
@@ -735,6 +747,7 @@ const Dashboard = () => {
     setMercantilCpfMassFilter("")
     setMercantilNamesMassFilter("")
     setMercantilPhonesMassFilter("")
+    setMercantilWithPhonesFilter(false)
     setMercantilNoPhonesFilter(false)
     setMercantilBirthMonthFilter([])
     setMercantilSituacao("todos")
@@ -767,6 +780,7 @@ const Dashboard = () => {
     baseCpfMassFilter ||
     baseNamesMassFilter ||
     basePhonesMassFilter ||
+    baseWithPhonesFilter ||
     baseNoPhonesFilter ||
     baseBirthMonthFilter.length
 
@@ -782,6 +796,7 @@ const Dashboard = () => {
     cpfMassFilter ||
     namesMassFilter ||
     phonesMassFilter ||
+    withPhonesFilter ||
     noPhonesFilter ||
     higienizacaoFilter.length ||
     vendorsFilter.length ||
@@ -797,6 +812,7 @@ const Dashboard = () => {
     cltCpfMassFilter ||
     cltNamesMassFilter ||
     cltPhonesMassFilter ||
+    cltWithPhonesFilter ||
     cltNoPhonesFilter ||
     cltBirthMonthFilter.length ||
     cltConsultado !== "todos" ||
@@ -826,6 +842,7 @@ const Dashboard = () => {
     mercantilCpfMassFilter ||
     mercantilNamesMassFilter ||
     mercantilPhonesMassFilter ||
+    mercantilWithPhonesFilter ||
     mercantilNoPhonesFilter ||
     mercantilBirthMonthFilter.length ||
     mercantilSituacao !== "todos" ||
@@ -855,6 +872,7 @@ const Dashboard = () => {
         cpf: baseCpfMassFilter || undefined,
         names: baseNamesMassFilter || undefined,
         phones: basePhonesMassFilter || undefined,
+        with_phones: baseWithPhonesFilter || undefined,
         without_phones: baseNoPhonesFilter || undefined,
         birth_month: baseBirthMonthFilter.length ? baseBirthMonthFilter : undefined,
       }
@@ -874,6 +892,7 @@ const Dashboard = () => {
         cpf: cpfMassFilter || undefined,
         names: namesMassFilter || undefined,
         phones: phonesMassFilter || undefined,
+        with_phones: withPhonesFilter || undefined,
         without_phones: noPhonesFilter || undefined,
         vendors: vendorsFilter.length ? vendorsFilter : undefined,
         birth_month: birthMonthFilter.length ? birthMonthFilter : undefined,
@@ -895,6 +914,7 @@ const Dashboard = () => {
         cpf: cltCpfMassFilter || undefined,
         names: cltNamesMassFilter || undefined,
         phones: cltPhonesMassFilter || undefined,
+        with_phones: cltWithPhonesFilter || undefined,
         without_phones: cltNoPhonesFilter || undefined,
         birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
         clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
@@ -932,6 +952,7 @@ const Dashboard = () => {
       cpf: mercantilCpfMassFilter || undefined,
       names: mercantilNamesMassFilter || undefined,
       phones: mercantilPhonesMassFilter || undefined,
+      with_phones: mercantilWithPhonesFilter || undefined,
       without_phones: mercantilNoPhonesFilter || undefined,
       birth_month: mercantilBirthMonthFilter.length ? mercantilBirthMonthFilter : undefined,
       mercantil_situacao:
@@ -1026,6 +1047,7 @@ const Dashboard = () => {
       cpfMassFilter: baseCpfMassFilter, setCpfMassFilter: setBaseCpfMassFilter,
       namesMassFilter: baseNamesMassFilter, setNamesMassFilter: setBaseNamesMassFilter,
       phonesMassFilter: basePhonesMassFilter, setPhonesMassFilter: setBasePhonesMassFilter,
+      withPhonesFilter: baseWithPhonesFilter, setWithPhonesFilter: setBaseWithPhonesFilter,
       noPhonesFilter: baseNoPhonesFilter, setNoPhonesFilter: setBaseNoPhonesFilter,
       vendorsFilter: [] as string[], setVendorsFilter: (_: string[]) => {},
       birthMonthFilter: baseBirthMonthFilter, setBirthMonthFilter: setBaseBirthMonthFilter,
@@ -1052,6 +1074,7 @@ const Dashboard = () => {
       cpfMassFilter, setCpfMassFilter,
       namesMassFilter, setNamesMassFilter,
       phonesMassFilter, setPhonesMassFilter,
+      withPhonesFilter, setWithPhonesFilter,
       noPhonesFilter, setNoPhonesFilter,
       vendorsFilter, setVendorsFilter,
       birthMonthFilter, setBirthMonthFilter,
@@ -1076,6 +1099,7 @@ const Dashboard = () => {
         cpfMassFilter: cltCpfMassFilter, setCpfMassFilter: setCltCpfMassFilter,
         namesMassFilter: cltNamesMassFilter, setNamesMassFilter: setCltNamesMassFilter,
         phonesMassFilter: cltPhonesMassFilter, setPhonesMassFilter: setCltPhonesMassFilter,
+        withPhonesFilter: cltWithPhonesFilter, setWithPhonesFilter: setCltWithPhonesFilter,
         noPhonesFilter: cltNoPhonesFilter, setNoPhonesFilter: setCltNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: cltBirthMonthFilter, setBirthMonthFilter: setCltBirthMonthFilter,
@@ -1101,6 +1125,7 @@ const Dashboard = () => {
         cpfMassFilter: mercantilCpfMassFilter, setCpfMassFilter: setMercantilCpfMassFilter,
         namesMassFilter: mercantilNamesMassFilter, setNamesMassFilter: setMercantilNamesMassFilter,
         phonesMassFilter: mercantilPhonesMassFilter, setPhonesMassFilter: setMercantilPhonesMassFilter,
+        withPhonesFilter: mercantilWithPhonesFilter, setWithPhonesFilter: setMercantilWithPhonesFilter,
         noPhonesFilter: mercantilNoPhonesFilter, setNoPhonesFilter: setMercantilNoPhonesFilter,
         vendorsFilter: cltVendorsFilter, setVendorsFilter: setCltVendorsFilter,
         birthMonthFilter: mercantilBirthMonthFilter, setBirthMonthFilter: setMercantilBirthMonthFilter,
@@ -1176,6 +1201,8 @@ const Dashboard = () => {
         onNamesMassFilterChange={ui.setNamesMassFilter}
         phonesMassFilter={ui.phonesMassFilter}
         onPhonesMassFilterChange={ui.setPhonesMassFilter}
+        withPhonesFilter={ui.withPhonesFilter}
+        onWithPhonesFilterChange={ui.setWithPhonesFilter}
         noPhonesFilter={ui.noPhonesFilter}
         onNoPhonesFilterChange={ui.setNoPhonesFilter}
         birthMonthFilter={ui.birthMonthFilter}

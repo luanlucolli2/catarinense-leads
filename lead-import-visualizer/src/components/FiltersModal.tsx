@@ -28,6 +28,7 @@ interface FiltersModalProps {
   cpfMassFilter: string
   namesMassFilter: string
   phonesMassFilter: string
+  withPhonesFilter: boolean
   noPhonesFilter: boolean
   dateFromFilter: string
   dateToFilter: string
@@ -47,6 +48,7 @@ interface FiltersModalProps {
   onCpfMassFilterChange: (v: string) => void
   onNamesMassFilterChange: (v: string) => void
   onPhonesMassFilterChange: (v: string) => void
+  onWithPhonesFilterChange: (v: boolean) => void
   onNoPhonesFilterChange: (v: boolean) => void
   onDateFromFilterChange: (v: string) => void
   onDateToFilterChange: (v: string) => void
@@ -274,6 +276,7 @@ export const FiltersModal = ({
   cpfMassFilter,
   namesMassFilter,
   phonesMassFilter,
+  withPhonesFilter,
   noPhonesFilter,
   dateFromFilter,
   dateToFilter,
@@ -292,6 +295,7 @@ export const FiltersModal = ({
   onCpfMassFilterChange,
   onNamesMassFilterChange,
   onPhonesMassFilterChange,
+  onWithPhonesFilterChange,
   onNoPhonesFilterChange,
   onDateFromFilterChange,
   onDateToFilterChange,
@@ -391,6 +395,7 @@ export const FiltersModal = ({
   const [localCpfMass, setLocalCpfMass] = useState(cpfMassFilter)
   const [localNamesMass, setLocalNamesMass] = useState(namesMassFilter)
   const [localPhonesMass, setLocalPhonesMass] = useState(phonesMassFilter)
+  const [localWithPhones, setLocalWithPhones] = useState(withPhonesFilter)
   const [localNoPhones, setLocalNoPhones] = useState(noPhonesFilter)
   const [localDateFrom, setLocalDateFrom] = useState(dateFromFilter)
   const [localDateTo, setLocalDateTo] = useState(dateToFilter)
@@ -451,6 +456,7 @@ export const FiltersModal = ({
     setLocalCpfMass(cpfMassFilter)
     setLocalNamesMass(namesMassFilter)
     setLocalPhonesMass(phonesMassFilter)
+    setLocalWithPhones(withPhonesFilter)
     setLocalNoPhones(noPhonesFilter)
     setLocalDateFrom(dateFromFilter)
     setLocalDateTo(dateToFilter)
@@ -509,6 +515,7 @@ export const FiltersModal = ({
     cpfMassFilter,
     namesMassFilter,
     phonesMassFilter,
+    withPhonesFilter,
     noPhonesFilter,
     dateFromFilter,
     dateToFilter,
@@ -552,6 +559,7 @@ export const FiltersModal = ({
     onCpfMassFilterChange(localCpfMass.trim())
     onNamesMassFilterChange(localNamesMass.trim())
     onPhonesMassFilterChange(localPhonesMass.trim())
+    onWithPhonesFilterChange(localWithPhones)
     onNoPhonesFilterChange(localNoPhones)
     onDateFromFilterChange(localDateFrom)
     onDateToFilterChange(localDateTo)
@@ -626,7 +634,9 @@ export const FiltersModal = ({
   const isFgtsStatusActive = localFgtsAuthorized !== "todos"
   const isFgtsPeriodActive = any([localFgtsFrom, localFgtsTo])
   const isMassActive = any([localCpfMass, localNamesMass, localPhonesMass])
+  const isWithPhonesActive = localWithPhones
   const isNoPhonesActive = localNoPhones
+  const isPhonesPresenceActive = isWithPhonesActive || isNoPhonesActive
 
   // CLT actives
   const actCltSituacao =
@@ -666,6 +676,7 @@ export const FiltersModal = ({
   const chips: string[] = []
   if (isSearchActive) chips.push("Pesquisa")
   if (isOrigensActive) chips.push(`Origem (${localOrigens.length})`)
+  if (isWithPhonesActive) chips.push("Com telefone")
   if (isNoPhonesActive) chips.push("Sem telefone")
   if (mode === "FGTS") {
     if (isMotivosActive) chips.push(`Motivos (${localMotivos.length})`)
@@ -782,20 +793,43 @@ export const FiltersModal = ({
 
             {/* Aniversário */}
             <div>
-              <Section title="Telefones" description="Mostra só leads sem nenhum telefone cadastrado." active={isNoPhonesActive}>
-                <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
-                  <Checkbox
-                    checked={localNoPhones}
-                    onCheckedChange={(checked) => setLocalNoPhones(!!checked)}
-                    className="mt-0.5"
-                  />
-                  <div className="space-y-1">
-                    <div className={cn("text-sm font-medium", isNoPhonesActive ? "text-blue-700" : "text-gray-800")}>
-                      Sem nenhum telefone
+              <Section title="Telefones" description="Mostra só leads com ou sem telefone cadastrado." active={isPhonesPresenceActive}>
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
+                    <Checkbox
+                      checked={localWithPhones}
+                      onCheckedChange={(checked) => {
+                        const next = !!checked
+                        setLocalWithPhones(next)
+                        if (next) setLocalNoPhones(false)
+                      }}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-1">
+                      <div className={cn("text-sm font-medium", isWithPhonesActive ? "text-blue-700" : "text-gray-800")}>
+                        Com algum telefone
+                      </div>
+                      <p className="text-xs text-gray-500">Considera `fone1` a `fone4` com ao menos um valor preenchido.</p>
                     </div>
-                    <p className="text-xs text-gray-500">Considera `fone1` a `fone4` vazios.</p>
-                  </div>
-                </label>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
+                    <Checkbox
+                      checked={localNoPhones}
+                      onCheckedChange={(checked) => {
+                        const next = !!checked
+                        setLocalNoPhones(next)
+                        if (next) setLocalWithPhones(false)
+                      }}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-1">
+                      <div className={cn("text-sm font-medium", isNoPhonesActive ? "text-blue-700" : "text-gray-800")}>
+                        Sem nenhum telefone
+                      </div>
+                      <p className="text-xs text-gray-500">Considera `fone1` a `fone4` vazios.</p>
+                    </div>
+                  </label>
+                </div>
               </Section>
             </div>
 
