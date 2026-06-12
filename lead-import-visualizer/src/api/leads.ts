@@ -225,6 +225,7 @@ export interface LeadFilters {
   cpf?: string
   names?: string
   phones?: string
+  with_phones?: boolean
   without_phones?: boolean
   vendors?: string[]
   birth_month?: string[]
@@ -385,6 +386,7 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     const list = splitAndNormalize(f.phones, true)
     if (list.length) p.set("phones", list.join(","))
   }
+  if (f.with_phones) p.set("with_phones", "1")
   if (f.without_phones) p.set("without_phones", "1")
   // Vendors só é relevante no FGTS
   if (mode === "fgts" && f.vendors?.length) p.set("vendors", f.vendors.join(","))
@@ -419,6 +421,7 @@ export async function fetchLeadsBase(filters: LeadFilters) {
       sort: filters.sort || undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
       without_phones: filters.without_phones || undefined,
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
@@ -456,6 +459,7 @@ export async function fetchLeadsFGTS(filters: LeadFilters) {
       contract_to: filters.contract_to || undefined,
       vendors: filters.vendors?.length ? filters.vendors : undefined,
       birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
       without_phones: filters.without_phones || undefined,
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
@@ -490,6 +494,7 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
       // CLT: apenas o que faz sentido
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
       without_phones: filters.without_phones || undefined,
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
@@ -548,6 +553,7 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
       sort: filters.sort || undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
       without_phones: filters.without_phones || undefined,
       cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,

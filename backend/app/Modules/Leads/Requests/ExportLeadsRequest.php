@@ -34,6 +34,7 @@ class ExportLeadsRequest extends FormRequest
             'cpf' => ['nullable'],
             'names' => ['nullable'],
             'phones' => ['nullable'],
+            'with_phones' => ['nullable', 'boolean'],
             'without_phones' => ['nullable', 'boolean'],
             'birth_month' => ['nullable'],
 

@@ -415,11 +415,25 @@ class LeadFilter
             $query->whereBetween('leads.data_atualizacao', ["{$from} 00:00:00", "{$to} 23:59:59"]);
         }
 
+        $phoneColumns = ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'];
+
         self::applyMassFilter($query, $r, 'cpf', ['leads.cpf']);
         self::applyMassFilter($query, $r, 'names', ['leads.nome']);
-        self::applyMassFilter($query, $r, 'phones', ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4']);
+        self::applyMassFilter($query, $r, 'phones', $phoneColumns);
+        if ($r->boolean('with_phones')) {
+            $query->where(function (Builder $phoneQuery) use ($phoneColumns) {
+                foreach ($phoneColumns as $index => $phoneColumn) {
+                    $method = $index === 0 ? 'where' : 'orWhere';
+                    $phoneQuery->{$method}(function (Builder $filledPhoneQuery) use ($phoneColumn) {
+                        $filledPhoneQuery
+                            ->whereNotNull($phoneColumn)
+                            ->whereRaw("TRIM({$phoneColumn}) <> ''");
+                    });
+                }
+            });
+        }
         if ($r->boolean('without_phones')) {
-            foreach (['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'] as $phoneColumn) {
+            foreach ($phoneColumns as $phoneColumn) {
                 $query->where(function (Builder $phoneQuery) use ($phoneColumn) {
                     $phoneQuery
                         ->whereNull($phoneColumn)
