@@ -177,6 +177,7 @@ class NewCorbanProposalService
             'v8', 'facta' => '935',
             'pan' => '623',
             'c6' => '626',
+            'soma' => '2560092',
             'novo_saque' => '500001',
             default => null,
         };
@@ -186,6 +187,7 @@ class NewCorbanProposalService
     {
         return match ($this->bankKey($value)) {
             'v8' => '413',
+            'soma' => '3570',
             'novo_saque' => '4412',
             default => '411',
         };
@@ -198,6 +200,7 @@ class NewCorbanProposalService
             'c6' => '11521981906_000855',
             'pan' => '11521981906_007528',
             'facta' => '20953',
+            'soma' => '05395929940',
             'v8' => 'karen@catarinensecredito.com.br',
             'novo_saque' => 'contatoia@catarinensecredito.com.br',
             default => null,
@@ -228,10 +231,13 @@ class NewCorbanProposalService
 
     private function bankKey(mixed $value): string
     {
-        return match (mb_strtolower((string) $this->stringOrNull($value))) {
-            'presença' => 'presenca',
-            'novo saque' => 'novo_saque',
-            default => mb_strtolower((string) $this->stringOrNull($value)),
+        $normalized = mb_strtolower((string) $this->stringOrNull($value));
+
+        return match (true) {
+            $normalized === 'presença' => 'presenca',
+            $normalized === 'novo saque' => 'novo_saque',
+            str_contains($normalized, 'soma') => 'soma',
+            default => $normalized,
         };
     }
 
