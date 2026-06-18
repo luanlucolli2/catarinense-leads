@@ -10,7 +10,10 @@ use Illuminate\Support\Carbon;
 
 final class Uy3CltCsvExport
 {
-    private const TYPE_WEBHOOK_CLT = 'LEADS_CLT';
+    private const TYPE_WEBHOOKS_CLT = [
+        'LEADS_CLT',
+        'LEADS_CLT_NÃO_QUALIFICADOS',
+    ];
 
     public static function headings(): array
     {
@@ -84,7 +87,7 @@ final class Uy3CltCsvExport
             $query->where('received_at', '<=', $to);
         }
 
-        Uy3PostQuery::applyTypeWebhookFilter($query, self::TYPE_WEBHOOK_CLT);
+        Uy3PostQuery::applyTypeWebhookFilter($query, self::TYPE_WEBHOOKS_CLT);
 
         $query->orderBy($sort, $direction);
         if ($sort !== 'id') {
