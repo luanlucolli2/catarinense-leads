@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -641,6 +641,7 @@ export default function IntegracoesVendeaiPage() {
   const [manualRefreshLockedUntil, setManualRefreshLockedUntil] = useState(0);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
+  const skipNextSearchAutoApplyRef = useRef(false);
 
   const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
 
@@ -670,6 +671,11 @@ export default function IntegracoesVendeaiPage() {
   }, []);
 
   useEffect(() => {
+    if (skipNextSearchAutoApplyRef.current) {
+      skipNextSearchAutoApplyRef.current = false;
+      return;
+    }
+
     const nextSearch = searchInput.trim();
     const timer = window.setTimeout(() => {
       setApplied((current) => {
@@ -952,6 +958,25 @@ export default function IntegracoesVendeaiPage() {
     setLeadsPage(1);
   };
 
+  const resetModalFilters = () => {
+    const defaults = defaultFilters();
+    skipNextSearchAutoApplyRef.current = true;
+    setFromInput(defaults.from);
+    setToInput(defaults.to);
+    setSearchInput(defaults.search);
+    setWindowModeInput(defaults.windowMode);
+    setPeriodPresetInput(defaults.periodPreset);
+    setDirectionInput(defaults.direction);
+    setProductInput(defaults.product);
+    setBankInput(defaults.bank);
+    setStageInput(defaults.stage);
+    setProposalStatusInput(defaults.proposalStatus);
+    setNewcorbanStatusInput(defaults.newcorbanStatus);
+    setInboxPhoneNumberInput(defaults.inboxPhoneNumber);
+    setTagsInput(defaults.tags);
+    setRangeError(null);
+  };
+
   const handleManualRefresh = () => {
     if (metricsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) return;
     setManualRefreshLockedUntil(Date.now() + MANUAL_REFRESH_COOLDOWN_MS);
@@ -1060,7 +1085,7 @@ export default function IntegracoesVendeaiPage() {
         onInboxPhoneNumberChange={setInboxPhoneNumberInput}
         onTagsChange={setTagsInput}
         onPeriodPresetChange={applyPeriodPreset}
-        onClearFilters={clearFilters}
+        onClearFilters={resetModalFilters}
         onApply={handleApplyFilters}
       />
 
