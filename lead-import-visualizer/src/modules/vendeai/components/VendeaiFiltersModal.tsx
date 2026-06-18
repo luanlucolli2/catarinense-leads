@@ -11,7 +11,7 @@ type WindowMode = "always" | "rolling" | "fixed";
 type ProductFilter = "all" | "clt" | "fgts";
 type SortDirection = "asc" | "desc";
 type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
-type NewcorbanStatusFilter = "all" | "not_sent" | "success" | "failed";
+type NewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
 
 type WindowModeOption = {
   value: WindowMode;
@@ -168,7 +168,6 @@ export function VendeaiFiltersModal({
   onStageChange,
   onProposalStatusChange,
   onNewcorbanStatusChange,
-  onCampaignChange,
   onInboxPhoneNumberChange,
   onTagsChange,
   onPeriodPresetChange,
@@ -201,6 +200,8 @@ export function VendeaiFiltersModal({
           `New Corban · ${
             newcorbanStatus === "not_sent"
               ? "Não enviada"
+              : newcorbanStatus === "sent"
+                ? "Enviada"
               : newcorbanStatus === "success"
                 ? "Enviada com sucesso"
                 : "Enviada com erro"
@@ -513,6 +514,7 @@ export function VendeaiFiltersModal({
                   <SelectContent className="shadow-lg">
                     <SelectItem value="all">Todas</SelectItem>
                     <SelectItem value="not_sent">Não enviada para a New Corban</SelectItem>
+                    <SelectItem value="sent">Enviada para a New Corban</SelectItem>
                     <SelectItem value="success">Enviada com sucesso</SelectItem>
                     <SelectItem value="failed">Enviada com erro</SelectItem>
                   </SelectContent>

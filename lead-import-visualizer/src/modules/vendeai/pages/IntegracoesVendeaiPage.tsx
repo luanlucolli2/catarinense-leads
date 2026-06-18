@@ -297,6 +297,7 @@ function loadFilters(): FiltersState {
     const proposalStatus = typeof parsed.proposalStatus === "string" ? parsed.proposalStatus : fallback.proposalStatus;
     const newcorbanStatus: VendeaiNewcorbanStatusFilter =
       parsed.newcorbanStatus === "not_sent" ||
+      parsed.newcorbanStatus === "sent" ||
       parsed.newcorbanStatus === "success" ||
       parsed.newcorbanStatus === "failed" ||
       parsed.newcorbanStatus === "all"
@@ -465,6 +466,7 @@ function proposalStatusLabel(label: string | null): string {
 
 function newcorbanStatusLabel(value: VendeaiNewcorbanStatusFilter): string {
   if (value === "not_sent") return "Não enviada para a New Corban";
+  if (value === "sent") return "Enviada para a New Corban";
   if (value === "success") return "Enviada com sucesso";
   if (value === "failed") return "Enviada com erro";
   return "Todas";

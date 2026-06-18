@@ -3,7 +3,7 @@ import axiosClient from "./axiosClient";
 export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
 export type VendeaiProductFilter = "all" | "clt" | "fgts";
-export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "success" | "failed";
+export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
 export type VendeaiExportStatus = "queued" | "running" | "ready" | "error" | "none" | "deleted";
 export type VendeaiExportType = "leads" | "newcorban-proposal-attempts";
 
