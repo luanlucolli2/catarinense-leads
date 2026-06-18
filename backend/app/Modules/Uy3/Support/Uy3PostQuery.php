@@ -54,14 +54,23 @@ final class Uy3PostQuery
         return $query;
     }
 
-    public static function applyTypeWebhookFilter(EloquentBuilder|QueryBuilder $query, string $typeWebhook): void
+    public static function applyTypeWebhookFilter(EloquentBuilder|QueryBuilder $query, string|array $typeWebhook): void
     {
-        if (self::hasTypeWebhookColumn()) {
-            $query->where('type_webhook', $typeWebhook);
+        $types = array_values(array_filter((array) $typeWebhook, static fn (mixed $value): bool => is_string($value) && $value !== ''));
+        if ($types === []) {
             return;
         }
 
-        $query->where('payload->typeWebook', $typeWebhook);
+        if (self::hasTypeWebhookColumn()) {
+            count($types) === 1
+                ? $query->where('type_webhook', $types[0])
+                : $query->whereIn('type_webhook', $types);
+            return;
+        }
+
+        count($types) === 1
+            ? $query->where('payload->typeWebook', $types[0])
+            : $query->whereIn('payload->typeWebook', $types);
     }
 
     public static function decodeJsonPayload(mixed $payload): mixed
