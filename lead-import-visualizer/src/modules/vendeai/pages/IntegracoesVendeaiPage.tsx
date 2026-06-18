@@ -493,8 +493,7 @@ function newcorbanStatusLabel(value: VendeaiNewcorbanStatusFilter): string {
 }
 
 function summarizeSelected(values: string[], getLabel: (value: string) => string): string {
-  const first = getLabel(values[0] || "");
-  return values.length === 1 ? first : `${first} +${values.length - 1}`;
+  return values.map((value) => getLabel(value)).join(", ");
 }
 
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
@@ -829,7 +828,7 @@ export default function IntegracoesVendeaiPage() {
     ...(applied.inboxPhoneNumber === "all" ? [] : [`Número da IA: ${formatPhone(applied.inboxPhoneNumber)}`]),
     ...(applied.proposalStatus.length ? [`Status da proposta: ${summarizeSelected(applied.proposalStatus, (value) => proposalStatusLabel(value))}`] : []),
     ...(applied.newcorbanStatus.length ? [`New Corban: ${summarizeSelected(applied.newcorbanStatus, (value) => newcorbanStatusLabel(value as VendeaiNewcorbanStatusFilter))}`] : []),
-    ...(applied.tags.length ? [`Tags: ${applied.tags.length === 1 ? applied.tags[0] : `${applied.tags[0]} +${applied.tags.length - 1}`}`] : []),
+    ...(applied.tags.length ? [`Tags: ${applied.tags.join(", ")}`] : []),
   ];
 
   const applyFilters = (): boolean => {
