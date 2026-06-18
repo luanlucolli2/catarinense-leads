@@ -4,6 +4,8 @@ export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
 export type VendeaiProductFilter = "all" | "clt" | "fgts";
 export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
+export type VendeaiProductValue = Exclude<VendeaiProductFilter, "all">;
+export type VendeaiNewcorbanStatusValue = Exclude<VendeaiNewcorbanStatusFilter, "all">;
 export type VendeaiExportStatus = "queued" | "running" | "ready" | "error" | "none" | "deleted";
 export type VendeaiExportType = "leads" | "newcorban-proposal-attempts";
 
@@ -186,12 +188,12 @@ export interface VendeaiFilters {
   to?: string;
   status?: VendeaiAttemptStatus;
   direction?: VendeaiSortDirection;
-  product?: VendeaiProductFilter;
+  product?: VendeaiProductValue[];
   search?: string;
-  bank?: string;
-  stage?: string;
-  proposalStatus?: string;
-  newcorbanStatus?: VendeaiNewcorbanStatusFilter;
+  bank?: string[];
+  stage?: string[];
+  proposalStatus?: string[];
+  newcorbanStatus?: VendeaiNewcorbanStatusValue[];
   inboxPhoneNumber?: string;
   tags?: string[];
 }
@@ -215,12 +217,12 @@ function buildParams(params: VendeaiFilters): Record<string, string | number | s
   if (params.to) query.to = params.to;
   if (params.status && params.status !== "all") query.status = params.status;
   if (params.direction) query.direction = params.direction;
-  if (params.product && params.product !== "all") query.product = params.product;
+  if (params.product?.length) query.product = params.product;
   if (params.search?.trim()) query.search = params.search.trim();
-  if (params.bank && params.bank !== "all") query.bank = params.bank;
-  if (params.stage && params.stage !== "all") query.stage = params.stage;
-  if (params.proposalStatus && params.proposalStatus !== "all") query.proposal_status = params.proposalStatus;
-  if (params.newcorbanStatus && params.newcorbanStatus !== "all") query.newcorban_status = params.newcorbanStatus;
+  if (params.bank?.length) query.bank = params.bank;
+  if (params.stage?.length) query.stage = params.stage;
+  if (params.proposalStatus?.length) query.proposal_status = params.proposalStatus;
+  if (params.newcorbanStatus?.length) query.newcorban_status = params.newcorbanStatus;
   if (params.inboxPhoneNumber && params.inboxPhoneNumber !== "all") query.inbox_phone_number = params.inboxPhoneNumber;
   if (params.tags?.length) query.tags = params.tags;
 

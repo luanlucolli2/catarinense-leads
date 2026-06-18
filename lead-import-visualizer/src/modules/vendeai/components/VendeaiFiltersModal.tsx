@@ -8,10 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 type WindowMode = "always" | "rolling" | "fixed";
-type ProductFilter = "all" | "clt" | "fgts";
+type ProductFilter = "clt" | "fgts";
 type SortDirection = "asc" | "desc";
 type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
-type NewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
+type NewcorbanStatusFilter = "not_sent" | "sent" | "success" | "failed";
 
 type WindowModeOption = {
   value: WindowMode;
@@ -33,11 +33,11 @@ type VendeaiFiltersModalProps = {
   windowMode: WindowMode;
   periodPreset: PeriodPreset;
   direction: SortDirection;
-  product: ProductFilter;
-  bank: string;
-  stage: string;
-  proposalStatus: string;
-  newcorbanStatus: NewcorbanStatusFilter;
+  product: ProductFilter[];
+  bank: string[];
+  stage: string[];
+  proposalStatus: string[];
+  newcorbanStatus: NewcorbanStatusFilter[];
   inboxPhoneNumber: string;
   tags: string[];
   bankOptions: FilterOption[];
@@ -53,11 +53,11 @@ type VendeaiFiltersModalProps = {
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
   onDirectionChange: (value: SortDirection) => void;
-  onProductChange: (value: ProductFilter) => void;
-  onBankChange: (value: string) => void;
-  onStageChange: (value: string) => void;
-  onProposalStatusChange: (value: string) => void;
-  onNewcorbanStatusChange: (value: NewcorbanStatusFilter) => void;
+  onProductChange: (value: ProductFilter[]) => void;
+  onBankChange: (value: string[]) => void;
+  onStageChange: (value: string[]) => void;
+  onProposalStatusChange: (value: string[]) => void;
+  onNewcorbanStatusChange: (value: NewcorbanStatusFilter[]) => void;
   onInboxPhoneNumberChange: (value: string) => void;
   onTagsChange: (value: string[]) => void;
   onPeriodPresetChange: (value: PeriodPreset) => void;
@@ -133,6 +133,12 @@ function optionLabel(options: FilterOption[], value: string): string {
   return options.find((option) => option.value === value)?.label ?? value;
 }
 
+function selectedSummary(options: FilterOption[], values: string[]): string | null {
+  if (values.length === 0) return null;
+  const first = optionLabel(options, values[0]);
+  return values.length === 1 ? first : `${first} +${values.length - 1}`;
+}
+
 export function VendeaiFiltersModal({
   isOpen,
   title,
@@ -189,23 +195,23 @@ export function VendeaiFiltersModal({
     ...(periodPreset === "always" ? [] : [`Período · ${periodPreset === "today" ? "Hoje" : periodPreset === "yesterday" ? "Ontem" : periodPreset === "last7Days" ? "7 dias" : periodPreset === "last30Days" ? "30 dias" : "Personalizado"}`]),
     ...(windowMode === "always" ? [] : [`Modo · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
     ...(search.trim() ? [`Busca · ${search.trim()}`] : []),
-    ...(product === "all" ? [] : [`Produto · ${product === "clt" ? "Crédito do Trabalhador" : "FGTS"}`]),
-    ...(bank === "all" ? [] : [`Banco · ${optionLabel(bankOptions, bank)}`]),
-    ...(stage === "all" ? [] : [`Etapa · ${optionLabel(stageOptions, stage)}`]),
+    ...(product.length ? [`Produto · ${selectedSummary([{ value: "clt", label: "Crédito do Trabalhador" }, { value: "fgts", label: "FGTS" }], product)}`] : []),
+    ...(bank.length ? [`Banco · ${selectedSummary(bankOptions, bank)}`] : []),
+    ...(stage.length ? [`Etapa · ${selectedSummary(stageOptions, stage)}`] : []),
     ...(inboxPhoneNumber === "all" ? [] : [`Número IA · ${optionLabel(inboxPhoneNumberOptions, inboxPhoneNumber)}`]),
-    ...(proposalStatus === "all" ? [] : [`Status proposta · ${optionLabel(proposalStatusOptions, proposalStatus)}`]),
-    ...(newcorbanStatus === "all"
+    ...(proposalStatus.length ? [`Status proposta · ${selectedSummary(proposalStatusOptions, proposalStatus)}`] : []),
+    ...(newcorbanStatus.length === 0
       ? []
       : [
-          `New Corban · ${
-            newcorbanStatus === "not_sent"
-              ? "Não enviada"
-              : newcorbanStatus === "sent"
-                ? "Enviada"
-              : newcorbanStatus === "success"
-                ? "Enviada com sucesso"
-                : "Enviada com erro"
-          }`,
+          `New Corban · ${selectedSummary(
+            [
+              { value: "not_sent", label: "Não enviada" },
+              { value: "sent", label: "Enviada" },
+              { value: "success", label: "Enviada com sucesso" },
+              { value: "failed", label: "Enviada com erro" },
+            ],
+            newcorbanStatus
+          )}`,
         ]),
     ...(tags.length ? [`Tags · ${tags.length === 1 ? tags[0] : `${tags[0]} +${tags.length - 1}`}`] : []),
   ];
@@ -374,66 +380,51 @@ export function VendeaiFiltersModal({
           </Group>
 
           <Group title="Conversa">
-            <Section title="Produto" description="Aplique um recorte por produto." active={product !== "all"}>
+            <Section title="Produto" description="Aplique um recorte por produto." active={product.length > 0}>
               <div>
                 <Label text="Produto" />
-                <Select value={product} onValueChange={(value) => onProductChange(value as ProductFilter)}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todos os produtos</SelectItem>
-                    <SelectItem value="clt">Crédito do Trabalhador</SelectItem>
-                    <SelectItem value="fgts">FGTS</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={[
+                      { value: "clt", label: "Crédito do Trabalhador" },
+                      { value: "fgts", label: "FGTS" },
+                    ]}
+                    selected={product}
+                    onChange={onProductChange}
+                    placeholder="Todos os produtos"
+                    searchPlaceholder="Pesquisar produtos..."
+                  />
+                </div>
               </div>
             </Section>
 
-            <Section title="Banco" description="Considere o banco da proposta ou da simulação." active={bank !== "all"}>
+            <Section title="Banco" description="Considere o banco da proposta ou da simulação." active={bank.length > 0}>
               <div>
                 <Label text="Banco" />
-                <Select value={bank} onValueChange={onBankChange}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todos os bancos</SelectItem>
-                    {bankOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={bankOptions}
+                    selected={bank}
+                    onChange={onBankChange}
+                    placeholder="Todos os bancos"
+                    searchPlaceholder="Pesquisar bancos..."
+                  />
+                </div>
               </div>
             </Section>
 
-            <Section title="Etapa" description="Filtre pela etapa atual da conversa." active={stage !== "all"}>
+            <Section title="Etapa" description="Filtre pela etapa atual da conversa." active={stage.length > 0}>
               <div>
                 <Label text="Etapa" />
-                <Select value={stage} onValueChange={onStageChange}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todas as etapas</SelectItem>
-                    {stageOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={stageOptions}
+                    selected={stage}
+                    onChange={onStageChange}
+                    placeholder="Todas as etapas"
+                    searchPlaceholder="Pesquisar etapas..."
+                  />
+                </div>
               </div>
             </Section>
 
@@ -477,48 +468,40 @@ export function VendeaiFiltersModal({
           </Group>
 
           <Group title="Proposta VendeAI">
-            <Section title="Status da proposta" description="Filtre pelo status atual da proposta na VendeAI." active={proposalStatus !== "all"}>
+            <Section title="Status da proposta" description="Filtre pelo status atual da proposta na VendeAI." active={proposalStatus.length > 0}>
               <div>
                 <Label text="Status da proposta" />
-                <Select value={proposalStatus} onValueChange={onProposalStatusChange}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todos os status</SelectItem>
-                    {proposalStatusOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={proposalStatusOptions}
+                    selected={proposalStatus}
+                    onChange={onProposalStatusChange}
+                    placeholder="Todos os status"
+                    searchPlaceholder="Pesquisar status..."
+                  />
+                </div>
               </div>
             </Section>
           </Group>
 
           <Group title="New Corban">
-            <Section title="Situação do envio" description="Filtre pela situação do envio para a New Corban." active={newcorbanStatus !== "all"}>
+            <Section title="Situação do envio" description="Filtre pela situação do envio para a New Corban." active={newcorbanStatus.length > 0}>
               <div>
                 <Label text="Situação do envio" />
-                <Select value={newcorbanStatus} onValueChange={(value) => onNewcorbanStatusChange(value as NewcorbanStatusFilter)}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="not_sent">Não enviada para a New Corban</SelectItem>
-                    <SelectItem value="sent">Enviada para a New Corban</SelectItem>
-                    <SelectItem value="success">Enviada com sucesso</SelectItem>
-                    <SelectItem value="failed">Enviada com erro</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={[
+                      { value: "not_sent", label: "Não enviada para a New Corban" },
+                      { value: "sent", label: "Enviada para a New Corban" },
+                      { value: "success", label: "Enviada com sucesso" },
+                      { value: "failed", label: "Enviada com erro" },
+                    ]}
+                    selected={newcorbanStatus}
+                    onChange={(values) => onNewcorbanStatusChange(values as NewcorbanStatusFilter[])}
+                    placeholder="Todas as situações"
+                    searchPlaceholder="Pesquisar situações..."
+                  />
+                </div>
               </div>
             </Section>
           </Group>

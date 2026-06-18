@@ -13,8 +13,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
+type MultiSelectOption = string | { value: string; label: string }
+
 interface MultiSelectProps {
-  options: string[]
+  options: MultiSelectOption[]
   selected: string[]
   onChange: (selected: string[]) => void
   placeholder?: string
@@ -55,6 +57,19 @@ export function MultiSelect({
   placeholderClassName = "truncate font-normal text-muted-foreground",
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false)
+  const normalizedOptions = React.useMemo(
+    () =>
+      options.map((option) =>
+        typeof option === "string"
+          ? { value: option, label: option }
+          : option
+      ),
+    [options]
+  )
+  const optionLabelMap = React.useMemo(
+    () => new Map(normalizedOptions.map((option) => [option.value, option.label])),
+    [normalizedOptions]
+  )
 
   const handleUnselect = (item: string) => {
     if (disabled) return
@@ -102,7 +117,7 @@ export function MultiSelect({
                     handleUnselect(item)
                   }}
                 >
-                  {item}
+                  {optionLabelMap.get(item) ?? item}
                   <X className="ml-1 h-3 w-3" />
                 </Badge>
               ))
@@ -131,14 +146,14 @@ export function MultiSelect({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => {
-                const isChecked = selected.includes(option)
+              {normalizedOptions.map((option) => {
+                const isChecked = selected.includes(option.value)
                 return (
                   <CommandItem
-                    key={option}
+                    key={option.value}
                     onSelect={() => {
                       if (disabled) return
-                      handleSelect(option)
+                      handleSelect(option.value)
                     }}
                     className={cn("cursor-pointer", disabled && "pointer-events-none opacity-60")}
                   >
@@ -151,7 +166,7 @@ export function MultiSelect({
                     >
                       <X className="h-3 w-3" />
                     </div>
-                    <span className="truncate">{option}</span>
+                    <span className="truncate">{option.label}</span>
                   </CommandItem>
                 )
               })}
