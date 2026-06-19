@@ -662,10 +662,6 @@ const ParceirosUY3Page = () => {
             </p>
           )}
 
-          <p className="text-sm text-gray-500 flex items-center gap-1.5">
-            <Info className="w-4 h-4 text-gray-400" />
-            Atenção: O CSV exporta somente registros com <strong className="font-semibold text-gray-700">typeWebook = LEADS_CLT</strong>.
-          </p>
         </div>
       </div>
 
