@@ -27,7 +27,7 @@ import { toast } from "sonner";
 
 type SortDirection = "desc" | "asc";
 type Uy3WindowMode = "rolling" | "fixed";
-type Uy3PeriodPreset = "custom" | "today" | "yesterday" | "last7Days" | "last30Days";
+type Uy3PeriodPreset = "always" | "custom" | "today" | "yesterday" | "last7Days" | "last30Days";
 type Uy3PersistedFilters = {
   from: string;
   to: string;
@@ -49,11 +49,12 @@ const windowModeOptions: Array<{ value: Uy3WindowMode; label: string }> = [
 ];
 
 const periodPresetOptions: Array<{ value: Uy3PeriodPreset; label: string }> = [
-  { value: "custom", label: "Personalizado" },
   { value: "today", label: "Hoje" },
   { value: "yesterday", label: "Ontem" },
   { value: "last7Days", label: "7 dias" },
   { value: "last30Days", label: "30 dias" },
+  { value: "always", label: "Sempre" },
+  { value: "custom", label: "Personalizado" },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -116,6 +117,7 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
         ? parsed.windowMode
         : fallback.windowMode;
     const periodPreset =
+      parsed.periodPreset === "always" ||
       parsed.periodPreset === "today" ||
       parsed.periodPreset === "yesterday" ||
       parsed.periodPreset === "last7Days" ||
@@ -123,6 +125,10 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
       parsed.periodPreset === "custom"
         ? parsed.periodPreset
         : fallback.periodPreset;
+
+    if (periodPreset === "always") {
+      return { from: "", to: "", sortDirection, windowMode, periodPreset };
+    }
 
     if (windowMode === "rolling") {
       const rolled = periodPreset === "custom" ? rollRangeToNow(from, to) : presetRangeToNow(periodPreset);
@@ -168,6 +174,10 @@ const rollRangeToNow = (fromValue: string, toValue: string, baseNow: Date = new 
 };
 
 const presetRangeToNow = (preset: Exclude<Uy3PeriodPreset, "custom">, baseNow: Date = new Date()): { from: string; to: string } => {
+  if (preset === "always") {
+    return { from: "", to: "" };
+  }
+
   if (preset === "today") {
     return {
       from: toDateTimeLocalValue(startOfDay(baseNow)),
@@ -318,9 +328,15 @@ const ParceirosUY3Page = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const isAlwaysPreset = periodPresetInput === "always";
+  const appliedApiPeriod = appliedPeriodPreset === "always" ? "all" : undefined;
 
   const effectiveRange = useMemo(() => {
     if (appliedPeriodPreset !== "custom") {
+      if (appliedPeriodPreset === "always") {
+        return { from: "", to: "" };
+      }
+
       if (appliedWindowMode === "rolling") {
         return presetRangeToNow(appliedPeriodPreset, new Date(nowTs));
       }
@@ -354,12 +370,13 @@ const ParceirosUY3Page = () => {
   }, []);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["uy3:posts", page, appliedFromIso, appliedToIso, appliedSortDirection],
+    queryKey: ["uy3:posts", page, appliedApiPeriod, appliedFromIso, appliedToIso, appliedSortDirection],
     queryFn: ({ signal }) =>
       listUy3Posts(
         {
           page,
           perPage: 20,
+          period: appliedApiPeriod,
           from: appliedFromIso || undefined,
           to: appliedToIso || undefined,
           sort: "received_at",
@@ -463,6 +480,7 @@ const ParceirosUY3Page = () => {
 
     try {
       const { token } = await startUy3Export({
+        period: appliedApiPeriod,
         from: appliedFromIso || undefined,
         to: appliedToIso || undefined,
         sort: "received_at",
@@ -570,6 +588,7 @@ const ParceirosUY3Page = () => {
                 setPeriodPresetInput("custom");
                 setFromInput(e.target.value);
               }}
+              disabled={isAlwaysPreset}
               className="w-full"
             />
           </div>
@@ -586,6 +605,7 @@ const ParceirosUY3Page = () => {
                 setPeriodPresetInput("custom");
                 setToInput(e.target.value);
               }}
+              disabled={isAlwaysPreset}
               className="w-full"
             />
           </div>
