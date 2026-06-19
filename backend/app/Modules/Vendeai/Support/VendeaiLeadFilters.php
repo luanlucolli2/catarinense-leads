@@ -28,7 +28,8 @@ final class VendeaiLeadFilters
             'newcorban_status' => ['nullable'],
             'newcorban_status.*' => [Rule::in(['not_sent', 'success', 'failed', 'sent'])],
             'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
-            'inbox_phone_number' => ['nullable', 'string', 'max:30'],
+            'inbox_phone_number' => ['nullable'],
+            'inbox_phone_number.*' => ['string', 'max:30'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:100'],
         ];
@@ -80,7 +81,7 @@ final class VendeaiLeadFilters
         );
         self::applyInboxPhoneNumberFilter(
             $query,
-            self::stringValue($filters['inbox_phone_number'] ?? null),
+            self::stringList($filters['inbox_phone_number'] ?? null),
             "{$leadAlias}.inbox_phone_number"
         );
         self::applyTagsFilter($query, self::tagValues($filters['tags'] ?? null), "{$leadAlias}.tags");
@@ -282,15 +283,26 @@ final class VendeaiLeadFilters
         });
     }
 
-    private static function applyInboxPhoneNumberFilter(EloquentBuilder|QueryBuilder $query, ?string $value, string $column): void
+    private static function applyInboxPhoneNumberFilter(EloquentBuilder|QueryBuilder $query, array $values, string $column): void
     {
-        $digits = self::normalizeDigits($value);
+        $digits = array_values(array_unique(array_filter(array_map(
+            fn (string $value): ?string => self::normalizeDigits($value),
+            $values
+        ))));
 
-        if ($digits === null) {
+        if ($digits === []) {
             return;
         }
 
-        $query->whereRaw(self::digitsExpression($column) . ' = ?', [$digits]);
+        $query->where(function ($inner) use ($column, $digits) {
+            foreach (array_values($digits) as $index => $value) {
+                if ($index === 0) {
+                    $inner->whereRaw(self::digitsExpression($column) . ' = ?', [$value]);
+                } else {
+                    $inner->orWhereRaw(self::digitsExpression($column) . ' = ?', [$value]);
+                }
+            }
+        });
     }
 
     private static function applyTagsFilter(EloquentBuilder|QueryBuilder $query, array $tags, string $column): void

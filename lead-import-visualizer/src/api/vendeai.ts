@@ -194,7 +194,7 @@ export interface VendeaiFilters {
   stage?: string[];
   proposalStatus?: string[];
   newcorbanStatus?: VendeaiNewcorbanStatusValue[];
-  inboxPhoneNumber?: string;
+  inboxPhoneNumber?: string[];
   tags?: string[];
 }
 
@@ -223,7 +223,7 @@ function buildParams(params: VendeaiFilters): Record<string, string | number | s
   if (params.stage?.length) query.stage = params.stage;
   if (params.proposalStatus?.length) query.proposal_status = params.proposalStatus;
   if (params.newcorbanStatus?.length) query.newcorban_status = params.newcorbanStatus;
-  if (params.inboxPhoneNumber && params.inboxPhoneNumber !== "all") query.inbox_phone_number = params.inboxPhoneNumber;
+  if (params.inboxPhoneNumber?.length) query.inbox_phone_number = params.inboxPhoneNumber;
   if (params.tags?.length) query.tags = params.tags;
 
   return query;

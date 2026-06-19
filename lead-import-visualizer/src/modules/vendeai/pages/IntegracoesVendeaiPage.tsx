@@ -36,7 +36,7 @@ type FiltersState = {
   stage: string[];
   proposalStatus: string[];
   newcorbanStatus: VendeaiNewcorbanStatusValue[];
-  inboxPhoneNumber: string;
+  inboxPhoneNumber: string[];
   tags: string[];
 };
 
@@ -260,7 +260,7 @@ function defaultFilters(): FiltersState {
     stage: [],
     proposalStatus: [],
     newcorbanStatus: [],
-    inboxPhoneNumber: "all",
+    inboxPhoneNumber: [],
     tags: [],
   };
 }
@@ -325,7 +325,11 @@ function loadFilters(): FiltersState {
         : parsed.newcorbanFilter === "created" || parsed.newcorbanFilter === "sent"
           ? ["success"]
           : fallback.newcorbanStatus;
-    const inboxPhoneNumber = typeof parsed.inboxPhoneNumber === "string" ? parsed.inboxPhoneNumber : fallback.inboxPhoneNumber;
+    const inboxPhoneNumber = Array.isArray(parsed.inboxPhoneNumber)
+      ? parsed.inboxPhoneNumber.filter((value): value is string => typeof value === "string" && value !== "all")
+      : typeof parsed.inboxPhoneNumber === "string" && parsed.inboxPhoneNumber !== "all"
+        ? [parsed.inboxPhoneNumber]
+        : fallback.inboxPhoneNumber;
     const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((value): value is string => typeof value === "string") : fallback.tags;
     const direction = parsed.direction === "asc" ? "asc" : fallback.direction;
 
@@ -632,7 +636,7 @@ export default function IntegracoesVendeaiPage() {
   const [stageInput, setStageInput] = useState<string[]>(initial.stage);
   const [proposalStatusInput, setProposalStatusInput] = useState<string[]>(initial.proposalStatus);
   const [newcorbanStatusInput, setNewcorbanStatusInput] = useState<VendeaiNewcorbanStatusValue[]>(initial.newcorbanStatus);
-  const [inboxPhoneNumberInput, setInboxPhoneNumberInput] = useState(initial.inboxPhoneNumber);
+  const [inboxPhoneNumberInput, setInboxPhoneNumberInput] = useState<string[]>(initial.inboxPhoneNumber);
   const [tagsInput, setTagsInput] = useState<string[]>(initial.tags);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
@@ -831,7 +835,7 @@ export default function IntegracoesVendeaiPage() {
     ...(applied.product.length ? [`Produto: ${summarizeSelected(applied.product, productLabel)}`] : []),
     ...(applied.bank.length ? [`Banco: ${summarizeSelected(applied.bank, bankLabel)}`] : []),
     ...(applied.stage.length ? [`Etapa: ${summarizeSelected(applied.stage, (value) => stageLabel(value))}`] : []),
-    ...(applied.inboxPhoneNumber === "all" ? [] : [`Número da IA: ${formatPhone(applied.inboxPhoneNumber)}`]),
+    ...(applied.inboxPhoneNumber.length ? [`Número da IA: ${summarizeSelected(applied.inboxPhoneNumber, (value) => formatPhone(value) || value)}`] : []),
     ...(applied.proposalStatus.length ? [`Status da proposta: ${summarizeSelected(applied.proposalStatus, (value) => proposalStatusLabel(value))}`] : []),
     ...(applied.newcorbanStatus.length ? [`New Corban: ${summarizeSelected(applied.newcorbanStatus, (value) => newcorbanStatusLabel(value as VendeaiNewcorbanStatusFilter))}`] : []),
     ...(applied.tags.length ? [`Tags: ${applied.tags.join(", ")}`] : []),

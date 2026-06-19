@@ -38,7 +38,7 @@ type VendeaiFiltersModalProps = {
   stage: string[];
   proposalStatus: string[];
   newcorbanStatus: NewcorbanStatusFilter[];
-  inboxPhoneNumber: string;
+  inboxPhoneNumber: string[];
   tags: string[];
   bankOptions: FilterOption[];
   stageOptions: FilterOption[];
@@ -58,7 +58,7 @@ type VendeaiFiltersModalProps = {
   onStageChange: (value: string[]) => void;
   onProposalStatusChange: (value: string[]) => void;
   onNewcorbanStatusChange: (value: NewcorbanStatusFilter[]) => void;
-  onInboxPhoneNumberChange: (value: string) => void;
+  onInboxPhoneNumberChange: (value: string[]) => void;
   onTagsChange: (value: string[]) => void;
   onPeriodPresetChange: (value: PeriodPreset) => void;
   onClearFilters: () => void;
@@ -198,7 +198,7 @@ export function VendeaiFiltersModal({
     ...(product.length ? [`Produto · ${selectedSummary([{ value: "clt", label: "Crédito do Trabalhador" }, { value: "fgts", label: "FGTS" }], product)}`] : []),
     ...(bank.length ? [`Banco · ${selectedSummary(bankOptions, bank)}`] : []),
     ...(stage.length ? [`Etapa · ${selectedSummary(stageOptions, stage)}`] : []),
-    ...(inboxPhoneNumber === "all" ? [] : [`Número IA · ${optionLabel(inboxPhoneNumberOptions, inboxPhoneNumber)}`]),
+    ...(inboxPhoneNumber.length ? [`Número IA · ${selectedSummary(inboxPhoneNumberOptions, inboxPhoneNumber)}`] : []),
     ...(proposalStatus.length ? [`Status proposta · ${selectedSummary(proposalStatusOptions, proposalStatus)}`] : []),
     ...(newcorbanStatus.length === 0
       ? []
@@ -428,25 +428,18 @@ export function VendeaiFiltersModal({
               </div>
             </Section>
 
-            <Section title="Número da IA" description="Filtre pelo número que atendeu a conversa." active={inboxPhoneNumber !== "all"}>
+            <Section title="Número da IA" description="Filtre pelo número que atendeu a conversa." active={inboxPhoneNumber.length > 0}>
               <div>
                 <Label text="Número da IA" />
-                <Select value={inboxPhoneNumber} onValueChange={onInboxPhoneNumberChange}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Filter className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="all">Todos os números</SelectItem>
-                    {inboxPhoneNumberOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-2">
+                  <MultiSelect
+                    options={inboxPhoneNumberOptions}
+                    selected={inboxPhoneNumber}
+                    onChange={onInboxPhoneNumberChange}
+                    placeholder="Todos os números"
+                    searchPlaceholder="Pesquisar números..."
+                  />
+                </div>
               </div>
             </Section>
 
