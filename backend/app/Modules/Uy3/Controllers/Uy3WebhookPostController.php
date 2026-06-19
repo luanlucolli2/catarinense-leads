@@ -3,8 +3,10 @@
 namespace App\Modules\Uy3\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Uy3\Support\Uy3WebhookPayloadNormalizer;
 use App\Models\Uy3WebhookPost;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use JsonException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,7 +24,7 @@ class Uy3WebhookPostController extends Controller
         }
 
         try {
-            json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
+            $payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return response()->json([
                 'error'   => 'invalid_payload',
@@ -30,8 +32,18 @@ class Uy3WebhookPostController extends Controller
             ], 422);
         }
 
+        try {
+            $payload = Uy3WebhookPayloadNormalizer::normalize($payload);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'error' => 'validation_error',
+                'message' => 'Invalid webhook payload.',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
         $attributes = [
-            'payload' => $rawPayload,
+            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'received_at' => now(),
         ];
 

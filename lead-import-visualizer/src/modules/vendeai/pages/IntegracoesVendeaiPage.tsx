@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -12,7 +12,8 @@ import {
   startVendeaiExport,
   type VendeaiLead,
   type VendeaiNewcorbanStatusFilter,
-  type VendeaiProductFilter,
+  type VendeaiNewcorbanStatusValue,
+  type VendeaiProductValue,
   type VendeaiSortDirection,
 } from "@/api/vendeai";
 import { Button } from "@/components/ui/button";
@@ -30,12 +31,12 @@ type FiltersState = {
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
   periodPreset: PeriodPreset;
-  product: VendeaiProductFilter;
-  bank: string;
-  stage: string;
-  proposalStatus: string;
-  newcorbanStatus: VendeaiNewcorbanStatusFilter;
-  inboxPhoneNumber: string;
+  product: VendeaiProductValue[];
+  bank: string[];
+  stage: string[];
+  proposalStatus: string[];
+  newcorbanStatus: VendeaiNewcorbanStatusValue[];
+  inboxPhoneNumber: string[];
   tags: string[];
 };
 
@@ -254,12 +255,12 @@ function defaultFilters(): FiltersState {
     direction: "desc",
     windowMode: "always",
     periodPreset: "always",
-    product: "all",
-    bank: "all",
-    stage: "all",
-    proposalStatus: "all",
-    newcorbanStatus: "all",
-    inboxPhoneNumber: "all",
+    product: [],
+    bank: [],
+    stage: [],
+    proposalStatus: [],
+    newcorbanStatus: [],
+    inboxPhoneNumber: [],
     tags: [],
   };
 }
@@ -291,20 +292,44 @@ function loadFilters(): FiltersState {
         : windowMode === "always"
           ? "always"
           : "custom";
-    const product = parsed.product === "clt" || parsed.product === "fgts" ? parsed.product : fallback.product;
-    const bank = typeof parsed.bank === "string" ? parsed.bank : fallback.bank;
-    const stage = typeof parsed.stage === "string" ? parsed.stage : fallback.stage;
-    const proposalStatus = typeof parsed.proposalStatus === "string" ? parsed.proposalStatus : fallback.proposalStatus;
-    const newcorbanStatus: VendeaiNewcorbanStatusFilter =
-      parsed.newcorbanStatus === "not_sent" ||
-      parsed.newcorbanStatus === "success" ||
-      parsed.newcorbanStatus === "failed" ||
-      parsed.newcorbanStatus === "all"
-        ? parsed.newcorbanStatus
+    const product = Array.isArray(parsed.product)
+      ? parsed.product.filter((value): value is VendeaiProductValue => value === "clt" || value === "fgts")
+      : parsed.product === "clt" || parsed.product === "fgts"
+        ? [parsed.product]
+        : fallback.product;
+    const bank = Array.isArray(parsed.bank)
+      ? parsed.bank.filter((value): value is string => typeof value === "string" && value !== "all")
+      : typeof parsed.bank === "string" && parsed.bank !== "all"
+        ? [parsed.bank]
+        : fallback.bank;
+    const stage = Array.isArray(parsed.stage)
+      ? parsed.stage.filter((value): value is string => typeof value === "string" && value !== "all")
+      : typeof parsed.stage === "string" && parsed.stage !== "all"
+        ? [parsed.stage]
+        : fallback.stage;
+    const proposalStatus = Array.isArray(parsed.proposalStatus)
+      ? parsed.proposalStatus.filter((value): value is string => typeof value === "string" && value !== "all")
+      : typeof parsed.proposalStatus === "string" && parsed.proposalStatus !== "all"
+        ? [parsed.proposalStatus]
+        : fallback.proposalStatus;
+    const newcorbanStatus: VendeaiNewcorbanStatusValue[] = Array.isArray(parsed.newcorbanStatus)
+      ? parsed.newcorbanStatus.filter(
+          (value): value is VendeaiNewcorbanStatusValue =>
+            value === "not_sent" || value === "sent" || value === "success" || value === "failed"
+        )
+      : parsed.newcorbanStatus === "not_sent" ||
+          parsed.newcorbanStatus === "sent" ||
+          parsed.newcorbanStatus === "success" ||
+          parsed.newcorbanStatus === "failed"
+        ? [parsed.newcorbanStatus]
         : parsed.newcorbanFilter === "created" || parsed.newcorbanFilter === "sent"
-          ? "success"
+          ? ["success"]
           : fallback.newcorbanStatus;
-    const inboxPhoneNumber = typeof parsed.inboxPhoneNumber === "string" ? parsed.inboxPhoneNumber : fallback.inboxPhoneNumber;
+    const inboxPhoneNumber = Array.isArray(parsed.inboxPhoneNumber)
+      ? parsed.inboxPhoneNumber.filter((value): value is string => typeof value === "string" && value !== "all")
+      : typeof parsed.inboxPhoneNumber === "string" && parsed.inboxPhoneNumber !== "all"
+        ? [parsed.inboxPhoneNumber]
+        : fallback.inboxPhoneNumber;
     const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((value): value is string => typeof value === "string") : fallback.tags;
     const direction = parsed.direction === "asc" ? "asc" : fallback.direction;
 
@@ -465,9 +490,14 @@ function proposalStatusLabel(label: string | null): string {
 
 function newcorbanStatusLabel(value: VendeaiNewcorbanStatusFilter): string {
   if (value === "not_sent") return "Não enviada para a New Corban";
+  if (value === "sent") return "Enviada para a New Corban";
   if (value === "success") return "Enviada com sucesso";
   if (value === "failed") return "Enviada com erro";
   return "Todas";
+}
+
+function summarizeSelected(values: string[], getLabel: (value: string) => string): string {
+  return values.map((value) => getLabel(value)).join(", ");
 }
 
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
@@ -601,12 +631,12 @@ export default function IntegracoesVendeaiPage() {
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [periodPresetInput, setPeriodPresetInput] = useState<PeriodPreset>(initial.periodPreset);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
-  const [productInput, setProductInput] = useState<VendeaiProductFilter>(initial.product);
-  const [bankInput, setBankInput] = useState(initial.bank);
-  const [stageInput, setStageInput] = useState(initial.stage);
-  const [proposalStatusInput, setProposalStatusInput] = useState(initial.proposalStatus);
-  const [newcorbanStatusInput, setNewcorbanStatusInput] = useState<VendeaiNewcorbanStatusFilter>(initial.newcorbanStatus);
-  const [inboxPhoneNumberInput, setInboxPhoneNumberInput] = useState(initial.inboxPhoneNumber);
+  const [productInput, setProductInput] = useState<VendeaiProductValue[]>(initial.product);
+  const [bankInput, setBankInput] = useState<string[]>(initial.bank);
+  const [stageInput, setStageInput] = useState<string[]>(initial.stage);
+  const [proposalStatusInput, setProposalStatusInput] = useState<string[]>(initial.proposalStatus);
+  const [newcorbanStatusInput, setNewcorbanStatusInput] = useState<VendeaiNewcorbanStatusValue[]>(initial.newcorbanStatus);
+  const [inboxPhoneNumberInput, setInboxPhoneNumberInput] = useState<string[]>(initial.inboxPhoneNumber);
   const [tagsInput, setTagsInput] = useState<string[]>(initial.tags);
   const [applied, setApplied] = useState<FiltersState>(initial);
   const [leadsPage, setLeadsPage] = useState(1);
@@ -615,6 +645,7 @@ export default function IntegracoesVendeaiPage() {
   const [manualRefreshLockedUntil, setManualRefreshLockedUntil] = useState(0);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
+  const skipNextSearchAutoApplyRef = useRef(false);
 
   const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
 
@@ -644,6 +675,11 @@ export default function IntegracoesVendeaiPage() {
   }, []);
 
   useEffect(() => {
+    if (skipNextSearchAutoApplyRef.current) {
+      skipNextSearchAutoApplyRef.current = false;
+      return;
+    }
+
     const nextSearch = searchInput.trim();
     const timer = window.setTimeout(() => {
       setApplied((current) => {
@@ -796,13 +832,13 @@ export default function IntegracoesVendeaiPage() {
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
         ]),
     ...(applied.search ? [`Busca: ${applied.search}`] : []),
-    ...(applied.product === "all" ? [] : [`Produto: ${productLabel(applied.product)}`]),
-    ...(applied.bank === "all" ? [] : [`Banco: ${bankLabel(applied.bank)}`]),
-    ...(applied.stage === "all" ? [] : [`Etapa: ${stageLabel(applied.stage)}`]),
-    ...(applied.inboxPhoneNumber === "all" ? [] : [`Número da IA: ${formatPhone(applied.inboxPhoneNumber)}`]),
-    ...(applied.proposalStatus === "all" ? [] : [`Status da proposta: ${proposalStatusLabel(applied.proposalStatus)}`]),
-    ...(applied.newcorbanStatus === "all" ? [] : [`New Corban: ${newcorbanStatusLabel(applied.newcorbanStatus)}`]),
-    ...(applied.tags.length ? [`Tags: ${applied.tags.length === 1 ? applied.tags[0] : `${applied.tags[0]} +${applied.tags.length - 1}`}`] : []),
+    ...(applied.product.length ? [`Produto: ${summarizeSelected(applied.product, productLabel)}`] : []),
+    ...(applied.bank.length ? [`Banco: ${summarizeSelected(applied.bank, bankLabel)}`] : []),
+    ...(applied.stage.length ? [`Etapa: ${summarizeSelected(applied.stage, (value) => stageLabel(value))}`] : []),
+    ...(applied.inboxPhoneNumber.length ? [`Número da IA: ${summarizeSelected(applied.inboxPhoneNumber, (value) => formatPhone(value) || value)}`] : []),
+    ...(applied.proposalStatus.length ? [`Status da proposta: ${summarizeSelected(applied.proposalStatus, (value) => proposalStatusLabel(value))}`] : []),
+    ...(applied.newcorbanStatus.length ? [`New Corban: ${summarizeSelected(applied.newcorbanStatus, (value) => newcorbanStatusLabel(value as VendeaiNewcorbanStatusFilter))}`] : []),
+    ...(applied.tags.length ? [`Tags: ${applied.tags.join(", ")}`] : []),
   ];
 
   const applyFilters = (): boolean => {
@@ -926,6 +962,25 @@ export default function IntegracoesVendeaiPage() {
     setLeadsPage(1);
   };
 
+  const resetModalFilters = () => {
+    const defaults = defaultFilters();
+    skipNextSearchAutoApplyRef.current = true;
+    setFromInput(defaults.from);
+    setToInput(defaults.to);
+    setSearchInput(defaults.search);
+    setWindowModeInput(defaults.windowMode);
+    setPeriodPresetInput(defaults.periodPreset);
+    setDirectionInput(defaults.direction);
+    setProductInput(defaults.product);
+    setBankInput(defaults.bank);
+    setStageInput(defaults.stage);
+    setProposalStatusInput(defaults.proposalStatus);
+    setNewcorbanStatusInput(defaults.newcorbanStatus);
+    setInboxPhoneNumberInput(defaults.inboxPhoneNumber);
+    setTagsInput(defaults.tags);
+    setRangeError(null);
+  };
+
   const handleManualRefresh = () => {
     if (metricsQuery.isFetching || leadsQuery.isFetching || manualRefreshRemaining > 0) return;
     setManualRefreshLockedUntil(Date.now() + MANUAL_REFRESH_COOLDOWN_MS);
@@ -1034,7 +1089,7 @@ export default function IntegracoesVendeaiPage() {
         onInboxPhoneNumberChange={setInboxPhoneNumberInput}
         onTagsChange={setTagsInput}
         onPeriodPresetChange={applyPeriodPreset}
-        onClearFilters={clearFilters}
+        onClearFilters={resetModalFilters}
         onApply={handleApplyFilters}
       />
 

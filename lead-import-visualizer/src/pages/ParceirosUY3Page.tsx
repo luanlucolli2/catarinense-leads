@@ -27,7 +27,7 @@ import { toast } from "sonner";
 
 type SortDirection = "desc" | "asc";
 type Uy3WindowMode = "rolling" | "fixed";
-type Uy3PeriodPreset = "custom" | "today" | "yesterday" | "last7Days" | "last30Days";
+type Uy3PeriodPreset = "always" | "custom" | "today" | "yesterday" | "last7Days" | "last30Days";
 type Uy3PersistedFilters = {
   from: string;
   to: string;
@@ -49,11 +49,12 @@ const windowModeOptions: Array<{ value: Uy3WindowMode; label: string }> = [
 ];
 
 const periodPresetOptions: Array<{ value: Uy3PeriodPreset; label: string }> = [
-  { value: "custom", label: "Personalizado" },
   { value: "today", label: "Hoje" },
   { value: "yesterday", label: "Ontem" },
   { value: "last7Days", label: "7 dias" },
   { value: "last30Days", label: "30 dias" },
+  { value: "always", label: "Sempre" },
+  { value: "custom", label: "Personalizado" },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -116,6 +117,7 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
         ? parsed.windowMode
         : fallback.windowMode;
     const periodPreset =
+      parsed.periodPreset === "always" ||
       parsed.periodPreset === "today" ||
       parsed.periodPreset === "yesterday" ||
       parsed.periodPreset === "last7Days" ||
@@ -123,6 +125,10 @@ const loadPersistedFilters = (): Uy3PersistedFilters => {
       parsed.periodPreset === "custom"
         ? parsed.periodPreset
         : fallback.periodPreset;
+
+    if (periodPreset === "always") {
+      return { from: "", to: "", sortDirection, windowMode, periodPreset };
+    }
 
     if (windowMode === "rolling") {
       const rolled = periodPreset === "custom" ? rollRangeToNow(from, to) : presetRangeToNow(periodPreset);
@@ -168,6 +174,10 @@ const rollRangeToNow = (fromValue: string, toValue: string, baseNow: Date = new 
 };
 
 const presetRangeToNow = (preset: Exclude<Uy3PeriodPreset, "custom">, baseNow: Date = new Date()): { from: string; to: string } => {
+  if (preset === "always") {
+    return { from: "", to: "" };
+  }
+
   if (preset === "today") {
     return {
       from: toDateTimeLocalValue(startOfDay(baseNow)),
@@ -318,9 +328,15 @@ const ParceirosUY3Page = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const isAlwaysPreset = periodPresetInput === "always";
+  const appliedApiPeriod = appliedPeriodPreset === "always" ? "all" : undefined;
 
   const effectiveRange = useMemo(() => {
     if (appliedPeriodPreset !== "custom") {
+      if (appliedPeriodPreset === "always") {
+        return { from: "", to: "" };
+      }
+
       if (appliedWindowMode === "rolling") {
         return presetRangeToNow(appliedPeriodPreset, new Date(nowTs));
       }
@@ -354,12 +370,13 @@ const ParceirosUY3Page = () => {
   }, []);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["uy3:posts", page, appliedFromIso, appliedToIso, appliedSortDirection],
+    queryKey: ["uy3:posts", page, appliedApiPeriod, appliedFromIso, appliedToIso, appliedSortDirection],
     queryFn: ({ signal }) =>
       listUy3Posts(
         {
           page,
           perPage: 20,
+          period: appliedApiPeriod,
           from: appliedFromIso || undefined,
           to: appliedToIso || undefined,
           sort: "received_at",
@@ -463,6 +480,7 @@ const ParceirosUY3Page = () => {
 
     try {
       const { token } = await startUy3Export({
+        period: appliedApiPeriod,
         from: appliedFromIso || undefined,
         to: appliedToIso || undefined,
         sort: "received_at",
@@ -518,7 +536,7 @@ const ParceirosUY3Page = () => {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            className="shrink-0"
+            className="shrink-0 border-gray-200 px-4 hover:bg-gray-50"
             onClick={() => void handleExportCsv()}
             disabled={isExporting}
           >
@@ -526,7 +544,7 @@ const ParceirosUY3Page = () => {
             Exportar CSV
           </Button>
 
-          <Button variant="outline" className="shrink-0" onClick={() => void refetch()}>
+          <Button className="shrink-0 bg-blue-600 px-4 text-white hover:bg-blue-700" onClick={() => void refetch()}>
             {isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
             Atualizar
           </Button>
@@ -534,7 +552,7 @@ const ParceirosUY3Page = () => {
       </div>
 
       {/* FILTER SECTION - SEM CARD, COM DELIMITAÇÃO SUTIL E LABELS CLAROS */}
-      <div className="py-5 border-y border-gray-100 bg-transparent">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-end gap-4">
           <div className="w-full lg:w-auto flex-1 space-y-1.5">
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
@@ -570,6 +588,7 @@ const ParceirosUY3Page = () => {
                 setPeriodPresetInput("custom");
                 setFromInput(e.target.value);
               }}
+              disabled={isAlwaysPreset}
               className="w-full"
             />
           </div>
@@ -586,6 +605,7 @@ const ParceirosUY3Page = () => {
                 setPeriodPresetInput("custom");
                 setToInput(e.target.value);
               }}
+              disabled={isAlwaysPreset}
               className="w-full"
             />
           </div>
@@ -638,7 +658,7 @@ const ParceirosUY3Page = () => {
             <Button 
               type="button" 
               onClick={applyFilters} 
-              className="w-full lg:w-auto"
+              className="w-full lg:w-auto bg-blue-600 text-white hover:bg-blue-700"
             >
               <Filter className="w-4 h-4 mr-2" />
               Aplicar filtros
@@ -657,15 +677,11 @@ const ParceirosUY3Page = () => {
 
           {windowModeInput === "rolling" && (
             <p className="text-sm text-gray-500 flex items-center gap-1.5">
-              <Info className="w-4 h-4 text-blue-500" />
+              <Info className="w-4 h-4 text-blue-600" />
               Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
             </p>
           )}
 
-          <p className="text-sm text-gray-500 flex items-center gap-1.5">
-            <Info className="w-4 h-4 text-gray-400" />
-            Atenção: O CSV exporta somente registros com <strong className="font-semibold text-gray-700">typeWebook = LEADS_CLT</strong>.
-          </p>
         </div>
       </div>
 
@@ -689,7 +705,7 @@ const ParceirosUY3Page = () => {
         </div>
 
         {isLoading ? (
-          <Card className="border-dashed">
+          <Card className="border border-gray-200 shadow-sm">
             <CardContent className="py-16 flex flex-col items-center text-gray-500">
               <Loader2 className="w-8 h-8 mb-4 animate-spin text-gray-400" />
               <p className="font-medium text-gray-600">Carregando dados...</p>
@@ -697,7 +713,7 @@ const ParceirosUY3Page = () => {
             </CardContent>
           </Card>
         ) : isError ? (
-          <Card className="border-red-100 bg-red-50/50">
+          <Card className="border border-red-100 bg-red-50/50 shadow-sm">
             <CardContent className="py-16 flex flex-col items-center text-gray-500">
               <AlertCircle className="w-10 h-10 mb-3 text-red-400" />
               <p className="font-medium text-red-800">Falha ao carregar os dados</p>
@@ -705,7 +721,7 @@ const ParceirosUY3Page = () => {
             </CardContent>
           </Card>
         ) : posts.length === 0 ? (
-          <Card className="border-dashed bg-gray-50/50">
+          <Card className="border border-gray-200 bg-gray-50/50 shadow-sm">
             <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
               <Inbox className="w-10 h-10 mb-3 opacity-40" />
               <p className="font-medium text-gray-700">Nenhum registro encontrado</p>
@@ -720,7 +736,7 @@ const ParceirosUY3Page = () => {
               const fieldCount = getDadosFieldCount(post.dados);
 
               return (
-                <Card key={post.id} className="transition-shadow hover:shadow-md">
+                <Card key={post.id} className="border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
                   <CardContent className="py-4">
                     <button
                       onClick={() => toggleExpand(post.id)}
@@ -731,7 +747,7 @@ const ParceirosUY3Page = () => {
                           <Badge variant="outline" className="font-mono text-xs text-gray-600 bg-gray-50">
                             {post.id}
                           </Badge>
-                          <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 text-xs">
+                          <Badge className="border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">
                             {fieldCount} campo{fieldCount !== 1 ? "s" : ""}
                           </Badge>
                         </div>
@@ -744,7 +760,7 @@ const ParceirosUY3Page = () => {
                         {!isExpanded && (
                           <div className="flex gap-2 flex-wrap mt-2">
                             {previewTags.map((tag) => (
-                              <span key={tag} className="text-[11px] font-medium text-gray-600 bg-gray-100/80 px-2 py-1 rounded-md capitalize border border-gray-200/50">
+                              <span key={tag} className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium capitalize text-blue-800">
                                 {tag}
                               </span>
                             ))}
@@ -752,7 +768,7 @@ const ParceirosUY3Page = () => {
                         )}
                       </div>
 
-                      <div className="shrink-0 p-2 rounded-full bg-gray-50 hover:bg-gray-100 transition-colors border border-gray-100">
+                      <div className="shrink-0 rounded-full border border-gray-100 bg-gray-50 p-2 transition-colors hover:bg-gray-100">
                         {isExpanded ? (
                           <ChevronUp className="w-5 h-5 text-gray-600" />
                         ) : (
@@ -763,7 +779,7 @@ const ParceirosUY3Page = () => {
 
                     {isExpanded && (
                       <div className="mt-4 pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="bg-gray-50/60 rounded-lg p-5 border border-gray-100 shadow-inner">
+                        <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-5 shadow-inner">
                           {renderDados(post.dados)}
                         </div>
                       </div>
@@ -777,7 +793,7 @@ const ParceirosUY3Page = () => {
 
         {/* PAGINAÇÃO */}
         {lastPage > 1 && (
-          <div className="mt-6 flex items-center justify-end gap-3 bg-white p-2 border-t border-gray-100">
+          <div className="mt-6 flex items-center justify-end gap-3 border-t border-gray-100 bg-white p-2">
             <Button
               type="button"
               variant="outline"

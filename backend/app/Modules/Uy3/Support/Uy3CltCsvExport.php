@@ -4,17 +4,13 @@ declare(strict_types=1);
 
 namespace App\Modules\Uy3\Support;
 
+use App\Support\Cpf;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 
 final class Uy3CltCsvExport
 {
-    private const TYPE_WEBHOOKS_CLT = [
-        'LEADS_CLT',
-        'LEADS_CLT_NÃO_QUALIFICADOS',
-    ];
-
     public static function headings(): array
     {
         return [
@@ -87,8 +83,6 @@ final class Uy3CltCsvExport
             $query->where('received_at', '<=', $to);
         }
 
-        Uy3PostQuery::applyTypeWebhookFilter($query, self::TYPE_WEBHOOKS_CLT);
-
         $query->orderBy($sort, $direction);
         if ($sort !== 'id') {
             $query->orderBy('id', $direction);
@@ -120,8 +114,10 @@ final class Uy3CltCsvExport
 
     private static function mapRecord(object $post): array
     {
+        $cpf = self::normalizeCpfForExport($post->cpf ?? null);
+
         return [
-            self::sanitizeCsvValue($post->cpf ?? null),
+            self::sanitizeCsvValue($cpf),
             self::sanitizeCsvValue($post->nome_trabalhador ?? null),
             self::sanitizeCsvValue($post->status ?? null),
             self::sanitizeCsvValue(self::toBoolPtBr($post->elegivel_emprestimo ?? null)),
@@ -138,6 +134,18 @@ final class Uy3CltCsvExport
             self::sanitizeCsvValue(self::toPepPtBr($post->pep_codigo ?? null)),
             self::sanitizeCsvValue($post->active_fgts_debts ?? null),
         ];
+    }
+
+    private static function normalizeCpfForExport(mixed $value): mixed
+    {
+        if (! is_scalar($value)) {
+            return $value;
+        }
+
+        $raw = (string) $value;
+        $normalized = Cpf::normalize($raw);
+
+        return $normalized !== null && Cpf::isValid($normalized) ? $normalized : $raw;
     }
 
     private static function formatReceivedAtFromUtc(mixed $value): ?string

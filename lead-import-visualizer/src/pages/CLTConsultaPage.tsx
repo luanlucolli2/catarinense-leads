@@ -62,6 +62,7 @@ import {
   deletePresencaConsultJob,
   PresencaConsultJobListItem,
   PresencaConsultJobShow,
+  PresencaJobStatusFilter,
   getPresencaConsultJob,
 } from "@/api/presenca";
 
@@ -118,6 +119,10 @@ const CLTConsultaPage = () => {
   const [pageV8, setPageV8] = useState(1);
   const [isNewPresencaModalOpen, setIsNewPresencaModalOpen] = useState(false);
   const [searchValuePresenca, setSearchValuePresenca] = useState("");
+  const [statusFilterPresenca, setStatusFilterPresenca] = usePersistedState<PresencaJobStatusFilter>(
+    "presenca:statusFilter",
+    "todos"
+  );
   const [pagePresenca, setPagePresenca] = useState(1);
 
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
@@ -187,8 +192,8 @@ const CLTConsultaPage = () => {
     isLoading: presencaListLoading,
     refetch: refetchPresencaList,
   } = useQuery({
-    queryKey: ["presenca:list", pagePresenca],
-    queryFn: () => listPresencaConsultJobs(pagePresenca),
+    queryKey: ["presenca:list", pagePresenca, statusFilterPresenca],
+    queryFn: () => listPresencaConsultJobs(pagePresenca, { status: statusFilterPresenca }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     refetchInterval: activeTab === "presenca" ? 30000 : false,
@@ -1167,6 +1172,11 @@ const CLTConsultaPage = () => {
             onNewConsultClick={() => setIsNewPresencaModalOpen(true)}
             searchValue={searchValuePresenca}
             onSearchChange={setSearchValuePresenca}
+            statusFilter={statusFilterPresenca}
+            onStatusFilterChange={(value) => {
+              setStatusFilterPresenca(value as PresencaJobStatusFilter);
+              setPagePresenca(1);
+            }}
           />
 
           <PresencaHistoryTable

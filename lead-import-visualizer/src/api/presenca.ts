@@ -10,6 +10,8 @@ export type PresencaJobStatus =
   | 'falhou'
   | 'cancelado'
 
+export type PresencaJobStatusFilter = PresencaJobStatus | 'todos'
+
 export type PresencaJobPhase = string | null
 
 export interface PresencaConsultJobListItem {
@@ -74,10 +76,25 @@ export interface Paginated<T> {
 }
 
 const BASE = '/presenca/consult-jobs'
+const PRESENCA_JOB_STATUSES: PresencaJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
 
-export async function listPresencaConsultJobs(page = 1): Promise<Paginated<PresencaConsultJobListItem>> {
+export async function listPresencaConsultJobs(
+  page = 1,
+  opts?: { status?: PresencaJobStatusFilter }
+): Promise<Paginated<PresencaConsultJobListItem>> {
+  const params: Record<string, string | number> = { page }
+  const requestedStatus = opts?.status
+  if (
+    typeof requestedStatus === 'string'
+    && requestedStatus !== 'todos'
+    && PRESENCA_JOB_STATUSES.includes(requestedStatus as PresencaJobStatus)
+  ) {
+    params.status = requestedStatus
+  }
+
   const { data } = await axiosClient.get<Paginated<PresencaConsultJobListItem>>(
-    `${BASE}?page=${page}`
+    BASE,
+    { params }
   )
   return data
 }

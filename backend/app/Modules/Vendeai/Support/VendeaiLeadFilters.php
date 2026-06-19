@@ -16,14 +16,20 @@ final class VendeaiLeadFilters
         $rules = [
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'product' => ['nullable', Rule::in(['all', 'clt', 'fgts'])],
+            'product' => ['nullable'],
+            'product.*' => [Rule::in(['clt', 'fgts'])],
             'search' => ['nullable', 'string', 'max:255'],
-            'bank' => ['nullable', 'string', 'max:80'],
-            'stage' => ['nullable', 'string', 'max:80'],
-            'proposal_status' => ['nullable', 'string', 'max:120'],
-            'newcorban_status' => ['nullable', Rule::in(['all', 'not_sent', 'success', 'failed', 'sent'])],
+            'bank' => ['nullable'],
+            'bank.*' => ['string', 'max:80'],
+            'stage' => ['nullable'],
+            'stage.*' => ['string', 'max:80'],
+            'proposal_status' => ['nullable'],
+            'proposal_status.*' => ['string', 'max:120'],
+            'newcorban_status' => ['nullable'],
+            'newcorban_status.*' => [Rule::in(['not_sent', 'success', 'failed', 'sent'])],
             'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
-            'inbox_phone_number' => ['nullable', 'string', 'max:30'],
+            'inbox_phone_number' => ['nullable'],
+            'inbox_phone_number.*' => ['string', 'max:30'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:100'],
         ];
@@ -63,19 +69,19 @@ final class VendeaiLeadFilters
             self::applyDateFilter($query, $dateColumn, $from, $to);
         }
 
-        self::applyProductFilter($query, (string) ($filters['product'] ?? 'all'), "{$leadAlias}.product_key");
+        self::applyProductFilter($query, self::stringList($filters['product'] ?? null), "{$leadAlias}.product_key");
         self::applySearchFilter($query, self::stringValue($filters['search'] ?? null), $leadAlias, $attemptAlias);
-        self::applyBankFilter($query, self::stringValue($filters['bank'] ?? null), $leadAlias);
-        self::applyStageFilter($query, self::stringValue($filters['stage'] ?? null), "{$leadAlias}.stage");
-        self::applyProposalStatusFilter($query, self::stringValue($filters['proposal_status'] ?? null), $leadAlias);
+        self::applyBankFilter($query, self::normalizedBankValues($filters['bank'] ?? null), $leadAlias);
+        self::applyStageFilter($query, self::stringList($filters['stage'] ?? null), "{$leadAlias}.stage");
+        self::applyProposalStatusFilter($query, self::stringList($filters['proposal_status'] ?? null), $leadAlias);
         self::applyNewcorbanStatusFilter(
             $query,
-            self::stringValue($filters['newcorban_status'] ?? null),
+            self::stringList($filters['newcorban_status'] ?? null),
             $attemptAlias
         );
         self::applyInboxPhoneNumberFilter(
             $query,
-            self::stringValue($filters['inbox_phone_number'] ?? null),
+            self::stringList($filters['inbox_phone_number'] ?? null),
             "{$leadAlias}.inbox_phone_number"
         );
         self::applyTagsFilter($query, self::tagValues($filters['tags'] ?? null), "{$leadAlias}.tags");
@@ -134,13 +140,15 @@ final class VendeaiLeadFilters
         }
     }
 
-    private static function applyProductFilter(EloquentBuilder|QueryBuilder $query, string $product, string $column): void
+    private static function applyProductFilter(EloquentBuilder|QueryBuilder $query, array $products, string $column): void
     {
-        if (! in_array($product, ['clt', 'fgts'], true)) {
+        $products = array_values(array_intersect($products, ['clt', 'fgts']));
+
+        if ($products === []) {
             return;
         }
 
-        $query->where($column, $product);
+        $query->whereIn($column, $products);
     }
 
     private static function applySearchFilter(
@@ -187,83 +195,114 @@ final class VendeaiLeadFilters
         });
     }
 
-    private static function applyBankFilter(EloquentBuilder|QueryBuilder $query, ?string $bank, string $leadAlias): void
+    private static function applyBankFilter(EloquentBuilder|QueryBuilder $query, array $banks, string $leadAlias): void
     {
-        $normalizedBank = self::normalizeBankValue($bank);
-
-        if ($normalizedBank === null) {
+        if ($banks === []) {
             return;
         }
 
-        $query->whereRaw(self::bankExpression($leadAlias) . ' = ?', [$normalizedBank]);
+        $placeholders = implode(', ', array_fill(0, count($banks), '?'));
+        $query->whereRaw(self::bankExpression($leadAlias) . " in ({$placeholders})", $banks);
     }
 
-    private static function applyStageFilter(EloquentBuilder|QueryBuilder $query, ?string $stage, string $column): void
+    private static function applyStageFilter(EloquentBuilder|QueryBuilder $query, array $stages, string $column): void
     {
-        $normalizedStage = self::stringValue($stage);
-
-        if ($normalizedStage === null || $normalizedStage === 'all') {
+        $stages = array_map('mb_strtolower', $stages);
+        if ($stages === []) {
             return;
         }
 
-        $query->whereRaw("LOWER(TRIM(COALESCE({$column}, ''))) = ?", [mb_strtolower($normalizedStage)]);
+        $placeholders = implode(', ', array_fill(0, count($stages), '?'));
+        $query->whereRaw("LOWER(TRIM(COALESCE({$column}, ''))) in ({$placeholders})", $stages);
     }
 
-    private static function applyProposalStatusFilter(EloquentBuilder|QueryBuilder $query, ?string $proposalStatus, string $leadAlias): void
+    private static function applyProposalStatusFilter(EloquentBuilder|QueryBuilder $query, array $proposalStatuses, string $leadAlias): void
     {
-        $proposalStatus = self::stringValue($proposalStatus);
-
-        if ($proposalStatus === null || $proposalStatus === 'all') {
+        if ($proposalStatuses === []) {
             return;
         }
 
-        if ($proposalStatus === self::NO_PROPOSAL) {
-            $query
-                ->where(function ($inner) use ($leadAlias) {
-                    $inner
-                        ->whereNull("{$leadAlias}.proposal_id")
-                        ->orWhere("{$leadAlias}.proposal_id", '');
-                })
-                ->where(function ($inner) use ($leadAlias) {
-                    $inner
-                        ->whereNull("{$leadAlias}.proposal_status")
-                        ->orWhere("{$leadAlias}.proposal_status", '');
+        $includeNoProposal = in_array(self::NO_PROPOSAL, $proposalStatuses, true);
+        $statuses = array_values(array_filter($proposalStatuses, fn (string $status): bool => $status !== self::NO_PROPOSAL));
+
+        $query->where(function ($inner) use ($includeNoProposal, $leadAlias, $statuses) {
+            if ($includeNoProposal) {
+                $inner->where(function ($missing) use ($leadAlias) {
+                    $missing
+                        ->where(function ($query) use ($leadAlias) {
+                            $query->whereNull("{$leadAlias}.proposal_id")->orWhere("{$leadAlias}.proposal_id", '');
+                        })
+                        ->where(function ($query) use ($leadAlias) {
+                            $query->whereNull("{$leadAlias}.proposal_status")->orWhere("{$leadAlias}.proposal_status", '');
+                        });
                 });
+            }
 
-            return;
-        }
-
-        $query->where("{$leadAlias}.proposal_status", $proposalStatus);
+            if ($statuses !== []) {
+                if ($includeNoProposal) {
+                    $inner->orWhereIn("{$leadAlias}.proposal_status", $statuses);
+                } else {
+                    $inner->whereIn("{$leadAlias}.proposal_status", $statuses);
+                }
+            }
+        });
     }
 
-    private static function applyNewcorbanStatusFilter(EloquentBuilder|QueryBuilder $query, ?string $status, ?string $attemptAlias): void
+    private static function applyNewcorbanStatusFilter(EloquentBuilder|QueryBuilder $query, array $statuses, ?string $attemptAlias): void
     {
-        $status = self::stringValue($status);
-
-        if ($status === null || $status === 'all' || $attemptAlias === null) {
+        if ($statuses === [] || $attemptAlias === null) {
             return;
         }
 
-        match ($status) {
-            'not_sent' => $query->whereNull("{$attemptAlias}.newcorban_sent_at"),
-            'success' => $query->whereNotNull("{$attemptAlias}.newcorban_proposta_id"),
-            'failed' => $query
-                ->whereNull("{$attemptAlias}.newcorban_proposta_id")
-                ->whereNotNull("{$attemptAlias}.newcorban_sent_at"),
-            'sent' => $query->whereNotNull("{$attemptAlias}.newcorban_sent_at"),
-            default => null,
-        };
+        $query->where(function ($inner) use ($attemptAlias, $statuses) {
+            foreach (array_values($statuses) as $index => $status) {
+                match ($status) {
+                    'not_sent' => $index === 0
+                        ? $inner->whereNull("{$attemptAlias}.newcorban_sent_at")
+                        : $inner->orWhereNull("{$attemptAlias}.newcorban_sent_at"),
+                    'success' => $index === 0
+                        ? $inner->whereNotNull("{$attemptAlias}.newcorban_proposta_id")
+                        : $inner->orWhereNotNull("{$attemptAlias}.newcorban_proposta_id"),
+                    'failed' => $index === 0
+                        ? $inner->where(function ($failed) use ($attemptAlias) {
+                            $failed
+                                ->whereNull("{$attemptAlias}.newcorban_proposta_id")
+                                ->whereNotNull("{$attemptAlias}.newcorban_sent_at");
+                        })
+                        : $inner->orWhere(function ($failed) use ($attemptAlias) {
+                        $failed
+                            ->whereNull("{$attemptAlias}.newcorban_proposta_id")
+                            ->whereNotNull("{$attemptAlias}.newcorban_sent_at");
+                    }),
+                    'sent' => $index === 0
+                        ? $inner->whereNotNull("{$attemptAlias}.newcorban_sent_at")
+                        : $inner->orWhereNotNull("{$attemptAlias}.newcorban_sent_at"),
+                    default => null,
+                };
+            }
+        });
     }
 
-    private static function applyInboxPhoneNumberFilter(EloquentBuilder|QueryBuilder $query, ?string $value, string $column): void
+    private static function applyInboxPhoneNumberFilter(EloquentBuilder|QueryBuilder $query, array $values, string $column): void
     {
-        $digits = self::normalizeDigits($value);
+        $digits = array_values(array_unique(array_filter(array_map(
+            fn (string $value): ?string => self::normalizeDigits($value),
+            $values
+        ))));
 
-        if ($digits === null) {
+        if ($digits === []) {
             return;
         }
 
-        $query->whereRaw(self::digitsExpression($column) . ' = ?', [$digits]);
+        $query->where(function ($inner) use ($column, $digits) {
+            foreach (array_values($digits) as $index => $value) {
+                if ($index === 0) {
+                    $inner->whereRaw(self::digitsExpression($column) . ' = ?', [$value]);
+                } else {
+                    $inner->orWhereRaw(self::digitsExpression($column) . ' = ?', [$value]);
+                }
+            }
+        });
     }
 
     private static function applyTagsFilter(EloquentBuilder|QueryBuilder $query, array $tags, string $column): void
@@ -288,6 +327,30 @@ final class VendeaiLeadFilters
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    private static function stringList(mixed $value): array
+    {
+        if (is_array($value)) {
+            $values = $value;
+        } elseif (is_scalar($value)) {
+            $values = [(string) $value];
+        } else {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            fn (mixed $item): ?string => self::stringValue(is_scalar($item) ? (string) $item : null),
+            $values
+        ), fn (?string $item): bool => $item !== null && $item !== 'all')));
+    }
+
+    private static function normalizedBankValues(mixed $value): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            fn (string $bank): ?string => self::normalizeBankValue($bank),
+            self::stringList($value)
+        ))));
     }
 
     private static function tagValues(mixed $value): array
