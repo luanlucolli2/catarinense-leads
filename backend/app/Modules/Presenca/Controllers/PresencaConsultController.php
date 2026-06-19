@@ -22,7 +22,18 @@ class PresencaConsultController extends Controller
 {
     public function index(Request $request)
     {
-        $jobs = PresencaConsultJob::query()
+        $data = Validator::make($request->query(), [
+            'status' => ['nullable', 'in:agendado,pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
+        ])->validate();
+
+        $jobsQuery = PresencaConsultJob::query();
+
+        $status = $data['status'] ?? null;
+        if (is_string($status) && $status !== '' && $status !== 'todos') {
+            $jobsQuery->where('status', $status);
+        }
+
+        $jobs = $jobsQuery
             ->orderByDesc('created_at')
             ->paginate(15);
 
