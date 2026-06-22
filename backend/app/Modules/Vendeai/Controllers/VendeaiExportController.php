@@ -20,11 +20,6 @@ class VendeaiExportController extends Controller
         return $this->startExport($request, VendeaiCsvExport::TYPE_LEADS);
     }
 
-    public function newCorbanProposalAttempts(Request $request): Response
-    {
-        return $this->startExport($request, VendeaiCsvExport::TYPE_ATTEMPTS);
-    }
-
     public function status(Request $request, string $token): Response
     {
         $data = Cache::get(VendeaiExportCacheState::key((int) $request->user()->id, $token));
@@ -91,11 +86,7 @@ class VendeaiExportController extends Controller
 
     private function startExport(Request $request, string $type): Response
     {
-        $validated = $request->validate(VendeaiLeadFilters::rules(includeAttemptStatus: true));
-
-        if ($type === VendeaiCsvExport::TYPE_LEADS) {
-            unset($validated['status']);
-        }
+        $validated = $request->validate(VendeaiLeadFilters::rules());
 
         $token = (string) Str::uuid();
         $userId = (int) $request->user()->id;

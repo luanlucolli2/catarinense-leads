@@ -40,7 +40,7 @@ class Uy3PostExportControllerTest extends TestCase
         Uy3WebhookPost::query()->create([
             'payload' => json_encode([
                 'cpf' => '52998224725',
-                'typeWebook' => 'LEADS_CLT',
+                'typeWebhook' => 'LEADS_CLT',
                 'nomeTrabalhador' => 'Tipo Antigo',
                 'status' => 'QUALIFICADO',
             ], JSON_THROW_ON_ERROR),
@@ -51,7 +51,6 @@ class Uy3PostExportControllerTest extends TestCase
             'payload' => json_encode([
                 'cpf' => '39053344705',
                 'typeWebhook' => 'LEADS_CLT_V2',
-                'typeWebook' => 'LEADS_CLT_V2',
                 'nomeTrabalhador' => 'Tipo Novo',
                 'status' => 'NOVO',
             ], JSON_THROW_ON_ERROR),

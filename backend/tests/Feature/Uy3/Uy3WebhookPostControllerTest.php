@@ -34,9 +34,11 @@ class Uy3WebhookPostControllerTest extends TestCase
         $saved = Uy3WebhookPost::query()->firstOrFail();
         $payload = json_decode((string) $saved->payload, true, 512, JSON_THROW_ON_ERROR);
 
-        $this->assertSame('00000000191', $payload['cpf']);
-        $this->assertSame('LEADS_CLT_V2', $payload['typeWebhook']);
-        $this->assertSame('LEADS_CLT_V2', $payload['typeWebook']);
+        $this->assertSame([
+            'cpf' => '00000000191',
+            'typeWebhook' => 'LEADS_CLT_V2',
+            'nomeTrabalhador' => 'Novo Tipo',
+        ], $payload);
     }
 
     public function test_accepts_payload_without_type(): void
@@ -53,9 +55,10 @@ class Uy3WebhookPostControllerTest extends TestCase
         $saved = Uy3WebhookPost::query()->firstOrFail();
         $payload = json_decode((string) $saved->payload, true, 512, JSON_THROW_ON_ERROR);
 
-        $this->assertSame('52998224725', $payload['cpf']);
-        $this->assertArrayNotHasKey('typeWebhook', $payload);
-        $this->assertArrayNotHasKey('typeWebook', $payload);
+        $this->assertSame([
+            'cpf' => '52998224725',
+            'nomeTrabalhador' => 'Sem Tipo',
+        ], $payload);
     }
 
     public function test_rejects_empty_body(): void

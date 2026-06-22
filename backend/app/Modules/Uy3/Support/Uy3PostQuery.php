@@ -69,8 +69,8 @@ final class Uy3PostQuery
         }
 
         count($types) === 1
-            ? $query->where('payload->typeWebook', $types[0])
-            : $query->whereIn('payload->typeWebook', $types);
+            ? $query->where('payload->typeWebhook', $types[0])
+            : $query->whereIn('payload->typeWebhook', $types);
     }
 
     public static function decodeJsonPayload(mixed $payload): mixed
