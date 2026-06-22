@@ -11,67 +11,24 @@ use Illuminate\Support\Facades\DB;
 final class VendeaiCsvExport
 {
     public const TYPE_LEADS = 'leads';
-    public const TYPE_ATTEMPTS = 'newcorban-proposal-attempts';
 
     public static function filenamePrefix(string $type): string
     {
-        return $type === self::TYPE_ATTEMPTS
-            ? 'vendeai_newcorban_proposal_attempts'
-            : 'vendeai_leads';
+        return 'vendeai_leads';
     }
 
     public static function headings(string $type): array
     {
-        if ($type === self::TYPE_ATTEMPTS) {
-            return [
-                'CPF',
-                'Nome',
-                'Data nascimento',
-                'Telefone',
-                'Numero IA',
-                'Account ID',
-                'Chat ID',
-                'Proposal ID VendeAI',
-                'Banco',
-                'Produto',
-                'Status proposta',
-                'Valor liquido',
-                'Valor bruto',
-                'Parcelas',
-                'Valor parcela',
-                'Tabela ID',
-                'Banco ID enviado',
-                'Produto ID enviado',
-                'Convenio ID enviado',
-                'Promotora ID enviado',
-                'Origem ID enviado',
-                'Vendedor enviado',
-                'Login digitacao enviado',
-                'ID tentativa',
-                'Status tentativa',
-                'Proposta NewCorban',
-                'Cliente NewCorban',
-                'HTTP',
-                'Erro NewCorban',
-                'Recebido em',
-                'Enviado NewCorban em',
-            ];
-        }
-
         return [
             'CPF',
             'Nome',
             'Data nascimento',
             'Telefone',
             'Numero IA',
-            'Email',
-            'Account ID',
             'Chat ID',
-            'ID lead',
             'Produto conversa',
             'Stage',
             'Tags',
-            'Ultimo evento',
             'Produto simulacao',
             'Banco simulacao',
             'Valor liquido simulacao',
@@ -79,28 +36,24 @@ final class VendeaiCsvExport
             'Valor parcela simulacao',
             'Taxa mensal simulacao',
             'Nome tabela simulacao',
-            'ID tabela simulacao',
             'Melhor valor liquido simulacao',
-            'Melhor tabela simulacao',
             'Data simulacao',
             'Produto proposta',
             'Banco proposta',
             'Proposal ID',
             'Numero proposta',
             'Status proposta',
-            'Status anterior proposta',
             'Valor liquido proposta',
             'Valor bruto proposta',
             'Quantidade parcelas proposta',
             'Valor parcela proposta',
             'Nome tabela proposta',
-            'ID tabela proposta',
-            'Link formalizacao',
             'Data criacao proposta',
             'Data atualizacao status proposta',
             'Proposta NewCorban',
             'Erro NewCorban',
             'Enviado NewCorban em',
+            'Payload NewCorban',
             'Primeiro evento em',
             'Ultimo evento em',
         ];
@@ -108,16 +61,14 @@ final class VendeaiCsvExport
 
     public static function writeRows($fh, string $type, array $filters, string $delimiter, string $enclosure, int $flushEvery): int
     {
-        $query = $type === self::TYPE_ATTEMPTS
-            ? self::buildAttemptsQuery($filters)
-            : self::buildLeadsQuery($filters);
+        $query = self::buildLeadsQuery($filters);
 
         $written = 0;
 
         foreach ($query->cursor() as $row) {
             fputcsv(
                 $fh,
-                $type === self::TYPE_ATTEMPTS ? self::mapAttempt($row) : self::mapLead($row),
+                self::mapLead($row),
                 $delimiter,
                 $enclosure,
                 '\\'
@@ -191,12 +142,12 @@ final class VendeaiCsvExport
                 'vendeai_leads.proposal_installment_value',
                 'vendeai_leads.proposal_table_name',
                 'vendeai_leads.proposal_table_id',
-                'vendeai_leads.proposal_formalization_link',
                 'vendeai_leads.proposal_created_at',
                 'vendeai_leads.proposal_status_updated_at',
                 'attempts.newcorban_proposta_id',
                 'attempts.newcorban_error',
                 'attempts.newcorban_sent_at',
+                'attempts.newcorban_request_payload',
             ]);
 
         VendeaiLeadFilters::applyFilters($query, $filters, [
@@ -210,71 +161,6 @@ final class VendeaiCsvExport
         return $query->orderBy('vendeai_leads.first_received_at', $direction)->orderBy('vendeai_leads.id', $direction);
     }
 
-    private static function buildAttemptsQuery(array $filters): Builder
-    {
-        [$from, $to] = VendeaiDateRange::fromValidated($filters);
-        $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
-
-        $query = DB::table('vendeai_newcorban_proposal_attempts as attempts')
-            ->leftJoin('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id')
-            ->select([
-                'attempts.id',
-                'attempts.received_at',
-                'attempts.newcorban_sent_at',
-                'attempts.newcorban_response_status',
-                'attempts.newcorban_error',
-                'attempts.newcorban_proposta_id',
-                'attempts.newcorban_cliente_id',
-                'leads.account_id',
-                'leads.chat_id',
-                'leads.product_key',
-                'leads.customer_cpf',
-                'leads.customer_name',
-                'leads.customer_birth_date',
-                'leads.customer_phone',
-                'leads.inbox_phone_number',
-                'leads.proposal_id',
-                'leads.proposal_bank',
-                'leads.proposal_product',
-                'leads.proposal_status',
-                'leads.proposal_liquid_value',
-                'leads.proposal_gross_value',
-                'leads.proposal_number_of_payments',
-                'leads.proposal_installment_value',
-                'leads.proposal_table_id',
-            ])
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.banco_id')) as request_banco_id")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.produto_id')) as request_produto_id")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.convenio_id')) as request_convenio_id")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.promotora_id')) as request_promotora_id")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.origem_id')) as request_origem_id")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.vendedor')) as request_vendedor")
-            ->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(attempts.newcorban_request_payload, '$.content.proposta.login_digitacao')) as request_login_digitacao");
-
-        VendeaiLeadFilters::applyFilters($query, $filters, [
-            'lead_alias' => 'leads',
-            'attempt_alias' => 'attempts',
-            'date_column' => 'attempts.received_at',
-            'from' => $from,
-            'to' => $to,
-        ]);
-        self::applyAttemptStatusFilter($query, (string) ($filters['status'] ?? 'all'));
-
-        return $query->orderBy('attempts.received_at', $direction)->orderBy('attempts.id', $direction);
-    }
-
-    private static function applyAttemptStatusFilter(Builder $query, string $status): void
-    {
-        match ($status) {
-            'success' => $query->whereNotNull('attempts.newcorban_proposta_id'),
-            'failed' => $query
-                ->whereNull('attempts.newcorban_proposta_id')
-                ->whereNotNull('attempts.newcorban_sent_at'),
-            'pending' => $query->whereNull('attempts.newcorban_sent_at'),
-            default => null,
-        };
-    }
-
     private static function mapLead(object $lead): array
     {
         return [
@@ -283,14 +169,10 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue(self::formatDate($lead->customer_birth_date ?? null)),
             self::sanitizeCsvValue(self::csvPhone($lead->customer_phone ?? null)),
             self::sanitizeCsvValue(self::csvPhone($lead->inbox_phone_number ?? null)),
-            self::sanitizeCsvValue($lead->customer_email ?? null),
-            self::sanitizeCsvValue($lead->account_id ?? null),
             self::sanitizeCsvValue($lead->chat_id ?? null),
-            self::sanitizeCsvValue($lead->id ?? null),
             self::sanitizeCsvValue($lead->chat_product ?? null),
             self::sanitizeCsvValue($lead->stage ?? null),
             self::sanitizeCsvValue($lead->tags ?? null),
-            self::sanitizeCsvValue($lead->last_event ?? null),
             self::sanitizeCsvValue($lead->simulation_product ?? null),
             self::sanitizeCsvValue($lead->simulation_bank ?? null),
             self::sanitizeCsvValue($lead->simulation_liquid_value ?? null),
@@ -298,81 +180,27 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->simulation_installment_value ?? null),
             self::sanitizeCsvValue($lead->simulation_monthly_fee ?? null),
             self::sanitizeCsvValue($lead->simulation_table_name ?? null),
-            self::sanitizeCsvValue($lead->simulation_table_id ?? null),
             self::sanitizeCsvValue($lead->simulation_best_liquid_value ?? null),
-            self::sanitizeCsvValue($lead->simulation_best_table_id ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->simulation_received_at ?? null)),
             self::sanitizeCsvValue($lead->proposal_product ?? null),
             self::sanitizeCsvValue($lead->proposal_bank ?? null),
             self::sanitizeCsvValue($lead->proposal_id ?? null),
             self::sanitizeCsvValue($lead->proposal_number ?? null),
             self::sanitizeCsvValue($lead->proposal_status ?? null),
-            self::sanitizeCsvValue($lead->previous_proposal_status ?? null),
             self::sanitizeCsvValue($lead->proposal_liquid_value ?? null),
             self::sanitizeCsvValue($lead->proposal_gross_value ?? null),
             self::sanitizeCsvValue($lead->proposal_number_of_payments ?? null),
             self::sanitizeCsvValue($lead->proposal_installment_value ?? null),
             self::sanitizeCsvValue($lead->proposal_table_name ?? null),
-            self::sanitizeCsvValue($lead->proposal_table_id ?? null),
-            self::sanitizeCsvValue($lead->proposal_formalization_link ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_created_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_status_updated_at ?? null)),
             self::sanitizeCsvValue($lead->newcorban_proposta_id ?? null),
             self::sanitizeCsvValue($lead->newcorban_error ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->newcorban_sent_at ?? null)),
+            self::sanitizeCsvValue(self::csvNewcorbanPayload($lead->newcorban_request_payload ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->last_received_at ?? null)),
         ];
-    }
-
-    private static function mapAttempt(object $attempt): array
-    {
-        return [
-            self::sanitizeCsvValue(self::csvCpf($attempt->customer_cpf ?? null)),
-            self::sanitizeCsvValue($attempt->customer_name ?? null),
-            self::sanitizeCsvValue(self::formatDate($attempt->customer_birth_date ?? null)),
-            self::sanitizeCsvValue(self::csvPhone($attempt->customer_phone ?? null)),
-            self::sanitizeCsvValue(self::csvPhone($attempt->inbox_phone_number ?? null)),
-            self::sanitizeCsvValue($attempt->account_id ?? null),
-            self::sanitizeCsvValue($attempt->chat_id ?? null),
-            self::sanitizeCsvValue($attempt->proposal_id ?? null),
-            self::sanitizeCsvValue($attempt->proposal_bank ?? null),
-            self::sanitizeCsvValue($attempt->proposal_product ?? null),
-            self::sanitizeCsvValue($attempt->proposal_status ?? null),
-            self::sanitizeCsvValue($attempt->proposal_liquid_value ?? null),
-            self::sanitizeCsvValue($attempt->proposal_gross_value ?? null),
-            self::sanitizeCsvValue($attempt->proposal_number_of_payments ?? null),
-            self::sanitizeCsvValue($attempt->proposal_installment_value ?? null),
-            self::sanitizeCsvValue($attempt->proposal_table_id ?? null),
-            self::sanitizeCsvValue($attempt->request_banco_id ?? null),
-            self::sanitizeCsvValue($attempt->request_produto_id ?? null),
-            self::sanitizeCsvValue($attempt->request_convenio_id ?? null),
-            self::sanitizeCsvValue($attempt->request_promotora_id ?? null),
-            self::sanitizeCsvValue($attempt->request_origem_id ?? null),
-            self::sanitizeCsvValue($attempt->request_vendedor ?? null),
-            self::sanitizeCsvValue($attempt->request_login_digitacao ?? null),
-            self::sanitizeCsvValue($attempt->id ?? null),
-            self::sanitizeCsvValue(self::attemptStatus($attempt)),
-            self::sanitizeCsvValue($attempt->newcorban_proposta_id ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_cliente_id ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_response_status ?? null),
-            self::sanitizeCsvValue($attempt->newcorban_error ?? null),
-            self::sanitizeCsvValue(self::formatDateTime($attempt->received_at ?? null)),
-            self::sanitizeCsvValue(self::formatDateTime($attempt->newcorban_sent_at ?? null)),
-        ];
-    }
-
-    private static function attemptStatus(object $attempt): string
-    {
-        if (($attempt->newcorban_proposta_id ?? null) !== null) {
-            return 'success';
-        }
-
-        if (($attempt->newcorban_sent_at ?? null) === null) {
-            return 'pending';
-        }
-
-        return 'failed';
     }
 
     private static function formatDateTime(mixed $value): ?string
@@ -465,5 +293,27 @@ final class VendeaiCsvExport
         }
 
         return $digits;
+    }
+
+    private static function csvNewcorbanPayload(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+        }
+
+        if (is_array($value)) {
+            if (isset($value['auth']) && is_array($value['auth']) && array_key_exists('password', $value['auth'])) {
+                $value['auth']['password'] = null;
+            }
+
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return (string) $value;
     }
 }

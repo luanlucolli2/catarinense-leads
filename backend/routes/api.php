@@ -98,8 +98,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/vendeai/exports/leads', [VendeaiExportController::class, 'leads'])
         ->middleware('throttle:30,1');
-    Route::post('/vendeai/exports/newcorban-proposal-attempts', [VendeaiExportController::class, 'newCorbanProposalAttempts'])
-        ->middleware('throttle:30,1');
     Route::get('/vendeai/exports/{token}', [VendeaiExportController::class, 'status'])
         ->middleware('throttle:120,1');
     Route::get('/vendeai/exports/{token}/download', [VendeaiExportController::class, 'download'])
