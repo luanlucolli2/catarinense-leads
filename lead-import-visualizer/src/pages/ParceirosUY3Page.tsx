@@ -4,11 +4,9 @@ import { endOfDay, format, parseISO, startOfDay, subDays, subHours } from "date-
 import { ptBR } from "date-fns/locale";
 import {
   AlertCircle,
-  ArrowUpDown,
   Calendar,
   ChevronDown,
   ChevronUp,
-  Clock,
   FileDown,
   Filter,
   Inbox,
@@ -214,6 +212,15 @@ const toUtcIsoFromDateTimeLocal = (value: string): string | null => {
   return parsed.toISOString();
 };
 
+const formatDateTimeLocalLabel = (value: string): string => {
+  if (!value) return "-";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+
+  return format(parsed, "dd/MM/yyyy HH:mm", { locale: ptBR });
+};
+
 const renderDados = (value: unknown, depth = 0): JSX.Element => {
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground italic text-sm">Não informado</span>;
@@ -287,13 +294,17 @@ const renderDados = (value: unknown, depth = 0): JSX.Element => {
 
 const getPreviewTags = (dados: unknown): string[] => {
   if (isRecord(dados)) {
-    return Object.entries(dados)
-      .slice(0, 3)
-      .map(([key, value]) => {
-        const raw = typeof value === "object" ? "..." : String(value);
-        const cleanKey = key.replace(/_/g, " ");
-        return `${cleanKey}: ${raw.slice(0, 24)}`;
-      });
+    const tags: string[] = [];
+
+    if (dados.cpf !== undefined && dados.cpf !== null && dados.cpf !== "") {
+      tags.push(`cpf: ${String(dados.cpf).slice(0, 24)}`);
+    }
+
+    if (dados.typeWebhook !== undefined && dados.typeWebhook !== null && dados.typeWebhook !== "") {
+      tags.push(`typeWebhook: ${String(dados.typeWebhook).slice(0, 24)}`);
+    }
+
+    return tags;
   }
 
   if (Array.isArray(dados)) {
@@ -397,6 +408,27 @@ const ParceirosUY3Page = () => {
   const currentPage = data?.current_page ?? page;
   const lastPage = data?.last_page ?? 1;
   const total = data?.total ?? 0;
+  const controlLabels = useMemo(
+    () => [
+      `Ordenação: ${sortOptions.find((option) => option.value === appliedSortDirection)?.label ?? appliedSortDirection}`,
+      `Modo: ${windowModeOptions.find((option) => option.value === appliedWindowMode)?.label ?? appliedWindowMode}`,
+    ],
+    [appliedSortDirection, appliedWindowMode]
+  );
+  const filterLabels = useMemo(() => {
+    const periodLabel = periodPresetOptions.find((option) => option.value === appliedPeriodPreset)?.label ?? appliedPeriodPreset;
+
+    if (appliedPeriodPreset === "always") {
+      return [`Período: ${periodLabel}`];
+    }
+
+    return [
+      `Período: ${periodLabel}`,
+      `De: ${formatDateTimeLocalLabel(effectiveRange.from)}`,
+      `Até: ${formatDateTimeLocalLabel(effectiveRange.to)}`,
+    ];
+  }, [appliedPeriodPreset, effectiveRange.from, effectiveRange.to]);
+  const hasActiveFilters = appliedPeriodPreset !== "custom" || appliedWindowMode !== "rolling" || appliedSortDirection !== "desc";
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -410,6 +442,22 @@ const ParceirosUY3Page = () => {
   const resetPage = () => {
     setPage(1);
     setExpandedIds(new Set());
+  };
+
+  const handleClearFilters = () => {
+    const defaults = buildDefaultFilters();
+
+    setFromInput(defaults.from);
+    setToInput(defaults.to);
+    setPeriodPresetInput(defaults.periodPreset);
+    setAppliedRange({ from: defaults.from, to: defaults.to });
+    setSortDirectionInput(defaults.sortDirection);
+    setAppliedSortDirection(defaults.sortDirection);
+    setWindowModeInput(defaults.windowMode);
+    setAppliedWindowMode(defaults.windowMode);
+    setAppliedPeriodPreset(defaults.periodPreset);
+    setRangeError(null);
+    resetPage();
   };
 
   const applyFilters = () => {
@@ -532,156 +580,190 @@ const ParceirosUY3Page = () => {
             Visualize e exporte os dados enviados pela UY3 via API.
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="shrink-0 border-gray-200 px-4 hover:bg-gray-50"
-            onClick={() => void handleExportCsv()}
-            disabled={isExporting}
-          >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}
-            Exportar CSV
-          </Button>
-
-          <Button className="shrink-0 bg-blue-600 px-4 text-white hover:bg-blue-700" onClick={() => void refetch()}>
-            {isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-            Atualizar
-          </Button>
-        </div>
       </div>
 
-      {/* FILTER SECTION - SEM CARD, COM DELIMITAÇÃO SUTIL E LABELS CLAROS */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-          <div className="w-full lg:w-auto flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              Período
-            </label>
-            <Select
-              value={periodPresetInput}
-              onValueChange={(value) => applyPeriodPreset(value as Uy3PeriodPreset)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione..." />
-              </SelectTrigger>
-              <SelectContent>
-                {periodPresetOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="w-full lg:w-auto flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              Data inicial
-            </label>
-            <Input
-              type="datetime-local"
-              value={fromInput}
-              onChange={(e) => {
-                setPeriodPresetInput("custom");
-                setFromInput(e.target.value);
-              }}
-              disabled={isAlwaysPreset}
-              className="w-full"
-            />
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">Filtros UY3</p>
+              <p className="mt-1 text-sm text-gray-500">Controle a visualização e exporte somente os dados filtrados.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row sm:items-end">
+              <Button
+                onClick={() => void handleExportCsv()}
+                variant="outline"
+                disabled={isExporting}
+                className="h-9 justify-center gap-2 border-gray-200 px-4 hover:bg-gray-50"
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Exportar CSV
+              </Button>
+
+              <Button
+                className="h-9 justify-center gap-2 bg-blue-600 px-4 text-white hover:bg-blue-700"
+                onClick={() => void refetch()}
+              >
+                {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Atualizar
+              </Button>
+            </div>
           </div>
 
-          <div className="w-full lg:w-auto flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              Data final
-            </label>
-            <Input
-              type="datetime-local"
-              value={toInput}
-              onChange={(e) => {
-                setPeriodPresetInput("custom");
-                setToInput(e.target.value);
-              }}
-              disabled={isAlwaysPreset}
-              className="w-full"
-            />
-          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">Período</label>
+              <Select value={periodPresetInput} onValueChange={(value) => applyPeriodPreset(value as Uy3PeriodPreset)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {periodPresetOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="w-full lg:w-auto flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-gray-400" />
-              Modo de intervalo
-            </label>
-            <Select
-              value={windowModeInput}
-              onValueChange={(value) => setWindowModeInput(value as Uy3WindowMode)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione..." />
-              </SelectTrigger>
-              <SelectContent>
-                {windowModeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">Data inicial</label>
+              <Input
+                type="datetime-local"
+                value={fromInput}
+                onChange={(e) => {
+                  setPeriodPresetInput("custom");
+                  setFromInput(e.target.value);
+                }}
+                disabled={isAlwaysPreset}
+                className="w-full"
+              />
+            </div>
 
-          <div className="w-full lg:w-auto flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <ArrowUpDown className="w-4 h-4 text-gray-400" />
-              Ordenação
-            </label>
-            <Select
-              value={sortDirectionInput}
-              onValueChange={(value) => setSortDirectionInput(value as SortDirection)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione..." />
-              </SelectTrigger>
-              <SelectContent>
-                {sortOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">Data final</label>
+              <Input
+                type="datetime-local"
+                value={toInput}
+                onChange={(e) => {
+                  setPeriodPresetInput("custom");
+                  setToInput(e.target.value);
+                }}
+                disabled={isAlwaysPreset}
+                className="w-full"
+              />
+            </div>
 
-          <div className="w-full lg:w-auto pt-2 lg:pt-0">
-            <Button 
-              type="button" 
-              onClick={applyFilters} 
-              className="w-full lg:w-auto bg-blue-600 text-white hover:bg-blue-700"
-            >
-              <Filter className="w-4 h-4 mr-2" />
-              Aplicar filtros
-            </Button>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">Modo de intervalo</label>
+              <Select value={windowModeInput} onValueChange={(value) => setWindowModeInput(value as Uy3WindowMode)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {windowModeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 lg:col-span-4 lg:max-w-xs">
+              <label className="text-xs font-medium text-gray-700">Ordenação</label>
+              <Select value={sortDirectionInput} onValueChange={(value) => setSortDirectionInput(value as SortDirection)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="lg:col-span-4 flex justify-start lg:justify-end pt-2">
+              <Button
+                type="button"
+                onClick={applyFilters}
+                className="w-full lg:w-auto bg-blue-600 text-white hover:bg-blue-700"
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                Aplicar filtros
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* FEEDBACK DOS FILTROS (Dicas e Erros agrupados) */}
-        <div className="mt-4 flex flex-col gap-2">
-          {rangeError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4" />
-              {rangeError}
-            </p>
-          )}
+        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-900">
+                Resultados atuais
+                <span className="ml-1 font-normal text-blue-600">· {total} registros</span>
+              </span>
+            </div>
 
-          {windowModeInput === "rolling" && (
-            <p className="text-sm text-gray-500 flex items-center gap-1.5">
-              <Info className="w-4 h-4 text-blue-600" />
-              Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
-            </p>
-          )}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700">Visualização</p>
+              <div className="flex flex-wrap gap-2">
+                {controlLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-800 shadow-sm"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
 
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700">Filtros</p>
+              <div className="flex flex-wrap gap-2">
+                {filterLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-800 shadow-sm"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {rangeError && (
+              <p className="text-sm text-red-600 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4" />
+                {rangeError}
+              </p>
+            )}
+
+            {windowModeInput === "rolling" && (
+              <p className="text-xs text-blue-700 flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-blue-600" />
+                Janela móvel ativa: ao aplicar, o intervalo é recalculado usando o horário atual como base.
+              </p>
+            )}
+          </div>
+
+          {hasActiveFilters ? (
+            <Button
+              onClick={handleClearFilters}
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-8 w-full shrink-0 self-start text-xs text-blue-700 hover:bg-blue-100/50 hover:text-blue-800 sm:mt-0 sm:w-auto"
+            >
+              Limpar filtros
+            </Button>
+          ) : null}
         </div>
       </div>
 
