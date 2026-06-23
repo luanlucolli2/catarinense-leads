@@ -127,7 +127,10 @@ class NewCorbanProposalService
                     'valor_liberado' => $this->numberOrNull(data_get($payload, 'proposal.liquid_value')),
                     'prazo' => $this->integerOrNull(data_get($payload, 'proposal.number_of_payments')),
                     'taxa' => null,
-                    'tabela_id' => $this->stringOrNull(data_get($payload, 'proposal.table_id')),
+                    'tabela_id' => $this->newCorbanTabelaId(
+                        data_get($payload, 'proposal.bank'),
+                        data_get($payload, 'proposal.table_id')
+                    ),
                 ],
             ],
         ];
@@ -213,6 +216,14 @@ class NewCorbanProposalService
             'fgts' => '100000',
             'clt' => '54451',
             default => null,
+        };
+    }
+
+    private function newCorbanTabelaId(mixed $bank, mixed $tableId): ?string
+    {
+        return match ($this->bankKey($bank)) {
+            'soma', 'novo_saque' => null,
+            default => $this->stringOrNull($tableId),
         };
     }
 
