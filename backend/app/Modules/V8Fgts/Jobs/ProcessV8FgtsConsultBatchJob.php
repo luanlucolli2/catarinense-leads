@@ -85,6 +85,17 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
 
         $lock = Cache::lock("v8_fgts_batch_job:{$this->jobId}", $this->batchLockSeconds);
         if (!$lock->get()) {
+            Log::info('[V8-FGTS] Batch job encontrou lock ativo; reagendando.', [
+                'job_id' => $this->jobId,
+                'delay_seconds' => $this->batchLockSeconds,
+            ]);
+
+            if ($this->job) {
+                $this->release($this->batchLockSeconds);
+            } else {
+                $this->scheduleSelf($this->batchLockSeconds * 1000);
+            }
+
             return;
         }
 
