@@ -85,6 +85,16 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
 
         $lock = Cache::lock("v8_fgts_batch_job:{$this->jobId}", $this->batchLockSeconds);
         if (!$lock->get()) {
+            Log::info('[V8-FGTS] Batch job encontrou lock ativo; reagendando.', [
+                'job_id' => $this->jobId,
+                'delay_seconds' => $this->batchLockSeconds,
+            ]);
+
+            // Evita `release()` aqui porque o worker de staging/prod roda com
+            // `--tries=1`; em deploy/restart isso transforma a retomada em
+            // `MaxAttemptsExceededException` na próxima execução.
+            $this->scheduleSelf($this->batchLockSeconds * 1000);
+
             return;
         }
 
