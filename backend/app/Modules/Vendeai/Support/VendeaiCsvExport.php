@@ -54,6 +54,7 @@ final class VendeaiCsvExport
             'Erro NewCorban',
             'Enviado NewCorban em',
             'Payload NewCorban',
+            'Resposta NewCorban',
             'Primeiro evento em',
             'Ultimo evento em',
         ];
@@ -148,6 +149,7 @@ final class VendeaiCsvExport
                 'attempts.newcorban_error',
                 'attempts.newcorban_sent_at',
                 'attempts.newcorban_request_payload',
+                'attempts.newcorban_response_body',
             ]);
 
         VendeaiLeadFilters::applyFilters($query, $filters, [
@@ -198,6 +200,7 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->newcorban_error ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->newcorban_sent_at ?? null)),
             self::sanitizeCsvValue(self::csvNewcorbanPayload($lead->newcorban_request_payload ?? null)),
+            self::sanitizeCsvValue(self::csvJsonPayload($lead->newcorban_response_body ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->last_received_at ?? null)),
         ];
@@ -311,6 +314,24 @@ final class VendeaiCsvExport
                 $value['auth']['password'] = null;
             }
 
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return (string) $value;
+    }
+
+    private static function csvJsonPayload(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+        }
+
+        if (is_array($value)) {
             return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null;
         }
 

@@ -243,10 +243,11 @@ class NewCorbanProposalService
     private function bankKey(mixed $value): string
     {
         $normalized = mb_strtolower((string) $this->stringOrNull($value));
+        $collapsed = str_replace([' ', '_', '-'], '', $normalized);
 
         return match (true) {
             $normalized === 'presença' => 'presenca',
-            $normalized === 'novo saque' => 'novo_saque',
+            str_contains($collapsed, 'novosaque') => 'novo_saque',
             str_contains($normalized, 'soma') => 'soma',
             default => $normalized,
         };
