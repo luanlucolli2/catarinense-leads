@@ -430,10 +430,10 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
             'periods_summary' => V8FgtsSimulationMapper::summarizePeriods($periods),
         ];
 
-        if ($balanceId === '' || $desiredInstallments === []) {
+        if ($balanceId === '' || count($desiredInstallments) < 2) {
             return [
                 'type' => 'terminal',
-                'row' => $this->finalRow($cpf, 'FALHA', 'Consulta sem balanceId ou parcelas válidas para simulação.', array_merge($rowBase, [
+                'row' => $this->finalRow($cpf, 'NAO_ELEGIVEL', 'Consulta sem balanceId ou com menos de 2 parcelas válidas para simulação.', array_merge($rowBase, [
                     'balance_start_response_body' => $this->formatResponseBodyForCsv('simulacao_preparacao', null),
                 ])),
             ];
