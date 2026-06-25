@@ -3,16 +3,18 @@
 namespace App\Modules\Uy3\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Uy3\Services\Uy3SnapshotPersistService;
 use App\Modules\Uy3\Support\Uy3WebhookPayloadNormalizer;
 use App\Models\Uy3WebhookPost;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 use Symfony\Component\HttpFoundation\Response;
 
 class Uy3WebhookPostController extends Controller
 {
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, Uy3SnapshotPersistService $persistService): Response
     {
         $rawPayload = (string) $request->getContent();
 
@@ -42,12 +44,17 @@ class Uy3WebhookPostController extends Controller
             ], 422);
         }
 
+        $receivedAt = now();
+
         $attributes = [
             'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'received_at' => now(),
+            'received_at' => $receivedAt,
         ];
 
-        Uy3WebhookPost::create($attributes);
+        DB::transaction(function () use ($attributes, $payload, $persistService, $receivedAt): void {
+            Uy3WebhookPost::create($attributes);
+            $persistService->persist($payload, $receivedAt);
+        });
 
         return response()->json([
             'ok' => true,

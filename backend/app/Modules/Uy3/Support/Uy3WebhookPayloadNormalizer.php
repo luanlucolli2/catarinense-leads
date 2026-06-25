@@ -30,13 +30,15 @@ final class Uy3WebhookPayloadNormalizer
 
         $payload['cpf'] = $cpf;
 
-        $type = self::stringOrNull($payload['typeWebhook'] ?? null);
+        $type = self::stringOrNull($payload['typeWebhook'] ?? ($payload['typeWebook'] ?? null));
 
         if ($type !== null) {
             $payload['typeWebhook'] = $type;
         } else {
             unset($payload['typeWebhook']);
         }
+
+        unset($payload['typeWebook']);
 
         return $payload;
     }

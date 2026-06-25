@@ -53,6 +53,7 @@ final class VendeaiCsvExport
             'Proposta NewCorban',
             'Erro NewCorban',
             'Enviado NewCorban em',
+            'Payload proposta VendeAI',
             'Payload NewCorban',
             'Resposta NewCorban',
             'Primeiro evento em',
@@ -148,6 +149,7 @@ final class VendeaiCsvExport
                 'attempts.newcorban_proposta_id',
                 'attempts.newcorban_error',
                 'attempts.newcorban_sent_at',
+                'attempts.raw_payload',
                 'attempts.newcorban_request_payload',
                 'attempts.newcorban_response_body',
             ]);
@@ -199,6 +201,7 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->newcorban_proposta_id ?? null),
             self::sanitizeCsvValue($lead->newcorban_error ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->newcorban_sent_at ?? null)),
+            self::sanitizeCsvValue(self::csvJsonPayload($lead->raw_payload ?? null)),
             self::sanitizeCsvValue(self::csvNewcorbanPayload($lead->newcorban_request_payload ?? null)),
             self::sanitizeCsvValue(self::csvJsonPayload($lead->newcorban_response_body ?? null)),
             self::sanitizeCsvValue(self::formatDateTime($lead->first_received_at ?? null)),
