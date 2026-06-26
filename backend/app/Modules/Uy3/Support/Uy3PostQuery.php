@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Uy3\Support;
 
-use App\Models\Uy3WebhookPost;
+use App\Modules\Uy3\Models\Uy3WebhookPost;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;

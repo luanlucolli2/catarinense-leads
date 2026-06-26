@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Uy3\Services;
 
-use App\Models\Uy3WebhookPost;
+use App\Modules\Uy3\Models\Uy3WebhookPost;
 use App\Modules\Uy3\Support\Uy3WebhookPayloadNormalizer;
 use Illuminate\Validation\ValidationException;
 use JsonException;

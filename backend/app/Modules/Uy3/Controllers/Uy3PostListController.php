@@ -3,8 +3,8 @@
 namespace App\Modules\Uy3\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Uy3\Models\Uy3WebhookPost;
 use App\Modules\Uy3\Support\Uy3PostQuery;
-use App\Models\Uy3WebhookPost;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
