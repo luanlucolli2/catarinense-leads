@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Mode = "BASE" | "FGTS" | "CLT" | "MERCANTIL";
+type Mode = "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 
 interface ColumnsModalProps {
   isOpen: boolean;
@@ -162,6 +162,39 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     // Registro
     { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
     { id: "ultima_origem_mercantil", label: "Origem mercantil", group: "Registro" },
+  ],
+
+  UY3: [
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "created_at", label: "Criado em (Lead)", group: "Cadastral" },
+    { id: "updated_at", label: "Atualizado em (Lead)", group: "Cadastral" },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+    { id: "telefone_1", label: "Fone 1", group: "Cadastral" },
+    { id: "classe_1", label: "Classe 1", group: "Cadastral" },
+    { id: "telefone_2", label: "Fone 2", group: "Cadastral" },
+    { id: "classe_2", label: "Classe 2", group: "Cadastral" },
+    { id: "telefone_3", label: "Fone 3", group: "Cadastral" },
+    { id: "classe_3", label: "Classe 3", group: "Cadastral" },
+    { id: "telefone_4", label: "Fone 4", group: "Cadastral" },
+    { id: "classe_4", label: "Classe 4", group: "Cadastral" },
+
+    { id: "uy3_type_webhook", label: "Tipo webhook", group: "Produto" },
+    { id: "uy3_status", label: "Status", group: "Produto" },
+    { id: "uy3_consultado_em", label: "Consultado em", group: "Produto" },
+    { id: "uy3_data_admissao", label: "Data admissão", group: "Produto" },
+    { id: "uy3_valor_liberado", label: "Valor liberado", group: "Produto" },
+    { id: "uy3_numero_parcelas", label: "Qtd. parcelas", group: "Produto" },
+    { id: "uy3_codigo_requisicao", label: "Código requisição", group: "Produto" },
+    { id: "uy3_margem_disponivel", label: "Margem disponível", group: "Produto" },
+    { id: "uy3_elegivel_emprestimo", label: "Elegível empréstimo", group: "Produto" },
+    { id: "uy3_numero_inscricao_empregador", label: "Inscrição empregador", group: "Produto" },
+    { id: "uy3_pessoa_exposta_politicamente_codigo", label: "PEP código", group: "Produto" },
+    { id: "uy3_data_hora_validade_solicitacao", label: "Validade solicitação", group: "Produto" },
+    { id: "uy3_is_mei", label: "É MEI", group: "Produto" },
+    { id: "uy3_is_judicial_recovery", label: "Recuperação judicial", group: "Produto" },
+
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
   ],
 };
 

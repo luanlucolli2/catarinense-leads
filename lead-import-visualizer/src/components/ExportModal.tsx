@@ -7,7 +7,7 @@ interface ExportModalProps {
   onClose: () => void;
   onExport: (columns: string[]) => void;
   /** Define quais colunas exibir: BASE | FGTS | CLT | MERCANTIL */
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 }
 
 type Group = "Cadastral" | "Produto" | "Registro";
@@ -150,6 +150,39 @@ const COLUMNS_MERCANTIL: ColumnDef[] = [
   { id: "ultima_origem_mercantil", label: "Origem mercantil", selected: true, group: "Registro" },
 ];
 
+const COLUMNS_UY3: ColumnDef[] = [
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "created_at", label: "Criado em (Lead)", selected: false, group: "Cadastral" },
+  { id: "updated_at", label: "Atualizado em (Lead)", selected: false, group: "Cadastral" },
+  { id: "data_nascimento", label: "Data de nascimento", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "classe_fone1", label: "Classe do telefone 1", selected: true, group: "Cadastral" },
+  { id: "fone2", label: "Telefone 2", selected: false, group: "Cadastral" },
+  { id: "classe_fone2", label: "Classe do telefone 2", selected: false, group: "Cadastral" },
+  { id: "fone3", label: "Telefone 3", selected: false, group: "Cadastral" },
+  { id: "classe_fone3", label: "Classe do telefone 3", selected: false, group: "Cadastral" },
+  { id: "fone4", label: "Telefone 4", selected: false, group: "Cadastral" },
+  { id: "classe_fone4", label: "Classe do telefone 4", selected: false, group: "Cadastral" },
+
+  { id: "uy3_type_webhook", label: "Tipo webhook", selected: true, group: "Produto" },
+  { id: "uy3_status", label: "Status", selected: true, group: "Produto" },
+  { id: "uy3_consultado_em", label: "Consultado em", selected: true, group: "Produto" },
+  { id: "uy3_data_admissao", label: "Data admissão", selected: true, group: "Produto" },
+  { id: "uy3_valor_liberado", label: "Valor liberado", selected: true, group: "Produto" },
+  { id: "uy3_numero_parcelas", label: "Qtd. parcelas", selected: true, group: "Produto" },
+  { id: "uy3_codigo_requisicao", label: "Código requisição", selected: false, group: "Produto" },
+  { id: "uy3_margem_disponivel", label: "Margem disponível", selected: true, group: "Produto" },
+  { id: "uy3_elegivel_emprestimo", label: "Elegível empréstimo", selected: true, group: "Produto" },
+  { id: "uy3_numero_inscricao_empregador", label: "Inscrição empregador", selected: false, group: "Produto" },
+  { id: "uy3_pessoa_exposta_politicamente_codigo", label: "PEP código", selected: false, group: "Produto" },
+  { id: "uy3_data_hora_validade_solicitacao", label: "Validade solicitação", selected: false, group: "Produto" },
+  { id: "uy3_is_mei", label: "É MEI", selected: true, group: "Produto" },
+  { id: "uy3_is_judicial_recovery", label: "Recuperação judicial", selected: true, group: "Produto" },
+
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
+];
+
 const EXPORT_COLUMNS_STORAGE_KEY = "dashboard-export-columns";
 
 const getDefaultSelectedColumns = (columns: ColumnDef[]) =>
@@ -211,7 +244,16 @@ export const ExportModal = ({
   mode,
 }: ExportModalProps) => {
   const columnsSource = useMemo<ColumnDef[]>(
-    () => (mode === "BASE" ? COLUMNS_BASE : mode === "FGTS" ? COLUMNS_FGTS : mode === "CLT" ? COLUMNS_CLT : COLUMNS_MERCANTIL),
+    () =>
+      mode === "BASE"
+        ? COLUMNS_BASE
+        : mode === "FGTS"
+          ? COLUMNS_FGTS
+          : mode === "CLT"
+            ? COLUMNS_CLT
+            : mode === "MERCANTIL"
+              ? COLUMNS_MERCANTIL
+              : COLUMNS_UY3,
     [mode]
   );
 

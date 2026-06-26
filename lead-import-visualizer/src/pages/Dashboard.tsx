@@ -7,9 +7,11 @@ import {
   LeadsTableFGTS,
   LeadsTableCLT,
   LeadsTableMercantil,
+  LeadsTableUy3,
   ProcessedLeadFGTS,
   ProcessedLeadCLT,
   ProcessedLeadMercantil,
+  ProcessedLeadUy3,
 } from "@/components/LeadsTable"
 import { LeadsControls } from "@/components/LeadsControls"
 import { ImportModal } from "@/components/ImportModal"
@@ -19,6 +21,7 @@ import {
   fetchLeadsFGTS,
   fetchLeadsCLT,
   fetchLeadsMercantil,
+  fetchLeadsUy3,
   fetchLeadsFilters,
   // export async + poller
   startLeadsExport,
@@ -28,11 +31,13 @@ import {
   LeadFromApiFGTS,
   LeadFromApiCLT,
   LeadFromApiMercantil,
+  LeadFromApiUY3,
   LeadSort,
   PaginatedLeadsResponseBase,
   PaginatedLeadsResponseFGTS,
   PaginatedLeadsResponseCLT,
   PaginatedLeadsResponseMercantil,
+  PaginatedLeadsResponseUY3,
   LeadsExportStatusDTO,
 } from "@/api/leads"
 import {
@@ -48,11 +53,12 @@ type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
 type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
-type ActiveTab = "BASE" | "FGTS" | "CLT" | "MERCANTIL"
+type ActiveTab = "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
 const BASE_SORT_DEFAULT: LeadSort = "lead_updated_at"
 const CLT_SORT_DEFAULT: LeadSort = "clt_consulted_at"
 const MERCANTIL_SORT_DEFAULT: LeadSort = "mercantil_consulted_at"
+const UY3_SORT_DEFAULT: LeadSort = "uy3_consulted_at"
 
 export const BASE_COLUMNS_DEFAULT: string[] = [
   "cpf",
@@ -116,6 +122,25 @@ export const MERCANTIL_COLUMNS_DEFAULT: string[] = [
   "ultima_origem_mercantil",
 ]
 
+export const UY3_COLUMNS_DEFAULT: string[] = [
+  "cpf",
+  "nome",
+  "data_nascimento",
+  "telefone_1",
+  "classe_1",
+  "uy3_type_webhook",
+  "uy3_status",
+  "uy3_consultado_em",
+  "uy3_data_admissao",
+  "uy3_elegivel_emprestimo",
+  "uy3_margem_disponivel",
+  "uy3_valor_liberado",
+  "uy3_numero_parcelas",
+  "uy3_is_mei",
+  "uy3_is_judicial_recovery",
+  "ultima_origem_cadastral",
+]
+
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "BASE")
   const [currentPage, setCurrentPage] = useState(1)
@@ -135,6 +160,10 @@ const Dashboard = () => {
   const [mercantilVisibleColumns, setMercantilVisibleColumns] = usePersistedState<string[]>(
     "leadstable:mercantil:visibleColumns:v1",
     MERCANTIL_COLUMNS_DEFAULT
+  )
+  const [uy3VisibleColumns, setUy3VisibleColumns] = usePersistedState<string[]>(
+    "leadstable:uy3:visibleColumns:v1",
+    UY3_COLUMNS_DEFAULT
   )
 
   const [baseSearchValue, setBaseSearchValue] = usePersistedState<string>("dashboard-base:searchValue", "")
@@ -246,6 +275,16 @@ const Dashboard = () => {
   const mercantilSortEffective: LeadSort = mercantilSortBy === "mercantil_updated_at" ? MERCANTIL_SORT_DEFAULT : mercantilSortBy
   const mercantilStatusEffective = mercantilSituacao === "sem_consulta" ? [] : mercantilStatusFilter
 
+  const [uy3SearchValue, setUy3SearchValue] = usePersistedState<string>("dashboard-uy3:searchValue", "")
+  const [uy3OrigemFilter, setUy3OrigemFilter] = usePersistedState<string[]>("dashboard-uy3:origemFilter", [])
+  const [uy3CpfMassFilter, setUy3CpfMassFilter] = usePersistedState<string>("dashboard-uy3:cpfMassFilter", "")
+  const [uy3NamesMassFilter, setUy3NamesMassFilter] = usePersistedState<string>("dashboard-uy3:namesMassFilter", "")
+  const [uy3PhonesMassFilter, setUy3PhonesMassFilter] = usePersistedState<string>("dashboard-uy3:phonesMassFilter", "")
+  const [uy3WithPhonesFilter, setUy3WithPhonesFilter] = usePersistedState<boolean>("dashboard-uy3:withPhonesFilter", false)
+  const [uy3NoPhonesFilter, setUy3NoPhonesFilter] = usePersistedState<boolean>("dashboard-uy3:noPhonesFilter", false)
+  const [uy3BirthMonthFilter, setUy3BirthMonthFilter] = usePersistedState<string[]>("dashboard-uy3:birthMonthFilter", [])
+  const [uy3SortBy, setUy3SortBy] = usePersistedState<LeadSort>("dashboard-uy3:sortBy", UY3_SORT_DEFAULT)
+
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
@@ -274,7 +313,7 @@ const Dashboard = () => {
     isFetching,
     isError,
     refetch,
-  } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil>({
+  } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3>({
     queryKey: [
       "leads",
       activeTab,
@@ -315,8 +354,14 @@ const Dashboard = () => {
       mercantilQtdParcelasMin, mercantilQtdParcelasMax,
       mercantilOrigensMercantilFilter,
       mercantilSortEffective,
+      // UY3
+      uy3SearchValue,
+      uy3OrigemFilter,
+      uy3CpfMassFilter, uy3NamesMassFilter, uy3PhonesMassFilter, uy3WithPhonesFilter, uy3NoPhonesFilter,
+      uy3BirthMonthFilter,
+      uy3SortBy,
     ],
-    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil> => {
+    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3> => {
       if (activeTab === "BASE") {
         return fetchLeadsBase({
           page: currentPage,
@@ -329,6 +374,21 @@ const Dashboard = () => {
           without_phones: baseNoPhonesFilter || undefined,
           birth_month: baseBirthMonthFilter,
           sort: baseSortBy,
+        })
+      }
+
+      if (activeTab === "UY3") {
+        return fetchLeadsUy3({
+          page: currentPage,
+          search: uy3SearchValue,
+          origens: uy3OrigemFilter,
+          cpf: uy3CpfMassFilter,
+          names: uy3NamesMassFilter,
+          phones: uy3PhonesMassFilter,
+          with_phones: uy3WithPhonesFilter || undefined,
+          without_phones: uy3NoPhonesFilter || undefined,
+          birth_month: uy3BirthMonthFilter,
+          sort: uy3SortBy,
         })
       }
 
@@ -462,6 +522,52 @@ const Dashboard = () => {
         ultima_origem_higienizacao: lead.ultima_origem_higienizacao || "",
         fgts_off_authorized: null,
         fgts_off_consultado_em: "",
+      }
+    })
+  }, [paginatedData, activeTab])
+
+  const processedLeadsUy3: ProcessedLeadUy3[] = useMemo(() => {
+    if (activeTab !== "UY3") return []
+    const resp = paginatedData as PaginatedLeadsResponseUY3 | undefined
+    if (!resp?.data) return []
+    return resp.data.map((lead: LeadFromApiUY3) => {
+      const telefones = [
+        { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
+        { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
+        { fone: formatPhone(lead.fone3), classe: lead.classe_fone3 },
+        { fone: formatPhone(lead.fone4), classe: lead.classe_fone4 },
+      ].filter((f) => f.fone && f.fone !== "--")
+
+      const toBool = (value: boolean | number | "0" | "1" | null | undefined) =>
+        value === true || value === 1 || value === "1"
+          ? true
+          : value === false || value === 0 || value === "0"
+            ? false
+            : null
+
+      return {
+        id: lead.id,
+        cpf: formatCPF(lead.cpf),
+        nome: lead.nome || "--",
+        created_at: lead.created_at ? formatDate(lead.created_at) : "",
+        updated_at: lead.updated_at ? formatDate(lead.updated_at) : "",
+        data_nascimento: lead.data_nascimento ? formatDateOnly(lead.data_nascimento) : "",
+        telefones,
+        ultima_origem_cadastral: lead.ultima_origem_cadastral || "",
+        uy3_type_webhook: lead.uy3_type_webhook || "",
+        uy3_status: lead.uy3_status || "",
+        uy3_consultado_em: lead.uy3_consultado_em ? formatLocalDateTime(lead.uy3_consultado_em) : "",
+        uy3_data_admissao: lead.uy3_data_admissao ? formatDateOnly(lead.uy3_data_admissao) : "",
+        uy3_valor_liberado: formatCurrency(lead.uy3_valor_liberado as any),
+        uy3_numero_parcelas: lead.uy3_numero_parcelas ?? "",
+        uy3_codigo_requisicao: lead.uy3_codigo_requisicao || "",
+        uy3_margem_disponivel: formatCurrency(lead.uy3_margem_disponivel as any),
+        uy3_elegivel_emprestimo: toBool(lead.uy3_elegivel_emprestimo),
+        uy3_numero_inscricao_empregador: lead.uy3_numero_inscricao_empregador || "",
+        uy3_pessoa_exposta_politicamente_codigo: lead.uy3_pessoa_exposta_politicamente_codigo ?? "",
+        uy3_data_hora_validade_solicitacao: lead.uy3_data_hora_validade_solicitacao ? formatLocalDateTime(lead.uy3_data_hora_validade_solicitacao) : "",
+        uy3_is_mei: toBool(lead.uy3_is_mei),
+        uy3_is_judicial_recovery: toBool(lead.uy3_is_judicial_recovery),
       }
     })
   }, [paginatedData, activeTab])
@@ -673,6 +779,18 @@ const Dashboard = () => {
     setBaseSortBy(BASE_SORT_DEFAULT)
   }
 
+  const clearUy3 = () => {
+    setUy3SearchValue("")
+    setUy3OrigemFilter([])
+    setUy3CpfMassFilter("")
+    setUy3NamesMassFilter("")
+    setUy3PhonesMassFilter("")
+    setUy3WithPhonesFilter(false)
+    setUy3NoPhonesFilter(false)
+    setUy3BirthMonthFilter([])
+    setUy3SortBy(UY3_SORT_DEFAULT)
+  }
+
   const clearFgts = () => {
     setSearchValue("")
     setStatusFilter("todos")
@@ -764,6 +882,7 @@ const Dashboard = () => {
 
   const handleClearFilters = () => {
     if (activeTab === "BASE") clearBase()
+    else if (activeTab === "UY3") clearUy3()
     else if (activeTab === "FGTS") clearFgts()
     else if (activeTab === "CLT") clearClt()
     else clearMercantil()
@@ -804,6 +923,16 @@ const Dashboard = () => {
     fgtsAuthorizedFilter !== "todos" ||
     fgtsConsultaFromFilter ||
     fgtsConsultaToFilter
+
+  const hasActiveFiltersUY3 =
+    uy3SearchValue ||
+    uy3OrigemFilter.length ||
+    uy3CpfMassFilter ||
+    uy3NamesMassFilter ||
+    uy3PhonesMassFilter ||
+    uy3WithPhonesFilter ||
+    uy3NoPhonesFilter ||
+    uy3BirthMonthFilter.length
 
   const hasActiveFiltersCLT =
     cltSearchValue ||
@@ -858,6 +987,8 @@ const Dashboard = () => {
   const hasActiveFilters =
     activeTab === "BASE"
       ? hasActiveFiltersBASE
+      : activeTab === "UY3"
+      ? hasActiveFiltersUY3
       : activeTab === "FGTS"
       ? hasActiveFiltersFGTS
       : activeTab === "CLT"
@@ -899,6 +1030,20 @@ const Dashboard = () => {
         fgts_status: fgtsAuthorizedFilter !== "todos" ? fgtsAuthorizedFilter : undefined,
         fgts_consulta_from: fgtsConsultaFromFilter || undefined,
         fgts_consulta_to: fgtsConsultaToFilter || undefined,
+      }
+    }
+
+    if (activeTab === "UY3") {
+      return {
+        search: uy3SearchValue || undefined,
+        origens: uy3OrigemFilter.length ? uy3OrigemFilter : undefined,
+        cpf: uy3CpfMassFilter || undefined,
+        names: uy3NamesMassFilter || undefined,
+        phones: uy3PhonesMassFilter || undefined,
+        with_phones: uy3WithPhonesFilter || undefined,
+        without_phones: uy3NoPhonesFilter || undefined,
+        birth_month: uy3BirthMonthFilter.length ? uy3BirthMonthFilter : undefined,
+        sort: uy3SortBy,
       }
     }
 
@@ -1012,8 +1157,16 @@ const Dashboard = () => {
 
   // Inicia export e delega o polling ao singleton
   const handleExport = async (columns: string[]) => {
-    const mode: "base" | "fgts" | "clt" | "mercantil" =
-      activeTab === "BASE" ? "base" : activeTab === "FGTS" ? "fgts" : activeTab === "CLT" ? "clt" : "mercantil"
+    const mode: "base" | "fgts" | "clt" | "mercantil" | "uy3" =
+      activeTab === "BASE"
+        ? "base"
+        : activeTab === "UY3"
+          ? "uy3"
+          : activeTab === "FGTS"
+            ? "fgts"
+            : activeTab === "CLT"
+              ? "clt"
+              : "mercantil"
     const preId = toast.loading("Exportando leads", { duration: Infinity })
     try {
       const { token } = await startLeadsExport(collectFilters(), columns, mode)
@@ -1054,6 +1207,33 @@ const Dashboard = () => {
       sortBy: baseSortBy,
       setSortBy: (value: LeadSort | "") => {
         if (value) setBaseSortBy(value)
+      },
+      fgtsAuthorizedFilter: "todos" as const, setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
+      fgtsConsultaFromFilter: "", setFgtsConsultaFromFilter: (_: string) => {},
+      fgtsConsultaToFilter: "", setFgtsConsultaToFilter: (_: string) => {},
+    }
+    : activeTab === "UY3"
+    ? {
+      mode: "UY3" as const,
+      searchValue: uy3SearchValue, setSearchValue: setUy3SearchValue,
+      statusFilter: "todos" as const, setStatusFilter: (_: StatusFilter) => {},
+      motivosFilter: [] as string[], setMotivosFilter: (_: string[]) => {},
+      origemFilter: uy3OrigemFilter, setOrigemFilter: setUy3OrigemFilter,
+      higienizacaoFilter: [] as string[], setHigienizacaoFilter: (_: string[]) => {},
+      dateFromFilter: "", setDateFromFilter: (_: string) => {},
+      dateToFilter: "", setDateToFilter: (_: string) => {},
+      contractDateFromFilter: "", setContractDateFromFilter: (_: string) => {},
+      contractDateToFilter: "", setContractDateToFilter: (_: string) => {},
+      cpfMassFilter: uy3CpfMassFilter, setCpfMassFilter: setUy3CpfMassFilter,
+      namesMassFilter: uy3NamesMassFilter, setNamesMassFilter: setUy3NamesMassFilter,
+      phonesMassFilter: uy3PhonesMassFilter, setPhonesMassFilter: setUy3PhonesMassFilter,
+      withPhonesFilter: uy3WithPhonesFilter, setWithPhonesFilter: setUy3WithPhonesFilter,
+      noPhonesFilter: uy3NoPhonesFilter, setNoPhonesFilter: setUy3NoPhonesFilter,
+      vendorsFilter: [] as string[], setVendorsFilter: (_: string[]) => {},
+      birthMonthFilter: uy3BirthMonthFilter, setBirthMonthFilter: setUy3BirthMonthFilter,
+      sortBy: uy3SortBy,
+      setSortBy: (value: LeadSort | "") => {
+        if (value) setUy3SortBy(value)
       },
       fgtsAuthorizedFilter: "todos" as const, setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
       fgtsConsultaFromFilter: "", setFgtsConsultaFromFilter: (_: string) => {},
@@ -1166,6 +1346,7 @@ const Dashboard = () => {
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="BASE">Somente dados cadastrais</option>
+            <option value="UY3">Cadastrais + UY3</option>
             <option value="FGTS">Cadastrais + FGTS</option>
             <option value="CLT">Cadastrais + CLT Facta</option>
             <option value="MERCANTIL">Cadastrais + CLT Mercantil</option>
@@ -1306,10 +1487,13 @@ const Dashboard = () => {
         onVisibleColumnsCLTChange={setCltVisibleColumns}
         visibleColumnsMERCANTIL={mercantilVisibleColumns}
         onVisibleColumnsMERCANTILChange={setMercantilVisibleColumns}
+        visibleColumnsUY3={uy3VisibleColumns}
+        onVisibleColumnsUY3Change={setUy3VisibleColumns}
         defaultVisibleColumnsBASE={BASE_COLUMNS_DEFAULT}
         defaultVisibleColumnsFGTS={FGTS_COLUMNS_DEFAULT}
         defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
         defaultVisibleColumnsMERCANTIL={MERCANTIL_COLUMNS_DEFAULT}
+        defaultVisibleColumnsUY3={UY3_COLUMNS_DEFAULT}
       />
 
       {activeTab === "BASE" ? (
@@ -1320,6 +1504,15 @@ const Dashboard = () => {
           onPageChange={setCurrentPage}
           isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={baseVisibleColumns}
+        />
+      ) : activeTab === "UY3" ? (
+        <LeadsTableUy3
+          leads={processedLeadsUy3}
+          currentPage={current_page}
+          totalPages={last_page}
+          onPageChange={setCurrentPage}
+          isLoading={isLoading || isFetching || loadingOptions}
+          visibleColumns={uy3VisibleColumns}
         />
       ) : activeTab === "FGTS" ? (
         <LeadsTableFGTS

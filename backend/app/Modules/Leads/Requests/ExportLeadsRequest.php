@@ -16,7 +16,7 @@ class ExportLeadsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mode' => ['nullable', Rule::in(['base', 'fgts', 'clt', 'mercantil'])],
+            'mode' => ['nullable', Rule::in(['base', 'fgts', 'clt', 'mercantil', 'uy3'])],
 
             'columns' => ['required', 'array', 'min:1'],
             'columns.*' => ['required', 'string', 'distinct', Rule::in(LeadExportColumns::allowed())],

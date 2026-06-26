@@ -15,8 +15,8 @@ class LeadFilter
     {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
-        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'clt' | 'mercantil'
-        if (!in_array($mode, ['base', 'fgts', 'clt', 'mercantil'], true)) {
+        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'clt' | 'mercantil' | 'uy3'
+        if (!in_array($mode, ['base', 'fgts', 'clt', 'mercantil', 'uy3'], true)) {
             $mode = 'fgts';
         }
         $sort = self::normalizeSort((string) $r->input('sort', ''), $mode);
@@ -60,6 +60,23 @@ class LeadFilter
             'ultima_origem_mercantil',
         ];
 
+        $uy3Fields = [
+            'uy3_type_webhook',
+            'uy3_status',
+            'uy3_consultado_em',
+            'uy3_data_admissao',
+            'uy3_valor_liberado',
+            'uy3_numero_parcelas',
+            'uy3_codigo_requisicao',
+            'uy3_margem_disponivel',
+            'uy3_elegivel_emprestimo',
+            'uy3_numero_inscricao_empregador',
+            'uy3_pessoa_exposta_politicamente_codigo',
+            'uy3_data_hora_validade_solicitacao',
+            'uy3_is_mei',
+            'uy3_is_judicial_recovery',
+        ];
+
         // ---- FGTS OFF: colunas projetadas (quando necessário) ----
         $needFgtsAuthorizedCol = $exportMode
             ? in_array('fgts_off_authorized', $columnsForExport, true)
@@ -77,6 +94,10 @@ class LeadFilter
             ? (bool) array_intersect($columnsForExport, $mercantilFields)
             : ($mode === 'mercantil');
 
+        $needAnyUy3 = $exportMode
+            ? (bool) array_intersect($columnsForExport, $uy3Fields)
+            : ($mode === 'uy3');
+
         $hasMercantilScopedFilters =
             $r->filled('mercantil_situacao')
             || $r->filled('mercantil_status')
@@ -92,6 +113,8 @@ class LeadFilter
         $needMercantilJoin = (!$exportMode && $mode === 'mercantil')
             || $needAnyMercantil
             || $hasMercantilScopedFilters;
+        $needUy3Join = (!$exportMode && $mode === 'uy3')
+            || $needAnyUy3;
         $needFgtsJoin = $mode === 'fgts'
             || $needFgtsAuthorizedCol
             || $needFgtsConsultadoCol
@@ -137,6 +160,9 @@ class LeadFilter
                     $join->on('ijm.id', '=', 'ms.job_id')
                         ->where('ijm.type', '=', 'mercantil');
                 });
+            }
+            if ($needUy3Join) {
+                $query->leftJoin('uy3_snapshots as us', 'us.cpf', '=', 'leads.cpf');
             }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
@@ -242,6 +268,51 @@ class LeadFilter
                     $query->addSelect(DB::raw('ms.valor_parcela as mercantil_valor_parcela'));
                 }
             }
+
+            if ($needAnyUy3) {
+                if (in_array('uy3_type_webhook', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.type_webhook as uy3_type_webhook'));
+                }
+                if (in_array('uy3_status', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.status as uy3_status'));
+                }
+                if (in_array('uy3_consultado_em', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.updated_at as uy3_consultado_em'));
+                }
+                if (in_array('uy3_data_admissao', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.data_admissao as uy3_data_admissao'));
+                }
+                if (in_array('uy3_valor_liberado', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.valor_liberado as uy3_valor_liberado'));
+                }
+                if (in_array('uy3_numero_parcelas', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.numero_parcelas as uy3_numero_parcelas'));
+                }
+                if (in_array('uy3_codigo_requisicao', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.codigo_requisicao as uy3_codigo_requisicao'));
+                }
+                if (in_array('uy3_margem_disponivel', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.margem_disponivel as uy3_margem_disponivel'));
+                }
+                if (in_array('uy3_elegivel_emprestimo', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.elegivel_emprestimo as uy3_elegivel_emprestimo'));
+                }
+                if (in_array('uy3_numero_inscricao_empregador', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.numero_inscricao_empregador as uy3_numero_inscricao_empregador'));
+                }
+                if (in_array('uy3_pessoa_exposta_politicamente_codigo', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.pessoa_exposta_politicamente_codigo as uy3_pessoa_exposta_politicamente_codigo'));
+                }
+                if (in_array('uy3_data_hora_validade_solicitacao', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.data_hora_validade_solicitacao as uy3_data_hora_validade_solicitacao'));
+                }
+                if (in_array('uy3_is_mei', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.is_mei as uy3_is_mei'));
+                }
+                if (in_array('uy3_is_judicial_recovery', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('us.is_judicial_recovery as uy3_is_judicial_recovery'));
+                }
+            }
         } else {
             // ====== LISTA (API) ======
             $query = Lead::query()->select($idsOnly ? ['leads.id'] : ['leads.*']);
@@ -255,6 +326,9 @@ class LeadFilter
                     $join->on('ijm.id', '=', 'ms.job_id')
                         ->where('ijm.type', '=', 'mercantil');
                 });
+            }
+            if ($needUy3Join) {
+                $query->leftJoin('uy3_snapshots as us', 'us.cpf', '=', 'leads.cpf');
             }
             if ($needFgtsJoin) {
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
@@ -352,6 +426,24 @@ class LeadFilter
 
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
                     DB::raw('ijm.origin as ultima_origem_mercantil'),
+                ]);
+            } elseif ($mode === 'uy3') {
+                $query->addSelect([
+                    DB::raw('us.type_webhook as uy3_type_webhook'),
+                    DB::raw('us.status as uy3_status'),
+                    DB::raw('us.updated_at as uy3_consultado_em'),
+                    DB::raw('us.data_admissao as uy3_data_admissao'),
+                    DB::raw('us.valor_liberado as uy3_valor_liberado'),
+                    DB::raw('us.numero_parcelas as uy3_numero_parcelas'),
+                    DB::raw('us.codigo_requisicao as uy3_codigo_requisicao'),
+                    DB::raw('us.margem_disponivel as uy3_margem_disponivel'),
+                    DB::raw('us.elegivel_emprestimo as uy3_elegivel_emprestimo'),
+                    DB::raw('us.numero_inscricao_empregador as uy3_numero_inscricao_empregador'),
+                    DB::raw('us.pessoa_exposta_politicamente_codigo as uy3_pessoa_exposta_politicamente_codigo'),
+                    DB::raw('us.data_hora_validade_solicitacao as uy3_data_hora_validade_solicitacao'),
+                    DB::raw('us.is_mei as uy3_is_mei'),
+                    DB::raw('us.is_judicial_recovery as uy3_is_judicial_recovery'),
+                    'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
                 ]);
             }
         }
@@ -671,6 +763,10 @@ class LeadFilter
                 'mercantil_updated_at' => 'mercantil_consulted_at',
                 default => 'mercantil_consulted_at',
             },
+            'uy3' => match ($sort) {
+                'uy3_consulted_at', 'lead_updated_at' => $sort,
+                default => 'uy3_consulted_at',
+            },
             default => null,
         };
     }
@@ -713,6 +809,18 @@ class LeadFilter
                 default => $query
                     ->orderByDesc('ms.data_hora_origem')
                     ->orderByDesc('ms.updated_at')
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+            };
+        }
+
+        if ($mode === 'uy3') {
+            return match ($sort) {
+                'lead_updated_at' => $query
+                    ->orderByDesc('leads.updated_at')
+                    ->orderByDesc('leads.id'),
+                default => $query
+                    ->orderByDesc('us.updated_at')
                     ->orderByDesc('leads.updated_at')
                     ->orderByDesc('leads.id'),
             };

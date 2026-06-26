@@ -14,7 +14,7 @@ import {
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
 interface FiltersModalProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL"
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
   isOpen: boolean
   onClose: () => void
@@ -706,7 +706,9 @@ export const FiltersModal = ({
       ? "FGTS (Facta FGTS Base offline)"
       : mode === "CLT"
         ? "CLT (Facta Crédito do Trabalhador)"
-        : "CLT (Mercantil)"
+        : mode === "MERCANTIL"
+          ? "CLT (Mercantil)"
+          : "UY3"
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">

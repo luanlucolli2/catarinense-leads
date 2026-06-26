@@ -1304,3 +1304,344 @@ export const LeadsTableMercantil = ({
     </>
   );
 };
+
+/* =========================================================
+ * UY3 TABLE
+ * =======================================================*/
+export interface ProcessedLeadUy3 {
+  id: number;
+  cpf: string;
+  nome: string;
+  created_at: string;
+  updated_at: string;
+  data_nascimento: string;
+  telefones: Telefone[];
+  ultima_origem_cadastral: string;
+  uy3_type_webhook: string;
+  uy3_status: string;
+  uy3_consultado_em: string;
+  uy3_data_admissao: string;
+  uy3_valor_liberado: string;
+  uy3_numero_parcelas: string | number;
+  uy3_codigo_requisicao: string;
+  uy3_margem_disponivel: string;
+  uy3_elegivel_emprestimo: boolean | null;
+  uy3_numero_inscricao_empregador: string;
+  uy3_pessoa_exposta_politicamente_codigo: string | number;
+  uy3_data_hora_validade_solicitacao: string;
+  uy3_is_mei: boolean | null;
+  uy3_is_judicial_recovery: boolean | null;
+}
+
+type SortFieldUy3 =
+  | "cpf" | "nome" | "created_at" | "updated_at" | "data_nascimento"
+  | "uy3_type_webhook" | "uy3_status" | "uy3_consultado_em" | "uy3_data_admissao"
+  | "uy3_valor_liberado" | "uy3_numero_parcelas" | "uy3_codigo_requisicao"
+  | "uy3_margem_disponivel" | "uy3_elegivel_emprestimo" | "uy3_numero_inscricao_empregador"
+  | "uy3_pessoa_exposta_politicamente_codigo" | "uy3_data_hora_validade_solicitacao"
+  | "uy3_is_mei" | "uy3_is_judicial_recovery" | "ultima_origem_cadastral";
+
+interface LeadsTableUy3Props {
+  leads: ProcessedLeadUy3[];
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  isLoading: boolean;
+  visibleColumns: string[];
+}
+
+export const LeadsTableUy3 = ({
+  leads, currentPage, totalPages, onPageChange, isLoading, visibleColumns,
+}: LeadsTableUy3Props) => {
+  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [sortField, setSortField] = useState<SortFieldUy3 | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const { isVisible, hasAnyVisible } = useColVisibility(visibleColumns);
+
+  const handleViewLead = (lead: ProcessedLeadUy3) => { setSelectedLeadId(lead.id); setIsModalOpen(true); };
+  const handleCloseModal = () => { setIsModalOpen(false); setSelectedLeadId(null); };
+
+  const handleSort = (field: SortFieldUy3) => {
+    if (sortField === field) setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDirection("asc"); }
+  };
+
+  const sortedLeads = useMemo(() => {
+    if (!sortField) return leads;
+    const valueForSort = (x: ProcessedLeadUy3, field: SortFieldUy3) => {
+      switch (field) {
+        case "created_at":
+        case "updated_at":
+        case "data_nascimento":
+        case "uy3_consultado_em":
+        case "uy3_data_admissao":
+        case "uy3_data_hora_validade_solicitacao":
+          return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
+        case "uy3_numero_parcelas":
+        case "uy3_pessoa_exposta_politicamente_codigo":
+          return Number((x as any)[field]) || -1;
+        case "uy3_elegivel_emprestimo":
+        case "uy3_is_mei":
+        case "uy3_is_judicial_recovery": {
+          const value = (x as any)[field];
+          if (value === true) return 0;
+          if (value === false) return 1;
+          return 2;
+        }
+        default: {
+          const value = (x as any)[field];
+          return typeof value === "string" ? value.toLowerCase() : (value ?? "");
+        }
+      }
+    };
+    const sorted = [...leads].sort((a, b) => {
+      const av = valueForSort(a, sortField);
+      const bv = valueForSort(b, sortField);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return 0;
+    });
+    return sortDirection === "asc" ? sorted : sorted.reverse();
+  }, [leads, sortField, sortDirection]);
+
+  const boolBadge = (value: boolean | null) => {
+    if (value === true) return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">Sim</span>;
+    if (value === false) return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">Não</span>;
+    return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>;
+  };
+
+  const boolText = (value: boolean | null) => value === true ? "Sim" : value === false ? "Não" : EMPTY;
+
+  const SortButton = ({ field, children, align = "left" }: { field: SortFieldUy3; children: React.ReactNode; align?: "left" | "center" | "right"; }) => (
+    <button onClick={() => handleSort(field)} className={cn("flex items-center gap-1 hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-150 w-full", align === "center" && "justify-center", align === "right" && "justify-end")}>
+      <span>{children}</span>
+      {sortField === field ? (sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <div className="w-3 h-3" />}
+    </button>
+  );
+
+  const Th = ({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "center" | "right"; }) => (
+    <th className={cn("px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider min-w-[120px]", align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left")}>{children}</th>
+  );
+
+  const phonePairCols = (idx: 1 | 2 | 3 | 4) => [
+    { id: `telefone_${idx}`, header: <Th>Fone {idx}</Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">{lead.telefones[idx - 1]?.fone ? <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span> : EMPTY}</td>) },
+    { id: `classe_${idx}`, header: <Th align="center">Classe {idx}</Th>, cell: (lead: ProcessedLeadUy3) => { const c = getClasseBadge(lead.telefones[idx - 1]?.classe); return <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]"><span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", c.cls)}>{c.label}</span></td> } }
+  ] as const;
+
+  const cols = [
+    { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
+    { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "created_at", header: <Th align="center"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.created_at)}</td>) },
+    { id: "updated_at", header: <Th align="center"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
+    { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
+
+    ...phonePairCols(1), ...phonePairCols(2), ...phonePairCols(3), ...phonePairCols(4),
+
+    { id: "uy3_type_webhook", header: <Th align="center"><SortButton field="uy3_type_webhook" align="center">Tipo webhook</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[160px]">{lead.uy3_type_webhook ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-sky-100 text-sky-800 max-w-[220px] truncate">{lead.uy3_type_webhook}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
+    { id: "uy3_status", header: <Th align="center"><SortButton field="uy3_status" align="center">Status</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{lead.uy3_status ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 max-w-[180px] truncate">{lead.uy3_status}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
+    { id: "uy3_consultado_em", header: <Th align="center"><SortButton field="uy3_consultado_em" align="center">Consultado em</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.uy3_consultado_em ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{lead.uy3_consultado_em}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
+    { id: "uy3_data_admissao", header: <Th align="center"><SortButton field="uy3_data_admissao" align="center">Data admissão</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.uy3_data_admissao)}</td>) },
+    { id: "uy3_valor_liberado", header: <Th align="right"><SortButton field="uy3_valor_liberado" align="right">Valor liberado</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.uy3_valor_liberado)}</td>) },
+    { id: "uy3_numero_parcelas", header: <Th align="center"><SortButton field="uy3_numero_parcelas" align="center">Parcelas</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[80px]">{display(lead.uy3_numero_parcelas)}</td>) },
+    { id: "uy3_codigo_requisicao", header: <Th><SortButton field="uy3_codigo_requisicao">Código requisição</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 text-sm text-gray-900 text-left min-w-[220px] max-w-[280px] truncate">{display(lead.uy3_codigo_requisicao)}</td>) },
+    { id: "uy3_margem_disponivel", header: <Th align="right"><SortButton field="uy3_margem_disponivel" align="right">Margem disponível</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[120px]">{display(lead.uy3_margem_disponivel)}</td>) },
+    { id: "uy3_elegivel_emprestimo", header: <Th align="center"><SortButton field="uy3_elegivel_emprestimo" align="center">Elegível</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{boolBadge(lead.uy3_elegivel_emprestimo)}</td>) },
+    { id: "uy3_numero_inscricao_empregador", header: <Th><SortButton field="uy3_numero_inscricao_empregador">Inscrição empregador</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[150px]">{display(lead.uy3_numero_inscricao_empregador)}</td>) },
+    { id: "uy3_pessoa_exposta_politicamente_codigo", header: <Th align="center"><SortButton field="uy3_pessoa_exposta_politicamente_codigo" align="center">PEP cód.</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">{display(lead.uy3_pessoa_exposta_politicamente_codigo)}</td>) },
+    { id: "uy3_data_hora_validade_solicitacao", header: <Th align="center"><SortButton field="uy3_data_hora_validade_solicitacao" align="center">Validade solicitação</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.uy3_data_hora_validade_solicitacao)}</td>) },
+    { id: "uy3_is_mei", header: <Th align="center"><SortButton field="uy3_is_mei" align="center">É MEI</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[90px]">{boolBadge(lead.uy3_is_mei)}</td>) },
+    { id: "uy3_is_judicial_recovery", header: <Th align="center"><SortButton field="uy3_is_judicial_recovery" align="center">Rec. judicial</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{boolBadge(lead.uy3_is_judicial_recovery)}</td>) },
+    { id: "ultima_origem_cadastral", header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>, cell: (lead: ProcessedLeadUy3) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{lead.ultima_origem_cadastral ? <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">{lead.ultima_origem_cadastral}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
+  ] as const;
+
+  const visibleCols = cols.filter((c) => isVisible(c.id));
+  const headerColCount = visibleCols.length + 1;
+
+  const tableMinWidthUy3 = useMemo(() => {
+    const colsCount = headerColCount;
+    if (colsCount <= 3) return "min-w-[520px]";
+    if (colsCount <= 6) return "min-w-[960px]";
+    if (colsCount <= 10) return "min-w-[1300px]";
+    return "min-w-[2100px]";
+  }, [headerColCount]);
+
+  const renderSkeleton = (idx: number) => {
+    const nameWidths = ['w-32', 'w-48', 'w-40', 'w-56', 'w-64'];
+    return (
+      <tr className="hover:bg-gray-50" key={idx}>
+        {visibleCols.map((c, i) => {
+          if (c.id === "cpf") return <SkeletonCell key={i} w="w-24" align="left" />;
+          if (c.id === "nome") return <SkeletonCell key={i} w={nameWidths[idx % 5]} align="left" />;
+          if (["data_nascimento", "created_at", "updated_at", "uy3_consultado_em", "uy3_data_admissao", "uy3_data_hora_validade_solicitacao"].includes(c.id))
+            return <SkeletonCell key={i} w="w-24" align="center" />;
+          if (["uy3_type_webhook", "uy3_status", "uy3_elegivel_emprestimo", "uy3_is_mei", "uy3_is_judicial_recovery", "ultima_origem_cadastral", "classe_1", "classe_2", "classe_3", "classe_4"].includes(c.id))
+            return <SkeletonCell key={i} w="w-20" align="center" type="badge" />;
+          if (["uy3_valor_liberado", "uy3_margem_disponivel"].includes(c.id))
+            return <SkeletonCell key={i} w={['w-16', 'w-20', 'w-24'][idx % 3]} align="right" />;
+          if (["uy3_numero_parcelas", "uy3_pessoa_exposta_politicamente_codigo"].includes(c.id))
+            return <SkeletonCell key={i} w="w-12" align="center" />;
+          return <SkeletonCell key={i} w="w-24" align="left" />;
+        })}
+        <td className={cn("px-3 xl:px-6 py-4 text-center sticky right-0 z-20 bg-white border-l border-gray-200", ACTIONS_COL_WIDTH)}>
+          <SkeletonCell align="center" w="w-16" type="button" />
+        </td>
+      </tr>
+    );
+  };
+
+  const renderTableBody = () => {
+    if (isLoading) return Array.from({ length: 8 }).map((_, i) => renderSkeleton(i));
+    if (leads.length === 0) {
+      return (
+        <tr>
+          <td colSpan={headerColCount} className="text-center py-12 text-gray-500">
+            Nenhum lead encontrado com os filtros aplicados.
+          </td>
+        </tr>
+      );
+    }
+    return sortedLeads.map((lead) => (
+      <tr key={lead.id} className="group hover:bg-gray-50 transition-colors duration-150">
+        {visibleCols.map((c, idx) => (
+          <React.Fragment key={`${lead.id}-${c.id}-${idx}`}>{c.cell(lead)}</React.Fragment>
+        ))}
+        <td
+          className={cn(
+            "px-3 xl:px-6 py-4 whitespace-nowrap align-middle sticky right-0 z-20 bg-white group-hover:bg-gray-50 border-l border-gray-200",
+            ACTIONS_COL_WIDTH
+          )}
+        >
+          <div className="flex justify-center">
+            <Button onClick={() => handleViewLead(lead)} variant="outline" size="sm" className="flex items-center space-x-1">
+              <Eye className="w-4 h-4" />
+              <span className="hidden xl:inline">Ver</span>
+            </Button>
+          </div>
+        </td>
+      </tr>
+    ));
+  };
+
+  const Uy3Card = ({ lead }: { lead: ProcessedLeadUy3 }) => {
+    const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
+    const ShowIf: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => isVisible(id) ? <>{children}</> : null;
+
+    const sectionTelefonesVisible = hasAnyVisible(["telefone_1", "telefone_2", "telefone_3", "telefone_4", "classe_1", "classe_2", "classe_3", "classe_4"]);
+    const sectionStatusVisible = hasAnyVisible(["uy3_type_webhook", "uy3_status", "uy3_consultado_em", "uy3_data_hora_validade_solicitacao"]);
+    const sectionProdutoVisible = hasAnyVisible(["uy3_data_admissao", "uy3_valor_liberado", "uy3_numero_parcelas", "uy3_codigo_requisicao", "uy3_margem_disponivel", "uy3_elegivel_emprestimo", "uy3_numero_inscricao_empregador", "uy3_pessoa_exposta_politicamente_codigo", "uy3_is_mei", "uy3_is_judicial_recovery"]);
+    const sectionRegistroVisible = hasAnyVisible(["ultima_origem_cadastral"]);
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3 max-w-full">
+        <div className="flex justify-between items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <ShowIf id="nome"><h3 className="font-semibold text-gray-900 truncate">{display(lead.nome)}</h3></ShowIf>
+            <ShowIf id="cpf"><p className="text-xs font-mono text-gray-600 truncate">{display(lead.cpf)}</p></ShowIf>
+            <ShowIf id="created_at"><p className="text-xs text-gray-600">Criado em: {display(lead.created_at)}</p></ShowIf>
+            <ShowIf id="updated_at"><p className="text-xs text-gray-600">Atualizado em: {display(lead.updated_at)}</p></ShowIf>
+            <ShowIf id="data_nascimento"><p className="text-xs text-gray-600">Data nasc.: {display(lead.data_nascimento)}</p></ShowIf>
+            <div className="mt-1 flex items-center gap-2">
+              <ShowIf id="telefone_1"><span className="text-xs font-mono text-gray-800">{display(lead.telefones[0]?.fone)}</span></ShowIf>
+              <ShowIf id="classe_1"><span className={cn("inline-flex px-2 py-1 text-[10px] font-semibold rounded-full", classeInfo.cls)}>{classeInfo.label}</span></ShowIf>
+            </div>
+          </div>
+          <Button onClick={() => { setSelectedLeadId(lead.id); setIsModalOpen(true); }} variant="outline" size="sm" className="shrink-0"><Eye className="w-4 h-4 mr-1" /> Ver</Button>
+        </div>
+
+        {sectionTelefonesVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Telefones" icon={Phone}>
+            <div className="grid grid-cols-1 gap-1.5">
+              {[1, 2, 3, 4].map((i) => {
+                const t = lead.telefones[i - 1];
+                if (!t?.fone || !hasAnyVisible([`telefone_${i}`, `classe_${i}`])) return null;
+                const b = getClasseBadge(t.classe);
+                return (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    {isVisible(`telefone_${i}`) && <span className="text-xs font-mono text-gray-900">{t.fone}</span>}
+                    {isVisible(`classe_${i}`) && <span className={cn("inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full", b.cls)}>{b.label}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+        </>}
+
+        {sectionStatusVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Status UY3" icon={Database}>
+            {isVisible("uy3_type_webhook") && <DataRow label="Tipo webhook" value={display(lead.uy3_type_webhook)} alignRight={false} />}
+            {isVisible("uy3_status") && <DataRow label="Status" value={display(lead.uy3_status)} alignRight={false} />}
+            {isVisible("uy3_consultado_em") && <DataRow label="Consultado em" value={display(lead.uy3_consultado_em)} />}
+            {isVisible("uy3_data_hora_validade_solicitacao") && <DataRow label="Validade" value={display(lead.uy3_data_hora_validade_solicitacao)} />}
+          </Section>
+        </>}
+
+        {sectionProdutoVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Produto" icon={DollarSign}>
+            {isVisible("uy3_data_admissao") && <DataRow label="Data admissão" value={display(lead.uy3_data_admissao)} />}
+            {isVisible("uy3_valor_liberado") && <DataRow label="Valor liberado" value={display(lead.uy3_valor_liberado)} />}
+            {isVisible("uy3_numero_parcelas") && <DataRow label="Parcelas" value={display(lead.uy3_numero_parcelas)} />}
+            {isVisible("uy3_margem_disponivel") && <DataRow label="Margem disponível" value={display(lead.uy3_margem_disponivel)} />}
+            {isVisible("uy3_elegivel_emprestimo") && <DataRow label="Elegível" value={boolText(lead.uy3_elegivel_emprestimo)} />}
+            {isVisible("uy3_is_mei") && <DataRow label="É MEI" value={boolText(lead.uy3_is_mei)} />}
+            {isVisible("uy3_is_judicial_recovery") && <DataRow label="Rec. judicial" value={boolText(lead.uy3_is_judicial_recovery)} />}
+            {isVisible("uy3_numero_inscricao_empregador") && <DataRow label="Inscrição empregador" value={display(lead.uy3_numero_inscricao_empregador)} alignRight={false} />}
+            {isVisible("uy3_pessoa_exposta_politicamente_codigo") && <DataRow label="PEP cód." value={display(lead.uy3_pessoa_exposta_politicamente_codigo)} />}
+            {isVisible("uy3_codigo_requisicao") && <DataRow label="Código requisição" value={display(lead.uy3_codigo_requisicao)} mono alignRight={false} />}
+          </Section>
+        </>}
+
+        {sectionRegistroVisible && <>
+          <div className="h-px bg-gray-200" />
+          <Section title="Registro" icon={FileText}>
+            {isVisible("ultima_origem_cadastral") && <DataRow label="Origem cadastral" value={display(lead.ultima_origem_cadastral)} />}
+          </Section>
+        </>}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full max-w-full">
+        <div className="hidden lg:block w-full max-w-full">
+          <div className="overflow-x-auto relative max-w-full">
+            <table className={cn("w-full", tableMinWidthUy3)}>
+              <thead className="bg-gray-50 sticky top-0 z-30">
+                <tr>
+                  {visibleCols.map((c) => React.cloneElement(c.header as any, { key: c.id }))}
+                  <th className={cn("px-3 xl:px-6 py-3 text-xs font-medium text-gray-500 tracking-wider text-center sticky right-0 z-40 bg-gray-50 border-l border-gray-200", ACTIONS_COL_WIDTH)}>Ações</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">{renderTableBody()}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="lg:hidden space-y-4 p-4 max-w-full">
+          {isLoading ? (
+            Array.from({ length: 4 }).map((_, i) => <MobileSkeletonCard key={i} idx={i} />)
+          ) : leads.length === 0 ? (
+            <div className="text-center py-10 px-4 text-gray-500 bg-gray-50 border border-gray-200 rounded-lg">
+              Nenhum lead encontrado com os filtros aplicados.
+            </div>
+          ) : (
+            leads.map((lead) => <Uy3Card key={lead.id} lead={lead} />)
+          )}
+        </div>
+
+        <div className="bg-white px-4 lg:px-6 py-3 border-t border-gray-200 flex items-center justify-between">
+          <div className="text-sm text-gray-500">Página {currentPage} de {totalPages}</div>
+          <div className="flex items-center space-x-2">
+            <Button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1 || isLoading} variant="outline" size="sm"><ChevronLeft className="w-4 h-4" /></Button>
+            <Button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages || isLoading || totalPages === 0} variant="outline" size="sm"><ChevronRight className="w-4 h-4" /></Button>
+          </div>
+        </div>
+      </div>
+      <LeadDetailsModal isOpen={isModalOpen} onClose={handleCloseModal} leadId={selectedLeadId} />
+    </>
+  );
+};

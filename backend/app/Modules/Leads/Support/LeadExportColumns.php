@@ -71,6 +71,21 @@ final class LeadExportColumns
             'mercantil_taxa_juros_mes' => ['label' => 'Mercantil Taxa juros (% a.m.)', 'formatter' => 'float'],
             'mercantil_valor_parcela' => ['label' => 'Mercantil Valor parcela (R$)', 'formatter' => 'float'],
             'ultima_origem_mercantil' => ['label' => 'Última Origem (Mercantil)', 'formatter' => 'raw'],
+
+            'uy3_type_webhook' => ['label' => 'UY3 Tipo webhook', 'formatter' => 'raw'],
+            'uy3_status' => ['label' => 'UY3 Status', 'formatter' => 'raw'],
+            'uy3_consultado_em' => ['label' => 'UY3 Consultado em', 'formatter' => 'datetime'],
+            'uy3_data_admissao' => ['label' => 'UY3 Data de admissão', 'formatter' => 'date_only'],
+            'uy3_valor_liberado' => ['label' => 'UY3 Valor liberado (R$)', 'formatter' => 'float'],
+            'uy3_numero_parcelas' => ['label' => 'UY3 Qtd. parcelas (qtd)', 'formatter' => 'int'],
+            'uy3_codigo_requisicao' => ['label' => 'UY3 Código requisição', 'formatter' => 'raw'],
+            'uy3_margem_disponivel' => ['label' => 'UY3 Margem disponível (R$)', 'formatter' => 'float'],
+            'uy3_elegivel_emprestimo' => ['label' => 'UY3 Elegível empréstimo', 'formatter' => 'bool_ptbr'],
+            'uy3_numero_inscricao_empregador' => ['label' => 'UY3 Inscrição empregador', 'formatter' => 'raw'],
+            'uy3_pessoa_exposta_politicamente_codigo' => ['label' => 'UY3 PEP código', 'formatter' => 'int'],
+            'uy3_data_hora_validade_solicitacao' => ['label' => 'UY3 Validade solicitação', 'formatter' => 'datetime'],
+            'uy3_is_mei' => ['label' => 'UY3 É MEI', 'formatter' => 'bool_ptbr'],
+            'uy3_is_judicial_recovery' => ['label' => 'UY3 Em recuperação judicial', 'formatter' => 'bool_ptbr'],
         ];
     }
 
