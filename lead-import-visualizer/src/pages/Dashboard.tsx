@@ -1346,10 +1346,10 @@ const Dashboard = () => {
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="BASE">Somente dados cadastrais</option>
-            <option value="UY3">Cadastrais + UY3</option>
             <option value="FGTS">Cadastrais + FGTS</option>
             <option value="CLT">Cadastrais + CLT Facta</option>
             <option value="MERCANTIL">Cadastrais + CLT Mercantil</option>
+            <option value="UY3">Cadastrais + CLT UY3</option>
           </select>
         </label>
       </div>

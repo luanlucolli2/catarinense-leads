@@ -207,6 +207,7 @@ export const ColumnsModal = ({
   defaultVisibleColumns,
 }: ColumnsModalProps) => {
   const columnsSource = useMemo(() => CATALOG[mode], [mode]);
+  const modeLabel = mode === "UY3" ? "CLT UY3" : mode;
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -268,7 +269,7 @@ export const ColumnsModal = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
-            Colunas visíveis — {mode}
+            Colunas visíveis — {modeLabel}
           </h2>
           <button
             onClick={onClose}

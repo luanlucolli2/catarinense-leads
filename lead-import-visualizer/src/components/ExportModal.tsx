@@ -243,6 +243,7 @@ export const ExportModal = ({
   onExport,
   mode,
 }: ExportModalProps) => {
+  const modeLabel = mode === "UY3" ? "CLT UY3" : mode
   const columnsSource = useMemo<ColumnDef[]>(
     () =>
       mode === "BASE"
@@ -317,7 +318,7 @@ export const ExportModal = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
-            Exportar para Excel — {mode}
+            Exportar para Excel — {modeLabel}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors duration-200">
             <X className="w-5 h-5" />

@@ -708,7 +708,7 @@ export const FiltersModal = ({
         ? "CLT (Facta Crédito do Trabalhador)"
         : mode === "MERCANTIL"
           ? "CLT (Mercantil)"
-          : "UY3"
+          : "CLT (UY3)"
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
