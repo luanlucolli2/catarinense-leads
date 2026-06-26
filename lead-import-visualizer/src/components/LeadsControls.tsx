@@ -186,13 +186,13 @@ const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSo
     { value: "lead_created_at", label: "Criados recentemente" },
   ],
   CLT: [
-    { value: "clt_consulted_at", label: "Consultados recentemente" },
-    { value: "clt_updated_at", label: "Dados atualizados recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+    { value: "clt_consulted_at", label: "Consulta CLT mais recente" },
+    { value: "clt_updated_at", label: "Dados CLT atualizados recentemente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
   ],
   MERCANTIL: [
-    { value: "mercantil_consulted_at", label: "Consultados recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+    { value: "mercantil_consulted_at", label: "Consulta Mercantil mais recente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
   ],
   UY3: [
     { value: "uy3_consulted_at", label: "Dados UY3 atualizados recentemente" },
@@ -401,12 +401,12 @@ export const LeadsControls = ({
   }, [currentVisible, currentDefaults]);
 
   const sortLabels: Partial<Record<LeadSort, string>> = {
-    lead_updated_at: "Lead atualizado",
+    lead_updated_at: "Cadastro atualizado recentemente",
     lead_created_at: "Criados recentemente",
-    clt_updated_at: "Dados CLT atualizados",
-    clt_consulted_at: "Consultados CLT",
+    clt_updated_at: "Dados CLT atualizados recentemente",
+    clt_consulted_at: "Consulta CLT mais recente",
     mercantil_updated_at: "Dados Mercantil atualizados",
-    mercantil_consulted_at: "Consultados Mercantil",
+    mercantil_consulted_at: "Consulta Mercantil mais recente",
     uy3_consulted_at: "Dados UY3 atualizados recentemente",
   };
 
