@@ -25,7 +25,7 @@ return [
         'timeout_seconds' => (int) env('V8_FGTS_JOB_TIMEOUT', 21600),
         'prepare_insert_chunk' => (int) env('V8_FGTS_PREPARE_INSERT_CHUNK', 2000),
         'dedupe_in_memory_limit' => (int) env('V8_FGTS_DEDUPE_IN_MEMORY_LIMIT', 100000),
-        'start_max_attempts' => (int) env('V8_FGTS_START_MAX_ATTEMPTS', 3),
+        'start_max_attempts' => (int) env('V8_FGTS_START_MAX_ATTEMPTS', 8),
         'start_retry_delay_seconds' => (int) env('V8_FGTS_START_RETRY_DELAY_SECONDS', 30),
         'polling_round_delay_seconds' => (int) env('V8_FGTS_POLLING_ROUND_DELAY_SECONDS', 20),
         'polling_timeout_seconds' => (int) env('V8_FGTS_POLLING_TIMEOUT_SECONDS', 900),
