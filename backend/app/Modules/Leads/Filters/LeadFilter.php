@@ -11,7 +11,7 @@ use App\Support\Cpf;
 
 class LeadFilter
 {
-    public static function apply(Request $r, ?array $columnsForExport = null): Builder
+    public static function apply(Request $r, ?array $columnsForExport = null, bool $idsOnly = false): Builder
     {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
@@ -244,7 +244,7 @@ class LeadFilter
             }
         } else {
             // ====== LISTA (API) ======
-            $query = Lead::query()->select('leads.*');
+            $query = Lead::query()->select($idsOnly ? ['leads.id'] : ['leads.*']);
 
             if ($needCltJoin) {
                 $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
@@ -260,7 +260,9 @@ class LeadFilter
                 $query->leftJoin('fgts_off_snapshots as fos', 'fos.cpf', '=', 'leads.cpf');
             }
 
-            if ($mode === 'base') {
+            if ($idsOnly) {
+                // Paginação rápida: primeiro busca só os IDs, depois carrega os campos da página.
+            } elseif ($mode === 'base') {
                 $query->addSelect([
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral')
                 ]);
