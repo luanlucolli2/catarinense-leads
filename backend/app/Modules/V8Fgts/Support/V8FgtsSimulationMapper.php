@@ -49,21 +49,33 @@ final class V8FgtsSimulationMapper
             }
 
             $simulationFees = is_array($item['simulation_fees'] ?? null) ? $item['simulation_fees'] : null;
-            if ($simulationFees === null) {
+            if ($simulationFees !== null) {
+                if (strtolower(trim((string) ($simulationFees['label'] ?? ''))) !== $label) {
+                    continue;
+                }
+
+                $feeId = $simulationFees['id_simulation_fees'] ?? null;
+                if (!is_string($feeId) || trim($feeId) === '') {
+                    continue;
+                }
+
+                return [
+                    'label' => (string) ($simulationFees['label'] ?? $label),
+                    'id' => $feeId,
+                ];
+            }
+
+            if (strtolower(trim((string) ($item['visible_name'] ?? ''))) !== $label) {
                 continue;
             }
 
-            if (strtolower(trim((string) ($simulationFees['label'] ?? ''))) !== $label) {
-                continue;
-            }
-
-            $feeId = $simulationFees['id_simulation_fees'] ?? null;
+            $feeId = $item['id'] ?? null;
             if (!is_string($feeId) || trim($feeId) === '') {
                 continue;
             }
 
             return [
-                'label' => (string) ($simulationFees['label'] ?? $label),
+                'label' => (string) ($item['visible_name'] ?? $label),
                 'id' => $feeId,
             ];
         }

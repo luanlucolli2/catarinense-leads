@@ -26,9 +26,26 @@ class LeadController extends Controller
         $perPage = (int) $r->input('per_page', (int) config('leads.pagination.per_page_default', 10));
         $maxPerPage = max(1, (int) config('leads.pagination.per_page_max', 100));
         $perPage = min(max(1, $perPage), $maxPerPage);
-        $query = \App\Modules\Leads\Filters\LeadFilter::apply($r);
-        $leads = $query->paginate($perPage);
-        return response()->json($leads);
+        $idPage = \App\Modules\Leads\Filters\LeadFilter::apply($r, null, true)->paginate($perPage);
+        $ids = collect($idPage->items())->pluck('id')->all();
+
+        if (empty($ids)) {
+            return response()->json($idPage);
+        }
+
+        $leads = \App\Modules\Leads\Filters\LeadFilter::apply($r)
+            ->whereIn('leads.id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $idPage->setCollection(
+            collect($ids)
+                ->map(fn(int $id) => $leads->get($id))
+                ->filter()
+                ->values()
+        );
+
+        return response()->json($idPage);
     }
 
     public function filters()

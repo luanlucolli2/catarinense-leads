@@ -8,6 +8,7 @@ use App\Modules\CLT\Services\DispatchScheduledCltConsultJobs;
 use App\Modules\CLT\Services\ResumeActiveCltConsultJobsService;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
 use App\Modules\Presenca\Services\ResumeActivePresencaConsultJobsService;
+use App\Modules\Uy3\Services\BackfillUy3SnapshotsService;
 use App\Modules\Vendeai\Services\BackfillVendeaiLeadProductKeysService;
 use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
 use App\Modules\V8\Services\ResumeActiveV8ConsultJobsService;
@@ -130,3 +131,14 @@ Artisan::command('vendeai:backfill-product-keys', function () {
         (int) ($result['attempts_relinked'] ?? 0),
     ));
 })->purpose('Divide leads VendeAI por conversa + produto e religa tentativas NewCorban');
+
+Artisan::command('uy3:backfill-snapshots', function () {
+    $result = app(BackfillUy3SnapshotsService::class)->handle();
+
+    $this->info(sprintf(
+        'UY3 snapshots: %d lido(s), %d persistido(s), %d ignorado(s).',
+        (int) ($result['scanned'] ?? 0),
+        (int) ($result['persisted'] ?? 0),
+        (int) ($result['skipped'] ?? 0),
+    ));
+})->purpose('Reprocessa uy3_webhook_posts e preenche leads + uy3_snapshots');

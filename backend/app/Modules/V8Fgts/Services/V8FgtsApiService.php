@@ -87,7 +87,7 @@ class V8FgtsApiService
 
     public function getSimulationFees(): array
     {
-        return $this->get('/fgts/simulations/fees', []);
+        return $this->get('/fgts/simulations/fees/new', []);
     }
 
     public function createSimulation(array $payload): array

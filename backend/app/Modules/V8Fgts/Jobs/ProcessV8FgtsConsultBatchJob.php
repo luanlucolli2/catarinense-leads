@@ -90,11 +90,10 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
                 'delay_seconds' => $this->batchLockSeconds,
             ]);
 
-            if ($this->job) {
-                $this->release($this->batchLockSeconds);
-            } else {
-                $this->scheduleSelf($this->batchLockSeconds * 1000);
-            }
+            // Evita `release()` aqui porque o worker de staging/prod roda com
+            // `--tries=1`; em deploy/restart isso transforma a retomada em
+            // `MaxAttemptsExceededException` na próxima execução.
+            $this->scheduleSelf($this->batchLockSeconds * 1000);
 
             return;
         }
@@ -431,10 +430,10 @@ class ProcessV8FgtsConsultBatchJob implements ShouldQueue
             'periods_summary' => V8FgtsSimulationMapper::summarizePeriods($periods),
         ];
 
-        if ($balanceId === '' || $desiredInstallments === []) {
+        if ($balanceId === '' || count($desiredInstallments) < 2) {
             return [
                 'type' => 'terminal',
-                'row' => $this->finalRow($cpf, 'FALHA', 'Consulta sem balanceId ou parcelas válidas para simulação.', array_merge($rowBase, [
+                'row' => $this->finalRow($cpf, 'NAO_ELEGIVEL', 'Consulta sem balanceId ou com menos de 2 parcelas válidas para simulação.', array_merge($rowBase, [
                     'balance_start_response_body' => $this->formatResponseBodyForCsv('simulacao_preparacao', null),
                 ])),
             ];
