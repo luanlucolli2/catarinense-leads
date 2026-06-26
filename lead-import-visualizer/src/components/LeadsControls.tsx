@@ -182,8 +182,8 @@ interface LeadsControlsProps {
 
 const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
   BASE: [
-    { value: "lead_updated_at", label: "Atualizados recentemente" },
-    { value: "lead_created_at", label: "Criados recentemente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+    { value: "lead_created_at", label: "Cadastro criado recentemente" },
   ],
   CLT: [
     { value: "clt_consulted_at", label: "Consulta CLT mais recente" },
@@ -402,10 +402,10 @@ export const LeadsControls = ({
 
   const sortLabels: Partial<Record<LeadSort, string>> = {
     lead_updated_at: "Cadastro atualizado recentemente",
-    lead_created_at: "Criados recentemente",
+    lead_created_at: "Cadastro criado recentemente",
     clt_updated_at: "Dados CLT atualizados recentemente",
     clt_consulted_at: "Consulta CLT mais recente",
-    mercantil_updated_at: "Dados Mercantil atualizados",
+    mercantil_updated_at: "Dados Mercantil atualizados recentemente",
     mercantil_consulted_at: "Consulta Mercantil mais recente",
     uy3_consulted_at: "Dados UY3 atualizados recentemente",
   };
