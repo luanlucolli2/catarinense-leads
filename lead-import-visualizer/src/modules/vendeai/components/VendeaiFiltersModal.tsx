@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 
 type WindowMode = "always" | "rolling" | "fixed";
 type ProductFilter = "clt" | "fgts";
-type SortDirection = "asc" | "desc";
 type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
 type NewcorbanStatusFilter = "not_sent" | "sent" | "success" | "failed";
 
@@ -32,7 +31,6 @@ type VendeaiFiltersModalProps = {
   search: string;
   windowMode: WindowMode;
   periodPreset: PeriodPreset;
-  direction: SortDirection;
   product: ProductFilter[];
   bank: string[];
   stage: string[];
@@ -52,7 +50,6 @@ type VendeaiFiltersModalProps = {
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
-  onDirectionChange: (value: SortDirection) => void;
   onProductChange: (value: ProductFilter[]) => void;
   onBankChange: (value: string[]) => void;
   onStageChange: (value: string[]) => void;
@@ -148,7 +145,6 @@ export function VendeaiFiltersModal({
   search,
   windowMode,
   periodPreset,
-  direction,
   product,
   bank,
   stage,
@@ -168,7 +164,6 @@ export function VendeaiFiltersModal({
   onFromChange,
   onToChange,
   onWindowModeChange,
-  onDirectionChange,
   onProductChange,
   onBankChange,
   onStageChange,
@@ -342,23 +337,6 @@ export function VendeaiFiltersModal({
               </Section>
             </div>
 
-            <Section title="Ordenação" description="Ajuste a ordem de exibição dos leads.">
-              <div>
-                <Label text="Ordem" />
-                <Select value={direction} onValueChange={(value) => onDirectionChange(value as SortDirection)}>
-                  <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-gray-400" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="shadow-lg">
-                    <SelectItem value="desc">Mais recentes</SelectItem>
-                    <SelectItem value="asc">Mais antigos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </Section>
           </Group>
 
           <Group title="Busca">

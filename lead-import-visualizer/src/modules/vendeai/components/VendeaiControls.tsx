@@ -2,6 +2,7 @@ import { Download, FileDown, Filter, Loader2, RefreshCw, Search } from "lucide-r
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type VendeaiControlsProps = {
@@ -15,10 +16,12 @@ type VendeaiControlsProps = {
   exportIcon: "file" | "download";
   isRefreshing: boolean;
   refreshCountdown: number;
+  direction: "asc" | "desc";
   controlLabels: string[];
   filterLabels: string[];
   hasActiveFilters?: boolean;
   onSearchChange: (value: string) => void;
+  onDirectionChange: (value: "asc" | "desc") => void;
   onFilterClick: () => void;
   onExportClick: () => void;
   onRefreshClick: () => void;
@@ -36,10 +39,12 @@ export function VendeaiControls({
   exportIcon,
   isRefreshing,
   refreshCountdown,
+  direction,
   controlLabels,
   filterLabels,
   hasActiveFilters = true,
   onSearchChange,
+  onDirectionChange,
   onFilterClick,
   onExportClick,
   onRefreshClick,
@@ -70,6 +75,19 @@ export function VendeaiControls({
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row sm:items-end">
+          <label className="block min-w-[180px]">
+            <span className="mb-1 block text-xs font-medium text-gray-700">Ordenação</span>
+            <Select value={direction} onValueChange={(value) => onDirectionChange(value as "asc" | "desc")}>
+              <SelectTrigger className="h-9 border-gray-200 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="desc">Mais recentes</SelectItem>
+                <SelectItem value="asc">Mais antigos</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+
           <Button
             onClick={onFilterClick}
             variant="outline"

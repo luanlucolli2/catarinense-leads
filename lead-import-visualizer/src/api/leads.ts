@@ -2,7 +2,7 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export type Mode = "base" | "fgts" | "clt" | "mercantil"
+export type Mode = "base" | "fgts" | "clt" | "mercantil" | "uy3"
 export type LeadSort =
   | "lead_updated_at"
   | "lead_created_at"
@@ -10,6 +10,7 @@ export type LeadSort =
   | "clt_consulted_at"
   | "mercantil_updated_at"
   | "mercantil_consulted_at"
+  | "uy3_consulted_at"
 
 export interface LeadFromApiBase {
   id: number
@@ -143,6 +144,38 @@ export interface LeadFromApiMercantil {
   mercantil_valor_parcela: string | number | null
 }
 
+export interface LeadFromApiUY3 {
+  id: number
+  cpf: string
+  nome: string | null
+  created_at: string | null
+  updated_at: string | null
+  data_nascimento: string | null
+  fone1: string | null
+  classe_fone1: string | null
+  fone2: string | null
+  classe_fone2: string | null
+  fone3: string | null
+  classe_fone3: string | null
+  fone4: string | null
+  classe_fone4: string | null
+  ultima_origem_cadastral: string | null
+  uy3_type_webhook: string | null
+  uy3_status: string | null
+  uy3_consultado_em: string | null
+  uy3_data_admissao: string | null
+  uy3_valor_liberado: string | number | null
+  uy3_numero_parcelas: number | string | null
+  uy3_codigo_requisicao: string | null
+  uy3_margem_disponivel: string | number | null
+  uy3_elegivel_emprestimo: boolean | number | "0" | "1" | null
+  uy3_numero_inscricao_empregador: string | null
+  uy3_pessoa_exposta_politicamente_codigo: number | string | null
+  uy3_data_hora_validade_solicitacao: string | null
+  uy3_is_mei: boolean | number | "0" | "1" | null
+  uy3_is_judicial_recovery: boolean | number | "0" | "1" | null
+}
+
 /** Detalhe (carrega FGTS e CLT) */
 export interface LeadDetailFromApi {
   id: number
@@ -207,6 +240,7 @@ export interface PaginatedResponse<T> {
 export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
 export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
 export type PaginatedLeadsResponseMercantil = PaginatedResponse<LeadFromApiMercantil>
+export type PaginatedLeadsResponseUY3 = PaginatedResponse<LeadFromApiUY3>
 export type PaginatedLeadsResponseBase = PaginatedResponse<LeadFromApiBase>
 
 export interface LeadFilters {
@@ -584,6 +618,37 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
   return data
 }
 
+export async function fetchLeadsUy3(filters: LeadFilters) {
+  const mode: Mode = "uy3"
+  if (shouldUsePost(filters, mode)) {
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      mode,
+      search: filters.search?.trim() || undefined,
+      sort: filters.sort || undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
+      without_phones: filters.without_phones || undefined,
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+    }
+    const { data } = await axiosClient.post<PaginatedLeadsResponseUY3>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined }
+    )
+    return data
+  }
+
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponseUY3>("/leads", {
+    params,
+  })
+  return data
+}
+
 export async function fetchLeadDetail(id: number) {
   const { data } = await axiosClient.get<LeadDetailFromApi>(`/leads/${id}`)
   return data
@@ -632,7 +697,7 @@ export interface LeadsExportStatusDTO {
 export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
-  mode: "base" | "fgts" | "clt" | "mercantil"
+  mode: "base" | "fgts" | "clt" | "mercantil" | "uy3"
 ): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
   const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)

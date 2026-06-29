@@ -3,9 +3,9 @@
 namespace App\Modules\Uy3\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Uy3\Models\Uy3WebhookPost;
 use App\Modules\Uy3\Services\Uy3SnapshotPersistService;
 use App\Modules\Uy3\Support\Uy3WebhookPayloadNormalizer;
-use App\Models\Uy3WebhookPost;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;

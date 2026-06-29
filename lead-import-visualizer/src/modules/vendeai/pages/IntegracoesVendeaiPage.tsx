@@ -962,22 +962,26 @@ export default function IntegracoesVendeaiPage() {
     setLeadsPage(1);
   };
 
+  const handleDirectionChange = (value: VendeaiSortDirection) => {
+    setDirectionInput(value);
+    setApplied((current) => (current.direction === value ? current : { ...current, direction: value }));
+    setLeadsPage(1);
+  };
+
   const resetModalFilters = () => {
-    const defaults = defaultFilters();
     skipNextSearchAutoApplyRef.current = true;
-    setFromInput(defaults.from);
-    setToInput(defaults.to);
-    setSearchInput(defaults.search);
-    setWindowModeInput(defaults.windowMode);
-    setPeriodPresetInput(defaults.periodPreset);
-    setDirectionInput(defaults.direction);
-    setProductInput(defaults.product);
-    setBankInput(defaults.bank);
-    setStageInput(defaults.stage);
-    setProposalStatusInput(defaults.proposalStatus);
-    setNewcorbanStatusInput(defaults.newcorbanStatus);
-    setInboxPhoneNumberInput(defaults.inboxPhoneNumber);
-    setTagsInput(defaults.tags);
+    setFromInput("");
+    setToInput("");
+    setSearchInput("");
+    setWindowModeInput("always");
+    setPeriodPresetInput("always");
+    setProductInput([]);
+    setBankInput([]);
+    setStageInput([]);
+    setProposalStatusInput([]);
+    setNewcorbanStatusInput([]);
+    setInboxPhoneNumberInput([]);
+    setTagsInput([]);
     setRangeError(null);
   };
 
@@ -1041,10 +1045,12 @@ export default function IntegracoesVendeaiPage() {
         exportIcon="file"
         isRefreshing={metricsQuery.isFetching || leadsQuery.isFetching}
         refreshCountdown={manualRefreshRemaining}
+        direction={directionInput}
         controlLabels={controlLabels}
         filterLabels={filterLabels}
         hasActiveFilters={filterLabels.length > 0}
         onSearchChange={setSearchInput}
+        onDirectionChange={handleDirectionChange}
         onFilterClick={() => setIsFiltersModalOpen(true)}
         onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
@@ -1060,7 +1066,6 @@ export default function IntegracoesVendeaiPage() {
         search={searchInput}
         windowMode={windowModeInput}
         periodPreset={periodPresetInput}
-        direction={directionInput}
         product={productInput}
         bank={bankInput}
         stage={stageInput}
@@ -1080,7 +1085,6 @@ export default function IntegracoesVendeaiPage() {
         onFromChange={handleFromInputChange}
         onToChange={handleToInputChange}
         onWindowModeChange={setWindowModeInput}
-        onDirectionChange={setDirectionInput}
         onProductChange={setProductInput}
         onBankChange={setBankInput}
         onStageChange={setStageInput}

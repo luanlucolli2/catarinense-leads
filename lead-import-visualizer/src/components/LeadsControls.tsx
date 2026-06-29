@@ -8,7 +8,7 @@ import { ColumnsModal } from "./columns/ColumnsModal";
 import type { LeadSort } from "@/api/leads";
 
 interface LeadsControlsProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL";
+  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -167,29 +167,36 @@ interface LeadsControlsProps {
   onVisibleColumnsCLTChange: (cols: string[]) => void;
   visibleColumnsMERCANTIL: string[];
   onVisibleColumnsMERCANTILChange: (cols: string[]) => void;
+  visibleColumnsUY3: string[];
+  onVisibleColumnsUY3Change: (cols: string[]) => void;
 
   defaultVisibleColumnsBASE: string[];
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
   defaultVisibleColumnsMERCANTIL: string[];
+  defaultVisibleColumnsUY3: string[];
 
   disableFilters?: boolean;
   disableExport?: boolean;
 }
 
-const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL", { value: LeadSort; label: string }[]> = {
+const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
   BASE: [
-    { value: "lead_updated_at", label: "Atualizados recentemente" },
-    { value: "lead_created_at", label: "Criados recentemente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+    { value: "lead_created_at", label: "Cadastro criado recentemente" },
   ],
   CLT: [
-    { value: "clt_consulted_at", label: "Consultados recentemente" },
-    { value: "clt_updated_at", label: "Dados atualizados recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+    { value: "clt_consulted_at", label: "Consulta CLT mais recente" },
+    { value: "clt_updated_at", label: "Dados CLT atualizados recentemente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
   ],
   MERCANTIL: [
-    { value: "mercantil_consulted_at", label: "Consultados recentemente" },
-    { value: "lead_updated_at", label: "Lead atualizado recentemente" },
+    { value: "mercantil_consulted_at", label: "Consulta Mercantil mais recente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+  ],
+  UY3: [
+    { value: "uy3_consulted_at", label: "Dados UY3 atualizados recentemente" },
+    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
   ],
 }
 
@@ -325,10 +332,13 @@ export const LeadsControls = ({
   onVisibleColumnsCLTChange,
   visibleColumnsMERCANTIL,
   onVisibleColumnsMERCANTILChange,
+  visibleColumnsUY3,
+  onVisibleColumnsUY3Change,
   defaultVisibleColumnsBASE,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
   defaultVisibleColumnsMERCANTIL,
+  defaultVisibleColumnsUY3,
   disableFilters = false,
   disableExport = false,
 }: LeadsControlsProps) => {
@@ -357,7 +367,9 @@ export const LeadsControls = ({
       ? visibleColumnsFGTS
       : mode === "CLT"
         ? visibleColumnsCLT
-        : visibleColumnsMERCANTIL;
+        : mode === "MERCANTIL"
+          ? visibleColumnsMERCANTIL
+          : visibleColumnsUY3;
   const currentDefaults =
     mode === "BASE"
       ? defaultVisibleColumnsBASE
@@ -365,13 +377,16 @@ export const LeadsControls = ({
       ? defaultVisibleColumnsFGTS
       : mode === "CLT"
         ? defaultVisibleColumnsCLT
-        : defaultVisibleColumnsMERCANTIL;
+        : mode === "MERCANTIL"
+          ? defaultVisibleColumnsMERCANTIL
+          : defaultVisibleColumnsUY3;
 
   const onSaveVisible = (cols: string[]) => {
     if (mode === "BASE") onVisibleColumnsBASEChange(cols);
     else if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
     else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
-    else onVisibleColumnsMERCANTILChange(cols);
+    else if (mode === "MERCANTIL") onVisibleColumnsMERCANTILChange(cols);
+    else onVisibleColumnsUY3Change(cols);
   };
 
   const hasCustomColumns = useMemo(() => {
@@ -386,12 +401,13 @@ export const LeadsControls = ({
   }, [currentVisible, currentDefaults]);
 
   const sortLabels: Partial<Record<LeadSort, string>> = {
-    lead_updated_at: "Lead atualizado",
-    lead_created_at: "Criados recentemente",
-    clt_updated_at: "Dados CLT atualizados",
-    clt_consulted_at: "Consultados CLT",
-    mercantil_updated_at: "Dados Mercantil atualizados",
-    mercantil_consulted_at: "Consultados Mercantil",
+    lead_updated_at: "Cadastro atualizado recentemente",
+    lead_created_at: "Cadastro criado recentemente",
+    clt_updated_at: "Dados CLT atualizados recentemente",
+    clt_consulted_at: "Consulta CLT mais recente",
+    mercantil_updated_at: "Dados Mercantil atualizados recentemente",
+    mercantil_consulted_at: "Consulta Mercantil mais recente",
+    uy3_consulted_at: "Dados UY3 atualizados recentemente",
   };
 
   const summarizeList = (values: string[], max = 3) => {
@@ -495,8 +511,13 @@ export const LeadsControls = ({
     namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter, withPhonesFilter,
   ]);
 
-  const currentSortLabel = sortBy ? sortLabels[sortBy] ?? sortBy : null;
-  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" ? SORT_OPTIONS[mode] : [];
+  const currentSortLabel =
+    mode === "UY3" && sortBy === "lead_updated_at"
+      ? "Cadastro atualizado recentemente"
+      : sortBy
+        ? sortLabels[sortBy] ?? sortBy
+        : null;
+  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" || mode === "UY3" ? SORT_OPTIONS[mode] : [];
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
