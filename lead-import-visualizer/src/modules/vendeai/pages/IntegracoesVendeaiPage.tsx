@@ -11,6 +11,7 @@ import {
   listVendeaiLeads,
   startVendeaiExport,
   type VendeaiLead,
+  type VendeaiLeadSortField,
   type VendeaiNewcorbanStatusFilter,
   type VendeaiNewcorbanStatusValue,
   type VendeaiProductValue,
@@ -28,6 +29,7 @@ type FiltersState = {
   from: string;
   to: string;
   search: string;
+  sort: VendeaiLeadSortField;
   direction: VendeaiSortDirection;
   windowMode: "always" | "rolling" | "fixed";
   periodPreset: PeriodPreset;
@@ -252,6 +254,7 @@ function defaultFilters(): FiltersState {
     from: "",
     to: "",
     search: "",
+    sort: "last_received_at",
     direction: "desc",
     windowMode: "always",
     periodPreset: "always",
@@ -277,6 +280,10 @@ function loadFilters(): FiltersState {
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
     const search = typeof parsed.search === "string" ? parsed.search : fallback.search;
+    const sort =
+      parsed.sort === "first_received_at" || parsed.sort === "last_received_at" || parsed.sort === "id"
+        ? parsed.sort
+        : fallback.sort;
     const windowMode =
       parsed.windowMode === "always" || parsed.windowMode === "fixed" || parsed.windowMode === "rolling"
         ? parsed.windowMode
@@ -335,6 +342,7 @@ function loadFilters(): FiltersState {
 
     const base = {
       search,
+      sort,
       direction,
       product,
       bank,
@@ -498,6 +506,12 @@ function newcorbanStatusLabel(value: VendeaiNewcorbanStatusFilter): string {
 
 function summarizeSelected(values: string[], getLabel: (value: string) => string): string {
   return values.map((value) => getLabel(value)).join(", ");
+}
+
+function sortFieldLabel(value: VendeaiLeadSortField): string {
+  if (value === "first_received_at") return "Primeiro evento";
+  if (value === "last_received_at") return "Último evento";
+  return "ID";
 }
 
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
@@ -696,7 +710,6 @@ export default function IntegracoesVendeaiPage() {
     () => ({
       from: fromIso,
       to: toIso,
-      direction: applied.direction,
       product: applied.product,
       search: applied.search,
       bank: applied.bank,
@@ -709,7 +722,6 @@ export default function IntegracoesVendeaiPage() {
     [
       fromIso,
       toIso,
-      applied.direction,
       applied.product,
       applied.search,
       applied.bank,
@@ -740,7 +752,8 @@ export default function IntegracoesVendeaiPage() {
         {
           page: leadsPage,
           perPage: 20,
-          sort: "first_received_at",
+          sort: applied.sort,
+          direction: applied.direction,
           ...sharedFilters,
         },
         signal
@@ -821,7 +834,7 @@ export default function IntegracoesVendeaiPage() {
   );
   const tagOptions = filterOptionsQuery.data?.tags ?? [];
 
-  const controlLabels = [`Ordem: ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
+  const controlLabels = [`Ordenação: ${sortFieldLabel(applied.sort)} · ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
   const filterLabels = [
     ...(applied.periodPreset === "always"
       ? []
@@ -844,6 +857,7 @@ export default function IntegracoesVendeaiPage() {
   const applyFilters = (): boolean => {
     const nextBase = {
       search: searchInput.trim(),
+      sort: applied.sort,
       direction: directionInput,
       windowMode: windowModeInput,
       periodPreset: periodPresetInput,
@@ -962,9 +976,15 @@ export default function IntegracoesVendeaiPage() {
     setLeadsPage(1);
   };
 
-  const handleDirectionChange = (value: VendeaiSortDirection) => {
-    setDirectionInput(value);
-    setApplied((current) => (current.direction === value ? current : { ...current, direction: value }));
+  const handleSortChange = (value: "first_desc" | "first_asc" | "last_desc" | "last_asc") => {
+    const nextSort = value.startsWith("first") ? "first_received_at" : "last_received_at";
+    const nextDirection = value.endsWith("_asc") ? "asc" : "desc";
+    setDirectionInput(nextDirection);
+    setApplied((current) =>
+      current.sort === nextSort && current.direction === nextDirection
+        ? current
+        : { ...current, sort: nextSort, direction: nextDirection }
+    );
     setLeadsPage(1);
   };
 
@@ -1045,12 +1065,12 @@ export default function IntegracoesVendeaiPage() {
         exportIcon="file"
         isRefreshing={metricsQuery.isFetching || leadsQuery.isFetching}
         refreshCountdown={manualRefreshRemaining}
-        direction={directionInput}
+        sortValue={`${applied.direction === "asc" ? (applied.sort === "first_received_at" ? "first_asc" : "last_asc") : applied.sort === "first_received_at" ? "first_desc" : "last_desc"}`}
         controlLabels={controlLabels}
         filterLabels={filterLabels}
         hasActiveFilters={filterLabels.length > 0}
         onSearchChange={setSearchInput}
-        onDirectionChange={handleDirectionChange}
+        onSortChange={handleSortChange}
         onFilterClick={() => setIsFiltersModalOpen(true)}
         onExportClick={() => void exportCsv()}
         onRefreshClick={handleManualRefresh}
@@ -1299,8 +1319,8 @@ export default function IntegracoesVendeaiPage() {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <div className="font-medium text-blue-700">{formatDateTime(lead.first_received_at)}</div>
-                        <div className="text-xs text-gray-500">{formatDateTime(lead.last_received_at)}</div>
+                        <div className="font-medium text-blue-700">Primeiro: {formatDateTime(lead.first_received_at)}</div>
+                        <div className="text-xs text-gray-500">Último: {formatDateTime(lead.last_received_at)}</div>
                       </td>
                     </tr>
                   ))

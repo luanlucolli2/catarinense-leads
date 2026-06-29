@@ -2,6 +2,7 @@ import axiosClient from "./axiosClient";
 
 export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
+export type VendeaiLeadSortField = "first_received_at" | "last_received_at" | "id";
 export type VendeaiProductFilter = "all" | "clt" | "fgts";
 export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
 export type VendeaiProductValue = Exclude<VendeaiProductFilter, "all">;
@@ -207,7 +208,7 @@ export interface ListVendeaiAttemptsParams extends VendeaiFilters {
 export interface ListVendeaiLeadsParams extends VendeaiFilters {
   page?: number;
   perPage?: number;
-  sort?: "first_received_at" | "last_received_at" | "id";
+  sort?: VendeaiLeadSortField;
 }
 
 function buildParams(params: VendeaiFilters): Record<string, string | number | string[]> {
