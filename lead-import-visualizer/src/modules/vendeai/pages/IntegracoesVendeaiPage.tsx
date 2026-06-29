@@ -1319,8 +1319,8 @@ export default function IntegracoesVendeaiPage() {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <div className="font-medium text-blue-700">Primeiro: {formatDateTime(lead.first_received_at)}</div>
-                        <div className="text-xs text-gray-500">Último: {formatDateTime(lead.last_received_at)}</div>
+                        <div className="font-medium text-blue-700">Último: {formatDateTime(lead.last_received_at)}</div>
+                        <div className="text-xs text-gray-500">Primeiro: {formatDateTime(lead.first_received_at)}</div>
                       </td>
                     </tr>
                   ))
