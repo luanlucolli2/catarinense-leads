@@ -11,6 +11,7 @@ import {
 import Dashboard from "./pages/Dashboard";
 import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
+import LemitPrototypePage from "./pages/LemitPrototypePage";
 import NotFound from "./pages/NotFound";
 import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSConsultaPage from "./pages/FGTSConsultaPage"; // 👈 nova página FGTS
@@ -58,6 +59,11 @@ const App = () => (
               >
                 {/* página inicial (/ → Dashboard) */}
                 <Route index element={<Dashboard />} />
+
+                <Route
+                  path="leads/higienizacao-lemit"
+                  element={<LemitPrototypePage />}
+                />
 
                 {/* histórico de importações */}
                 <Route
