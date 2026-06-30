@@ -203,7 +203,7 @@ class NewCorbanProposalService
             'c6' => '11521981906_000855',
             'pan' => '11521981906_007528',
             'facta' => '20953',
-            'soma' => '05395929940',
+            'soma' => 'soma_live_f34a9523608ed2c1',
             'v8' => 'karen@catarinensecredito.com.br',
             'novo_saque' => 'contatoia@catarinensecredito.com.br',
             default => null,
