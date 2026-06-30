@@ -198,6 +198,8 @@ function bankFilterIsFilled(filters: LemitPrototypeFilters, bank: LemitPrototype
         filters.bank_filters.mercantil.mercantil_situacao ||
         filters.bank_filters.mercantil.mercantil_consulta_from ||
         filters.bank_filters.mercantil.mercantil_consulta_to ||
+        safeText(filters.bank_filters.mercantil.mercantil_valor_parcela_min).trim() ||
+        safeText(filters.bank_filters.mercantil.mercantil_valor_parcela_max).trim() ||
         safeText(filters.bank_filters.mercantil.mercantil_valor_liberado_min).trim() ||
         safeText(filters.bank_filters.mercantil.mercantil_valor_liberado_max).trim() ||
         safeText(filters.bank_filters.mercantil.mercantil_numero_parcelas_min).trim() ||
@@ -369,6 +371,10 @@ function matchMercantilFilters(lead: LemitPrototypeLead, filters: LemitPrototype
     if (mercantilFilters.mercantil_consulta_from || mercantilFilters.mercantil_consulta_to) return false
   }
 
+  if (!inNumberRange(snapshot.valor_parcela, mercantilFilters.mercantil_valor_parcela_min, mercantilFilters.mercantil_valor_parcela_max)) {
+    return false
+  }
+
   if (!inNumberRange(snapshot.valor_liberado, mercantilFilters.mercantil_valor_liberado_min, mercantilFilters.mercantil_valor_liberado_max)) {
     return false
   }
@@ -479,6 +485,8 @@ export function createDefaultLemitPrototypeFilters(): LemitPrototypeFilters {
         mercantil_situacao: "",
         mercantil_consulta_from: "",
         mercantil_consulta_to: "",
+        mercantil_valor_parcela_min: "",
+        mercantil_valor_parcela_max: "",
         mercantil_valor_liberado_min: "",
         mercantil_valor_liberado_max: "",
         mercantil_numero_parcelas_min: "",
@@ -560,6 +568,7 @@ export function createMockLeadsDataset(seed = 20260629, total = 240): LemitProto
             status: random.pick(MERCANTIL_STATUS),
             origem: "Mercantil",
             data_hora_origem: createIsoDateTime(random),
+            valor_parcela: Number((random.int(50, 800) + random.next()).toFixed(2)),
             valor_liberado: Number((random.int(300, 9000) + random.next()).toFixed(2)),
             quantidade_parcelas: random.int(3, 84),
           }

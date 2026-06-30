@@ -4,6 +4,16 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { MultiSelect } from "@/components/ui/multi-select"
 import factaLogo from "@/assets/factalogo.png"
 import mercantilLogo from "@/assets/mercantilogo.png"
@@ -35,7 +45,6 @@ import type {
   LemitPrototypeFilters,
   LemitPrototypeLead,
   LemitPrototypeLot,
-  LemitPrototypeFgtsStatus,
   LemitPrototypeLoanSituation,
 } from "@/modules/lemit-prototype/types"
 
@@ -43,7 +52,6 @@ const DEFAULT_LEADS = createMockLeadsDataset()
 const DEFAULT_FILTERS = createDefaultLemitPrototypeFilters()
 
 const BANK_OPTIONS: Array<{ value: LemitPrototypeBankKey; label: string }> = [
-  { value: "fgts", label: "FGTS" },
   { value: "clt", label: "CLT Facta" },
   { value: "mercantil", label: "CLT Mercantil" },
   { value: "uy3", label: "CLT UY3" },
@@ -88,6 +96,7 @@ export default function LemitPrototypePage() {
     false,
   )
   const [isResultReady, setIsResultReady] = useState(false)
+  const [isRunDialogOpen, setIsRunDialogOpen] = useState(false)
 
   useEffect(() => {
     setLots((currentLots) => (
@@ -200,13 +209,6 @@ export default function LemitPrototypePage() {
     }))
   }
 
-  const handlePhoneFlagChange = (field: "with_phones" | "without_phones", checked: boolean) => {
-    updateGeneralFilter(field, checked)
-    if (checked) {
-      updateGeneralFilter(field === "with_phones" ? "without_phones" : "with_phones", false)
-    }
-  }
-
   const handleApplyFilters = () => {
     if (!canSearchPool) return
     setAppliedFilters(cloneFilters(draftFilters))
@@ -220,6 +222,11 @@ export default function LemitPrototypePage() {
     setRequestedQuantity("")
     setLotTitle("")
     setIsResultReady(false)
+  }
+
+  const handleCancelLot = () => {
+    handleClearFilters()
+    setIsNewLotOpen(false)
   }
 
   const handleRunLot = () => {
@@ -237,9 +244,9 @@ export default function LemitPrototypePage() {
 
     setPrototypeLeads(execution.updatedLeads)
     setLots((currentLots) => [execution.lot, ...currentLots])
-    setRequestedQuantity("")
-    setLotTitle("")
+    handleClearFilters()
     setIsNewLotOpen(false)
+    setIsRunDialogOpen(false)
 
     window.setTimeout(() => {
       setLots((currentLots) => currentLots.map((lot) => (
@@ -270,7 +277,6 @@ export default function LemitPrototypePage() {
               className={PRIMARY_BUTTON_CLASS_NAME}
               onClick={() => {
                 setIsNewLotOpen(true)
-                setIsResultReady(false)
               }}
             >
               Iniciar lote
@@ -337,22 +343,28 @@ export default function LemitPrototypePage() {
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                         <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
                           <div className="text-sm font-medium">Status de telefone</div>
-                          <label className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              className={CHECKBOX_CLASS_NAME}
-                              checked={draftFilters.general.with_phones}
-                              onCheckedChange={(checked) => handlePhoneFlagChange("with_phones", Boolean(checked))}
-                            />
-                            Com telefone
-                          </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              className={CHECKBOX_CLASS_NAME}
-                              checked={draftFilters.general.without_phones}
-                              onCheckedChange={(checked) => handlePhoneFlagChange("without_phones", Boolean(checked))}
-                            />
-                            Sem telefone
-                          </label>
+                          <Select
+                            value={
+                              draftFilters.general.with_phones
+                                ? "with_phones"
+                                : draftFilters.general.without_phones
+                                  ? "without_phones"
+                                  : "all"
+                            }
+                            onValueChange={(value) => {
+                              updateGeneralFilter("with_phones", value === "with_phones")
+                              updateGeneralFilter("without_phones", value === "without_phones")
+                            }}
+                          >
+                            <SelectTrigger className="bg-white">
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos</SelectItem>
+                              <SelectItem value="with_phones">Com telefone</SelectItem>
+                              <SelectItem value="without_phones">Sem telefone</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
 
@@ -364,7 +376,7 @@ export default function LemitPrototypePage() {
                           </div>
                         </div>
 
-                        <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
+                        <div className="space-y-4">
                           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                             {BANK_OPTIONS.map((bank) => (
                               <label
@@ -390,8 +402,11 @@ export default function LemitPrototypePage() {
                             ))}
                           </div>
 
-                          <div className="space-y-2">
-                            <div className="text-sm font-medium">Modo de combinação</div>
+                          <div className="rounded-lg border bg-muted/20 p-4">
+                            <div className="mb-2 text-sm font-medium text-gray-900">Modo de combinação</div>
+                            <div className="mb-3 text-sm text-muted-foreground">
+                              Defina se o lead precisa atender todos os bancos marcados ou apenas um deles.
+                            </div>
                             <Select
                               value={draftFilters.bank_combination_mode}
                               onValueChange={(value) => {
@@ -401,7 +416,7 @@ export default function LemitPrototypePage() {
                                 }))
                               }}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger className="bg-white">
                                 <SelectValue placeholder="Selecione" />
                               </SelectTrigger>
                               <SelectContent>
@@ -412,50 +427,6 @@ export default function LemitPrototypePage() {
                           </div>
                         </div>
                       </div>
-
-                      {draftFilters.selected_banks.includes("fgts") ? (
-                        <div className="rounded-xl border p-4">
-                          <div className="mb-4 text-lg font-semibold text-gray-900">Filtros FGTS</div>
-                          <div className="grid gap-4 md:grid-cols-3">
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium">Status</div>
-                              <Select
-                                value={draftFilters.bank_filters.fgts.fgts_status || "__empty__"}
-                                onValueChange={(value) => updateBankFilter("fgts", "fgts_status", value === "__empty__" ? "" : value as LemitPrototypeFgtsStatus)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Ex.: Autorizado" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__empty__">Todos</SelectItem>
-                                  <SelectItem value="autorizado">Autorizado</SelectItem>
-                                  <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium">Motivos</div>
-                              <MultiSelect
-                                options={optionCatalog.fgtsMotivos}
-                                selected={draftFilters.bank_filters.fgts.motivos}
-                                onChange={(value) => updateBankFilter("fgts", "motivos", value)}
-                                placeholder="Ex.: Saldo FGTS"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium">Origens hig</div>
-                              <MultiSelect
-                                options={optionCatalog.fgtsOrigensHig}
-                                selected={draftFilters.bank_filters.fgts.origens_hig}
-                                onChange={(value) => updateBankFilter("fgts", "origens_hig", value)}
-                                placeholder="Ex.: Planilha Operacional"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
 
                       {draftFilters.selected_banks.includes("clt") ? (
                         <div className="rounded-xl border p-4">
@@ -527,6 +498,15 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem máxima</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_margem_max}
+                                onChange={(event) => updateBankFilter("clt", "clt_margem_max", event.target.value)}
+                                placeholder="Ex.: 2000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
                               <div className="text-sm font-medium">Valor liberado mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.clt.clt_valor_liberado_min}
@@ -545,7 +525,7 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.clt.clt_numero_parcelas_min}
                                 onChange={(event) => updateBankFilter("clt", "clt_numero_parcelas_min", event.target.value)}
@@ -554,20 +534,11 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas máx.</div>
                               <Input
                                 value={draftFilters.bank_filters.clt.clt_numero_parcelas_max}
                                 onChange={(event) => updateBankFilter("clt", "clt_numero_parcelas_max", event.target.value)}
                                 placeholder="Ex.: 120"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium">Margem máxima</div>
-                              <Input
-                                value={draftFilters.bank_filters.clt.clt_margem_max}
-                                onChange={(event) => updateBankFilter("clt", "clt_margem_max", event.target.value)}
-                                placeholder="Ex.: 2000,00"
                               />
                             </div>
                           </div>
@@ -617,6 +588,24 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor parcela mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_valor_parcela_min}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_valor_parcela_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor parcela máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_valor_parcela_max}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_valor_parcela_max", event.target.value)}
+                                placeholder="Ex.: 1000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
                               <div className="text-sm font-medium">Valor liberado mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.mercantil.mercantil_valor_liberado_min}
@@ -635,7 +624,7 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.mercantil.mercantil_numero_parcelas_min}
                                 onChange={(event) => updateBankFilter("mercantil", "mercantil_numero_parcelas_min", event.target.value)}
@@ -644,7 +633,7 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas máx.</div>
                               <Input
                                 value={draftFilters.bank_filters.mercantil.mercantil_numero_parcelas_max}
                                 onChange={(event) => updateBankFilter("mercantil", "mercantil_numero_parcelas_max", event.target.value)}
@@ -726,6 +715,15 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem máxima</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_margem_max}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_margem_max", event.target.value)}
+                                placeholder="Ex.: 2000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
                               <div className="text-sm font-medium">Valor liberado mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.uy3.uy3_valor_liberado_min}
@@ -744,7 +742,7 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas mín.</div>
                               <Input
                                 value={draftFilters.bank_filters.uy3.uy3_numero_parcelas_min}
                                 onChange={(event) => updateBankFilter("uy3", "uy3_numero_parcelas_min", event.target.value)}
@@ -753,20 +751,11 @@ export default function LemitPrototypePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <div className="text-sm font-medium">Qtd. parcelas máx.</div>
                               <Input
                                 value={draftFilters.bank_filters.uy3.uy3_numero_parcelas_max}
                                 onChange={(event) => updateBankFilter("uy3", "uy3_numero_parcelas_max", event.target.value)}
                                 placeholder="Ex.: 120"
-                              />
-                            </div>
-                            
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium">Margem máxima</div>
-                              <Input
-                                value={draftFilters.bank_filters.uy3.uy3_margem_max}
-                                onChange={(event) => updateBankFilter("uy3", "uy3_margem_max", event.target.value)}
-                                placeholder="Ex.: 2000,00"
                               />
                             </div>
                           </div>
@@ -843,11 +832,11 @@ export default function LemitPrototypePage() {
 
                         </div>
 
-                        <div className="rounded-xl border bg-slate-50 p-4 sm:p-5">
-                          <div className="mb-4">
+                        <div className="rounded-xl border bg-gradient-to-b from-slate-50 to-white p-4 sm:p-5">
+                          <div className="mb-4 rounded-lg border bg-white p-4">
                             <div className="text-sm font-semibold text-gray-900">Confirmar lote</div>
                             <div className="mt-1 text-sm text-muted-foreground">
-                              Dê um nome ao lote e informe quantos CPFs deseja rodar.
+                              Dê um nome ao lote e defina quantos CPFs serão sorteados da base filtrada.
                             </div>
                           </div>
 
@@ -922,14 +911,15 @@ export default function LemitPrototypePage() {
                     <Button
                       className={OUTLINE_BUTTON_CLASS_NAME}
                       variant="outline"
-                      onClick={() => {
-                        setIsNewLotOpen(false)
-                        setIsResultReady(false)
-                      }}
+                      onClick={handleCancelLot}
                     >
                       Cancelar lote
                     </Button>
-                    <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={handleRunLot} disabled={!canRunLot}>
+                    <Button
+                      className={PRIMARY_BUTTON_CLASS_NAME}
+                      onClick={() => setIsRunDialogOpen(true)}
+                      disabled={!canRunLot}
+                    >
                       Rodar lote
                     </Button>
                   </div>
@@ -937,6 +927,26 @@ export default function LemitPrototypePage() {
             </CardContent>
           </Card>
         ) : null}
+
+        <AlertDialog open={isRunDialogOpen} onOpenChange={setIsRunDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar execução do lote?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {`Lote "${normalizedLotTitle || "Sem nome"}" com ${parsedQuantity || 0} CPF(s) da base filtrada atual.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Voltar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-blue-600 text-white hover:bg-blue-700"
+                onClick={handleRunLot}
+              >
+                Confirmar e rodar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <LemitPrototypeHistoryTable
           lots={lots}

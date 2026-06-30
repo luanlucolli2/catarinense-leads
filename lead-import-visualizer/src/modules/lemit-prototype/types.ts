@@ -46,6 +46,7 @@ export interface LemitPrototypeMercantilSnapshot {
   origem: string
   data_hora_origem: string
   valor_liberado: number | null
+  valor_parcela: number | null
   quantidade_parcelas: number | null
 }
 
@@ -115,6 +116,8 @@ export interface LemitPrototypeMercantilFilters {
   mercantil_situacao: LemitPrototypeLoanSituation | ""
   mercantil_consulta_from: string
   mercantil_consulta_to: string
+  mercantil_valor_parcela_min: string
+  mercantil_valor_parcela_max: string
   mercantil_valor_liberado_min: string
   mercantil_valor_liberado_max: string
   mercantil_numero_parcelas_min: string
