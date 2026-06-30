@@ -576,6 +576,7 @@ export function createPrototypeLotExecution(
   filters: LemitPrototypeFilters,
   quantity: number,
   lotId: number,
+  lotTitle: string,
 ) {
   const sampledLeads = samplePrototypeLeads(filteredLeads, quantity)
   const leadMap = new Map(allLeads.map((lead) => [lead.cpf, lead]))
@@ -613,9 +614,10 @@ export function createPrototypeLotExecution(
 
   const updatedLeads = allLeads.map((lead) => leadMap.get(lead.cpf) ?? lead)
   const now = new Date().toISOString()
+  const normalizedLotTitle = lotTitle.trim() || `Lote #${String(lotId).padStart(4, "0")}`
   const lot: LemitPrototypeLot = {
     id: lotId,
-    title: `Lote #${String(lotId).padStart(4, "0")}`,
+    title: normalizedLotTitle,
     created_at: now,
     banks: [...filters.selected_banks],
     bank_combination_mode: filters.bank_combination_mode,

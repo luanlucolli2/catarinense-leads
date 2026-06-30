@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react"
-import { Download, Eye, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { AlertCircle, CheckCircle, Clock, Download, MoreHorizontal, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,29 +14,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { formatCPF, formatLocalDateTime } from "@/lib/formatters"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { formatLocalDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import {
   getPrototypeBanksLabel,
   getPrototypeCombinationLabel,
   getPrototypeLotStatusClassName,
   getPrototypeLotStatusLabel,
-  getPrototypeResultClassName,
-  getPrototypeResultLabel,
 } from "./history"
 import type { LemitPrototypeLot } from "./types"
 
@@ -46,16 +36,111 @@ type Props = {
   onDelete: (lotId: number) => void
 }
 
-const ACTION_BUTTON_CLASS_NAME = "border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+function getLotStatusIcon(status: LemitPrototypeLot["status"]) {
+  return status === "concluido"
+    ? <CheckCircle className="w-4 h-4" />
+    : <Clock className="w-4 h-4" />
+}
+
+function getLotMetrics(lot: LemitPrototypeLot) {
+  const successCount = lot.items.filter((item) => item.resultado !== "erro_simulado").length
+  const errorCount = lot.items.filter((item) => item.resultado === "erro_simulado").length
+  const pendingCount = Math.max(0, lot.sampled_quantity - successCount - errorCount)
+
+  const total = Math.max(0, lot.pool_size)
+  const successPct = total > 0 ? (successCount / total) * 100 : 0
+  const errorPct = total > 0 ? (errorCount / total) * 100 : 0
+  const pendingPct = total > 0 ? (pendingCount / total) * 100 : 0
+  const chosenPct = total > 0 ? (lot.sampled_quantity / total) * 100 : 0
+
+  return {
+    successCount,
+    errorCount,
+    pendingCount,
+    successPct,
+    errorPct,
+    pendingPct,
+    chosenPct,
+  }
+}
+
+function LemitLotProgressBar({ lot }: { lot: LemitPrototypeLot }) {
+  const metrics = getLotMetrics(lot)
+  const filteredCount = Math.max(0, lot.pool_size)
+  const chosenNotProcessedCount = Math.max(0, lot.sampled_quantity - metrics.successCount - metrics.errorCount)
+  const unchosenCount = Math.max(0, filteredCount - lot.sampled_quantity)
+
+  const chosenNotProcessedPct = filteredCount > 0 ? (chosenNotProcessedCount / filteredCount) * 100 : 0
+  const unchosenPct = filteredCount > 0 ? (unchosenCount / filteredCount) * 100 : 0
+  const totalPct = metrics.successPct + metrics.errorPct + chosenNotProcessedPct
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/5 p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {getLotStatusIcon(lot.status)}
+          <span className="text-sm font-semibold">Execução do lote</span>
+        </div>
+        <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+          {lot.sampled_quantity.toLocaleString()} / {lot.pool_size.toLocaleString()} CPFs
+        </span>
+      </div>
+
+      <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+        {metrics.successPct > 0 && (
+          <div
+            className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500"
+            style={{ width: `${metrics.successPct}%` }}
+          />
+        )}
+        {metrics.errorPct > 0 && (
+          <div
+            className="absolute top-0 h-full bg-destructive transition-all duration-500"
+            style={{ left: `${metrics.successPct}%`, width: `${metrics.errorPct}%` }}
+          />
+        )}
+        {chosenNotProcessedPct > 0 && (
+          <div
+            className="absolute top-0 h-full bg-blue-500 transition-all duration-500"
+            style={{ left: `${metrics.successPct + metrics.errorPct}%`, width: `${chosenNotProcessedPct}%` }}
+          />
+        )}
+        {unchosenPct > 0 && (
+          <div
+            className="absolute top-0 h-full bg-slate-300 transition-all duration-500"
+            style={{ left: `${totalPct}%`, width: `${unchosenPct}%` }}
+          />
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-slate-300" />
+          <span className="text-muted-foreground">Filtrados</span>
+          <span className="font-semibold text-foreground">{lot.pool_size.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-blue-500" />
+          <span className="text-muted-foreground">Escolhidos</span>
+          <span className="font-semibold text-foreground">{lot.sampled_quantity.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="text-muted-foreground">Sucesso</span>
+          <span className="font-semibold text-foreground">{metrics.successCount.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-destructive" />
+          <span className="text-muted-foreground">Erro</span>
+          <span className="font-semibold text-foreground">{metrics.errorCount.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function LemitPrototypeHistoryTable({ lots, onDownload, onDelete }: Props) {
-  const [selectedLotId, setSelectedLotId] = useState<number | null>(null)
   const [deleteLotId, setDeleteLotId] = useState<number | null>(null)
-
-  const selectedLot = useMemo(
-    () => lots.find((lot) => lot.id === selectedLotId) ?? null,
-    [lots, selectedLotId],
-  )
 
   return (
     <>
@@ -68,170 +153,183 @@ export function LemitPrototypeHistoryTable({ lots, onDownload, onDelete }: Props
         </CardHeader>
         <CardContent className="space-y-4">
           {lots.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              Nenhum lote executado ainda.
-            </div>
+            <Card>
+              <CardContent className="flex items-center justify-center py-10 sm:py-12">
+                <div className="text-center">
+                  <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground mx-auto mb-3 sm:mb-4" />
+                  <p className="text-sm sm:text-base text-muted-foreground">
+                    Nenhum lote executado ainda
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lote</TableHead>
-                  <TableHead>Criado em</TableHead>
-                  <TableHead>Bancos</TableHead>
-                  <TableHead>Combinação</TableHead>
-                  <TableHead>Base filtrada</TableHead>
-                  <TableHead>Solicitado</TableHead>
-                  <TableHead>Sorteado</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Telefones encontrados</TableHead>
-                  <TableHead>Leads atualizados</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lots.map((lot) => (
-                  <TableRow key={lot.id}>
-                    <TableCell className="font-medium">{lot.title}</TableCell>
-                    <TableCell>{formatLocalDateTime(lot.created_at)}</TableCell>
-                    <TableCell className="max-w-[220px]">{getPrototypeBanksLabel(lot.banks)}</TableCell>
-                    <TableCell>{getPrototypeCombinationLabel(lot.bank_combination_mode, true)}</TableCell>
-                    <TableCell>{lot.pool_size}</TableCell>
-                    <TableCell>{lot.requested_quantity}</TableCell>
-                    <TableCell>{lot.sampled_quantity}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn("pointer-events-none", getPrototypeLotStatusClassName(lot.status))}
-                      >
-                        {getPrototypeLotStatusLabel(lot.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{lot.phones_found_count}</TableCell>
-                    <TableCell>{lot.leads_updated_count}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={ACTION_BUTTON_CLASS_NAME}
-                          onClick={() => setSelectedLotId(lot.id)}
-                        >
-                          <Eye className="h-4 w-4" />
-                          Ver detalhes
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={ACTION_BUTTON_CLASS_NAME}
-                          onClick={() => onDownload(lot)}
-                        >
-                          <Download className="h-4 w-4" />
-                          Baixar CSV
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-red-600"
-                          onClick={() => setDeleteLotId(lot.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Excluir
-                        </Button>
+            <div className="space-y-3 sm:space-y-4">
+              {lots.map((lot) => {
+                const isActive = lot.status === "em_andamento"
+                const metrics = getLotMetrics(lot)
+
+                return (
+                  <Card
+                    key={lot.id}
+                    className={cn(
+                      "relative rounded-xl border transition-all duration-500",
+                      isActive
+                        ? "border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.15)] bg-blue-50/40 ring-1 ring-blue-400/20"
+                        : "border-slate-200/80 bg-gradient-to-b from-white to-neutral-50 shadow-md hover:shadow-lg ring-1 ring-black/5",
+                    )}
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-col gap-2 sm:gap-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-card-foreground truncate mb-1 text-base sm:text-lg">
+                              {lot.title}
+                            </h3>
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
+                              <span>Criado em {formatLocalDateTime(lot.created_at)}</span>
+                              <span>{getPrototypeBanksLabel(lot.banks)}</span>
+                            </div>
+                          </div>
+
+                          <div className="sm:hidden ml-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Mais ações</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem onClick={() => onDownload(lot)}>
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Baixar CSV
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteLotId(lot.id)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+
+                          <div className="hidden sm:flex flex-wrap items-center justify-end gap-2 sm:gap-3 ml-4">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full",
+                                getPrototypeLotStatusClassName(lot.status),
+                              )}
+                            >
+                              {getLotStatusIcon(lot.status)}
+                              <span className="whitespace-nowrap">{getPrototypeLotStatusLabel(lot.status)}</span>
+                            </Badge>
+
+                            <Badge variant="outline" className="px-2.5 py-1 text-xs rounded-full">
+                              {getPrototypeCombinationLabel(lot.bank_combination_mode, true)}
+                            </Badge>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => onDownload(lot)}
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Mais ações</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteLotId(lot.id)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+
+                        <div className="sm:hidden flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full",
+                              getPrototypeLotStatusClassName(lot.status),
+                            )}
+                          >
+                            {getLotStatusIcon(lot.status)}
+                            <span className="whitespace-nowrap">{getPrototypeLotStatusLabel(lot.status)}</span>
+                          </Badge>
+                          <Badge variant="outline" className="px-2.5 py-1 text-xs rounded-full">
+                            {getPrototypeCombinationLabel(lot.bank_combination_mode, true)}
+                          </Badge>
+                        </div>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                      <LemitLotProgressBar lot={lot} />
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground sm:text-sm">Bancos usados:</span>
+                        {lot.banks.length ? (
+                          lot.banks.map((bank) => (
+                            <Badge key={`${lot.id}-${bank}`} variant="outline" className="rounded-full px-3 py-1">
+                              {getPrototypeBanksLabel([bank])}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant="secondary">Somente filtros gerais</Badge>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-3 sm:gap-4 pt-2 border-t border-border">
+                        <div className="text-center">
+                          <div className="text-base sm:text-lg font-semibold text-slate-600">
+                            {lot.pool_size.toLocaleString()}
+                          </div>
+                          <div className="text-[11px] sm:text-xs text-muted-foreground">Filtrados</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-base sm:text-lg font-semibold text-blue-600">
+                            {lot.sampled_quantity.toLocaleString()}
+                          </div>
+                          <div className="text-[11px] sm:text-xs text-muted-foreground">Escolhidos</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-base sm:text-lg font-semibold text-emerald-600">
+                            {metrics.successCount.toLocaleString()}
+                          </div>
+                          <div className="text-[11px] sm:text-xs text-muted-foreground">Sucesso</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-base sm:text-lg font-semibold text-red-600">
+                            {metrics.errorCount.toLocaleString()}
+                          </div>
+                          <div className="text-[11px] sm:text-xs text-muted-foreground">Erro</div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={Boolean(selectedLot)} onOpenChange={(open) => !open && setSelectedLotId(null)}>
-        <DialogContent className="max-h-[88vh] max-w-6xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{selectedLot?.title}</DialogTitle>
-            <DialogDescription>
-              {selectedLot
-                ? `${getPrototypeBanksLabel(selectedLot.banks)} • ${getPrototypeCombinationLabel(selectedLot.bank_combination_mode)}`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedLot ? (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-md border p-3">
-                  <div className="text-xs text-muted-foreground">Criado em</div>
-                  <div className="mt-1 text-sm font-medium">{formatLocalDateTime(selectedLot.created_at)}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="text-xs text-muted-foreground">Base filtrada</div>
-                  <div className="mt-1 text-sm font-medium">{selectedLot.pool_size}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="text-xs text-muted-foreground">Telefones encontrados</div>
-                  <div className="mt-1 text-sm font-medium">{selectedLot.phones_found_count}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="text-xs text-muted-foreground">Leads atualizados</div>
-                  <div className="mt-1 text-sm font-medium">{selectedLot.leads_updated_count}</div>
-                </div>
-              </div>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Resultados por CPF</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>CPF</TableHead>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Telefone anterior</TableHead>
-                        <TableHead>Telefone preferido</TableHead>
-                        <TableHead>Resultado</TableHead>
-                        <TableHead>Atualizaria lead</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedLot.items.map((item) => (
-                        <TableRow key={`${selectedLot.id}-${item.cpf}`}>
-                          <TableCell>{formatCPF(item.cpf)}</TableCell>
-                          <TableCell>{item.nome}</TableCell>
-                          <TableCell>{item.telefone_atual_antes || "--"}</TableCell>
-                          <TableCell>{item.telefone_lemit || "--"}</TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={cn("pointer-events-none", getPrototypeResultClassName(item.resultado))}
-                            >
-                              {getPrototypeResultLabel(item.resultado)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{item.atualizaria_lead ? "Sim" : "Não"}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Snapshot dos filtros</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <pre className="overflow-x-auto rounded-md bg-slate-950 p-4 text-xs text-slate-50">
-                    {JSON.stringify(selectedLot.filters_snapshot, null, 2)}
-                  </pre>
-                </CardContent>
-              </Card>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={deleteLotId !== null} onOpenChange={(open) => !open && setDeleteLotId(null)}>
         <AlertDialogContent>
