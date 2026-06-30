@@ -27,9 +27,6 @@ const PHONE_CLASSES: LemitPrototypePhoneClass[] = ["Carteira", "Atendimento IA",
 const FGTS_MOTIVOS = ["Saldo FGTS", "Saque Aniversário", "Antecipação", "Recompra"]
 const FGTS_ORIGENS_HIG = ["Facta Base Offline", "Planilha Operacional", "Reprocessamento"]
 const MERCANTIL_STATUS = ["SUCESSO", "PENDENTE", "ERRO_ANALISE", "SEM_OFERTA"]
-const MERCANTIL_ORIGENS = ["Mercantil Top", "Mercantil Base A", "Mercantil Base B"]
-const UY3_TYPES = ["LEADS_CLT", "LEADS_CLT_NÃO_QUALIFICADOS", "LEADS_CLT_REPROCESSO"]
-const UY3_STATUS = ["ATIVA", "EM_ANALISE", "PENDENTE"]
 const DDDS = ["11", "21", "31", "41", "47", "48", "49", "51"]
 
 const BANK_LABELS: Record<LemitPrototypeBankKey, string> = {
@@ -139,32 +136,86 @@ function cloneFilters(filters: LemitPrototypeFilters): LemitPrototypeFilters {
   return JSON.parse(JSON.stringify(filters)) as LemitPrototypeFilters
 }
 
+function inDateRange(value: string | null | undefined, from: string, to: string) {
+  if (!value) return false
+  const normalized = value.slice(0, 10)
+  if (from && normalized < from) return false
+  if (to && normalized > to) return false
+  return true
+}
+
+function safeText(value: string | null | undefined) {
+  return value ?? ""
+}
+
+function safeList<T>(value: T[] | null | undefined) {
+  return Array.isArray(value) ? value : []
+}
+
+function inNumberRange(value: number | null | undefined, minRaw?: string | null, maxRaw?: string | null) {
+  const minText = safeText(minRaw)
+  const maxText = safeText(maxRaw)
+  if (!minText.trim() && !maxText.trim()) return true
+  if (value === null || value === undefined) return false
+
+  if (minText.trim()) {
+    const min = Number(minText.replace(",", "."))
+    if (!Number.isFinite(min) || value < min) return false
+  }
+
+  if (maxText.trim()) {
+    const max = Number(maxText.replace(",", "."))
+    if (!Number.isFinite(max) || value > max) return false
+  }
+
+  return true
+}
+
 function bankFilterIsFilled(filters: LemitPrototypeFilters, bank: LemitPrototypeBankKey) {
   switch (bank) {
     case "fgts":
       return Boolean(
         filters.bank_filters.fgts.fgts_status ||
-        filters.bank_filters.fgts.motivos.length ||
-        filters.bank_filters.fgts.origens_hig.length
+        safeList(filters.bank_filters.fgts.motivos).length ||
+        safeList(filters.bank_filters.fgts.origens_hig).length
       )
     case "clt":
       return Boolean(
-        filters.bank_filters.clt.clt_consultado ||
         filters.bank_filters.clt.clt_situacao ||
-        filters.bank_filters.clt.clt_margem_min.trim() ||
-        filters.bank_filters.clt.clt_margem_max.trim()
+        filters.bank_filters.clt.clt_consulta_from ||
+        filters.bank_filters.clt.clt_consulta_to ||
+        safeText(filters.bank_filters.clt.clt_meses_admissao_min).trim() ||
+        safeText(filters.bank_filters.clt.clt_meses_admissao_max).trim() ||
+        safeText(filters.bank_filters.clt.clt_margem_min).trim() ||
+        safeText(filters.bank_filters.clt.clt_margem_max).trim() ||
+        safeText(filters.bank_filters.clt.clt_valor_liberado_min).trim() ||
+        safeText(filters.bank_filters.clt.clt_valor_liberado_max).trim() ||
+        safeText(filters.bank_filters.clt.clt_numero_parcelas_min).trim() ||
+        safeText(filters.bank_filters.clt.clt_numero_parcelas_max).trim()
       )
     case "mercantil":
       return Boolean(
         filters.bank_filters.mercantil.mercantil_situacao ||
-        filters.bank_filters.mercantil.mercantil_status.length ||
-        filters.bank_filters.mercantil.mercantil_origens.length
+        filters.bank_filters.mercantil.mercantil_consulta_from ||
+        filters.bank_filters.mercantil.mercantil_consulta_to ||
+        safeText(filters.bank_filters.mercantil.mercantil_valor_liberado_min).trim() ||
+        safeText(filters.bank_filters.mercantil.mercantil_valor_liberado_max).trim() ||
+        safeText(filters.bank_filters.mercantil.mercantil_numero_parcelas_min).trim() ||
+        safeText(filters.bank_filters.mercantil.mercantil_numero_parcelas_max).trim()
       )
     case "uy3":
       return Boolean(
-        filters.bank_filters.uy3.uy3_type_webhook.length ||
-        filters.bank_filters.uy3.uy3_status.length ||
-        filters.bank_filters.uy3.uy3_elegivel_emprestimo
+        filters.bank_filters.uy3.uy3_situacao ||
+        filters.bank_filters.uy3.uy3_consulta_from ||
+        filters.bank_filters.uy3.uy3_consulta_to ||
+        safeText(filters.bank_filters.uy3.uy3_meses_admissao_min).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_meses_admissao_max).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_margem_min).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_margem_max).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_valor_liberado_min).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_valor_liberado_max).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_numero_parcelas_min).trim() ||
+        safeText(filters.bank_filters.uy3.uy3_numero_parcelas_max).trim()
       )
   }
 }
@@ -240,9 +291,11 @@ function matchFgtsFilters(lead: LemitPrototypeLead, filters: LemitPrototypeFilte
   const fgtsFilters = filters.bank_filters.fgts
   const snapshot = lead.fgts
 
-  if (fgtsFilters.fgts_status === "nao_consultado") {
-    if (snapshot) return false
-  } else if (fgtsFilters.fgts_status && snapshot?.status !== fgtsFilters.fgts_status) {
+  if (!snapshot) {
+    return false
+  }
+
+  if (fgtsFilters.fgts_status && snapshot.status !== fgtsFilters.fgts_status) {
     return false
   }
 
@@ -261,31 +314,36 @@ function matchCltFilters(lead: LemitPrototypeLead, filters: LemitPrototypeFilter
   const cltFilters = filters.bank_filters.clt
   const snapshot = lead.clt
 
-  if (cltFilters.clt_consultado === "sim" && !snapshot?.consultado) {
+  if (!snapshot?.consultado) {
     return false
   }
 
-  if (cltFilters.clt_consultado === "nao" && snapshot?.consultado) {
+  if (cltFilters.clt_situacao === "aprovado" && snapshot.situacao !== "elegivel") {
     return false
   }
 
-  if (cltFilters.clt_situacao && snapshot?.situacao !== cltFilters.clt_situacao) {
+  if (cltFilters.clt_situacao === "nao_aprovado" && snapshot.situacao === "elegivel") {
     return false
   }
 
-  const margin = snapshot?.margem_disponivel
-  if (cltFilters.clt_margem_min.trim()) {
-    const min = Number(cltFilters.clt_margem_min.replace(",", "."))
-    if (!Number.isFinite(min) || margin === null || margin === undefined || margin < min) {
-      return false
-    }
+  if (!inDateRange(snapshot.consulted_at, cltFilters.clt_consulta_from, cltFilters.clt_consulta_to)) {
+    if (cltFilters.clt_consulta_from || cltFilters.clt_consulta_to) return false
   }
 
-  if (cltFilters.clt_margem_max.trim()) {
-    const max = Number(cltFilters.clt_margem_max.replace(",", "."))
-    if (!Number.isFinite(max) || margin === null || margin === undefined || margin > max) {
-      return false
-    }
+  if (!inNumberRange(snapshot.meses_admissao, cltFilters.clt_meses_admissao_min, cltFilters.clt_meses_admissao_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.margem_disponivel, cltFilters.clt_margem_min, cltFilters.clt_margem_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.valor_liberado, cltFilters.clt_valor_liberado_min, cltFilters.clt_valor_liberado_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.numero_parcelas, cltFilters.clt_numero_parcelas_min, cltFilters.clt_numero_parcelas_max)) {
+    return false
   }
 
   return true
@@ -295,24 +353,28 @@ function matchMercantilFilters(lead: LemitPrototypeLead, filters: LemitPrototype
   const mercantilFilters = filters.bank_filters.mercantil
   const snapshot = lead.mercantil
 
-  if (mercantilFilters.mercantil_situacao === "consultado" && !snapshot) {
+  if (!snapshot) {
     return false
   }
 
-  if (mercantilFilters.mercantil_situacao === "sem_consulta" && snapshot) {
+  if (mercantilFilters.mercantil_situacao === "aprovado" && snapshot.status !== "SUCESSO") {
     return false
   }
 
-  if (mercantilFilters.mercantil_status.length) {
-    if (!snapshot || !mercantilFilters.mercantil_status.includes(snapshot.status)) {
-      return false
-    }
+  if (mercantilFilters.mercantil_situacao === "nao_aprovado" && snapshot.status === "SUCESSO") {
+    return false
   }
 
-  if (mercantilFilters.mercantil_origens.length) {
-    if (!snapshot || !mercantilFilters.mercantil_origens.includes(snapshot.origem)) {
-      return false
-    }
+  if (!inDateRange(snapshot.data_hora_origem, mercantilFilters.mercantil_consulta_from, mercantilFilters.mercantil_consulta_to)) {
+    if (mercantilFilters.mercantil_consulta_from || mercantilFilters.mercantil_consulta_to) return false
+  }
+
+  if (!inNumberRange(snapshot.valor_liberado, mercantilFilters.mercantil_valor_liberado_min, mercantilFilters.mercantil_valor_liberado_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.quantidade_parcelas, mercantilFilters.mercantil_numero_parcelas_min, mercantilFilters.mercantil_numero_parcelas_max)) {
+    return false
   }
 
   return true
@@ -322,23 +384,35 @@ function matchUy3Filters(lead: LemitPrototypeLead, filters: LemitPrototypeFilter
   const uy3Filters = filters.bank_filters.uy3
   const snapshot = lead.uy3
 
-  if (uy3Filters.uy3_type_webhook.length) {
-    if (!snapshot || !uy3Filters.uy3_type_webhook.includes(snapshot.type_webhook)) {
-      return false
-    }
-  }
-
-  if (uy3Filters.uy3_status.length) {
-    if (!snapshot || !uy3Filters.uy3_status.includes(snapshot.status)) {
-      return false
-    }
-  }
-
-  if (uy3Filters.uy3_elegivel_emprestimo === "sim" && snapshot?.elegivel_emprestimo !== true) {
+  if (!snapshot) {
     return false
   }
 
-  if (uy3Filters.uy3_elegivel_emprestimo === "nao" && snapshot?.elegivel_emprestimo !== false) {
+  if (!inDateRange(snapshot.updated_at, uy3Filters.uy3_consulta_from, uy3Filters.uy3_consulta_to)) {
+    if (uy3Filters.uy3_consulta_from || uy3Filters.uy3_consulta_to) return false
+  }
+
+  if (!inNumberRange(snapshot.meses_admissao, uy3Filters.uy3_meses_admissao_min, uy3Filters.uy3_meses_admissao_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.margem_disponivel, uy3Filters.uy3_margem_min, uy3Filters.uy3_margem_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.valor_liberado, uy3Filters.uy3_valor_liberado_min, uy3Filters.uy3_valor_liberado_max)) {
+    return false
+  }
+
+  if (!inNumberRange(snapshot.numero_parcelas, uy3Filters.uy3_numero_parcelas_min, uy3Filters.uy3_numero_parcelas_max)) {
+    return false
+  }
+
+  if (uy3Filters.uy3_situacao === "aprovado" && snapshot.elegivel_emprestimo !== true) {
+    return false
+  }
+
+  if (uy3Filters.uy3_situacao === "nao_aprovado" && snapshot.elegivel_emprestimo === true) {
     return false
   }
 
@@ -389,20 +463,39 @@ export function createDefaultLemitPrototypeFilters(): LemitPrototypeFilters {
         origens_hig: [],
       },
       clt: {
-        clt_consultado: "",
         clt_situacao: "",
+        clt_consulta_from: "",
+        clt_consulta_to: "",
+        clt_meses_admissao_min: "",
+        clt_meses_admissao_max: "",
         clt_margem_min: "",
         clt_margem_max: "",
+        clt_valor_liberado_min: "",
+        clt_valor_liberado_max: "",
+        clt_numero_parcelas_min: "",
+        clt_numero_parcelas_max: "",
       },
       mercantil: {
         mercantil_situacao: "",
-        mercantil_status: [],
-        mercantil_origens: [],
+        mercantil_consulta_from: "",
+        mercantil_consulta_to: "",
+        mercantil_valor_liberado_min: "",
+        mercantil_valor_liberado_max: "",
+        mercantil_numero_parcelas_min: "",
+        mercantil_numero_parcelas_max: "",
       },
       uy3: {
-        uy3_type_webhook: [],
-        uy3_status: [],
-        uy3_elegivel_emprestimo: "",
+        uy3_situacao: "",
+        uy3_consulta_from: "",
+        uy3_consulta_to: "",
+        uy3_meses_admissao_min: "",
+        uy3_meses_admissao_max: "",
+        uy3_margem_min: "",
+        uy3_margem_max: "",
+        uy3_valor_liberado_min: "",
+        uy3_valor_liberado_max: "",
+        uy3_numero_parcelas_min: "",
+        uy3_numero_parcelas_max: "",
       },
     },
   }
@@ -454,19 +547,30 @@ export function createMockLeadsDataset(seed = 20260629, total = 240): LemitProto
         ? {
             consultado: random.chance(0.82),
             situacao: cltSituacao,
+            consulted_at: createIsoDateTime(random),
+            updated_at: createIsoDateTime(random),
+            meses_admissao: random.int(1, 240),
             margem_disponivel: cltSituacao === "nao_encontrado" ? null : Number((random.int(0, 2200) + random.next()).toFixed(2)),
+            valor_liberado: cltSituacao === "elegivel" ? Number((random.int(500, 8000) + random.next()).toFixed(2)) : Number((random.int(0, 3500) + random.next()).toFixed(2)),
+            numero_parcelas: cltSituacao === "nao_encontrado" ? null : random.int(3, 96),
           }
         : null,
       mercantil: mercantilEnabled
         ? {
             status: random.pick(MERCANTIL_STATUS),
-            origem: random.pick(MERCANTIL_ORIGENS),
+            origem: "Mercantil",
+            data_hora_origem: createIsoDateTime(random),
+            valor_liberado: Number((random.int(300, 9000) + random.next()).toFixed(2)),
+            quantidade_parcelas: random.int(3, 84),
           }
         : null,
       uy3: uy3Enabled
         ? {
-            type_webhook: random.pick(UY3_TYPES),
-            status: random.pick(UY3_STATUS),
+            updated_at: createIsoDateTime(random),
+            meses_admissao: random.int(1, 240),
+            margem_disponivel: Number((random.int(0, 2500) + random.next()).toFixed(2)),
+            valor_liberado: Number((random.int(300, 7000) + random.next()).toFixed(2)),
+            numero_parcelas: random.int(3, 96),
             elegivel_emprestimo: random.pick([true, false, null]),
           }
         : null,
@@ -483,10 +587,6 @@ export function getPrototypeOptionCatalog(leads: LemitPrototypeLead[]): LemitPro
     origens: uniq(leads.map((lead) => lead.origem_cadastral)),
     fgtsMotivos: uniq(leads.map((lead) => lead.fgts?.motivo ?? "").filter(Boolean)),
     fgtsOrigensHig: uniq(leads.map((lead) => lead.fgts?.origem_hig ?? "").filter(Boolean)),
-    mercantilStatus: uniq(leads.map((lead) => lead.mercantil?.status ?? "").filter(Boolean)),
-    mercantilOrigens: uniq(leads.map((lead) => lead.mercantil?.origem ?? "").filter(Boolean)),
-    uy3Types: uniq(leads.map((lead) => lead.uy3?.type_webhook ?? "").filter(Boolean)),
-    uy3Statuses: uniq(leads.map((lead) => lead.uy3?.status ?? "").filter(Boolean)),
   }
 }
 

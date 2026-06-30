@@ -5,6 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { MultiSelect } from "@/components/ui/multi-select"
+import factaLogo from "@/assets/factalogo.png"
+import mercantilLogo from "@/assets/mercantilogo.png"
+import uy3Logo from "@/assets/logouy3png.png"
 import {
   Select,
   SelectContent,
@@ -32,6 +35,8 @@ import type {
   LemitPrototypeFilters,
   LemitPrototypeLead,
   LemitPrototypeLot,
+  LemitPrototypeFgtsStatus,
+  LemitPrototypeLoanSituation,
 } from "@/modules/lemit-prototype/types"
 
 const DEFAULT_LEADS = createMockLeadsDataset()
@@ -59,11 +64,11 @@ export default function LemitPrototypePage() {
     DEFAULT_LEADS,
   )
   const [draftFilters, setDraftFilters] = usePersistedState<LemitPrototypeFilters>(
-    "lemit-prototype:draft-filters:v1",
+    "lemit-prototype:draft-filters:v2",
     DEFAULT_FILTERS,
   )
   const [appliedFilters, setAppliedFilters] = usePersistedState<LemitPrototypeFilters>(
-    "lemit-prototype:applied-filters:v1",
+    "lemit-prototype:applied-filters:v2",
     DEFAULT_FILTERS,
   )
   const [lots, setLots] = usePersistedState<LemitPrototypeLot[]>(
@@ -371,6 +376,15 @@ export default function LemitPrototypePage() {
                                   checked={draftFilters.selected_banks.includes(bank.value)}
                                   onCheckedChange={(checked) => toggleBankSelection(bank.value, Boolean(checked))}
                                 />
+                                {bank.value === "clt" ? (
+                                  <img src={factaLogo} alt="Facta" className="h-6 w-6 object-contain" />
+                                ) : null}
+                                {bank.value === "mercantil" ? (
+                                  <img src={mercantilLogo} alt="Mercantil" className="h-6 w-6 object-contain" />
+                                ) : null}
+                                {bank.value === "uy3" ? (
+                                  <img src={uy3Logo} alt="UY3" className="h-6 w-6 object-contain" />
+                                ) : null}
                                 <span className="font-medium">{bank.label}</span>
                               </label>
                             ))}
@@ -399,232 +413,390 @@ export default function LemitPrototypePage() {
                         </div>
                       </div>
 
+                      {draftFilters.selected_banks.includes("fgts") ? (
+                        <div className="rounded-xl border p-4">
+                          <div className="mb-4 text-lg font-semibold text-gray-900">Filtros FGTS</div>
+                          <div className="grid gap-4 md:grid-cols-3">
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Status</div>
+                              <Select
+                                value={draftFilters.bank_filters.fgts.fgts_status || "__empty__"}
+                                onValueChange={(value) => updateBankFilter("fgts", "fgts_status", value === "__empty__" ? "" : value as LemitPrototypeFgtsStatus)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Ex.: Autorizado" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__empty__">Todos</SelectItem>
+                                  <SelectItem value="autorizado">Autorizado</SelectItem>
+                                  <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Motivos</div>
+                              <MultiSelect
+                                options={optionCatalog.fgtsMotivos}
+                                selected={draftFilters.bank_filters.fgts.motivos}
+                                onChange={(value) => updateBankFilter("fgts", "motivos", value)}
+                                placeholder="Ex.: Saldo FGTS"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Origens hig</div>
+                              <MultiSelect
+                                options={optionCatalog.fgtsOrigensHig}
+                                selected={draftFilters.bank_filters.fgts.origens_hig}
+                                onChange={(value) => updateBankFilter("fgts", "origens_hig", value)}
+                                placeholder="Ex.: Planilha Operacional"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {draftFilters.selected_banks.includes("clt") ? (
+                        <div className="rounded-xl border p-4">
+                          <div className="mb-4 flex items-center gap-3 text-lg font-semibold text-gray-900">
+                            <img src={factaLogo} alt="Facta" className="h-7 w-auto object-contain" />
+                            <span>Filtros CLT Facta</span>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Situação</div>
+                              <Select
+                                value={draftFilters.bank_filters.clt.clt_situacao || "__empty__"}
+                                onValueChange={(value) => updateBankFilter("clt", "clt_situacao", value === "__empty__" ? "" : value as LemitPrototypeLoanSituation)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Ex.: Aprovado" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__empty__">Todas</SelectItem>
+                                  <SelectItem value="aprovado">Aprovado</SelectItem>
+                                  <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Consulta de</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.clt.clt_consulta_from}
+                                onChange={(event) => updateBankFilter("clt", "clt_consulta_from", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Consulta até</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.clt.clt_consulta_to}
+                                onChange={(event) => updateBankFilter("clt", "clt_consulta_to", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Meses admissão mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_meses_admissao_min}
+                                onChange={(event) => updateBankFilter("clt", "clt_meses_admissao_min", event.target.value)}
+                                placeholder="Ex.: 1"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Meses admissão máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_meses_admissao_max}
+                                onChange={(event) => updateBankFilter("clt", "clt_meses_admissao_max", event.target.value)}
+                                placeholder="Ex.: 240"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem mínima</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_margem_min}
+                                onChange={(event) => updateBankFilter("clt", "clt_margem_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_valor_liberado_min}
+                                onChange={(event) => updateBankFilter("clt", "clt_valor_liberado_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_valor_liberado_max}
+                                onChange={(event) => updateBankFilter("clt", "clt_valor_liberado_max", event.target.value)}
+                                placeholder="Ex.: 10000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_numero_parcelas_min}
+                                onChange={(event) => updateBankFilter("clt", "clt_numero_parcelas_min", event.target.value)}
+                                placeholder="Ex.: 1"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_numero_parcelas_max}
+                                onChange={(event) => updateBankFilter("clt", "clt_numero_parcelas_max", event.target.value)}
+                                placeholder="Ex.: 120"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem máxima</div>
+                              <Input
+                                value={draftFilters.bank_filters.clt.clt_margem_max}
+                                onChange={(event) => updateBankFilter("clt", "clt_margem_max", event.target.value)}
+                                placeholder="Ex.: 2000,00"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {draftFilters.selected_banks.includes("mercantil") ? (
+                        <div className="rounded-xl border p-4">
+                          <div className="mb-4 flex items-center gap-3 text-lg font-semibold text-gray-900">
+                            <img src={mercantilLogo} alt="Mercantil" className="h-7 w-auto object-contain" />
+                            <span>Filtros CLT Mercantil</span>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Situação</div>
+                              <Select
+                                value={draftFilters.bank_filters.mercantil.mercantil_situacao || "__empty__"}
+                                onValueChange={(value) => updateBankFilter("mercantil", "mercantil_situacao", value === "__empty__" ? "" : value as LemitPrototypeLoanSituation)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Ex.: Aprovado" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__empty__">Todas</SelectItem>
+                                  <SelectItem value="aprovado">Aprovado</SelectItem>
+                                  <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Consulta de</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.mercantil.mercantil_consulta_from}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_consulta_from", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Consulta até</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.mercantil.mercantil_consulta_to}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_consulta_to", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_valor_liberado_min}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_valor_liberado_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_valor_liberado_max}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_valor_liberado_max", event.target.value)}
+                                placeholder="Ex.: 10000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_numero_parcelas_min}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_numero_parcelas_min", event.target.value)}
+                                placeholder="Ex.: 1"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.mercantil.mercantil_numero_parcelas_max}
+                                onChange={(event) => updateBankFilter("mercantil", "mercantil_numero_parcelas_max", event.target.value)}
+                                placeholder="Ex.: 120"
+                              />
+                            </div>
+                          </div>
+
+                        </div>
+                      ) : null}
+
+                      {draftFilters.selected_banks.includes("uy3") ? (
+                        <div className="rounded-xl border p-4">
+                          <div className="mb-4 flex items-center gap-3 text-lg font-semibold text-gray-900">
+                            <img src={uy3Logo} alt="UY3" className="h-7 w-auto object-contain" />
+                            <span>Filtros CLT UY3</span>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Situação</div>
+                              <Select
+                                value={draftFilters.bank_filters.uy3.uy3_situacao || "__empty__"}
+                                onValueChange={(value) => updateBankFilter("uy3", "uy3_situacao", value === "__empty__" ? "" : value as LemitPrototypeLoanSituation)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Ex.: Aprovado" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__empty__">Todos</SelectItem>
+                                  <SelectItem value="aprovado">Aprovado</SelectItem>
+                                  <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Atualização de</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.uy3.uy3_consulta_from}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_consulta_from", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Atualização até</div>
+                              <Input
+                                type="date"
+                                value={draftFilters.bank_filters.uy3.uy3_consulta_to}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_consulta_to", event.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Meses admissão mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_meses_admissao_min}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_meses_admissao_min", event.target.value)}
+                                placeholder="Ex.: 1"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Meses admissão máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_meses_admissao_max}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_meses_admissao_max", event.target.value)}
+                                placeholder="Ex.: 240"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem mínima</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_margem_min}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_margem_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_valor_liberado_min}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_valor_liberado_min", event.target.value)}
+                                placeholder="Ex.: 0,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Valor liberado máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_valor_liberado_max}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_valor_liberado_max", event.target.value)}
+                                placeholder="Ex.: 10000,00"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas mín.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_numero_parcelas_min}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_numero_parcelas_min", event.target.value)}
+                                placeholder="Ex.: 1"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Parcelas máx.</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_numero_parcelas_max}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_numero_parcelas_max", event.target.value)}
+                                placeholder="Ex.: 120"
+                              />
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Margem máxima</div>
+                              <Input
+                                value={draftFilters.bank_filters.uy3.uy3_margem_max}
+                                onChange={(event) => updateBankFilter("uy3", "uy3_margem_max", event.target.value)}
+                                placeholder="Ex.: 2000,00"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {validationMessages.length ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                          {validationMessages.map((message) => (
+                            <div key={message}>{message}</div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {hasUnappliedChanges ? (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                          Existem alterações ainda não aplicadas. Clique em Atualizar resultado para liberar a etapa seguinte.
+                        </div>
+                      ) : null}
+
+                      <div className="flex flex-wrap gap-3">
+                        <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={handleApplyFilters} disabled={!canSearchPool}>
+                          Atualizar resultado
+                        </Button>
+                        <Button className={OUTLINE_BUTTON_CLASS_NAME} variant="outline" onClick={handleClearFilters}>
+                          Limpar filtros
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
-
-                  {draftFilters.selected_banks.includes("fgts") ? (
-                    <Card className="shadow-sm">
-                      <CardHeader>
-                        <CardTitle className="text-lg">Filtros FGTS</CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Status</div>
-                          <Select
-                            value={draftFilters.bank_filters.fgts.fgts_status || "__empty__"}
-                            onValueChange={(value) => updateBankFilter("fgts", "fgts_status", value === "__empty__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecionar status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__empty__">Todos</SelectItem>
-                              <SelectItem value="autorizado">Autorizado</SelectItem>
-                              <SelectItem value="nao_autorizado">Não autorizado</SelectItem>
-                              <SelectItem value="nao_consultado">Não consultado</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Motivos</div>
-                          <MultiSelect
-                            options={optionCatalog.fgtsMotivos}
-                            selected={draftFilters.bank_filters.fgts.motivos}
-                            onChange={(value) => updateBankFilter("fgts", "motivos", value)}
-                            placeholder="Selecionar motivos"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Origens hig</div>
-                          <MultiSelect
-                            options={optionCatalog.fgtsOrigensHig}
-                            selected={draftFilters.bank_filters.fgts.origens_hig}
-                            onChange={(value) => updateBankFilter("fgts", "origens_hig", value)}
-                            placeholder="Selecionar origens"
-                          />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {draftFilters.selected_banks.includes("clt") ? (
-                    <Card className="shadow-sm">
-                      <CardHeader>
-                        <CardTitle className="text-lg">Filtros CLT Facta</CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid gap-4 md:grid-cols-4">
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Consultado</div>
-                          <Select
-                            value={draftFilters.bank_filters.clt.clt_consultado || "__empty__"}
-                            onValueChange={(value) => updateBankFilter("clt", "clt_consultado", value === "__empty__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecionar" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__empty__">Todos</SelectItem>
-                              <SelectItem value="sim">Sim</SelectItem>
-                              <SelectItem value="nao">Não</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Situação</div>
-                          <Select
-                            value={draftFilters.bank_filters.clt.clt_situacao || "__empty__"}
-                            onValueChange={(value) => updateBankFilter("clt", "clt_situacao", value === "__empty__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecionar" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__empty__">Todas</SelectItem>
-                              <SelectItem value="elegivel">Elegível</SelectItem>
-                              <SelectItem value="nao_elegivel">Não elegível</SelectItem>
-                              <SelectItem value="nao_encontrado">Não encontrado</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Margem mínima</div>
-                          <Input
-                            value={draftFilters.bank_filters.clt.clt_margem_min}
-                            onChange={(event) => updateBankFilter("clt", "clt_margem_min", event.target.value)}
-                            placeholder="0,00"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Margem máxima</div>
-                          <Input
-                            value={draftFilters.bank_filters.clt.clt_margem_max}
-                            onChange={(event) => updateBankFilter("clt", "clt_margem_max", event.target.value)}
-                            placeholder="2000,00"
-                          />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {draftFilters.selected_banks.includes("mercantil") ? (
-                    <Card className="shadow-sm">
-                      <CardHeader>
-                        <CardTitle className="text-lg">Filtros CLT Mercantil</CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Situação</div>
-                          <Select
-                            value={draftFilters.bank_filters.mercantil.mercantil_situacao || "__empty__"}
-                            onValueChange={(value) => updateBankFilter("mercantil", "mercantil_situacao", value === "__empty__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecionar" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__empty__">Todas</SelectItem>
-                              <SelectItem value="consultado">Consultado</SelectItem>
-                              <SelectItem value="sem_consulta">Sem consulta</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Status</div>
-                          <MultiSelect
-                            options={optionCatalog.mercantilStatus}
-                            selected={draftFilters.bank_filters.mercantil.mercantil_status}
-                            onChange={(value) => updateBankFilter("mercantil", "mercantil_status", value)}
-                            placeholder="Selecionar status"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Origens</div>
-                          <MultiSelect
-                            options={optionCatalog.mercantilOrigens}
-                            selected={draftFilters.bank_filters.mercantil.mercantil_origens}
-                            onChange={(value) => updateBankFilter("mercantil", "mercantil_origens", value)}
-                            placeholder="Selecionar origens"
-                          />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {draftFilters.selected_banks.includes("uy3") ? (
-                    <Card className="shadow-sm">
-                      <CardHeader>
-                        <CardTitle className="text-lg">Filtros CLT UY3</CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Type webhook</div>
-                          <MultiSelect
-                            options={optionCatalog.uy3Types}
-                            selected={draftFilters.bank_filters.uy3.uy3_type_webhook}
-                            onChange={(value) => updateBankFilter("uy3", "uy3_type_webhook", value)}
-                            placeholder="Selecionar tipos"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Status</div>
-                          <MultiSelect
-                            options={optionCatalog.uy3Statuses}
-                            selected={draftFilters.bank_filters.uy3.uy3_status}
-                            onChange={(value) => updateBankFilter("uy3", "uy3_status", value)}
-                            placeholder="Selecionar status"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium">Elegível empréstimo</div>
-                          <Select
-                            value={draftFilters.bank_filters.uy3.uy3_elegivel_emprestimo || "__empty__"}
-                            onValueChange={(value) => updateBankFilter("uy3", "uy3_elegivel_emprestimo", value === "__empty__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecionar" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__empty__">Todos</SelectItem>
-                              <SelectItem value="sim">Sim</SelectItem>
-                              <SelectItem value="nao">Não</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {validationMessages.length ? (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                      {validationMessages.map((message) => (
-                        <div key={message}>{message}</div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {hasUnappliedChanges ? (
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                      Existem alterações ainda não aplicadas. Clique em Atualizar resultado para liberar a etapa seguinte.
-                    </div>
-                  ) : null}
-
-                  <div className="flex flex-wrap gap-3">
-                    <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={handleApplyFilters} disabled={!canSearchPool}>
-                      Atualizar resultado
-                    </Button>
-                    <Button className={OUTLINE_BUTTON_CLASS_NAME} variant="outline" onClick={handleClearFilters}>
-                      Limpar filtros
-                    </Button>
-                  </div>
 
                   <Card className="shadow-sm">
                     <CardHeader>
@@ -740,26 +912,27 @@ export default function LemitPrototypePage() {
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap gap-3">
-                            <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={handleRunLot} disabled={!canRunLot}>
-                              Rodar lote
-                            </Button>
-                            <Button
-                              className={OUTLINE_BUTTON_CLASS_NAME}
-                              variant="outline"
-                              onClick={() => {
-                                setIsNewLotOpen(false)
-                                setIsResultReady(false)
-                              }}
-                            >
-                              Cancelar lote
-                            </Button>
-                          </div>
                         </div>
                       </div>
                       ) : null}
                     </CardContent>
                   </Card>
+
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <Button
+                      className={OUTLINE_BUTTON_CLASS_NAME}
+                      variant="outline"
+                      onClick={() => {
+                        setIsNewLotOpen(false)
+                        setIsResultReady(false)
+                      }}
+                    >
+                      Cancelar lote
+                    </Button>
+                    <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={handleRunLot} disabled={!canRunLot}>
+                      Rodar lote
+                    </Button>
+                  </div>
               </div>
             </CardContent>
           </Card>

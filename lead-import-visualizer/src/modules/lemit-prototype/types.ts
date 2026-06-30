@@ -4,10 +4,10 @@ export type LemitPrototypeCombinationMode = "all" | "any"
 
 export type LemitPrototypePhoneClass = "Carteira" | "Atendimento IA" | "Lemit" | "Manual"
 
-export type LemitPrototypeFgtsStatus = "autorizado" | "nao_autorizado" | "nao_consultado"
+export type LemitPrototypeFgtsStatus = "autorizado" | "nao_autorizado"
 export type LemitPrototypeCltSituacao = "elegivel" | "nao_elegivel" | "nao_encontrado"
-export type LemitPrototypeMercantilSituacao = "consultado" | "sem_consulta"
 export type LemitPrototypeYesNo = "sim" | "nao"
+export type LemitPrototypeLoanSituation = "aprovado" | "nao_aprovado"
 
 export type LemitPrototypeResultStatus =
   | "telefone_encontrado"
@@ -27,23 +27,34 @@ export interface LemitPrototypePhoneCandidate {
 export interface LemitPrototypeFgtsSnapshot {
   motivo: string
   origem_hig: string
-  status: Exclude<LemitPrototypeFgtsStatus, "nao_consultado">
+  status: LemitPrototypeFgtsStatus
 }
 
 export interface LemitPrototypeCltSnapshot {
   consultado: boolean
   situacao: LemitPrototypeCltSituacao
+  consulted_at: string
+  updated_at: string
+  meses_admissao: number | null
   margem_disponivel: number | null
+  valor_liberado: number | null
+  numero_parcelas: number | null
 }
 
 export interface LemitPrototypeMercantilSnapshot {
   status: string
   origem: string
+  data_hora_origem: string
+  valor_liberado: number | null
+  quantidade_parcelas: number | null
 }
 
 export interface LemitPrototypeUy3Snapshot {
-  type_webhook: string
-  status: string
+  updated_at: string
+  meses_admissao: number | null
+  margem_disponivel: number | null
+  valor_liberado: number | null
+  numero_parcelas: number | null
   elegivel_emprestimo: boolean | null
 }
 
@@ -87,22 +98,41 @@ export interface LemitPrototypeFgtsFilters {
 }
 
 export interface LemitPrototypeCltFilters {
-  clt_consultado: LemitPrototypeYesNo | ""
-  clt_situacao: LemitPrototypeCltSituacao | ""
+  clt_situacao: LemitPrototypeLoanSituation | ""
+  clt_consulta_from: string
+  clt_consulta_to: string
+  clt_meses_admissao_min: string
+  clt_meses_admissao_max: string
   clt_margem_min: string
   clt_margem_max: string
+  clt_valor_liberado_min: string
+  clt_valor_liberado_max: string
+  clt_numero_parcelas_min: string
+  clt_numero_parcelas_max: string
 }
 
 export interface LemitPrototypeMercantilFilters {
-  mercantil_situacao: LemitPrototypeMercantilSituacao | ""
-  mercantil_status: string[]
-  mercantil_origens: string[]
+  mercantil_situacao: LemitPrototypeLoanSituation | ""
+  mercantil_consulta_from: string
+  mercantil_consulta_to: string
+  mercantil_valor_liberado_min: string
+  mercantil_valor_liberado_max: string
+  mercantil_numero_parcelas_min: string
+  mercantil_numero_parcelas_max: string
 }
 
 export interface LemitPrototypeUy3Filters {
-  uy3_type_webhook: string[]
-  uy3_status: string[]
-  uy3_elegivel_emprestimo: LemitPrototypeYesNo | ""
+  uy3_situacao: LemitPrototypeLoanSituation | ""
+  uy3_consulta_from: string
+  uy3_consulta_to: string
+  uy3_meses_admissao_min: string
+  uy3_meses_admissao_max: string
+  uy3_margem_min: string
+  uy3_margem_max: string
+  uy3_valor_liberado_min: string
+  uy3_valor_liberado_max: string
+  uy3_numero_parcelas_min: string
+  uy3_numero_parcelas_max: string
 }
 
 export interface LemitPrototypeFilters {
@@ -152,8 +182,4 @@ export interface LemitPrototypeOptionCatalog {
   origens: string[]
   fgtsMotivos: string[]
   fgtsOrigensHig: string[]
-  mercantilStatus: string[]
-  mercantilOrigens: string[]
-  uy3Types: string[]
-  uy3Statuses: string[]
 }
