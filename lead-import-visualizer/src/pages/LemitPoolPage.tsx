@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import factaLogo from "@/assets/factalogo.png"
@@ -42,6 +42,8 @@ import {
 } from "@/api/lemit"
 
 const STORAGE_KEY = "lemit:pool:draft-filters:v1"
+const RESULT_STORAGE_KEY = "lemit:pool:result-state:v1"
+const RESULT_STORAGE_TTL_MS = 5 * 60 * 1000
 const CHECKBOX_CLASS_NAME = "border-blue-300 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
 const PRIMARY_BUTTON_CLASS_NAME = "bg-blue-600 text-white hover:bg-blue-700"
 const OUTLINE_BUTTON_CLASS_NAME = "border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
@@ -87,6 +89,14 @@ type ErrorWithResponse = {
       errors?: Record<string, string[] | undefined>
     }
   }
+}
+
+type PersistedResultState = {
+  savedAt: number
+  previewResult: LemitPoolPreviewResponse | null
+  lastSample: LemitPoolSampleResponse | null
+  requestedQuantity: string
+  appliedSignature: string | null
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -147,6 +157,36 @@ function bankFilterIsFilled(filters: LemitPoolFiltersDraft, bank: LemitBankKey) 
         filters.uy3.uy3_numero_parcelas_min.trim() ||
         filters.uy3.uy3_numero_parcelas_max.trim()
       )
+  }
+}
+
+function readPersistedResultState() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const raw = window.localStorage.getItem(RESULT_STORAGE_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedResultState
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > RESULT_STORAGE_TTL_MS) {
+      window.localStorage.removeItem(RESULT_STORAGE_KEY)
+      return null
+    }
+
+    return parsed
+  } catch {
+    window.localStorage.removeItem(RESULT_STORAGE_KEY)
+    return null
+  }
+}
+
+function clearPersistedResultState() {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(RESULT_STORAGE_KEY)
   }
 }
 
@@ -224,21 +264,43 @@ function SummaryCard({
 }
 
 export default function LemitPoolPage() {
+  const persistedResultState = readPersistedResultState()
   const [draftFilters, setDraftFilters] = usePersistedState<LemitPoolFiltersDraft>(
     STORAGE_KEY,
     createDefaultLemitPoolFilters()
   )
-  const [previewResult, setPreviewResult] = useState<LemitPoolPreviewResponse | null>(null)
-  const [lastSample, setLastSample] = useState<LemitPoolSampleResponse | null>(null)
-  const [requestedQuantity, setRequestedQuantity] = useState("")
+  const [previewResult, setPreviewResult] = useState<LemitPoolPreviewResponse | null>(persistedResultState?.previewResult ?? null)
+  const [lastSample, setLastSample] = useState<LemitPoolSampleResponse | null>(persistedResultState?.lastSample ?? null)
+  const [requestedQuantity, setRequestedQuantity] = useState(persistedResultState?.requestedQuantity ?? "")
   const [previewLoading, setPreviewLoading] = useState(false)
   const [sampleLoading, setSampleLoading] = useState(false)
   const [confirmSampleOpen, setConfirmSampleOpen] = useState(false)
-  const [appliedSignature, setAppliedSignature] = useState<string | null>(null)
+  const [appliedSignature, setAppliedSignature] = useState<string | null>(persistedResultState?.appliedSignature ?? null)
 
   const draftSignature = useMemo(() => JSON.stringify(draftFilters), [draftFilters])
   const hasUnappliedChanges = appliedSignature !== null && appliedSignature !== draftSignature
   const isResultStepLocked = previewResult === null || hasUnappliedChanges
+
+  useEffect(() => {
+    if (!previewResult && !lastSample && !requestedQuantity && !appliedSignature) {
+      clearPersistedResultState()
+      return
+    }
+
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const payload: PersistedResultState = {
+      savedAt: Date.now(),
+      previewResult,
+      lastSample,
+      requestedQuantity,
+      appliedSignature,
+    }
+
+    window.localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(payload))
+  }, [appliedSignature, lastSample, previewResult, requestedQuantity])
 
   const validationMessages = useMemo(
     () => draftFilters.selected_banks
@@ -305,6 +367,7 @@ export default function LemitPoolPage() {
     setLastSample(null)
     setRequestedQuantity("")
     setAppliedSignature(null)
+    clearPersistedResultState()
   }
 
   const handleSample = async () => {
