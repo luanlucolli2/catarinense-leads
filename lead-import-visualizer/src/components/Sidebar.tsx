@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
 import catarinenselogo from "../../public/catainenseLogo.png";
 import logoUy3 from "@/assets/logouy3png.png";
+import logoVendeai from "@/assets/vendeailogo.png";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import axiosClient from "@/api/axiosClient";
@@ -180,6 +181,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {
             name: "VendeAI",
             icon: Link2,
+            imageSrc: logoVendeai,
             path: "/integracoes/vendeai",
             active: isActive("/integracoes/vendeai"),
           },

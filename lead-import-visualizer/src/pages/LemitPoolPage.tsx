@@ -1,24 +1,20 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { AlertCircle, Lock, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import factaLogo from "@/assets/factalogo.png"
 import mercantilLogo from "@/assets/mercantilogo.png"
 import uy3Logo from "@/assets/logouy3png.png"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -28,17 +24,14 @@ import {
 } from "@/components/ui/select"
 import { usePersistedState } from "@/hooks/usePersistedState"
 import { cn } from "@/lib/utils"
-import { formatCPF, formatPhone } from "@/lib/formatters"
 import {
   createDefaultLemitPoolFilters,
   previewLemitPool,
-  sampleLemitPool,
   type LemitBankKey,
   type LemitCombinationMode,
   type LemitLoanSituation,
   type LemitPoolFiltersDraft,
   type LemitPoolPreviewResponse,
-  type LemitPoolSampleResponse,
 } from "@/api/lemit"
 
 const STORAGE_KEY = "lemit:pool:draft-filters:v1"
@@ -48,6 +41,8 @@ const CHECKBOX_CLASS_NAME = "border-blue-300 data-[state=checked]:border-blue-60
 const PRIMARY_BUTTON_CLASS_NAME = "bg-blue-600 text-white hover:bg-blue-700"
 const OUTLINE_BUTTON_CLASS_NAME = "border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
 const STEP_BADGE_CLASS_NAME = "flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white"
+const FILTER_FIELD_CLASS_NAME = "!outline-none focus:!outline-none focus-visible:!outline-none focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-blue-500 focus-visible:!border-blue-500"
+const ACTIVE_FILTER_FIELD_CLASS_NAME = "border-blue-500 bg-blue-50/50 text-blue-900"
 
 const BANK_OPTIONS: Array<{
   value: LemitBankKey
@@ -76,11 +71,6 @@ function combinationLabel(mode: LemitCombinationMode, short = false) {
   return short ? "Qualquer" : "Qualquer banco selecionado"
 }
 
-function escapeCsv(value: unknown) {
-  const stringValue = value === null || value === undefined ? "" : String(value)
-  return `"${stringValue.replace(/"/g, '""')}"`
-}
-
 type ErrorWithResponse = {
   message?: string
   response?: {
@@ -94,9 +84,14 @@ type ErrorWithResponse = {
 type PersistedResultState = {
   savedAt: number
   previewResult: LemitPoolPreviewResponse | null
-  lastSample: LemitPoolSampleResponse | null
   requestedQuantity: string
   appliedSignature: string | null
+  appliedFilters: LemitPoolFiltersDraft | null
+}
+
+type AppliedFilterGroup = {
+  title: string
+  labels: string[]
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -190,46 +185,103 @@ function clearPersistedResultState() {
   }
 }
 
-function downloadSampleCsv(sample: LemitPoolSampleResponse) {
-  const banksUsed = sample.selected_banks.join(",")
-  const combination = sample.bank_combination_mode
+function formatDateLabel(value: string) {
+  if (!value) {
+    return ""
+  }
 
-  const rows = [
-    ["cpf", "nome", "telefone_atual_antes", "bancos_usados", "modo_combinacao"],
-    ...sample.items.map((item) => [
-      item.cpf,
-      item.nome ?? "",
-      item.telefone_atual_antes ?? "",
-      banksUsed,
-      combination,
-    ]),
-  ]
+  const [year, month, day] = value.split("-")
+  if (!year || !month || !day) {
+    return value
+  }
 
-  const csv = rows.map((row) => row.map((value) => escapeCsv(value)).join(",")).join("\n")
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement("a")
+  return `${day}/${month}/${year}`
+}
 
-  link.href = url
-  link.download = `lemit-amostra-${Date.now()}.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
+function filterFieldClassName(active: boolean) {
+  return cn(FILTER_FIELD_CLASS_NAME, active && ACTIVE_FILTER_FIELD_CLASS_NAME)
+}
+
+function buildAppliedFilterGroups(filters: LemitPoolFiltersDraft): AppliedFilterGroup[] {
+  const general: string[] = []
+  const clt: string[] = []
+  const mercantil: string[] = []
+  const uy3: string[] = []
+
+  if (filters.with_phones) {
+    general.push("Telefone: com telefone")
+  } else if (filters.without_phones) {
+    general.push("Telefone: sem telefone")
+  }
+
+  if (filters.selected_banks.length) {
+    general.push(`Bancos: ${filters.selected_banks.map(bankLabel).join(", ")}`)
+    general.push(`Combinação: ${combinationLabel(filters.bank_combination_mode)}`)
+  }
+
+  if (filters.clt.clt_situacao) clt.push(`Situação: ${filters.clt.clt_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.clt.clt_consulta_from) clt.push(`Consulta de: ${formatDateLabel(filters.clt.clt_consulta_from)}`)
+  if (filters.clt.clt_consulta_to) clt.push(`Consulta até: ${formatDateLabel(filters.clt.clt_consulta_to)}`)
+  if (filters.clt.clt_meses_admissao_min.trim()) clt.push(`Meses admissão mín.: ${filters.clt.clt_meses_admissao_min.trim()}`)
+  if (filters.clt.clt_meses_admissao_max.trim()) clt.push(`Meses admissão máx.: ${filters.clt.clt_meses_admissao_max.trim()}`)
+  if (filters.clt.clt_margem_min.trim()) clt.push(`Margem mín.: ${filters.clt.clt_margem_min.trim()}`)
+  if (filters.clt.clt_margem_max.trim()) clt.push(`Margem máx.: ${filters.clt.clt_margem_max.trim()}`)
+  if (filters.clt.clt_numero_parcelas_min.trim()) clt.push(`Parcelas mín.: ${filters.clt.clt_numero_parcelas_min.trim()}`)
+  if (filters.clt.clt_numero_parcelas_max.trim()) clt.push(`Parcelas máx.: ${filters.clt.clt_numero_parcelas_max.trim()}`)
+
+  if (filters.mercantil.mercantil_situacao) mercantil.push(`Situação: ${filters.mercantil.mercantil_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.mercantil.mercantil_consulta_from) mercantil.push(`Consulta de: ${formatDateLabel(filters.mercantil.mercantil_consulta_from)}`)
+  if (filters.mercantil.mercantil_consulta_to) mercantil.push(`Consulta até: ${formatDateLabel(filters.mercantil.mercantil_consulta_to)}`)
+  if (filters.mercantil.mercantil_valor_parcela_min.trim()) mercantil.push(`Parcela mín.: ${filters.mercantil.mercantil_valor_parcela_min.trim()}`)
+  if (filters.mercantil.mercantil_valor_parcela_max.trim()) mercantil.push(`Parcela máx.: ${filters.mercantil.mercantil_valor_parcela_max.trim()}`)
+  if (filters.mercantil.mercantil_numero_parcelas_min.trim()) mercantil.push(`Parcelas mín.: ${filters.mercantil.mercantil_numero_parcelas_min.trim()}`)
+  if (filters.mercantil.mercantil_numero_parcelas_max.trim()) mercantil.push(`Parcelas máx.: ${filters.mercantil.mercantil_numero_parcelas_max.trim()}`)
+
+  if (filters.uy3.uy3_situacao) uy3.push(`Situação: ${filters.uy3.uy3_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.uy3.uy3_consulta_from) uy3.push(`Atualização de: ${formatDateLabel(filters.uy3.uy3_consulta_from)}`)
+  if (filters.uy3.uy3_consulta_to) uy3.push(`Atualização até: ${formatDateLabel(filters.uy3.uy3_consulta_to)}`)
+  if (filters.uy3.uy3_meses_admissao_min.trim()) uy3.push(`Meses admissão mín.: ${filters.uy3.uy3_meses_admissao_min.trim()}`)
+  if (filters.uy3.uy3_meses_admissao_max.trim()) uy3.push(`Meses admissão máx.: ${filters.uy3.uy3_meses_admissao_max.trim()}`)
+  if (filters.uy3.uy3_margem_min.trim()) uy3.push(`Margem mín.: ${filters.uy3.uy3_margem_min.trim()}`)
+  if (filters.uy3.uy3_margem_max.trim()) uy3.push(`Margem máx.: ${filters.uy3.uy3_margem_max.trim()}`)
+  if (filters.uy3.uy3_valor_liberado_min.trim()) uy3.push(`Valor liberado mín.: ${filters.uy3.uy3_valor_liberado_min.trim()}`)
+  if (filters.uy3.uy3_valor_liberado_max.trim()) uy3.push(`Valor liberado máx.: ${filters.uy3.uy3_valor_liberado_max.trim()}`)
+  if (filters.uy3.uy3_numero_parcelas_min.trim()) uy3.push(`Parcelas mín.: ${filters.uy3.uy3_numero_parcelas_min.trim()}`)
+  if (filters.uy3.uy3_numero_parcelas_max.trim()) uy3.push(`Parcelas máx.: ${filters.uy3.uy3_numero_parcelas_max.trim()}`)
+
+  return [
+    { title: "Gerais", labels: general },
+    { title: "CLT Facta", labels: clt },
+    { title: "CLT Mercantil", labels: mercantil },
+    { title: "CLT UY3", labels: uy3 },
+  ].filter((group) => group.labels.length > 0)
 }
 
 function Section({
+  value,
   title,
+  imageSrc,
+  imageAlt,
   children,
 }: {
+  value: string
   title: string
+  imageSrc?: string
+  imageAlt?: string
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border p-4">
-      <div className="mb-4 text-lg font-semibold text-gray-900">{title}</div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{children}</div>
-    </div>
+    <AccordionItem value={value} className="rounded-xl border border-border bg-card px-4 shadow-sm">
+      <AccordionTrigger className="hover:no-underline">
+        <div className="flex items-center gap-3 text-lg font-semibold text-gray-900">
+          {imageSrc ? <img src={imageSrc} alt={imageAlt ?? title} className="h-7 w-7 object-contain" /> : null}
+          <span>{title}</span>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 pb-2 pt-2">{children}</div>
+      </AccordionContent>
+    </AccordionItem>
   )
 }
 
@@ -241,7 +293,7 @@ function Field({
   children: ReactNode
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 flex flex-col justify-end">
       <div className="text-sm font-medium">{label}</div>
       {children}
     </div>
@@ -264,25 +316,31 @@ function SummaryCard({
 }
 
 export default function LemitPoolPage() {
+  const stepTwoRef = useRef<HTMLDivElement>(null)
+  
   const persistedResultState = readPersistedResultState()
   const [draftFilters, setDraftFilters] = usePersistedState<LemitPoolFiltersDraft>(
     STORAGE_KEY,
     createDefaultLemitPoolFilters()
   )
   const [previewResult, setPreviewResult] = useState<LemitPoolPreviewResponse | null>(persistedResultState?.previewResult ?? null)
-  const [lastSample, setLastSample] = useState<LemitPoolSampleResponse | null>(persistedResultState?.lastSample ?? null)
   const [requestedQuantity, setRequestedQuantity] = useState(persistedResultState?.requestedQuantity ?? "")
   const [previewLoading, setPreviewLoading] = useState(false)
-  const [sampleLoading, setSampleLoading] = useState(false)
-  const [confirmSampleOpen, setConfirmSampleOpen] = useState(false)
+  const [lotCreationLoading, setLotCreationLoading] = useState(false)
   const [appliedSignature, setAppliedSignature] = useState<string | null>(persistedResultState?.appliedSignature ?? null)
+  const [appliedFilters, setAppliedFilters] = useState<LemitPoolFiltersDraft | null>(persistedResultState?.appliedFilters ?? null)
+  const [isNewLotOpen, setIsNewLotOpen] = useState(false)
 
   const draftSignature = useMemo(() => JSON.stringify(draftFilters), [draftFilters])
   const hasUnappliedChanges = appliedSignature !== null && appliedSignature !== draftSignature
   const isResultStepLocked = previewResult === null || hasUnappliedChanges
+  const appliedFilterGroups = useMemo(
+    () => (appliedFilters ? buildAppliedFilterGroups(appliedFilters) : []),
+    [appliedFilters]
+  )
 
   useEffect(() => {
-    if (!previewResult && !lastSample && !requestedQuantity && !appliedSignature) {
+    if (!previewResult && !requestedQuantity && !appliedSignature && !appliedFilters) {
       clearPersistedResultState()
       return
     }
@@ -294,13 +352,13 @@ export default function LemitPoolPage() {
     const payload: PersistedResultState = {
       savedAt: Date.now(),
       previewResult,
-      lastSample,
       requestedQuantity,
       appliedSignature,
+      appliedFilters,
     }
 
     window.localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(payload))
-  }, [appliedSignature, lastSample, previewResult, requestedQuantity])
+  }, [appliedFilters, appliedSignature, previewResult, requestedQuantity])
 
   const validationMessages = useMemo(
     () => draftFilters.selected_banks
@@ -312,10 +370,10 @@ export default function LemitPoolPage() {
   const parsedQuantity = Number(requestedQuantity)
   const quantityError = useMemo(() => {
     if (!previewResult) {
-      return "Atualize o resultado antes de sortear a amostra."
+      return "Atualize o resultado antes de criar o lote."
     }
     if (!requestedQuantity.trim()) {
-      return "Informe quantos CPFs deseja sortear."
+      return "Informe quantos CPFs deseja incluir."
     }
     if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
       return "Informe um número inteiro maior que zero."
@@ -324,10 +382,11 @@ export default function LemitPoolPage() {
       return "A quantidade não pode ser maior que a base filtrada."
     }
     if (hasUnappliedChanges) {
-      return "Atualize o resultado antes de sortear a amostra."
+      return "Atualize o resultado antes de criar o lote."
     }
     return null
   }, [hasUnappliedChanges, parsedQuantity, previewResult, requestedQuantity])
+  const canCreateLot = !isResultStepLocked && !quantityError && previewResult !== null
 
   const updateFilters = (updater: (current: LemitPoolFiltersDraft) => LemitPoolFiltersDraft) => {
     setDraftFilters((current) => updater(cloneFilters(current)))
@@ -352,8 +411,12 @@ export default function LemitPoolPage() {
       const data = await previewLemitPool(draftFilters)
       setPreviewResult(data)
       setAppliedSignature(draftSignature)
-      setLastSample(null)
+      setAppliedFilters(cloneFilters(draftFilters))
       toast.success("Resultado atualizado.")
+      
+      setTimeout(() => {
+        stepTwoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      }, 100)
     } catch (error) {
       toast.error(getErrorMessage(error, "Não foi possível atualizar o resultado."))
     } finally {
@@ -361,31 +424,31 @@ export default function LemitPoolPage() {
     }
   }
 
+  const handleCreateLot = async () => {
+    if (!canCreateLot) return
+    setLotCreationLoading(true)
+    
+    // Simulação da chamada de criação de lote. 
+    // Substituir pela integração real quando a API estiver pronta.
+    setTimeout(() => {
+      setLotCreationLoading(false)
+      toast.success(`Lote de ${requestedQuantity} CPFs criado com sucesso!`)
+      handleCancelLot()
+    }, 1500)
+  }
+
   const handleClearFilters = () => {
     setDraftFilters(createDefaultLemitPoolFilters())
     setPreviewResult(null)
-    setLastSample(null)
     setRequestedQuantity("")
     setAppliedSignature(null)
+    setAppliedFilters(null)
     clearPersistedResultState()
   }
 
-  const handleSample = async () => {
-    if (quantityError || sampleLoading) {
-      return
-    }
-
-    setSampleLoading(true)
-    try {
-      const data = await sampleLemitPool(draftFilters, parsedQuantity)
-      setLastSample(data)
-      setConfirmSampleOpen(false)
-      toast.success("Amostra gerada com sucesso.")
-    } catch (error) {
-      toast.error(getErrorMessage(error, "Não foi possível gerar a amostra."))
-    } finally {
-      setSampleLoading(false)
-    }
+  const handleCancelLot = () => {
+    handleClearFilters()
+    setIsNewLotOpen(false)
   }
 
   return (
@@ -395,64 +458,64 @@ export default function LemitPoolPage() {
           Higienização Lemit
         </h1>
         <p className="text-gray-600 text-sm lg:text-base">
-          Monte a base, confira o resultado filtrado e gere uma amostra aleatória real.
+          Monte a base, confira o resultado filtrado e prepare o lote.
         </p>
       </div>
 
-      <Card className="shadow-sm">
-        <CardHeader>
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <CardTitle className="text-lg">Filtros, resultado e amostra</CardTitle>
-              <CardDescription>
-                A persistência de histórico e o job externo entram na próxima fase.
-              </CardDescription>
-            </div>
-            <Badge variant="outline">{draftFilters.selected_banks.length} banco(s)</Badge>
+      <div className="space-y-6">
+        {!isNewLotOpen ? (
+          <div className="flex flex-wrap gap-3">
+            <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => setIsNewLotOpen(true)}>
+              Iniciar lote
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border bg-blue-50 p-4">
-              <div className="flex items-center gap-3">
-                <div className={STEP_BADGE_CLASS_NAME}>1</div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Defina os filtros</div>
-                  <div className="text-xs text-gray-600">Escolha quem entra na base.</div>
+        ) : null}
+
+        {isNewLotOpen ? (
+          <>
+            <Card className="shadow-sm relative">
+              <CardHeader>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <CardTitle className="text-lg">Iniciar lote</CardTitle>
+                    <CardDescription>
+                      Ajuste os critérios, confira o total encontrado e defina quantos CPFs deseja incluir.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline">{draftFilters.selected_banks.length} banco(s)</Badge>
                 </div>
-              </div>
-            </div>
-            <div
-              className={cn(
-                "rounded-lg border p-4 transition-opacity",
-                isResultStepLocked ? "bg-slate-100 opacity-60" : "bg-slate-50",
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <div className={STEP_BADGE_CLASS_NAME}>2</div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Resultado e amostra</div>
-                  <div className="text-xs text-gray-600">
-                    {isResultStepLocked ? "Atualize o resultado para liberar esta etapa." : "Revise o total e sorteie a amostra."}
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-lg border bg-blue-50 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className={STEP_BADGE_CLASS_NAME}>1</div>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Defina os filtros</div>
+                        <div className="text-xs text-gray-600">Escolha quem entra na base.</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      "rounded-lg border p-4 transition-opacity",
+                      isResultStepLocked ? "bg-slate-100 opacity-60" : "bg-slate-50",
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={STEP_BADGE_CLASS_NAME}>
+                        {isResultStepLocked ? <Lock className="h-3.5 w-3.5" /> : "2"}
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Resultado e lote</div>
+                        <div className="text-xs text-gray-600">
+                          {isResultStepLocked ? "Atualize o resultado para liberar esta etapa." : "Revise o total e finalize o envio."}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
 
-          <Card className="shadow-sm">
-            <CardHeader>
-              <div className="flex items-start gap-3">
-                <div className={STEP_BADGE_CLASS_NAME}>1</div>
-                <div>
-                  <CardTitle className="text-lg">Defina os filtros</CardTitle>
-                  <CardDescription>
-                    Monte a base que poderá entrar na amostra.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
                   <div className="text-sm font-medium">Status de telefone</div>
@@ -472,7 +535,7 @@ export default function LemitPoolPage() {
                       }))
                     }}
                   >
-                    <SelectTrigger className="bg-white">
+                    <SelectTrigger className={filterFieldClassName(draftFilters.with_phones || draftFilters.without_phones)}>
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
@@ -497,7 +560,10 @@ export default function LemitPoolPage() {
                     {BANK_OPTIONS.map((bank) => (
                       <label
                         key={bank.value}
-                        className="flex items-center gap-3 rounded-lg border bg-background p-3 text-sm"
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg border bg-background p-3 text-sm transition-colors cursor-pointer",
+                          draftFilters.selected_banks.includes(bank.value) && "border-blue-500 bg-blue-50/50 text-blue-900"
+                        )}
                       >
                         <Checkbox
                           className={CHECKBOX_CLASS_NAME}
@@ -524,590 +590,616 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger className="bg-white">
+                      <SelectTrigger className={filterFieldClassName(draftFilters.bank_combination_mode !== "any")}>
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">Todos os bancos selecionados</SelectItem>
                         <SelectItem value="any">Qualquer banco selecionado</SelectItem>
+                        <SelectItem value="all">Todos os bancos selecionados</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
               </div>
 
-              {draftFilters.selected_banks.includes("clt") ? (
-                <Section title="Filtros CLT Facta">
-                  <Field label="Situação">
-                    <Select
-                      value={draftFilters.clt.clt_situacao || "__empty__"}
-                      onValueChange={(value) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: {
-                            ...current.clt,
-                            clt_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
-                          },
-                        }))
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Ex.: Aprovado" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__empty__">Todas</SelectItem>
-                        <SelectItem value="aprovado">Aprovado</SelectItem>
-                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Consulta de">
-                    <Input
-                      type="date"
-                      value={draftFilters.clt.clt_consulta_from}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_consulta_from: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Consulta até">
-                    <Input
-                      type="date"
-                      value={draftFilters.clt.clt_consulta_to}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_consulta_to: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Meses admissão mín.">
-                    <Input
-                      value={draftFilters.clt.clt_meses_admissao_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_meses_admissao_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1"
-                    />
-                  </Field>
-                  <Field label="Meses admissão máx.">
-                    <Input
-                      value={draftFilters.clt.clt_meses_admissao_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_meses_admissao_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 240"
-                    />
-                  </Field>
-                  <Field label="Margem mínima">
-                    <Input
-                      value={draftFilters.clt.clt_margem_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_margem_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 0,00"
-                    />
-                  </Field>
-                  <Field label="Margem máxima">
-                    <Input
-                      value={draftFilters.clt.clt_margem_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_margem_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 2000,00"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas mín.">
-                    <Input
-                      value={draftFilters.clt.clt_numero_parcelas_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_numero_parcelas_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas máx.">
-                    <Input
-                      value={draftFilters.clt.clt_numero_parcelas_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          clt: { ...current.clt, clt_numero_parcelas_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 120"
-                    />
-                  </Field>
-                </Section>
-              ) : null}
+              {draftFilters.selected_banks.length > 0 && (
+                <Accordion type="multiple" defaultValue={["clt", "mercantil", "uy3"]} className="space-y-4 mt-6">
+                  {draftFilters.selected_banks.includes("clt") ? (
+                    <Section value="clt" title="Filtros CLT Facta" imageSrc={factaLogo} imageAlt="Facta">
+                      <Field label="Situação">
+                        <Select
+                          value={draftFilters.clt.clt_situacao || "__empty__"}
+                          onValueChange={(value) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: {
+                                ...current.clt,
+                                clt_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
+                              },
+                            }))
+                          }}
+                        >
+                          <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.clt.clt_situacao))}>
+                            <SelectValue placeholder="Ex.: Aprovado" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__empty__">Todas</SelectItem>
+                            <SelectItem value="aprovado">Aprovado</SelectItem>
+                            <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Consulta de">
+                        <Input
+                          type="date"
+                          value={draftFilters.clt.clt_consulta_from}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_from))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_consulta_from: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Consulta até">
+                        <Input
+                          type="date"
+                          value={draftFilters.clt.clt_consulta_to}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_to))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_consulta_to: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Meses admissão mín.">
+                        <Input
+                          type="number"
+                          value={draftFilters.clt.clt_meses_admissao_min}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_meses_admissao_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 1"
+                        />
+                      </Field>
+                      <Field label="Meses admissão máx.">
+                        <Input
+                          type="number"
+                          value={draftFilters.clt.clt_meses_admissao_max}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_meses_admissao_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 240"
+                        />
+                      </Field>
+                      <Field label="Margem mínima">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.clt.clt_margem_min}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_margem_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 0,00"
+                        />
+                      </Field>
+                      <Field label="Margem máxima">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.clt.clt_margem_max}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_margem_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 2000,00"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas mín.">
+                        <Input
+                          type="number"
+                          value={draftFilters.clt.clt_numero_parcelas_min}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_numero_parcelas_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 1"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas máx.">
+                        <Input
+                          type="number"
+                          value={draftFilters.clt.clt_numero_parcelas_max}
+                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              clt: { ...current.clt, clt_numero_parcelas_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 120"
+                        />
+                      </Field>
+                    </Section>
+                  ) : null}
 
-              {draftFilters.selected_banks.includes("mercantil") ? (
-                <Section title="Filtros CLT Mercantil">
-                  <Field label="Situação">
-                    <Select
-                      value={draftFilters.mercantil.mercantil_situacao || "__empty__"}
-                      onValueChange={(value) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: {
-                            ...current.mercantil,
-                            mercantil_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
-                          },
-                        }))
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Ex.: Aprovado" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__empty__">Todas</SelectItem>
-                        <SelectItem value="aprovado">Aprovado</SelectItem>
-                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Consulta de">
-                    <Input
-                      type="date"
-                      value={draftFilters.mercantil.mercantil_consulta_from}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_consulta_from: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Consulta até">
-                    <Input
-                      type="date"
-                      value={draftFilters.mercantil.mercantil_consulta_to}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_consulta_to: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Valor parcela mín.">
-                    <Input
-                      value={draftFilters.mercantil.mercantil_valor_parcela_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_valor_parcela_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 0,00"
-                    />
-                  </Field>
-                  <Field label="Valor parcela máx.">
-                    <Input
-                      value={draftFilters.mercantil.mercantil_valor_parcela_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_valor_parcela_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1000,00"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas mín.">
-                    <Input
-                      value={draftFilters.mercantil.mercantil_numero_parcelas_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_numero_parcelas_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas máx.">
-                    <Input
-                      value={draftFilters.mercantil.mercantil_numero_parcelas_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          mercantil: { ...current.mercantil, mercantil_numero_parcelas_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 120"
-                    />
-                  </Field>
-                </Section>
-              ) : null}
+                  {draftFilters.selected_banks.includes("mercantil") ? (
+                    <Section value="mercantil" title="Filtros CLT Mercantil" imageSrc={mercantilLogo} imageAlt="Mercantil">
+                      <Field label="Situação">
+                        <Select
+                          value={draftFilters.mercantil.mercantil_situacao || "__empty__"}
+                          onValueChange={(value) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: {
+                                ...current.mercantil,
+                                mercantil_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
+                              },
+                            }))
+                          }}
+                        >
+                          <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_situacao))}>
+                            <SelectValue placeholder="Ex.: Aprovado" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__empty__">Todas</SelectItem>
+                            <SelectItem value="aprovado">Aprovado</SelectItem>
+                            <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Consulta de">
+                        <Input
+                          type="date"
+                          value={draftFilters.mercantil.mercantil_consulta_from}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_consulta_from))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_consulta_from: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Consulta até">
+                        <Input
+                          type="date"
+                          value={draftFilters.mercantil.mercantil_consulta_to}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_consulta_to))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_consulta_to: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Valor parcela mín.">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.mercantil.mercantil_valor_parcela_min}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_valor_parcela_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_valor_parcela_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 0,00"
+                        />
+                      </Field>
+                      <Field label="Valor parcela máx.">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.mercantil.mercantil_valor_parcela_max}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_valor_parcela_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_valor_parcela_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 1000,00"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas mín.">
+                        <Input
+                          type="number"
+                          value={draftFilters.mercantil.mercantil_numero_parcelas_min}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_numero_parcelas_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_numero_parcelas_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 1"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas máx.">
+                        <Input
+                          type="number"
+                          value={draftFilters.mercantil.mercantil_numero_parcelas_max}
+                          className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_numero_parcelas_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              mercantil: { ...current.mercantil, mercantil_numero_parcelas_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 120"
+                        />
+                      </Field>
+                    </Section>
+                  ) : null}
 
-              {draftFilters.selected_banks.includes("uy3") ? (
-                <Section title="Filtros CLT UY3">
-                  <Field label="Situação">
-                    <Select
-                      value={draftFilters.uy3.uy3_situacao || "__empty__"}
-                      onValueChange={(value) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: {
-                            ...current.uy3,
-                            uy3_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
-                          },
-                        }))
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Ex.: Aprovado" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__empty__">Todos</SelectItem>
-                        <SelectItem value="aprovado">Aprovado</SelectItem>
-                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Atualização de">
-                    <Input
-                      type="date"
-                      value={draftFilters.uy3.uy3_consulta_from}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_consulta_from: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Atualização até">
-                    <Input
-                      type="date"
-                      value={draftFilters.uy3.uy3_consulta_to}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_consulta_to: event.target.value },
-                        }))
-                      }}
-                    />
-                  </Field>
-                  <Field label="Meses admissão mín.">
-                    <Input
-                      value={draftFilters.uy3.uy3_meses_admissao_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_meses_admissao_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1"
-                    />
-                  </Field>
-                  <Field label="Meses admissão máx.">
-                    <Input
-                      value={draftFilters.uy3.uy3_meses_admissao_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_meses_admissao_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 240"
-                    />
-                  </Field>
-                  <Field label="Margem mínima">
-                    <Input
-                      value={draftFilters.uy3.uy3_margem_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_margem_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 0,00"
-                    />
-                  </Field>
-                  <Field label="Margem máxima">
-                    <Input
-                      value={draftFilters.uy3.uy3_margem_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_margem_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 2000,00"
-                    />
-                  </Field>
-                  <Field label="Valor liberado mín.">
-                    <Input
-                      value={draftFilters.uy3.uy3_valor_liberado_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_valor_liberado_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 0,00"
-                    />
-                  </Field>
-                  <Field label="Valor liberado máx.">
-                    <Input
-                      value={draftFilters.uy3.uy3_valor_liberado_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_valor_liberado_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 10000,00"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas mín.">
-                    <Input
-                      value={draftFilters.uy3.uy3_numero_parcelas_min}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_numero_parcelas_min: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 1"
-                    />
-                  </Field>
-                  <Field label="Qtd. parcelas máx.">
-                    <Input
-                      value={draftFilters.uy3.uy3_numero_parcelas_max}
-                      onChange={(event) => {
-                        updateFilters((current) => ({
-                          ...current,
-                          uy3: { ...current.uy3, uy3_numero_parcelas_max: event.target.value },
-                        }))
-                      }}
-                      placeholder="Ex.: 120"
-                    />
-                  </Field>
-                </Section>
-              ) : null}
+                  {draftFilters.selected_banks.includes("uy3") ? (
+                    <Section value="uy3" title="Filtros CLT UY3" imageSrc={uy3Logo} imageAlt="UY3">
+                      <Field label="Situação">
+                        <Select
+                          value={draftFilters.uy3.uy3_situacao || "__empty__"}
+                          onValueChange={(value) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: {
+                                ...current.uy3,
+                                uy3_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
+                              },
+                            }))
+                          }}
+                        >
+                          <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_situacao))}>
+                            <SelectValue placeholder="Ex.: Aprovado" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__empty__">Todos</SelectItem>
+                            <SelectItem value="aprovado">Aprovado</SelectItem>
+                            <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Atualização de">
+                        <Input
+                          type="date"
+                          value={draftFilters.uy3.uy3_consulta_from}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_consulta_from))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_consulta_from: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Atualização até">
+                        <Input
+                          type="date"
+                          value={draftFilters.uy3.uy3_consulta_to}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_consulta_to))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_consulta_to: event.target.value },
+                            }))
+                          }}
+                        />
+                      </Field>
+                      <Field label="Meses admissão mín.">
+                        <Input
+                          type="number"
+                          value={draftFilters.uy3.uy3_meses_admissao_min}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_meses_admissao_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_meses_admissao_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 1"
+                        />
+                      </Field>
+                      <Field label="Meses admissão máx.">
+                        <Input
+                          type="number"
+                          value={draftFilters.uy3.uy3_meses_admissao_max}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_meses_admissao_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_meses_admissao_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 240"
+                        />
+                      </Field>
+                      <Field label="Margem mínima">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.uy3.uy3_margem_min}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_margem_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_margem_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 0,00"
+                        />
+                      </Field>
+                      <Field label="Margem máxima">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.uy3.uy3_margem_max}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_margem_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_margem_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 2000,00"
+                        />
+                      </Field>
+                      <Field label="Valor liberado mín.">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.uy3.uy3_valor_liberado_min}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_valor_liberado_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_valor_liberado_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 0,00"
+                        />
+                      </Field>
+                      <Field label="Valor liberado máx.">
+                        <Input
+                          inputMode="decimal"
+                          value={draftFilters.uy3.uy3_valor_liberado_max}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_valor_liberado_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_valor_liberado_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="R$ 10000,00"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas mín.">
+                        <Input
+                          type="number"
+                          value={draftFilters.uy3.uy3_numero_parcelas_min}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_numero_parcelas_min.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_numero_parcelas_min: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 1"
+                        />
+                      </Field>
+                      <Field label="Qtd. parcelas máx.">
+                        <Input
+                          type="number"
+                          value={draftFilters.uy3.uy3_numero_parcelas_max}
+                          className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_numero_parcelas_max.trim()))}
+                          onChange={(event) => {
+                            updateFilters((current) => ({
+                              ...current,
+                              uy3: { ...current.uy3, uy3_numero_parcelas_max: event.target.value },
+                            }))
+                          }}
+                          placeholder="Ex.: 120"
+                        />
+                      </Field>
+                    </Section>
+                  ) : null}
+                </Accordion>
+              )}
 
-              {validationMessages.length ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  {validationMessages.map((message) => (
-                    <div key={message}>{message}</div>
-                  ))}
+              {/* Action Bar - Reorganizada com validações sem sticky */}
+              <div className="flex flex-col gap-4 mt-6">
+                
+                {validationMessages.length > 0 ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    {validationMessages.map((message) => (
+                      <div key={message} className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        {message}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {hasUnappliedChanges && validationMessages.length === 0 ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                    Existem alterações ainda não aplicadas. Atualize o resultado para liberar a etapa seguinte.
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-3">
+                  <Button 
+                    className={PRIMARY_BUTTON_CLASS_NAME} 
+                    onClick={() => void handleApplyFilters()} 
+                    disabled={previewLoading || validationMessages.length > 0}
+                  >
+                    {previewLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {previewLoading ? "Atualizando..." : "Atualizar resultado"}
+                  </Button>
+                  <Button 
+                    className={OUTLINE_BUTTON_CLASS_NAME} 
+                    variant="outline" 
+                    onClick={handleClearFilters} 
+                    disabled={previewLoading}
+                  >
+                    Limpar filtros
+                  </Button>
                 </div>
-              ) : null}
-
-              {hasUnappliedChanges ? (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                  Existem alterações ainda não aplicadas. Clique em Atualizar resultado para liberar a etapa seguinte.
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap gap-3">
-                <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => void handleApplyFilters()} disabled={previewLoading || validationMessages.length > 0}>
-                  {previewLoading ? "Atualizando..." : "Atualizar resultado"}
-                </Button>
-                <Button className={OUTLINE_BUTTON_CLASS_NAME} variant="outline" onClick={handleClearFilters} disabled={previewLoading || sampleLoading}>
-                  Limpar filtros
-                </Button>
               </div>
+
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardHeader>
-              <div className="flex items-start gap-3">
-                <div className={STEP_BADGE_CLASS_NAME}>2</div>
-                <div>
-                  <CardTitle className="text-lg">Resultado e amostra</CardTitle>
-                  <CardDescription>
-                    Veja o total encontrado e gere a amostra a partir da base atual.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {isResultStepLocked ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-100 p-4 text-sm text-slate-600">
-                  {previewResult && hasUnappliedChanges
-                    ? "Há mudanças pendentes. Atualize o resultado antes de sortear a amostra."
-                    : "Aplique os filtros da etapa 1 para liberar o resultado e a amostragem."}
-                </div>
-              ) : null}
-
-              {previewResult ? (
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                  <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
-                      <SummaryCard label="Total encontrado" value={previewResult.pool_size} />
-                      <SummaryCard label="Com telefone" value={previewResult.pool_with_phones} />
-                      <SummaryCard label="Sem telefone" value={previewResult.pool_without_phones} />
-                      <SummaryCard label="Combinação" value={combinationLabel(draftFilters.bank_combination_mode)} />
-                    </div>
+           {/* ETAPA 2: RESULTADO - UI/UX REFINADA */}
+            <Card className="shadow-sm border-blue-100" ref={stepTwoRef}>
+              <CardHeader className="border-b bg-slate-50/50">
+                <div className="flex items-start gap-3">
+                  <div className={STEP_BADGE_CLASS_NAME}>
+                    {isResultStepLocked ? <Lock className="h-3.5 w-3.5" /> : "2"}
                   </div>
-
-                  <div className="rounded-xl border bg-gradient-to-b from-slate-50 to-white p-4 sm:p-5">
-                    <div className="mb-4 rounded-lg border bg-white p-4">
-                      <div className="text-sm font-semibold text-gray-900">Sortear amostra</div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        Defina quantos CPFs deseja sortear da base filtrada atual.
+                  <div>
+                    <CardTitle className="text-lg">Resultado e Lote</CardTitle>
+                    <CardDescription>
+                      Confira a base filtrada e defina a quantidade para o lote.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              
+              <CardContent className="pt-6 space-y-8">
+                {isResultStepLocked ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-100 p-4 text-sm text-slate-600 flex items-center gap-2">
+                    <Lock className="h-4 w-4" />
+                    {previewResult && hasUnappliedChanges
+                      ? "Há mudanças pendentes. Atualize o resultado antes de preparar o lote."
+                      : "Aplique os filtros da etapa 1 para liberar o resultado."}
+                  </div>
+                ) : (
+                  <div className="grid gap-8 xl:grid-cols-[1fr_auto]">
+                    
+                    {/* COLUNA ESQUERDA: DADOS */}
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-blue-600 text-white rounded-lg p-4 shadow-sm">
+                          <div className="text-blue-100 text-xs font-medium uppercase">Total Encontrado</div>
+                          <div className="text-3xl font-bold mt-1">{previewResult?.pool_size}</div>
+                        </div>
+                        <SummaryCard label="Com telefone" value={previewResult?.pool_with_phones ?? 0} />
+                        <SummaryCard label="Sem telefone" value={previewResult?.pool_without_phones ?? 0} />
+                        <SummaryCard label="Combinação" value={combinationLabel(draftFilters.bank_combination_mode, true)} />
                       </div>
-                    </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <Field label="Quantos deseja sortear">
-                        <Input
-                          type="number"
-                          min={1}
-                          max={previewResult.pool_size || 1}
-                          value={requestedQuantity}
-                          disabled={previewLoading || sampleLoading}
-                          onChange={(event) => setRequestedQuantity(event.target.value)}
-                          placeholder="Ex.: 1500"
-                        />
-                      </Field>
-                      <div className="rounded-lg border bg-white p-4">
-                        <div className="text-xs text-muted-foreground">Limite disponível</div>
-                        <div className="mt-1 text-lg font-semibold text-gray-900">
-                          Até {previewResult.pool_size} CPF(s)
+                      <div className="rounded-lg border bg-slate-50/50 p-4">
+                        <h4 className="text-sm font-semibold text-slate-900 mb-3">Critérios aplicados</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {appliedFilterGroups.map((group) => (
+                            <div key={group.title} className="flex flex-wrap gap-2">
+                              {group.labels.map((label) => (
+                                <Badge key={label} variant="secondary" className="font-normal bg-white border-slate-200">
+                                  <span className="text-slate-500 mr-1 italic">{group.title}:</span>
+                                  {label.replace(`${group.title}: `, '')}
+                                </Badge>
+                              ))}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
 
-                    <div className="space-y-3 mt-4">
-                      <div
-                        className={cn(
-                          "rounded-lg border p-3 text-sm",
-                          quantityError
-                            ? "border-amber-200 bg-amber-50 text-amber-800"
-                            : "border-slate-200 bg-white text-slate-700",
+                    {/* COLUNA DIREITA: AÇÃO DE LOTE */}
+                    <div className="bg-slate-50 rounded-xl p-6 border border-slate-200 w-full xl:w-80 flex flex-col justify-center">
+                      <h4 className="text-sm font-bold text-slate-900 mb-4">Finalizar Lote</h4>
+                      <div className="space-y-4">
+                        <Field label="Quantidade de CPFs">
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={previewResult?.pool_size || 1}
+                              value={requestedQuantity}
+                              disabled={lotCreationLoading}
+                              onChange={(event) => setRequestedQuantity(event.target.value)}
+                              placeholder="Ex: 500"
+                            />
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              onClick={() => setRequestedQuantity(previewResult?.pool_size.toString() ?? "")}
+                            >
+                              Max
+                            </Button>
+                          </div>
+                        </Field>
+                        
+                        {quantityError && (
+                          <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">{quantityError}</p>
                         )}
-                      >
-                        {quantityError ?? `Pronto para sortear até ${previewResult.pool_size} CPF(s) da base filtrada atual.`}
+
+                        <Button
+                          className={cn("w-full", PRIMARY_BUTTON_CLASS_NAME)}
+                          disabled={!canCreateLot || lotCreationLoading}
+                          onClick={handleCreateLot}
+                        >
+                          {lotCreationLoading ? (
+                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Criando...</>
+                          ) : "Criar lote agora"}
+                        </Button>
                       </div>
                     </div>
-
-                    <div className="mt-4 flex flex-wrap justify-end gap-3">
-                      <Button
-                        className={PRIMARY_BUTTON_CLASS_NAME}
-                        onClick={() => setConfirmSampleOpen(true)}
-                        disabled={Boolean(quantityError) || previewLoading || sampleLoading}
-                      >
-                        {sampleLoading ? "Sorteando..." : "Sortear amostra"}
-                      </Button>
-                    </div>
                   </div>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        </CardContent>
-      </Card>
+                )}
+              </CardContent>
+            </Card>
 
-      {lastSample ? (
-        <Card className="shadow-sm mt-6">
-          <CardHeader>
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <CardTitle className="text-lg">Última amostra</CardTitle>
-                <CardDescription>
-                  {lastSample.sampled_quantity} CPF(s) sorteado(s) de uma base com {lastSample.pool_size} lead(s).
-                </CardDescription>
-              </div>
-              <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => downloadSampleCsv(lastSample)}>
-                Baixar CSV da amostra
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={handleCancelLot}>
+                Fechar / Limpar
               </Button>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {lastSample.selected_banks.length ? (
-                lastSample.selected_banks.map((bank) => (
-                  <Badge key={bank} variant="outline" className="rounded-full px-3 py-1">
-                    {bankLabel(bank)}
-                  </Badge>
-                ))
-              ) : (
-                <Badge variant="secondary">Somente filtros gerais</Badge>
-              )}
-              <Badge variant="outline" className="rounded-full px-3 py-1">
-                {combinationLabel(lastSample.bank_combination_mode, true)}
-              </Badge>
-            </div>
 
-            <div className="overflow-x-auto rounded-xl border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">CPF</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">Nome</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">Telefone atual</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lastSample.items.map((item) => (
-                    <tr key={item.lead_id} className="border-t">
-                      <td className="px-4 py-3 text-slate-800">{formatCPF(item.cpf)}</td>
-                      <td className="px-4 py-3 text-slate-800">{item.nome ?? "--"}</td>
-                      <td className="px-4 py-3 text-slate-800">
-                        {item.telefone_atual_antes ? formatPhone(item.telefone_atual_antes) : "--"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button
+                className={OUTLINE_BUTTON_CLASS_NAME}
+                variant="outline"
+                onClick={handleCancelLot}
+                disabled={previewLoading || lotCreationLoading}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className={PRIMARY_BUTTON_CLASS_NAME}
+                disabled={!canCreateLot || previewLoading || lotCreationLoading}
+                onClick={handleCreateLot}
+              >
+                {lotCreationLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {lotCreationLoading ? "Criando lote..." : "Criar lote"}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      ) : null}
+          </>
+        ) : null}
+      </div>
 
       <Card className="mt-6 border-amber-200 bg-amber-50/80 shadow-sm">
         <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />  
           <div>
-            O histórico persistido e a execução do job externo ainda não entram nesta entrega. Nesta fase, a página cobre filtros reais, preview da base e amostragem aleatória.
+            O histórico persistido e a execução do job externo ainda não entram nesta entrega. Nesta fase, a página cobre filtros reais e preview da base.
           </div>
         </CardContent>
       </Card>
-
-      <AlertDialog open={confirmSampleOpen} onOpenChange={setConfirmSampleOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar amostragem?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`Sortear ${parsedQuantity || 0} CPF(s) da base filtrada atual.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              onClick={() => void handleSample()}
-            >
-              Confirmar e sortear
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
