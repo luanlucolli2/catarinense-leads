@@ -2,7 +2,9 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export type Mode = "base" | "fgts" | "clt" | "mercantil" | "uy3"
+export type Mode = "base" | "fgts" | "clt" | "mercantil" | "uy3" | "360"
+export type LeadBankKey = "fgts" | "clt" | "mercantil" | "uy3"
+export type LeadBankCombinationMode = "all" | "any"
 export type LeadSort =
   | "lead_updated_at"
   | "lead_created_at"
@@ -176,6 +178,66 @@ export interface LeadFromApiUY3 {
   uy3_is_judicial_recovery: boolean | number | "0" | "1" | null
 }
 
+export interface LeadFromApi360 {
+  id: number
+  cpf: string
+  nome: string | null
+  created_at: string | null
+  updated_at: string | null
+  data_nascimento: string | null
+  fone1: string | null
+  classe_fone1: string | null
+  fone2: string | null
+  classe_fone2: string | null
+  fone3: string | null
+  classe_fone3: string | null
+  fone4: string | null
+  classe_fone4: string | null
+  consulta: string | null
+  saldo: string | null
+  libera: string | null
+  data_atualizacao: string | null
+  contracts_count: number
+  data_contrato_recente: string | null
+  vendedor: string | null
+  fgts_off_authorized: boolean | number | "0" | "1" | null
+  fgts_off_consultado_em: string | null
+  ultima_origem_cadastral: string | null
+  ultima_origem_higienizacao: string | null
+  ultima_origem_mercantil: string | null
+  elegivel: boolean | null
+  not_found: boolean | null
+  margem_disponivel: string | number | null
+  politica_credito_aprovado: boolean | number | "0" | "1" | null
+  clt_consultado_em: string | null
+  clt_dados_atualizados_em: string | null
+  mercantil_status: string | null
+  mercantil_mensagem_erro: string | null
+  mercantil_data_hora_origem: string | null
+  mercantil_valor_financiado: string | number | null
+  mercantil_valor_iof: string | number | null
+  mercantil_data_primeiro_vencimento: string | null
+  mercantil_valor_emprestimo: string | number | null
+  mercantil_quantidade_parcelas: number | string | null
+  mercantil_valor_liberado: string | number | null
+  mercantil_taxa_juros_mes: string | number | null
+  mercantil_valor_parcela: string | number | null
+  uy3_type_webhook: string | null
+  uy3_status: string | null
+  uy3_consultado_em: string | null
+  uy3_data_admissao: string | null
+  uy3_valor_liberado: string | number | null
+  uy3_numero_parcelas: number | string | null
+  uy3_codigo_requisicao: string | null
+  uy3_margem_disponivel: string | number | null
+  uy3_elegivel_emprestimo: boolean | number | "0" | "1" | null
+  uy3_numero_inscricao_empregador: string | null
+  uy3_pessoa_exposta_politicamente_codigo: number | string | null
+  uy3_data_hora_validade_solicitacao: string | null
+  uy3_is_mei: boolean | number | "0" | "1" | null
+  uy3_is_judicial_recovery: boolean | number | "0" | "1" | null
+}
+
 /** Detalhe (carrega FGTS e CLT) */
 export interface LeadDetailFromApi {
   id: number
@@ -228,6 +290,32 @@ export interface LeadDetailFromApi {
   emprestimos_legados: number | null
   not_found: boolean | null
   clt_consultado_em: string | null
+  mercantil_status: string | null
+  mercantil_mensagem_erro: string | null
+  mercantil_data_hora_origem: string | null
+  mercantil_valor_financiado: string | number | null
+  mercantil_valor_iof: string | number | null
+  mercantil_data_primeiro_vencimento: string | null
+  mercantil_valor_emprestimo: string | number | null
+  mercantil_quantidade_parcelas: number | string | null
+  mercantil_valor_liberado: string | number | null
+  mercantil_taxa_juros_mes: string | number | null
+  mercantil_valor_parcela: string | number | null
+  ultima_origem_mercantil: string | null
+  uy3_type_webhook: string | null
+  uy3_status: string | null
+  uy3_consultado_em: string | null
+  uy3_data_admissao: string | null
+  uy3_valor_liberado: string | number | null
+  uy3_numero_parcelas: number | string | null
+  uy3_codigo_requisicao: string | null
+  uy3_margem_disponivel: string | number | null
+  uy3_elegivel_emprestimo: boolean | number | "0" | "1" | null
+  uy3_numero_inscricao_empregador: string | null
+  uy3_pessoa_exposta_politicamente_codigo: number | string | null
+  uy3_data_hora_validade_solicitacao: string | null
+  uy3_is_mei: boolean | number | "0" | "1" | null
+  uy3_is_judicial_recovery: boolean | number | "0" | "1" | null
 }
 
 export interface PaginatedResponse<T> {
@@ -242,11 +330,14 @@ export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
 export type PaginatedLeadsResponseMercantil = PaginatedResponse<LeadFromApiMercantil>
 export type PaginatedLeadsResponseUY3 = PaginatedResponse<LeadFromApiUY3>
 export type PaginatedLeadsResponseBase = PaginatedResponse<LeadFromApiBase>
+export type PaginatedLeadsResponse360 = PaginatedResponse<LeadFromApi360>
 
 export interface LeadFilters {
   page?: number
   sort?: LeadSort
   search?: string
+  selected_banks?: LeadBankKey[]
+  bank_combination_mode?: LeadBankCombinationMode
   /** mantido só por compat na UI; ignorado no back FGTS/CLT */
   status?: "todos" | "elegiveis" | "nao-elegiveis"
   motivos?: string[]
@@ -309,6 +400,19 @@ export interface LeadFilters {
   mercantil_qtd_parcelas_min?: string | number
   mercantil_qtd_parcelas_max?: string | number
   mercantil_origens?: string[]
+
+  /** ➕ UY3 — filtros específicos */
+  uy3_situacao?: "aprovado" | "nao_aprovado"
+  uy3_consulta_from?: string
+  uy3_consulta_to?: string
+  uy3_meses_admissao_min?: string | number
+  uy3_meses_admissao_max?: string | number
+  uy3_margem_min?: string
+  uy3_margem_max?: string
+  uy3_valor_liberado_min?: string
+  uy3_valor_liberado_max?: string
+  uy3_numero_parcelas_min?: string | number
+  uy3_numero_parcelas_max?: string | number
 }
 
 /* ---------- Helpers ---------- */
@@ -325,6 +429,10 @@ const normalizeMonths = (arr?: string[]) =>
 
 const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   const p = new URLSearchParams()
+  const supportsFgtsFilters = mode === "fgts" || mode === "360"
+  const supportsCltFilters = mode === "clt" || mode === "360"
+  const supportsMercantilFilters = mode === "mercantil" || mode === "360"
+  const supportsUy3Filters = mode === "uy3" || mode === "360"
 
   // modo
   p.set("mode", mode)
@@ -338,8 +446,13 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     const normalized = hasLetters ? raw : raw.replace(/\D/g, "")
     p.set("search", normalized)
   }
+  if (mode === "360" && f.selected_banks?.length) {
+    p.set("selected_banks", f.selected_banks.join(","))
+    p.set("bank_combination_mode", f.bank_combination_mode || "any")
+  }
+
   // FGTS-only
-  if (mode === "fgts") {
+  if (supportsFgtsFilters) {
     if (f.motivos?.length) p.set("motivos", f.motivos.join(","))
     if (f.origens_hig?.length) p.set("origens_hig", f.origens_hig.join(","))
     if (f.date_from) p.set("date_from", f.date_from)
@@ -351,14 +464,14 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   if (f.origens?.length) p.set("origens", f.origens.join(","))
 
   // ➕ FGTS OFF (só no FGTS; no CLT o back ignora)
-  if (mode === "fgts") {
+  if (supportsFgtsFilters) {
     if (f.fgts_status) p.set("fgts_status", f.fgts_status)
     if (f.fgts_consulta_from) p.set("fgts_consulta_from", f.fgts_consulta_from)
     if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
   }
 
   // ➕ CLT – somente quando mode = "clt"
-  if (mode === "clt") {
+  if (supportsCltFilters) {
     if (f.clt_consultado) p.set("clt_consultado", f.clt_consultado)
     if (f.clt_situacao) p.set("clt_situacao", f.clt_situacao)
     if (f.clt_consulta_from) p.set("clt_consulta_from", f.clt_consulta_from)
@@ -393,7 +506,7 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   }
 
   // ➕ MERCANTIL – somente quando mode = "mercantil"
-  if (mode === "mercantil") {
+  if (supportsMercantilFilters) {
     if (f.mercantil_situacao) p.set("mercantil_situacao", f.mercantil_situacao)
     if (f.mercantil_status?.length) p.set("mercantil_status", f.mercantil_status.join(","))
     if (f.mercantil_consulta_from) p.set("mercantil_consulta_from", f.mercantil_consulta_from)
@@ -405,6 +518,24 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.mercantil_qtd_parcelas_max !== undefined && f.mercantil_qtd_parcelas_max !== "")
       p.set("mercantil_qtd_parcelas_max", String(f.mercantil_qtd_parcelas_max))
     if (f.mercantil_origens?.length) p.set("mercantil_origens", f.mercantil_origens.join(","))
+  }
+
+  if (supportsUy3Filters) {
+    if (f.uy3_situacao) p.set("uy3_situacao", f.uy3_situacao)
+    if (f.uy3_consulta_from) p.set("uy3_consulta_from", f.uy3_consulta_from)
+    if (f.uy3_consulta_to) p.set("uy3_consulta_to", f.uy3_consulta_to)
+    if (f.uy3_meses_admissao_min !== undefined && f.uy3_meses_admissao_min !== "")
+      p.set("uy3_meses_admissao_min", String(f.uy3_meses_admissao_min))
+    if (f.uy3_meses_admissao_max !== undefined && f.uy3_meses_admissao_max !== "")
+      p.set("uy3_meses_admissao_max", String(f.uy3_meses_admissao_max))
+    if (f.uy3_margem_min) p.set("uy3_margem_min", f.uy3_margem_min)
+    if (f.uy3_margem_max) p.set("uy3_margem_max", f.uy3_margem_max)
+    if (f.uy3_valor_liberado_min) p.set("uy3_valor_liberado_min", f.uy3_valor_liberado_min)
+    if (f.uy3_valor_liberado_max) p.set("uy3_valor_liberado_max", f.uy3_valor_liberado_max)
+    if (f.uy3_numero_parcelas_min !== undefined && f.uy3_numero_parcelas_min !== "")
+      p.set("uy3_numero_parcelas_min", String(f.uy3_numero_parcelas_min))
+    if (f.uy3_numero_parcelas_max !== undefined && f.uy3_numero_parcelas_max !== "")
+      p.set("uy3_numero_parcelas_max", String(f.uy3_numero_parcelas_max))
   }
 
   // filtros em massa (GET -> CSV)
@@ -649,6 +780,94 @@ export async function fetchLeadsUy3(filters: LeadFilters) {
   return data
 }
 
+export async function fetchLeads360(filters: LeadFilters) {
+  const mode: Mode = "360"
+  if (shouldUsePost(filters, mode)) {
+    const months = normalizeMonths(filters.birth_month)
+    const payload: any = {
+      mode,
+      search: filters.search?.trim() || undefined,
+      selected_banks: filters.selected_banks?.length ? filters.selected_banks : undefined,
+      bank_combination_mode: filters.selected_banks?.length ? (filters.bank_combination_mode || "any") : undefined,
+      origens: filters.origens?.length ? filters.origens : undefined,
+      birth_month: months.length ? months : undefined,
+      with_phones: filters.with_phones || undefined,
+      without_phones: filters.without_phones || undefined,
+      cpf: filters.cpf ? splitAndNormalize(filters.cpf, true) : undefined,
+      names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
+      phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
+      motivos: filters.motivos?.length ? filters.motivos : undefined,
+      origens_hig: filters.origens_hig?.length ? filters.origens_hig : undefined,
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      contract_from: filters.contract_from || undefined,
+      contract_to: filters.contract_to || undefined,
+      vendors: filters.vendors?.length ? filters.vendors : undefined,
+      fgts_status: filters.fgts_status || undefined,
+      fgts_consulta_from: filters.fgts_consulta_from || undefined,
+      fgts_consulta_to: filters.fgts_consulta_to || undefined,
+      clt_consultado: filters.clt_consultado || undefined,
+      clt_situacao: filters.clt_situacao || undefined,
+      clt_consulta_from: filters.clt_consulta_from || undefined,
+      clt_consulta_to: filters.clt_consulta_to || undefined,
+      clt_admissao_from: filters.clt_admissao_from || undefined,
+      clt_admissao_to: filters.clt_admissao_to || undefined,
+      clt_meses_min: filters.clt_meses_min ?? undefined,
+      clt_meses_max: filters.clt_meses_max ?? undefined,
+      clt_inicio_empregador_from: filters.clt_inicio_empregador_from || undefined,
+      clt_inicio_empregador_to: filters.clt_inicio_empregador_to || undefined,
+      clt_categoria_codigos: filters.clt_categoria_codigos?.length ? filters.clt_categoria_codigos : undefined,
+      clt_idade_min: filters.clt_idade_min ?? undefined,
+      clt_idade_max: filters.clt_idade_max ?? undefined,
+      clt_sexo: filters.clt_sexo?.length ? filters.clt_sexo : undefined,
+      clt_renda_min: filters.clt_renda_min || undefined,
+      clt_renda_max: filters.clt_renda_max || undefined,
+      clt_base_min: filters.clt_base_min || undefined,
+      clt_base_max: filters.clt_base_max || undefined,
+      clt_margem_min: filters.clt_margem_min || undefined,
+      clt_margem_max: filters.clt_margem_max || undefined,
+      clt_prestacao_min: filters.clt_prestacao_min || undefined,
+      clt_prestacao_max: filters.clt_prestacao_max || undefined,
+      clt_ativos_min: filters.clt_ativos_min ?? undefined,
+      clt_ativos_max: filters.clt_ativos_max ?? undefined,
+      clt_tem_ativos: filters.clt_tem_ativos || undefined,
+      clt_tem_legados: filters.clt_tem_legados || undefined,
+      mercantil_situacao: filters.mercantil_situacao || undefined,
+      mercantil_status: filters.mercantil_status?.length ? filters.mercantil_status : undefined,
+      mercantil_consulta_from: filters.mercantil_consulta_from || undefined,
+      mercantil_consulta_to: filters.mercantil_consulta_to || undefined,
+      mercantil_parcela_min: filters.mercantil_parcela_min || undefined,
+      mercantil_parcela_max: filters.mercantil_parcela_max || undefined,
+      mercantil_qtd_parcelas_min: filters.mercantil_qtd_parcelas_min ?? undefined,
+      mercantil_qtd_parcelas_max: filters.mercantil_qtd_parcelas_max ?? undefined,
+      mercantil_origens: filters.mercantil_origens?.length ? filters.mercantil_origens : undefined,
+      uy3_situacao: filters.uy3_situacao || undefined,
+      uy3_consulta_from: filters.uy3_consulta_from || undefined,
+      uy3_consulta_to: filters.uy3_consulta_to || undefined,
+      uy3_meses_admissao_min: filters.uy3_meses_admissao_min ?? undefined,
+      uy3_meses_admissao_max: filters.uy3_meses_admissao_max ?? undefined,
+      uy3_margem_min: filters.uy3_margem_min || undefined,
+      uy3_margem_max: filters.uy3_margem_max || undefined,
+      uy3_valor_liberado_min: filters.uy3_valor_liberado_min || undefined,
+      uy3_valor_liberado_max: filters.uy3_valor_liberado_max || undefined,
+      uy3_numero_parcelas_min: filters.uy3_numero_parcelas_min ?? undefined,
+      uy3_numero_parcelas_max: filters.uy3_numero_parcelas_max ?? undefined,
+    }
+    const { data } = await axiosClient.post<PaginatedLeadsResponse360>(
+      "/leads/search",
+      payload,
+      { params: filters.page ? { page: filters.page } : undefined }
+    )
+    return data
+  }
+
+  const params = buildQueryParams(filters, mode)
+  const { data } = await axiosClient.get<PaginatedLeadsResponse360>("/leads", {
+    params,
+  })
+  return data
+}
+
 export async function fetchLeadDetail(id: number) {
   const { data } = await axiosClient.get<LeadDetailFromApi>(`/leads/${id}`)
   return data
@@ -697,7 +916,7 @@ export interface LeadsExportStatusDTO {
 export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
-  mode: "base" | "fgts" | "clt" | "mercantil" | "uy3"
+  mode: "base" | "fgts" | "clt" | "mercantil" | "uy3" | "360"
 ): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
   const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)

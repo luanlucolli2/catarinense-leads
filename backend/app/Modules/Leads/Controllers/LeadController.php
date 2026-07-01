@@ -123,7 +123,7 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'cltSnapshot']);
+        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'cltSnapshot', 'mercantilSnapshot', 'uy3Snapshot']);
 
         // FGTS OFF
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
@@ -153,15 +153,52 @@ class LeadController extends Controller
             $lead->setAttribute('clt_dados_atualizados_em', $clt->updated_at);     // quando a origem atualizou
         }
 
+        $mercantil = $lead->mercantilSnapshot;
+        if ($mercantil) {
+            $lead->setAttribute('mercantil_status', $mercantil->status);
+            $lead->setAttribute('mercantil_mensagem_erro', $mercantil->mensagem_erro);
+            $lead->setAttribute('mercantil_data_hora_origem', $mercantil->data_hora_origem);
+            $lead->setAttribute('mercantil_valor_financiado', $mercantil->valor_financiado);
+            $lead->setAttribute('mercantil_valor_iof', $mercantil->valor_iof);
+            $lead->setAttribute('mercantil_data_primeiro_vencimento', $mercantil->data_primeiro_vencimento);
+            $lead->setAttribute('mercantil_valor_emprestimo', $mercantil->valor_emprestimo);
+            $lead->setAttribute('mercantil_quantidade_parcelas', $mercantil->quantidade_parcelas);
+            $lead->setAttribute('mercantil_valor_liberado', $mercantil->valor_liberado);
+            $lead->setAttribute('mercantil_taxa_juros_mes', $mercantil->taxa_juros_mes);
+            $lead->setAttribute('mercantil_valor_parcela', $mercantil->valor_parcela);
+        }
+
+        $uy3 = $lead->uy3Snapshot;
+        if ($uy3) {
+            $lead->setAttribute('uy3_type_webhook', $uy3->type_webhook);
+            $lead->setAttribute('uy3_status', $uy3->status);
+            $lead->setAttribute('uy3_consultado_em', $uy3->updated_at);
+            $lead->setAttribute('uy3_data_admissao', $uy3->data_admissao);
+            $lead->setAttribute('uy3_valor_liberado', $uy3->valor_liberado);
+            $lead->setAttribute('uy3_numero_parcelas', $uy3->numero_parcelas);
+            $lead->setAttribute('uy3_codigo_requisicao', $uy3->codigo_requisicao);
+            $lead->setAttribute('uy3_margem_disponivel', $uy3->margem_disponivel);
+            $lead->setAttribute('uy3_elegivel_emprestimo', $uy3->elegivel_emprestimo);
+            $lead->setAttribute('uy3_numero_inscricao_empregador', $uy3->numero_inscricao_empregador);
+            $lead->setAttribute('uy3_pessoa_exposta_politicamente_codigo', $uy3->pessoa_exposta_politicamente_codigo);
+            $lead->setAttribute('uy3_data_hora_validade_solicitacao', $uy3->data_hora_validade_solicitacao);
+            $lead->setAttribute('uy3_is_mei', $uy3->is_mei);
+            $lead->setAttribute('uy3_is_judicial_recovery', $uy3->is_judicial_recovery);
+        }
+
         // últimas origens por tipo
         $ultimaCad = $this->latestOriginForLead((int) $lead->id, 'cadastral');
         $ultimaHig = $this->latestOriginForLead((int) $lead->id, 'higienizacao');
+        $ultimaMercantil = $this->latestMercantilOriginForLead((string) $lead->cpf);
 
         $lead->setAttribute('ultima_origem_cadastral', $ultimaCad);
         $lead->setAttribute('ultima_origem_higienizacao', $ultimaHig);
+        $lead->setAttribute('ultima_origem_mercantil', $ultimaMercantil);
 
         $lead->unsetRelation('fgtsOffSnapshot');
         $lead->unsetRelation('cltSnapshot');
+        $lead->unsetRelation('mercantilSnapshot');
+        $lead->unsetRelation('uy3Snapshot');
 
         return response()->json($lead);
     }
@@ -174,6 +211,18 @@ class LeadController extends Controller
             ->where('ij.type', $type)
             ->orderByDesc('li.created_at')
             ->orderByDesc('li.import_job_id')
+            ->limit(1)
+            ->value('ij.origin');
+    }
+
+    private function latestMercantilOriginForLead(string $cpf): ?string
+    {
+        return DB::table('mercantil_snapshots as ms')
+            ->join('import_jobs as ij', 'ij.id', '=', 'ms.job_id')
+            ->where('ms.cpf', $cpf)
+            ->where('ij.type', 'mercantil')
+            ->orderByDesc('ms.updated_at')
+            ->orderByDesc('ms.job_id')
             ->limit(1)
             ->value('ij.origin');
     }

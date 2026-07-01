@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
+import { FiltersModal360 } from "./FiltersModal360"
 interface FiltersModalProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
+  mode: "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
   isOpen: boolean
   onClose: () => void
@@ -157,6 +158,32 @@ interface FiltersModalProps {
   onMercantilOrigensFilterChange: (values: string[]) => void
   availableMercantilOrigens: string[]
   availableMercantilStatuses: string[]
+  selectedBanks: ("fgts" | "clt" | "mercantil" | "uy3")[]
+  onSelectedBanksChange: (values: ("fgts" | "clt" | "mercantil" | "uy3")[]) => void
+  bankCombinationMode: "all" | "any"
+  onBankCombinationModeChange: (value: "all" | "any") => void
+  uy3Situacao: "todos" | "aprovado" | "nao_aprovado"
+  onUy3SituacaoChange: (value: "todos" | "aprovado" | "nao_aprovado") => void
+  uy3ConsultaFrom: string
+  onUy3ConsultaFromChange: (value: string) => void
+  uy3ConsultaTo: string
+  onUy3ConsultaToChange: (value: string) => void
+  uy3MesesAdmissaoMin: string
+  onUy3MesesAdmissaoMinChange: (value: string) => void
+  uy3MesesAdmissaoMax: string
+  onUy3MesesAdmissaoMaxChange: (value: string) => void
+  uy3MargemMin: string
+  onUy3MargemMinChange: (value: string) => void
+  uy3MargemMax: string
+  onUy3MargemMaxChange: (value: string) => void
+  uy3ValorLiberadoMin: string
+  onUy3ValorLiberadoMinChange: (value: string) => void
+  uy3ValorLiberadoMax: string
+  onUy3ValorLiberadoMaxChange: (value: string) => void
+  uy3NumeroParcelasMin: string
+  onUy3NumeroParcelasMinChange: (value: string) => void
+  uy3NumeroParcelasMax: string
+  onUy3NumeroParcelasMaxChange: (value: string) => void
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -386,7 +413,182 @@ export const FiltersModal = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  selectedBanks,
+  onSelectedBanksChange,
+  bankCombinationMode,
+  onBankCombinationModeChange,
+  uy3Situacao,
+  onUy3SituacaoChange,
+  uy3ConsultaFrom,
+  onUy3ConsultaFromChange,
+  uy3ConsultaTo,
+  onUy3ConsultaToChange,
+  uy3MesesAdmissaoMin,
+  onUy3MesesAdmissaoMinChange,
+  uy3MesesAdmissaoMax,
+  onUy3MesesAdmissaoMaxChange,
+  uy3MargemMin,
+  onUy3MargemMinChange,
+  uy3MargemMax,
+  onUy3MargemMaxChange,
+  uy3ValorLiberadoMin,
+  onUy3ValorLiberadoMinChange,
+  uy3ValorLiberadoMax,
+  onUy3ValorLiberadoMaxChange,
+  uy3NumeroParcelasMin,
+  onUy3NumeroParcelasMinChange,
+  uy3NumeroParcelasMax,
+  onUy3NumeroParcelasMaxChange,
 }: FiltersModalProps) => {
+  if (mode === "360") {
+    return (
+      <FiltersModal360
+        isOpen={isOpen}
+        onClose={onClose}
+        onApplyFilters={onApplyFilters}
+        onClearFilters={onClearFilters}
+        searchValue={searchValue}
+        onSearchChange={onSearchChange}
+        origemFilter={origemFilter}
+        onOrigemFilterChange={onOrigemFilterChange}
+        cpfMassFilter={cpfMassFilter}
+        onCpfMassFilterChange={onCpfMassFilterChange}
+        namesMassFilter={namesMassFilter}
+        onNamesMassFilterChange={onNamesMassFilterChange}
+        phonesMassFilter={phonesMassFilter}
+        onPhonesMassFilterChange={onPhonesMassFilterChange}
+        withPhonesFilter={withPhonesFilter}
+        onWithPhonesFilterChange={onWithPhonesFilterChange}
+        noPhonesFilter={noPhonesFilter}
+        onNoPhonesFilterChange={onNoPhonesFilterChange}
+        birthMonthFilter={birthMonthFilter}
+        onBirthMonthFilterChange={onBirthMonthFilterChange}
+        availableOrigens={availableOrigens}
+        selectedBanks={selectedBanks}
+        onSelectedBanksChange={onSelectedBanksChange}
+        bankCombinationMode={bankCombinationMode}
+        onBankCombinationModeChange={onBankCombinationModeChange}
+        motivosFilter={motivosFilter}
+        onMotivosFilterChange={onMotivosFilterChange}
+        higienizacaoFilter={higienizacaoFilter}
+        onHigienizacaoFilterChange={onHigienizacaoFilterChange}
+        dateFromFilter={dateFromFilter}
+        onDateFromFilterChange={onDateFromFilterChange}
+        dateToFilter={dateToFilter}
+        onDateToFilterChange={onDateToFilterChange}
+        contractDateFromFilter={contractDateFromFilter}
+        onContractDateFromFilterChange={onContractDateFromFilterChange}
+        contractDateToFilter={contractDateToFilter}
+        onContractDateToFilterChange={onContractDateToFilterChange}
+        vendorsFilter={vendorsFilter}
+        onVendorsFilterChange={onVendorsFilterChange}
+        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
+        onFgtsAuthorizedFilterChange={onFgtsAuthorizedFilterChange}
+        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
+        onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
+        fgtsConsultaToFilter={fgtsConsultaToFilter}
+        onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
+        availableMotivos={availableMotivos}
+        availableHigienizacoes={availableHigienizacoes}
+        availableVendors={availableVendors}
+        cltConsultado={cltConsultado}
+        onCltConsultadoChange={onCltConsultadoChange}
+        cltSituacao={cltSituacao}
+        onCltSituacaoChange={onCltSituacaoChange}
+        cltConsultaFrom={cltConsultaFrom}
+        onCltConsultaFromChange={onCltConsultaFromChange}
+        cltConsultaTo={cltConsultaTo}
+        onCltConsultaToChange={onCltConsultaToChange}
+        cltAdmissaoFrom={cltAdmissaoFrom}
+        onCltAdmissaoFromChange={onCltAdmissaoFromChange}
+        cltAdmissaoTo={cltAdmissaoTo}
+        onCltAdmissaoToChange={onCltAdmissaoToChange}
+        cltMesesMin={cltMesesMin}
+        onCltMesesMinChange={onCltMesesMinChange}
+        cltMesesMax={cltMesesMax}
+        onCltMesesMaxChange={onCltMesesMaxChange}
+        cltInicioEmpregadorFrom={cltInicioEmpregadorFrom}
+        onCltInicioEmpregadorFromChange={onCltInicioEmpregadorFromChange}
+        cltInicioEmpregadorTo={cltInicioEmpregadorTo}
+        onCltInicioEmpregadorToChange={onCltInicioEmpregadorToChange}
+        cltCategoriaCodigos={cltCategoriaCodigos}
+        onCltCategoriaCodigosChange={onCltCategoriaCodigosChange}
+        cltIdadeMin={cltIdadeMin}
+        onCltIdadeMinChange={onCltIdadeMinChange}
+        cltIdadeMax={cltIdadeMax}
+        onCltIdadeMaxChange={onCltIdadeMaxChange}
+        cltSexo={cltSexo}
+        onCltSexoChange={onCltSexoChange}
+        cltRendaMin={cltRendaMin}
+        onCltRendaMinChange={onCltRendaMinChange}
+        cltRendaMax={cltRendaMax}
+        onCltRendaMaxChange={onCltRendaMaxChange}
+        cltBaseMin={cltBaseMin}
+        onCltBaseMinChange={onCltBaseMinChange}
+        cltBaseMax={cltBaseMax}
+        onCltBaseMaxChange={onCltBaseMaxChange}
+        cltMargemMin={cltMargemMin}
+        onCltMargemMinChange={onCltMargemMinChange}
+        cltMargemMax={cltMargemMax}
+        onCltMargemMaxChange={onCltMargemMaxChange}
+        cltPrestacaoMin={cltPrestacaoMin}
+        onCltPrestacaoMinChange={onCltPrestacaoMinChange}
+        cltPrestacaoMax={cltPrestacaoMax}
+        onCltPrestacaoMaxChange={onCltPrestacaoMaxChange}
+        cltAtivosMin={cltAtivosMin}
+        onCltAtivosMinChange={onCltAtivosMinChange}
+        cltAtivosMax={cltAtivosMax}
+        onCltAtivosMaxChange={onCltAtivosMaxChange}
+        cltTemAtivos={cltTemAtivos}
+        onCltTemAtivosChange={onCltTemAtivosChange}
+        cltTemLegados={cltTemLegados}
+        onCltTemLegadosChange={onCltTemLegadosChange}
+        mercantilSituacao={mercantilSituacao}
+        onMercantilSituacaoChange={onMercantilSituacaoChange}
+        mercantilStatusFilter={mercantilStatusFilter}
+        onMercantilStatusFilterChange={onMercantilStatusFilterChange}
+        mercantilConsultaFrom={mercantilConsultaFrom}
+        onMercantilConsultaFromChange={onMercantilConsultaFromChange}
+        mercantilConsultaTo={mercantilConsultaTo}
+        onMercantilConsultaToChange={onMercantilConsultaToChange}
+        mercantilParcelaMin={mercantilParcelaMin}
+        onMercantilParcelaMinChange={onMercantilParcelaMinChange}
+        mercantilParcelaMax={mercantilParcelaMax}
+        onMercantilParcelaMaxChange={onMercantilParcelaMaxChange}
+        mercantilQtdParcelasMin={mercantilQtdParcelasMin}
+        onMercantilQtdParcelasMinChange={onMercantilQtdParcelasMinChange}
+        mercantilQtdParcelasMax={mercantilQtdParcelasMax}
+        onMercantilQtdParcelasMaxChange={onMercantilQtdParcelasMaxChange}
+        mercantilOrigensFilter={mercantilOrigensFilter}
+        onMercantilOrigensFilterChange={onMercantilOrigensFilterChange}
+        availableMercantilOrigens={availableMercantilOrigens}
+        availableMercantilStatuses={availableMercantilStatuses}
+        uy3Situacao={uy3Situacao}
+        onUy3SituacaoChange={onUy3SituacaoChange}
+        uy3ConsultaFrom={uy3ConsultaFrom}
+        onUy3ConsultaFromChange={onUy3ConsultaFromChange}
+        uy3ConsultaTo={uy3ConsultaTo}
+        onUy3ConsultaToChange={onUy3ConsultaToChange}
+        uy3MesesAdmissaoMin={uy3MesesAdmissaoMin}
+        onUy3MesesAdmissaoMinChange={onUy3MesesAdmissaoMinChange}
+        uy3MesesAdmissaoMax={uy3MesesAdmissaoMax}
+        onUy3MesesAdmissaoMaxChange={onUy3MesesAdmissaoMaxChange}
+        uy3MargemMin={uy3MargemMin}
+        onUy3MargemMinChange={onUy3MargemMinChange}
+        uy3MargemMax={uy3MargemMax}
+        onUy3MargemMaxChange={onUy3MargemMaxChange}
+        uy3ValorLiberadoMin={uy3ValorLiberadoMin}
+        onUy3ValorLiberadoMinChange={onUy3ValorLiberadoMinChange}
+        uy3ValorLiberadoMax={uy3ValorLiberadoMax}
+        onUy3ValorLiberadoMaxChange={onUy3ValorLiberadoMaxChange}
+        uy3NumeroParcelasMin={uy3NumeroParcelasMin}
+        onUy3NumeroParcelasMinChange={onUy3NumeroParcelasMinChange}
+        uy3NumeroParcelasMax={uy3NumeroParcelasMax}
+        onUy3NumeroParcelasMaxChange={onUy3NumeroParcelasMaxChange}
+      />
+    )
+  }
+
   const [localSearch, setLocalSearch] = useState(searchValue)
   const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
   const [localContractTo, setLocalContractTo] = useState(contractDateToFilter)

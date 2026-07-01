@@ -5,10 +5,10 @@ import { cn } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
 import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
-import type { LeadSort } from "@/api/leads";
+import type { LeadBankCombinationMode, LeadBankKey, LeadSort } from "@/api/leads";
 
 interface LeadsControlsProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
+  mode: "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -158,7 +158,35 @@ interface LeadsControlsProps {
   onMercantilOrigensFilterChange: (values: string[]) => void;
   availableMercantilOrigens: string[];
   availableMercantilStatuses: string[];
+  selectedBanks: LeadBankKey[];
+  onSelectedBanksChange: (values: LeadBankKey[]) => void;
+  bankCombinationMode: LeadBankCombinationMode;
+  onBankCombinationModeChange: (value: LeadBankCombinationMode) => void;
+  uy3Situacao: "todos" | "aprovado" | "nao_aprovado";
+  onUy3SituacaoChange: (value: "todos" | "aprovado" | "nao_aprovado") => void;
+  uy3ConsultaFrom: string;
+  onUy3ConsultaFromChange: (value: string) => void;
+  uy3ConsultaTo: string;
+  onUy3ConsultaToChange: (value: string) => void;
+  uy3MesesAdmissaoMin: string;
+  onUy3MesesAdmissaoMinChange: (value: string) => void;
+  uy3MesesAdmissaoMax: string;
+  onUy3MesesAdmissaoMaxChange: (value: string) => void;
+  uy3MargemMin: string;
+  onUy3MargemMinChange: (value: string) => void;
+  uy3MargemMax: string;
+  onUy3MargemMaxChange: (value: string) => void;
+  uy3ValorLiberadoMin: string;
+  onUy3ValorLiberadoMinChange: (value: string) => void;
+  uy3ValorLiberadoMax: string;
+  onUy3ValorLiberadoMaxChange: (value: string) => void;
+  uy3NumeroParcelasMin: string;
+  onUy3NumeroParcelasMinChange: (value: string) => void;
+  uy3NumeroParcelasMax: string;
+  onUy3NumeroParcelasMaxChange: (value: string) => void;
 
+  visibleColumns360: string[];
+  onVisibleColumns360Change: (cols: string[]) => void;
   visibleColumnsBASE: string[];
   onVisibleColumnsBASEChange: (cols: string[]) => void;
   visibleColumnsFGTS: string[];
@@ -170,6 +198,7 @@ interface LeadsControlsProps {
   visibleColumnsUY3: string[];
   onVisibleColumnsUY3Change: (cols: string[]) => void;
 
+  defaultVisibleColumns360: string[];
   defaultVisibleColumnsBASE: string[];
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
@@ -324,6 +353,34 @@ export const LeadsControls = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  selectedBanks,
+  onSelectedBanksChange,
+  bankCombinationMode,
+  onBankCombinationModeChange,
+  uy3Situacao,
+  onUy3SituacaoChange,
+  uy3ConsultaFrom,
+  onUy3ConsultaFromChange,
+  uy3ConsultaTo,
+  onUy3ConsultaToChange,
+  uy3MesesAdmissaoMin,
+  onUy3MesesAdmissaoMinChange,
+  uy3MesesAdmissaoMax,
+  onUy3MesesAdmissaoMaxChange,
+  uy3MargemMin,
+  onUy3MargemMinChange,
+  uy3MargemMax,
+  onUy3MargemMaxChange,
+  uy3ValorLiberadoMin,
+  onUy3ValorLiberadoMinChange,
+  uy3ValorLiberadoMax,
+  onUy3ValorLiberadoMaxChange,
+  uy3NumeroParcelasMin,
+  onUy3NumeroParcelasMinChange,
+  uy3NumeroParcelasMax,
+  onUy3NumeroParcelasMaxChange,
+  visibleColumns360,
+  onVisibleColumns360Change,
   visibleColumnsBASE,
   onVisibleColumnsBASEChange,
   visibleColumnsFGTS,
@@ -334,6 +391,7 @@ export const LeadsControls = ({
   onVisibleColumnsMERCANTILChange,
   visibleColumnsUY3,
   onVisibleColumnsUY3Change,
+  defaultVisibleColumns360,
   defaultVisibleColumnsBASE,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
@@ -361,7 +419,9 @@ export const LeadsControls = ({
   }, [localSearchValue, onSearchChange, searchValue]);
 
   const currentVisible =
-    mode === "BASE"
+    mode === "360"
+      ? visibleColumns360
+      : mode === "BASE"
       ? visibleColumnsBASE
       : mode === "FGTS"
       ? visibleColumnsFGTS
@@ -371,7 +431,9 @@ export const LeadsControls = ({
           ? visibleColumnsMERCANTIL
           : visibleColumnsUY3;
   const currentDefaults =
-    mode === "BASE"
+    mode === "360"
+      ? defaultVisibleColumns360
+      : mode === "BASE"
       ? defaultVisibleColumnsBASE
       : mode === "FGTS"
       ? defaultVisibleColumnsFGTS
@@ -382,7 +444,8 @@ export const LeadsControls = ({
           : defaultVisibleColumnsUY3;
 
   const onSaveVisible = (cols: string[]) => {
-    if (mode === "BASE") onVisibleColumnsBASEChange(cols);
+    if (mode === "360") onVisibleColumns360Change(cols);
+    else if (mode === "BASE") onVisibleColumnsBASEChange(cols);
     else if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
     else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
     else if (mode === "MERCANTIL") onVisibleColumnsMERCANTILChange(cols);
@@ -425,6 +488,12 @@ export const LeadsControls = ({
 
   const activeFilterLabels = useMemo(() => {
     const items: string[] = [];
+    const bankLabels: Record<LeadBankKey, string> = {
+      fgts: "FGTS",
+      clt: "CLT Facta",
+      mercantil: "Mercantil",
+      uy3: "UY3",
+    };
 
     if (searchValue) items.push(`Busca: ${searchValue}`);
     if (origemFilter.length) items.push(`Origem: ${summarizeList(origemFilter)}`);
@@ -435,7 +504,12 @@ export const LeadsControls = ({
     if (noPhonesFilter) items.push("Sem telefone");
     if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
 
-    if (mode === "FGTS") {
+    if (mode === "360" && selectedBanks.length) {
+      items.push(`Fontes: ${summarizeList(selectedBanks.map((bank) => bankLabels[bank]))}`);
+      items.push(`Combinação: ${bankCombinationMode === "all" ? "Todas" : "Qualquer"}`);
+    }
+
+    if (mode === "FGTS" || mode === "360") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
       if (motivosFilter.length) items.push(`Motivos: ${summarizeList(motivosFilter)}`);
       if (higienizacaoFilter.length) items.push(`Origem hig.: ${summarizeList(higienizacaoFilter)}`);
@@ -456,7 +530,7 @@ export const LeadsControls = ({
       if (fgtsConsulta) items.push(fgtsConsulta);
     }
 
-    if (mode === "CLT") {
+    if (mode === "CLT" || mode === "360") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
       if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
       if (cltSituacao !== "todos") {
@@ -486,7 +560,7 @@ export const LeadsControls = ({
       if (cltTemLegados !== "todos") items.push(`Tem legados: ${cltTemLegados === "sim" ? "Sim" : "Não"}`);
     }
 
-    if (mode === "MERCANTIL") {
+    if (mode === "MERCANTIL" || mode === "360") {
       if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
       if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
       const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
@@ -494,6 +568,16 @@ export const LeadsControls = ({
       if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
       if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
       if (mercantilOrigensFilter.length) items.push(`Origem: ${summarizeList(mercantilOrigensFilter)}`);
+    }
+
+    if (mode === "360") {
+      if (uy3Situacao !== "todos") items.push(`UY3 situação: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+      const uy3Consulta = rangeLabel("UY3 consulta", uy3ConsultaFrom, uy3ConsultaTo);
+      if (uy3Consulta) items.push(uy3Consulta);
+      if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) items.push(`UY3 meses adm.: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
+      if (uy3MargemMin || uy3MargemMax) items.push(`UY3 margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
+      if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) items.push(`UY3 valor: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
+      if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) items.push(`UY3 parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
     }
 
     return items;
@@ -509,6 +593,9 @@ export const LeadsControls = ({
     mercantilOrigensFilter, mercantilParcelaMax, mercantilParcelaMin, mercantilQtdParcelasMax,
     mercantilQtdParcelasMin, mercantilSituacao, mercantilStatusFilter, mode, motivosFilter,
     namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter, withPhonesFilter,
+    selectedBanks, bankCombinationMode, uy3Situacao, uy3ConsultaFrom, uy3ConsultaTo,
+    uy3MesesAdmissaoMin, uy3MesesAdmissaoMax, uy3MargemMin, uy3MargemMax,
+    uy3ValorLiberadoMin, uy3ValorLiberadoMax, uy3NumeroParcelasMin, uy3NumeroParcelasMax,
   ]);
 
   const currentSortLabel =
@@ -775,6 +862,32 @@ export const LeadsControls = ({
         onMercantilOrigensFilterChange={onMercantilOrigensFilterChange}
         availableMercantilOrigens={availableMercantilOrigens}
         availableMercantilStatuses={availableMercantilStatuses}
+        selectedBanks={selectedBanks}
+        onSelectedBanksChange={onSelectedBanksChange}
+        bankCombinationMode={bankCombinationMode}
+        onBankCombinationModeChange={onBankCombinationModeChange}
+        uy3Situacao={uy3Situacao}
+        onUy3SituacaoChange={onUy3SituacaoChange}
+        uy3ConsultaFrom={uy3ConsultaFrom}
+        onUy3ConsultaFromChange={onUy3ConsultaFromChange}
+        uy3ConsultaTo={uy3ConsultaTo}
+        onUy3ConsultaToChange={onUy3ConsultaToChange}
+        uy3MesesAdmissaoMin={uy3MesesAdmissaoMin}
+        onUy3MesesAdmissaoMinChange={onUy3MesesAdmissaoMinChange}
+        uy3MesesAdmissaoMax={uy3MesesAdmissaoMax}
+        onUy3MesesAdmissaoMaxChange={onUy3MesesAdmissaoMaxChange}
+        uy3MargemMin={uy3MargemMin}
+        onUy3MargemMinChange={onUy3MargemMinChange}
+        uy3MargemMax={uy3MargemMax}
+        onUy3MargemMaxChange={onUy3MargemMaxChange}
+        uy3ValorLiberadoMin={uy3ValorLiberadoMin}
+        onUy3ValorLiberadoMinChange={onUy3ValorLiberadoMinChange}
+        uy3ValorLiberadoMax={uy3ValorLiberadoMax}
+        onUy3ValorLiberadoMaxChange={onUy3ValorLiberadoMaxChange}
+        uy3NumeroParcelasMin={uy3NumeroParcelasMin}
+        onUy3NumeroParcelasMinChange={onUy3NumeroParcelasMinChange}
+        uy3NumeroParcelasMax={uy3NumeroParcelasMax}
+        onUy3NumeroParcelasMaxChange={onUy3NumeroParcelasMaxChange}
       />
 
       <ColumnsModal
