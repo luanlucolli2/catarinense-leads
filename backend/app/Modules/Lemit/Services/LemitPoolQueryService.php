@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Modules\Lemit\Services;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class LemitPoolQueryService
 {
@@ -15,30 +17,35 @@ class LemitPoolQueryService
      */
     public function preview(array $filters): array
     {
-        $baseQuery = $this->buildFilteredQuery($filters);
+        $row = DB::query()
+            ->fromSub(
+                $this->buildFilteredLeadQuery($filters)->select([
+                    'leads.id',
+                    'leads.has_phone',
+                ]),
+                'pool'
+            )
+            ->selectRaw('COUNT(*) as pool_size')
+            ->selectRaw('SUM(CASE WHEN pool.has_phone = 1 THEN 1 ELSE 0 END) as pool_with_phones')
+            ->selectRaw('SUM(CASE WHEN pool.has_phone = 0 THEN 1 ELSE 0 END) as pool_without_phones')
+            ->first();
 
         return [
-            'pool_size' => (int) (clone $baseQuery)->count('leads.id'),
-            'pool_with_phones' => (int) $this->countByPhoneStatus(clone $baseQuery, true),
-            'pool_without_phones' => (int) $this->countByPhoneStatus(clone $baseQuery, false),
+            'pool_size' => (int) ($row->pool_size ?? 0),
+            'pool_with_phones' => (int) ($row->pool_with_phones ?? 0),
+            'pool_without_phones' => (int) ($row->pool_without_phones ?? 0),
         ];
     }
 
     /**
      * @param array<string, mixed> $filters
-     */
-    public function count(array $filters): int
-    {
-        return (int) $this->buildFilteredQuery($filters)->count('leads.id');
-    }
-
-    /**
-     * @param array<string, mixed> $filters
      * @return array<string, mixed>
+     *
+     * @throws ValidationException
      */
-    public function sample(array $filters, int $quantity, ?int $poolSize = null): array
+    public function sample(array $filters, int $quantity): array
     {
-        $query = $this->buildFilteredQuery($filters)
+        $query = $this->buildFilteredLeadQuery($filters)
             ->select([
                 'leads.id as lead_id',
                 'leads.cpf',
@@ -73,10 +80,16 @@ class LemitPoolQueryService
             }
         }
 
+        if ($seen < $quantity) {
+            throw ValidationException::withMessages([
+                'quantity' => ['A quantidade solicitada excede a base filtrada atual.'],
+            ]);
+        }
+
         usort($sample, fn(array $left, array $right): int => $left['lead_id'] <=> $right['lead_id']);
 
         return [
-            'pool_size' => $poolSize ?? $seen,
+            'pool_size' => $seen,
             'sampled_quantity' => count($sample),
             'selected_banks' => $this->selectedBanks($filters),
             'bank_combination_mode' => (string) ($filters['bank_combination_mode'] ?? 'all'),
@@ -87,25 +100,23 @@ class LemitPoolQueryService
     /**
      * @param array<string, mixed> $filters
      */
-    private function buildFilteredQuery(array $filters): Builder
+    private function buildFilteredLeadQuery(array $filters): Builder
     {
-        $query = DB::table('leads');
         $selectedBanks = $this->selectedBanks($filters);
 
-        if (in_array('clt', $selectedBanks, true)) {
-            $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
-        }
+        $query = DB::table('leads');
 
-        if (in_array('mercantil', $selectedBanks, true)) {
-            $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
-        }
-
-        if (in_array('uy3', $selectedBanks, true)) {
-            $query->leftJoin('uy3_snapshots as us', 'us.cpf', '=', 'leads.cpf');
+        if ($selectedBanks !== []) {
+            $query->joinSub(
+                $this->buildCandidateCpfQuery($filters, $selectedBanks),
+                'candidate_cpfs',
+                'candidate_cpfs.cpf',
+                '=',
+                'leads.cpf'
+            );
         }
 
         $this->applyPhoneStatusFilters($query, $filters);
-        $this->applyBankConstraints($query, $filters, $selectedBanks);
 
         return $query;
     }
@@ -114,56 +125,103 @@ class LemitPoolQueryService
      * @param array<string, mixed> $filters
      * @param array<int, string> $selectedBanks
      */
-    private function applyBankConstraints(Builder $query, array $filters, array $selectedBanks): void
+    private function buildCandidateCpfQuery(array $filters, array $selectedBanks): Builder
     {
-        if ($selectedBanks === []) {
-            return;
-        }
-
         $mode = (string) ($filters['bank_combination_mode'] ?? 'all');
 
-        if ($mode === 'any') {
-            $query->where(function (Builder $matchAny) use ($filters, $selectedBanks): void {
-                foreach ($selectedBanks as $bank) {
-                    $matchAny->orWhere(function (Builder $bankQuery) use ($bank, $filters): void {
-                        $this->applySingleBankFilter($bankQuery, $bank, (array) ($filters[$bank] ?? []));
-                    });
-                }
-            });
+        return $mode === 'any'
+            ? $this->buildAnyBankCandidateCpfQuery($filters, $selectedBanks)
+            : $this->buildAllBankCandidateCpfQuery($filters, $selectedBanks);
+    }
 
-            return;
+    /**
+     * @param array<string, mixed> $filters
+     * @param array<int, string> $selectedBanks
+     */
+    private function buildAllBankCandidateCpfQuery(array $filters, array $selectedBanks): Builder
+    {
+        $firstBank = array_shift($selectedBanks);
+        $firstQuery = $this->buildSingleBankCandidateQuery(
+            (string) $firstBank,
+            (array) ($filters[(string) $firstBank] ?? [])
+        );
+
+        $query = DB::query()
+            ->fromSub($firstQuery, 'bank_0')
+            ->select('bank_0.cpf');
+
+        foreach (array_values($selectedBanks) as $index => $bank) {
+            $alias = 'bank_' . ($index + 1);
+            $query->joinSub(
+                $this->buildSingleBankCandidateQuery($bank, (array) ($filters[$bank] ?? [])),
+                $alias,
+                "{$alias}.cpf",
+                '=',
+                'bank_0.cpf'
+            );
         }
+
+        return $query;
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @param array<int, string> $selectedBanks
+     */
+    private function buildAnyBankCandidateCpfQuery(array $filters, array $selectedBanks): Builder
+    {
+        $firstBank = array_shift($selectedBanks);
+        $unionQuery = $this->buildSingleBankCandidateQuery(
+            (string) $firstBank,
+            (array) ($filters[(string) $firstBank] ?? [])
+        );
 
         foreach ($selectedBanks as $bank) {
-            $this->applySingleBankFilter($query, $bank, (array) ($filters[$bank] ?? []));
+            $unionQuery->union(
+                $this->buildSingleBankCandidateQuery($bank, (array) ($filters[$bank] ?? []))
+            );
         }
+
+        return DB::query()
+            ->fromSub($unionQuery, 'bank_union')
+            ->select('bank_union.cpf')
+            ->distinct();
     }
 
     /**
      * @param array<string, mixed> $bankFilters
      */
-    private function applySingleBankFilter(Builder $query, string $bank, array $bankFilters): void
+    private function buildSingleBankCandidateQuery(string $bank, array $bankFilters): Builder
     {
-        match ($bank) {
-            'clt' => $this->applyCltFilters($query, $bankFilters),
-            'mercantil' => $this->applyMercantilFilters($query, $bankFilters),
-            'uy3' => $this->applyUy3Filters($query, $bankFilters),
-            default => null,
+        return match ($bank) {
+            'clt' => $this->buildCltCandidateQuery($bankFilters),
+            'mercantil' => $this->buildMercantilCandidateQuery($bankFilters),
+            'uy3' => $this->buildUy3CandidateQuery($bankFilters),
+            default => DB::query()->fromSub(
+                DB::table('leads')->selectRaw('NULL as cpf')->whereRaw('1 = 0'),
+                'empty_pool'
+            )->select('empty_pool.cpf'),
         };
     }
 
     /**
      * @param array<string, mixed> $filters
      */
-    private function applyCltFilters(Builder $query, array $filters): void
+    private function buildCltCandidateQuery(array $filters): Builder
     {
-        $query->whereNotNull('cs.cpf');
+        $query = DB::table('clt_snapshots as cs')->select('cs.cpf');
 
         $situacao = $filters['clt_situacao'] ?? null;
         if ($situacao === 'aprovado') {
             $query->where('cs.not_found', 0)->where('cs.politica_credito_aprovado', 1);
         } elseif ($situacao === 'nao_aprovado') {
-            $query->whereRaw('NOT (COALESCE(cs.not_found, 0) = 0 AND COALESCE(cs.politica_credito_aprovado, 0) = 1)');
+            $query->where(function (Builder $situationQuery): void {
+                $situationQuery
+                    ->where('cs.not_found', 1)
+                    ->orWhereNull('cs.not_found')
+                    ->orWhere('cs.politica_credito_aprovado', 0)
+                    ->orWhereNull('cs.politica_credito_aprovado');
+            });
         }
 
         $this->applyDateTimeRange(
@@ -193,14 +251,16 @@ class LemitPoolQueryService
             $filters['clt_numero_parcelas_min'] ?? null,
             $filters['clt_numero_parcelas_max'] ?? null
         );
+
+        return $query;
     }
 
     /**
      * @param array<string, mixed> $filters
      */
-    private function applyMercantilFilters(Builder $query, array $filters): void
+    private function buildMercantilCandidateQuery(array $filters): Builder
     {
-        $query->whereNotNull('ms.cpf');
+        $query = DB::table('mercantil_snapshots as ms')->select('ms.cpf');
 
         $situacao = $filters['mercantil_situacao'] ?? null;
         if ($situacao === 'aprovado') {
@@ -231,14 +291,16 @@ class LemitPoolQueryService
             $filters['mercantil_numero_parcelas_min'] ?? null,
             $filters['mercantil_numero_parcelas_max'] ?? null
         );
+
+        return $query;
     }
 
     /**
      * @param array<string, mixed> $filters
      */
-    private function applyUy3Filters(Builder $query, array $filters): void
+    private function buildUy3CandidateQuery(array $filters): Builder
     {
-        $query->whereNotNull('us.cpf');
+        $query = DB::table('uy3_snapshots as us')->select('us.cpf');
 
         $situacao = $filters['uy3_situacao'] ?? null;
         if ($situacao === 'aprovado') {
@@ -258,9 +320,8 @@ class LemitPoolQueryService
             $filters['uy3_consulta_to'] ?? null
         );
 
-        $this->applyIntegerExpressionRange(
+        $this->applyUy3MonthsAdmissionRange(
             $query,
-            $this->uy3MonthsExpression(),
             $filters['uy3_meses_admissao_min'] ?? null,
             $filters['uy3_meses_admissao_max'] ?? null
         );
@@ -285,6 +346,8 @@ class LemitPoolQueryService
             $filters['uy3_numero_parcelas_min'] ?? null,
             $filters['uy3_numero_parcelas_max'] ?? null
         );
+
+        return $query;
     }
 
     /**
@@ -293,48 +356,12 @@ class LemitPoolQueryService
     private function applyPhoneStatusFilters(Builder $query, array $filters): void
     {
         if (! empty($filters['with_phones'])) {
-            $this->applyHasPhonesConstraint($query);
+            $query->where('leads.has_phone', 1);
         }
 
         if (! empty($filters['without_phones'])) {
-            $this->applyWithoutPhonesConstraint($query);
+            $query->where('leads.has_phone', 0);
         }
-    }
-
-    private function applyHasPhonesConstraint(Builder $query): void
-    {
-        $query->where(function (Builder $phoneQuery): void {
-            foreach ($this->phoneColumns() as $index => $phoneColumn) {
-                $method = $index === 0 ? 'where' : 'orWhere';
-                $phoneQuery->{$method}(function (Builder $filledPhoneQuery) use ($phoneColumn): void {
-                    $filledPhoneQuery
-                        ->whereNotNull($phoneColumn)
-                        ->whereRaw("TRIM({$phoneColumn}) <> ''");
-                });
-            }
-        });
-    }
-
-    private function applyWithoutPhonesConstraint(Builder $query): void
-    {
-        foreach ($this->phoneColumns() as $phoneColumn) {
-            $query->where(function (Builder $phoneQuery) use ($phoneColumn): void {
-                $phoneQuery
-                    ->whereNull($phoneColumn)
-                    ->orWhereRaw("TRIM({$phoneColumn}) = ''");
-            });
-        }
-    }
-
-    private function countByPhoneStatus(Builder $query, bool $withPhones): int
-    {
-        if ($withPhones) {
-            $this->applyHasPhonesConstraint($query);
-        } else {
-            $this->applyWithoutPhonesConstraint($query);
-        }
-
-        return (int) $query->count('leads.id');
     }
 
     private function applyDateTimeRange(Builder $query, string $column, mixed $from, mixed $to): void
@@ -367,24 +394,6 @@ class LemitPoolQueryService
         }
     }
 
-    private function applyIntegerExpressionRange(Builder $query, string $expression, mixed $min, mixed $max): void
-    {
-        $parsedMin = $this->parseInteger($min);
-        $parsedMax = $this->parseInteger($max);
-
-        if ($parsedMin === null && $parsedMax === null) {
-            return;
-        }
-
-        if ($parsedMin !== null) {
-            $query->whereRaw("{$expression} >= ?", [$parsedMin]);
-        }
-
-        if ($parsedMax !== null) {
-            $query->whereRaw("{$expression} <= ?", [$parsedMax]);
-        }
-    }
-
     private function applyNumericRange(Builder $query, string $column, mixed $min, mixed $max): void
     {
         $parsedMin = $this->parseDecimal($min);
@@ -400,6 +409,26 @@ class LemitPoolQueryService
 
         if ($parsedMax !== null) {
             $query->where($column, '<=', $parsedMax);
+        }
+    }
+
+    private function applyUy3MonthsAdmissionRange(Builder $query, mixed $min, mixed $max): void
+    {
+        $parsedMin = $this->parseInteger($min);
+        $parsedMax = $this->parseInteger($max);
+
+        if ($parsedMin === null && $parsedMax === null) {
+            return;
+        }
+
+        $today = Carbon::today();
+
+        if ($parsedMin !== null) {
+            $query->where('us.data_admissao', '<=', $today->copy()->subMonthsNoOverflow($parsedMin)->toDateString());
+        }
+
+        if ($parsedMax !== null) {
+            $query->where('us.data_admissao', '>', $today->copy()->subMonthsNoOverflow($parsedMax + 1)->toDateString());
         }
     }
 
@@ -426,6 +455,7 @@ class LemitPoolQueryService
     }
 
     /**
+     * @param array<string, mixed> $filters
      * @return array<int, string>
      */
     private function selectedBanks(array $filters): array
@@ -438,37 +468,8 @@ class LemitPoolQueryService
         return array_values(array_filter(array_map('strval', $selected)));
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function phoneColumns(): array
-    {
-        return ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'];
-    }
-
     private function firstPhoneExpression(): string
     {
         return "COALESCE(NULLIF(TRIM(leads.fone1), ''), NULLIF(TRIM(leads.fone2), ''), NULLIF(TRIM(leads.fone3), ''), NULLIF(TRIM(leads.fone4), ''))";
-    }
-
-    private function uy3MonthsExpression(): string
-    {
-        $driver = DB::connection()->getDriverName();
-
-        return match ($driver) {
-            'sqlite' => <<<SQL
-                (
-                    (
-                        (CAST(strftime('%Y', CURRENT_DATE) AS INTEGER) - CAST(strftime('%Y', us.data_admissao) AS INTEGER)) * 12
-                    ) + (
-                        CAST(strftime('%m', CURRENT_DATE) AS INTEGER) - CAST(strftime('%m', us.data_admissao) AS INTEGER)
-                    ) - CASE
-                        WHEN CAST(strftime('%d', CURRENT_DATE) AS INTEGER) < CAST(strftime('%d', us.data_admissao) AS INTEGER) THEN 1
-                        ELSE 0
-                    END
-                )
-            SQL,
-            default => 'TIMESTAMPDIFF(MONTH, us.data_admissao, CURRENT_DATE)',
-        };
     }
 }

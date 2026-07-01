@@ -6,6 +6,7 @@ namespace Tests\Feature\Lemit;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -264,6 +265,47 @@ class LemitPoolControllerTest extends TestCase
         $this->postJson('/api/lemit/pool/preview', $payload)
             ->assertOk()
             ->assertJsonPath('pool_size', 1);
+    }
+
+    public function test_preview_filters_uy3_months_with_mysql_boundary_equivalent_range(): void
+    {
+        Carbon::setTestNow('2026-07-01 12:00:00');
+
+        try {
+            $this->createLead('71000000001');
+            $this->createLead('71000000002');
+            $this->createLead('71000000003');
+            $this->createLead('71000000004');
+
+            $this->createUy3Snapshot('71000000001', [
+                'data_admissao' => '2025-08-01',
+            ]);
+
+            $this->createUy3Snapshot('71000000002', [
+                'data_admissao' => '2025-08-31',
+            ]);
+
+            $this->createUy3Snapshot('71000000003', [
+                'data_admissao' => '2025-09-01',
+            ]);
+
+            $this->createUy3Snapshot('71000000004', [
+                'data_admissao' => '2025-09-02',
+            ]);
+
+            $this->postJson('/api/lemit/pool/preview', [
+                'selected_banks' => ['uy3'],
+                'bank_combination_mode' => 'all',
+                'uy3' => [
+                    'uy3_meses_admissao_min' => 10,
+                    'uy3_meses_admissao_max' => 10,
+                ],
+            ])
+                ->assertOk()
+                ->assertJsonPath('pool_size', 2);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_sample_respects_filtered_pool_does_not_repeat_leads_and_rejects_invalid_quantity(): void
