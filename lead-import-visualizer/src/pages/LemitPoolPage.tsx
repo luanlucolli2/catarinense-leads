@@ -622,12 +622,12 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger className={filterFieldClassName(draftFilters.bank_combination_mode !== "all")}>
+                      <SelectTrigger className={filterFieldClassName(draftFilters.bank_combination_mode !== "any")}>
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">Todos os bancos selecionados</SelectItem>
                         <SelectItem value="any">Qualquer banco selecionado</SelectItem>
+                        <SelectItem value="all">Todos os bancos selecionados</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

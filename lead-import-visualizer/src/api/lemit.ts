@@ -74,7 +74,7 @@ export interface LemitPoolSampleResponse {
 export function createDefaultLemitPoolFilters(): LemitPoolFiltersDraft {
   return {
     selected_banks: [],
-    bank_combination_mode: "all",
+    bank_combination_mode: "any",
     with_phones: false,
     without_phones: false,
     clt: {
