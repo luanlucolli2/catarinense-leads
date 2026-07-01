@@ -16,3 +16,4 @@ dist-codex
 .codex/AGENTS.override.md
 backend/docs/especificacao_webhook_outbound_vendeai.txt
 backend/docs/api-new-corban.json
+repomix-output.xml
