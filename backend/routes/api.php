@@ -27,6 +27,7 @@ use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
 // ✅ NOVO: URA
 use App\Http\Controllers\Api\UraSendOfficialTemplateController;
 use App\Http\Middleware\VerifyUraWebhook;
+use App\Modules\Lemit\Controllers\LemitPoolController;
 use App\Modules\Uy3\Controllers\Uy3PostExportController;
 use App\Modules\Uy3\Controllers\Uy3PostListController;
 use App\Modules\Uy3\Controllers\Uy3WebhookPostController;
@@ -116,6 +117,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/leads/filters', [LeadController::class, 'filters']);
     Route::apiResource('leads', LeadController::class)->only(['index', 'show']);
     Route::post('/leads/search', [LeadController::class, 'search']);
+    Route::post('/lemit/pool/preview', [LemitPoolController::class, 'preview']);
+    Route::post('/lemit/pool/sample', [LemitPoolController::class, 'sample']);
 
     /* Importação (FGTS) */
     Route::post('/import', [ImportController::class, 'store']);
