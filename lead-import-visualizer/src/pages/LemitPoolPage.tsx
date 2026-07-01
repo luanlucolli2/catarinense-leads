@@ -220,14 +220,21 @@ function downloadSampleCsv(sample: LemitPoolSampleResponse) {
 
 function Section({
   title,
+  imageSrc,
+  imageAlt,
   children,
 }: {
   title: string
+  imageSrc?: string
+  imageAlt?: string
   children: ReactNode
 }) {
   return (
     <div className="rounded-xl border p-4">
-      <div className="mb-4 text-lg font-semibold text-gray-900">{title}</div>
+      <div className="mb-4 flex items-center gap-3 text-lg font-semibold text-gray-900">
+        {imageSrc ? <img src={imageSrc} alt={imageAlt ?? title} className="h-7 w-7 object-contain" /> : null}
+        <span>{title}</span>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{children}</div>
     </div>
   )
@@ -537,7 +544,7 @@ export default function LemitPoolPage() {
               </div>
 
               {draftFilters.selected_banks.includes("clt") ? (
-                <Section title="Filtros CLT Facta">
+                <Section title="Filtros CLT Facta" imageSrc={factaLogo} imageAlt="Facta">
                   <Field label="Situação">
                     <Select
                       value={draftFilters.clt.clt_situacao || "__empty__"}
@@ -661,7 +668,7 @@ export default function LemitPoolPage() {
               ) : null}
 
               {draftFilters.selected_banks.includes("mercantil") ? (
-                <Section title="Filtros CLT Mercantil">
+                <Section title="Filtros CLT Mercantil" imageSrc={mercantilLogo} imageAlt="Mercantil">
                   <Field label="Situação">
                     <Select
                       value={draftFilters.mercantil.mercantil_situacao || "__empty__"}
@@ -761,7 +768,7 @@ export default function LemitPoolPage() {
               ) : null}
 
               {draftFilters.selected_banks.includes("uy3") ? (
-                <Section title="Filtros CLT UY3">
+                <Section title="Filtros CLT UY3" imageSrc={uy3Logo} imageAlt="UY3">
                   <Field label="Situação">
                     <Select
                       value={draftFilters.uy3.uy3_situacao || "__empty__"}
