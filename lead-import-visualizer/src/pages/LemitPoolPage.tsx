@@ -48,6 +48,8 @@ const CHECKBOX_CLASS_NAME = "border-blue-300 data-[state=checked]:border-blue-60
 const PRIMARY_BUTTON_CLASS_NAME = "bg-blue-600 text-white hover:bg-blue-700"
 const OUTLINE_BUTTON_CLASS_NAME = "border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
 const STEP_BADGE_CLASS_NAME = "flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white"
+const FILTER_FIELD_CLASS_NAME = "!outline-none focus:!outline-none focus-visible:!outline-none focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-blue-500 focus-visible:!border-blue-500"
+const ACTIVE_FILTER_FIELD_CLASS_NAME = "border-blue-500 bg-blue-50/50 text-blue-900"
 
 const BANK_OPTIONS: Array<{
   value: LemitBankKey
@@ -97,6 +99,12 @@ type PersistedResultState = {
   lastSample: LemitPoolSampleResponse | null
   requestedQuantity: string
   appliedSignature: string | null
+  appliedFilters: LemitPoolFiltersDraft | null
+}
+
+type AppliedFilterGroup = {
+  title: string
+  labels: string[]
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -218,6 +226,78 @@ function downloadSampleCsv(sample: LemitPoolSampleResponse) {
   window.URL.revokeObjectURL(url)
 }
 
+function formatDateLabel(value: string) {
+  if (!value) {
+    return ""
+  }
+
+  const [year, month, day] = value.split("-")
+  if (!year || !month || !day) {
+    return value
+  }
+
+  return `${day}/${month}/${year}`
+}
+
+function filterFieldClassName(active: boolean) {
+  return cn(FILTER_FIELD_CLASS_NAME, active && ACTIVE_FILTER_FIELD_CLASS_NAME)
+}
+
+function buildAppliedFilterGroups(filters: LemitPoolFiltersDraft): AppliedFilterGroup[] {
+  const general: string[] = []
+  const clt: string[] = []
+  const mercantil: string[] = []
+  const uy3: string[] = []
+
+  if (filters.with_phones) {
+    general.push("Telefone: com telefone")
+  } else if (filters.without_phones) {
+    general.push("Telefone: sem telefone")
+  }
+
+  if (filters.selected_banks.length) {
+    general.push(`Bancos: ${filters.selected_banks.map(bankLabel).join(", ")}`)
+    general.push(`Combinação: ${combinationLabel(filters.bank_combination_mode)}`)
+  }
+
+  if (filters.clt.clt_situacao) clt.push(`Situação: ${filters.clt.clt_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.clt.clt_consulta_from) clt.push(`Consulta de: ${formatDateLabel(filters.clt.clt_consulta_from)}`)
+  if (filters.clt.clt_consulta_to) clt.push(`Consulta até: ${formatDateLabel(filters.clt.clt_consulta_to)}`)
+  if (filters.clt.clt_meses_admissao_min.trim()) clt.push(`Meses admissão mín.: ${filters.clt.clt_meses_admissao_min.trim()}`)
+  if (filters.clt.clt_meses_admissao_max.trim()) clt.push(`Meses admissão máx.: ${filters.clt.clt_meses_admissao_max.trim()}`)
+  if (filters.clt.clt_margem_min.trim()) clt.push(`Margem mín.: ${filters.clt.clt_margem_min.trim()}`)
+  if (filters.clt.clt_margem_max.trim()) clt.push(`Margem máx.: ${filters.clt.clt_margem_max.trim()}`)
+  if (filters.clt.clt_numero_parcelas_min.trim()) clt.push(`Parcelas mín.: ${filters.clt.clt_numero_parcelas_min.trim()}`)
+  if (filters.clt.clt_numero_parcelas_max.trim()) clt.push(`Parcelas máx.: ${filters.clt.clt_numero_parcelas_max.trim()}`)
+
+  if (filters.mercantil.mercantil_situacao) mercantil.push(`Situação: ${filters.mercantil.mercantil_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.mercantil.mercantil_consulta_from) mercantil.push(`Consulta de: ${formatDateLabel(filters.mercantil.mercantil_consulta_from)}`)
+  if (filters.mercantil.mercantil_consulta_to) mercantil.push(`Consulta até: ${formatDateLabel(filters.mercantil.mercantil_consulta_to)}`)
+  if (filters.mercantil.mercantil_valor_parcela_min.trim()) mercantil.push(`Parcela mín.: ${filters.mercantil.mercantil_valor_parcela_min.trim()}`)
+  if (filters.mercantil.mercantil_valor_parcela_max.trim()) mercantil.push(`Parcela máx.: ${filters.mercantil.mercantil_valor_parcela_max.trim()}`)
+  if (filters.mercantil.mercantil_numero_parcelas_min.trim()) mercantil.push(`Parcelas mín.: ${filters.mercantil.mercantil_numero_parcelas_min.trim()}`)
+  if (filters.mercantil.mercantil_numero_parcelas_max.trim()) mercantil.push(`Parcelas máx.: ${filters.mercantil.mercantil_numero_parcelas_max.trim()}`)
+
+  if (filters.uy3.uy3_situacao) uy3.push(`Situação: ${filters.uy3.uy3_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.uy3.uy3_consulta_from) uy3.push(`Atualização de: ${formatDateLabel(filters.uy3.uy3_consulta_from)}`)
+  if (filters.uy3.uy3_consulta_to) uy3.push(`Atualização até: ${formatDateLabel(filters.uy3.uy3_consulta_to)}`)
+  if (filters.uy3.uy3_meses_admissao_min.trim()) uy3.push(`Meses admissão mín.: ${filters.uy3.uy3_meses_admissao_min.trim()}`)
+  if (filters.uy3.uy3_meses_admissao_max.trim()) uy3.push(`Meses admissão máx.: ${filters.uy3.uy3_meses_admissao_max.trim()}`)
+  if (filters.uy3.uy3_margem_min.trim()) uy3.push(`Margem mín.: ${filters.uy3.uy3_margem_min.trim()}`)
+  if (filters.uy3.uy3_margem_max.trim()) uy3.push(`Margem máx.: ${filters.uy3.uy3_margem_max.trim()}`)
+  if (filters.uy3.uy3_valor_liberado_min.trim()) uy3.push(`Valor liberado mín.: ${filters.uy3.uy3_valor_liberado_min.trim()}`)
+  if (filters.uy3.uy3_valor_liberado_max.trim()) uy3.push(`Valor liberado máx.: ${filters.uy3.uy3_valor_liberado_max.trim()}`)
+  if (filters.uy3.uy3_numero_parcelas_min.trim()) uy3.push(`Parcelas mín.: ${filters.uy3.uy3_numero_parcelas_min.trim()}`)
+  if (filters.uy3.uy3_numero_parcelas_max.trim()) uy3.push(`Parcelas máx.: ${filters.uy3.uy3_numero_parcelas_max.trim()}`)
+
+  return [
+    { title: "Gerais", labels: general },
+    { title: "CLT Facta", labels: clt },
+    { title: "CLT Mercantil", labels: mercantil },
+    { title: "CLT UY3", labels: uy3 },
+  ].filter((group) => group.labels.length > 0)
+}
+
 function Section({
   title,
   imageSrc,
@@ -283,13 +363,18 @@ export default function LemitPoolPage() {
   const [sampleLoading, setSampleLoading] = useState(false)
   const [confirmSampleOpen, setConfirmSampleOpen] = useState(false)
   const [appliedSignature, setAppliedSignature] = useState<string | null>(persistedResultState?.appliedSignature ?? null)
+  const [appliedFilters, setAppliedFilters] = useState<LemitPoolFiltersDraft | null>(persistedResultState?.appliedFilters ?? null)
 
   const draftSignature = useMemo(() => JSON.stringify(draftFilters), [draftFilters])
   const hasUnappliedChanges = appliedSignature !== null && appliedSignature !== draftSignature
   const isResultStepLocked = previewResult === null || hasUnappliedChanges
+  const appliedFilterGroups = useMemo(
+    () => (appliedFilters ? buildAppliedFilterGroups(appliedFilters) : []),
+    [appliedFilters]
+  )
 
   useEffect(() => {
-    if (!previewResult && !lastSample && !requestedQuantity && !appliedSignature) {
+    if (!previewResult && !lastSample && !requestedQuantity && !appliedSignature && !appliedFilters) {
       clearPersistedResultState()
       return
     }
@@ -304,10 +389,11 @@ export default function LemitPoolPage() {
       lastSample,
       requestedQuantity,
       appliedSignature,
+      appliedFilters,
     }
 
     window.localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(payload))
-  }, [appliedSignature, lastSample, previewResult, requestedQuantity])
+  }, [appliedFilters, appliedSignature, lastSample, previewResult, requestedQuantity])
 
   const validationMessages = useMemo(
     () => draftFilters.selected_banks
@@ -359,6 +445,7 @@ export default function LemitPoolPage() {
       const data = await previewLemitPool(draftFilters)
       setPreviewResult(data)
       setAppliedSignature(draftSignature)
+      setAppliedFilters(cloneFilters(draftFilters))
       setLastSample(null)
       toast.success("Resultado atualizado.")
     } catch (error) {
@@ -374,6 +461,7 @@ export default function LemitPoolPage() {
     setLastSample(null)
     setRequestedQuantity("")
     setAppliedSignature(null)
+    setAppliedFilters(null)
     clearPersistedResultState()
   }
 
@@ -479,7 +567,7 @@ export default function LemitPoolPage() {
                       }))
                     }}
                   >
-                    <SelectTrigger className="bg-white">
+                    <SelectTrigger className={filterFieldClassName(draftFilters.with_phones || draftFilters.without_phones)}>
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
@@ -504,7 +592,10 @@ export default function LemitPoolPage() {
                     {BANK_OPTIONS.map((bank) => (
                       <label
                         key={bank.value}
-                        className="flex items-center gap-3 rounded-lg border bg-background p-3 text-sm"
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg border bg-background p-3 text-sm transition-colors",
+                          draftFilters.selected_banks.includes(bank.value) && "border-blue-500 bg-blue-50/50 text-blue-900"
+                        )}
                       >
                         <Checkbox
                           className={CHECKBOX_CLASS_NAME}
@@ -531,7 +622,7 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger className="bg-white">
+                      <SelectTrigger className={filterFieldClassName(draftFilters.bank_combination_mode !== "all")}>
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
@@ -558,7 +649,7 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.clt.clt_situacao))}>
                         <SelectValue placeholder="Ex.: Aprovado" />
                       </SelectTrigger>
                       <SelectContent>
@@ -572,6 +663,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.clt.clt_consulta_from}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_from))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -584,6 +676,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.clt.clt_consulta_to}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_to))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -595,6 +688,7 @@ export default function LemitPoolPage() {
                   <Field label="Meses admissão mín.">
                     <Input
                       value={draftFilters.clt.clt_meses_admissao_min}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -607,6 +701,7 @@ export default function LemitPoolPage() {
                   <Field label="Meses admissão máx.">
                     <Input
                       value={draftFilters.clt.clt_meses_admissao_max}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -619,6 +714,7 @@ export default function LemitPoolPage() {
                   <Field label="Margem mínima">
                     <Input
                       value={draftFilters.clt.clt_margem_min}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -631,6 +727,7 @@ export default function LemitPoolPage() {
                   <Field label="Margem máxima">
                     <Input
                       value={draftFilters.clt.clt_margem_max}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -643,6 +740,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas mín.">
                     <Input
                       value={draftFilters.clt.clt_numero_parcelas_min}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -655,6 +753,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas máx.">
                     <Input
                       value={draftFilters.clt.clt_numero_parcelas_max}
+                      className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -682,7 +781,7 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_situacao))}>
                         <SelectValue placeholder="Ex.: Aprovado" />
                       </SelectTrigger>
                       <SelectContent>
@@ -696,6 +795,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.mercantil.mercantil_consulta_from}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_consulta_from))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -708,6 +808,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.mercantil.mercantil_consulta_to}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_consulta_to))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -719,6 +820,7 @@ export default function LemitPoolPage() {
                   <Field label="Valor parcela mín.">
                     <Input
                       value={draftFilters.mercantil.mercantil_valor_parcela_min}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_valor_parcela_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -731,6 +833,7 @@ export default function LemitPoolPage() {
                   <Field label="Valor parcela máx.">
                     <Input
                       value={draftFilters.mercantil.mercantil_valor_parcela_max}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_valor_parcela_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -743,6 +846,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas mín.">
                     <Input
                       value={draftFilters.mercantil.mercantil_numero_parcelas_min}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_numero_parcelas_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -755,6 +859,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas máx.">
                     <Input
                       value={draftFilters.mercantil.mercantil_numero_parcelas_max}
+                      className={filterFieldClassName(Boolean(draftFilters.mercantil.mercantil_numero_parcelas_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -782,7 +887,7 @@ export default function LemitPoolPage() {
                         }))
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_situacao))}>
                         <SelectValue placeholder="Ex.: Aprovado" />
                       </SelectTrigger>
                       <SelectContent>
@@ -796,6 +901,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.uy3.uy3_consulta_from}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_consulta_from))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -808,6 +914,7 @@ export default function LemitPoolPage() {
                     <Input
                       type="date"
                       value={draftFilters.uy3.uy3_consulta_to}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_consulta_to))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -819,6 +926,7 @@ export default function LemitPoolPage() {
                   <Field label="Meses admissão mín.">
                     <Input
                       value={draftFilters.uy3.uy3_meses_admissao_min}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_meses_admissao_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -831,6 +939,7 @@ export default function LemitPoolPage() {
                   <Field label="Meses admissão máx.">
                     <Input
                       value={draftFilters.uy3.uy3_meses_admissao_max}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_meses_admissao_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -843,6 +952,7 @@ export default function LemitPoolPage() {
                   <Field label="Margem mínima">
                     <Input
                       value={draftFilters.uy3.uy3_margem_min}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_margem_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -855,6 +965,7 @@ export default function LemitPoolPage() {
                   <Field label="Margem máxima">
                     <Input
                       value={draftFilters.uy3.uy3_margem_max}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_margem_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -867,6 +978,7 @@ export default function LemitPoolPage() {
                   <Field label="Valor liberado mín.">
                     <Input
                       value={draftFilters.uy3.uy3_valor_liberado_min}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_valor_liberado_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -879,6 +991,7 @@ export default function LemitPoolPage() {
                   <Field label="Valor liberado máx.">
                     <Input
                       value={draftFilters.uy3.uy3_valor_liberado_max}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_valor_liberado_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -891,6 +1004,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas mín.">
                     <Input
                       value={draftFilters.uy3.uy3_numero_parcelas_min}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_numero_parcelas_min.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -903,6 +1017,7 @@ export default function LemitPoolPage() {
                   <Field label="Qtd. parcelas máx.">
                     <Input
                       value={draftFilters.uy3.uy3_numero_parcelas_max}
+                      className={filterFieldClassName(Boolean(draftFilters.uy3.uy3_numero_parcelas_max.trim()))}
                       onChange={(event) => {
                         updateFilters((current) => ({
                           ...current,
@@ -969,6 +1084,28 @@ export default function LemitPoolPage() {
                       <SummaryCard label="Com telefone" value={previewResult.pool_with_phones} />
                       <SummaryCard label="Sem telefone" value={previewResult.pool_without_phones} />
                       <SummaryCard label="Combinação" value={combinationLabel(draftFilters.bank_combination_mode)} />
+                    </div>
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+                      <div className="mb-3 text-sm font-medium text-blue-900">Filtros utilizados</div>
+                      <div className="space-y-3">
+                        {appliedFilterGroups.length ? appliedFilterGroups.map((group) => (
+                          <div key={group.title}>
+                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">{group.title}</div>
+                            <div className="flex flex-wrap gap-2">
+                              {group.labels.map((label) => (
+                                <span
+                                  key={`${group.title}-${label}`}
+                                  className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-800 shadow-sm"
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )) : (
+                          <span className="text-xs text-blue-700">Sem filtros adicionais.</span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1059,6 +1196,29 @@ export default function LemitPoolPage() {
               <Badge variant="outline" className="rounded-full px-3 py-1">
                 {combinationLabel(lastSample.bank_combination_mode, true)}
               </Badge>
+            </div>
+
+            <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+              <div className="mb-3 text-sm font-medium text-blue-900">Filtros utilizados</div>
+              <div className="space-y-3">
+                {appliedFilterGroups.length ? appliedFilterGroups.map((group) => (
+                  <div key={group.title}>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">{group.title}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {group.labels.map((label) => (
+                        <span
+                          key={`${group.title}-${label}`}
+                          className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-800 shadow-sm"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )) : (
+                  <span className="text-xs text-blue-700">Sem filtros adicionais.</span>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-xl border">
