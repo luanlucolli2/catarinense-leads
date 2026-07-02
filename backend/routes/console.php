@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use App\Modules\CLT\Services\DispatchScheduledCltConsultJobs;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
+use App\Modules\Vendeai\Services\NewCorbanCatalogValidationService;
 use App\Modules\Uy3\Services\BackfillUy3SnapshotsService;
 use App\Modules\Vendeai\Services\BackfillVendeaiLeadProductKeysService;
 use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
@@ -96,6 +97,36 @@ Artisan::command('vendeai:backfill-product-keys', function () {
         (int) ($result['attempts_relinked'] ?? 0),
     ));
 })->purpose('Divide leads VendeAI por conversa + produto e religa tentativas NewCorban');
+
+Artisan::command('newcorban:validate-config', function () {
+    try {
+        $result = app(NewCorbanCatalogValidationService::class)->handle();
+    } catch (\Throwable $e) {
+        $this->error($e->getMessage());
+
+        return 1;
+    }
+
+    foreach (($result['catalogs'] ?? []) as $catalog => $count) {
+        $this->line(sprintf('%s: %d registro(s).', $catalog, (int) $count));
+    }
+
+    foreach (($result['warnings'] ?? []) as $warning) {
+        $this->warn($warning);
+    }
+
+    if (($result['ok'] ?? false) !== true) {
+        foreach (($result['errors'] ?? []) as $error) {
+            $this->error($error);
+        }
+
+        return 1;
+    }
+
+    $this->info('NewCorban config validada com sucesso.');
+
+    return 0;
+})->purpose('Valida mapeamentos locais da NewCorban contra os catalogos da API nova');
 
 Artisan::command('uy3:backfill-snapshots', function () {
     $result = app(BackfillUy3SnapshotsService::class)->handle();
