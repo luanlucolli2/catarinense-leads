@@ -74,9 +74,6 @@ interface LeadsControlsProps {
   fgtsConsultaToFilter: string;
   onFgtsConsultaToFilterChange: (v: string) => void;
 
-  cltConsultado: "todos" | "sim" | "nao";
-  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
-
   cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado";
   onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void;
 
@@ -141,8 +138,8 @@ interface LeadsControlsProps {
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado";
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado") => void;
+  mercantilSituacao: "todos" | "aprovado" | "nao_aprovado";
+  onMercantilSituacaoChange: (v: "todos" | "aprovado" | "nao_aprovado") => void;
   mercantilStatusFilter: string[];
   onMercantilStatusFilterChange: (values: string[]) => void;
   mercantilConsultaFrom: string;
@@ -290,8 +287,6 @@ export const LeadsControls = ({
   onFgtsConsultaFromFilterChange,
   fgtsConsultaToFilter,
   onFgtsConsultaToFilterChange,
-  cltConsultado,
-  onCltConsultadoChange,
   cltSituacao,
   onCltSituacaoChange,
   cltConsultaFrom,
@@ -638,7 +633,7 @@ export const LeadsControls = ({
     return items;
   }, [
     birthMonthFilter, cltAdmissaoFrom, cltAdmissaoTo, cltAtivosMax, cltAtivosMin,
-    cltCategoriaCodigos, cltConsultaFrom, cltConsultaTo, cltConsultado, cltIdadeMax,
+    cltCategoriaCodigos, cltConsultaFrom, cltConsultaTo, cltIdadeMax,
     cltIdadeMin, cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltBaseMax, cltBaseMin,
     cltMargemMax, cltMargemMin, cltMesesMax, cltMesesMin, cltPrestacaoMax, cltPrestacaoMin,
     cltRendaMax, cltRendaMin, cltSexo, cltSituacao, cltTemAtivos, cltTemLegados,
@@ -879,8 +874,6 @@ export const LeadsControls = ({
         onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
         fgtsConsultaToFilter={fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
-        cltConsultado={cltConsultado}
-        onCltConsultadoChange={onCltConsultadoChange}
         cltSituacao={cltSituacao}
         onCltSituacaoChange={onCltSituacaoChange}
         cltConsultaFrom={cltConsultaFrom}

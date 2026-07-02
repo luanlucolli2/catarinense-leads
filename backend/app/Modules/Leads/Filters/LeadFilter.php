@@ -99,8 +99,7 @@ class LeadFilter
             : ($mode === 'uy3');
 
         $hasCltScopedFilters =
-            $r->filled('clt_consultado')
-            || $r->filled('clt_situacao')
+            $r->filled('clt_situacao')
             || $r->filled('clt_elegivel')
             || $r->filled('clt_not_found')
             || $r->filled('clt_consulta_from')
@@ -1113,7 +1112,6 @@ class LeadFilter
 
     private static function applyCltScopedFilters(Builder $query, Request $r): void
     {
-        $consultado = self::yn($r->input('clt_consultado', null));
         $situacao = self::normalizeCltSituacao($r->input('clt_situacao', null));
 
         $hasSpecificFilters =
@@ -1133,12 +1131,7 @@ class LeadFilter
             || $r->filled('clt_ativos_min') || $r->filled('clt_ativos_max') || $r->filled('clt_tem_ativos')
             || $r->filled('clt_tem_legados');
 
-        if ($consultado === 'nao') {
-            $query->whereNull('cs.cpf');
-            return;
-        }
-
-        if ($consultado === 'sim' || $hasSpecificFilters) {
+        if ($hasSpecificFilters) {
             $query->whereNotNull('cs.cpf');
 
             if ($situacao !== null) {
@@ -1290,12 +1283,7 @@ class LeadFilter
             || $r->filled('mercantil_parcela_min') || $r->filled('mercantil_parcela_max')
             || $r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max');
 
-        if ($situacao === 'sem_consulta') {
-            $query->whereNull('ms.cpf');
-            return;
-        }
-
-        if ($situacao === 'consultado' || $situacao === 'aprovado' || $situacao === 'nao_aprovado' || $hasSnapshotScopedFilters) {
+        if ($situacao === 'aprovado' || $situacao === 'nao_aprovado' || $hasSnapshotScopedFilters) {
             $query->whereNotNull('ms.cpf');
         }
 
@@ -1412,8 +1400,7 @@ class LeadFilter
 
     private static function hasCltScopedFilters(Request $r): bool
     {
-        return $r->filled('clt_consultado')
-            || $r->filled('clt_situacao')
+        return $r->filled('clt_situacao')
             || $r->filled('clt_elegivel')
             || $r->filled('clt_not_found')
             || $r->filled('clt_consulta_from')
@@ -1564,14 +1551,8 @@ class LeadFilter
         $s = preg_replace('/[\s\-]+/u', '_', $s);
 
         $map = [
-            'consultado' => 'consultado',
-            'sem_consulta' => 'sem_consulta',
             'aprovado' => 'aprovado',
             'nao_aprovado' => 'nao_aprovado',
-            // compatibilidade com valores antigos do front:
-            'sucesso' => 'consultado',
-            'com_erro' => 'consultado',
-            'erro' => 'consultado',
         ];
 
         return $map[$s] ?? null;

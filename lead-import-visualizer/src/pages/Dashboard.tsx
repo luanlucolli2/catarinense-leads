@@ -85,7 +85,6 @@ type Dashboard360Filters = {
   fgts_status: FgtsStatusFilter
   fgts_consulta_from: string
   fgts_consulta_to: string
-  clt_consultado: YesNoAll
   clt_situacao: CltSituacaoFilter
   clt_consulta_from: string
   clt_consulta_to: string
@@ -283,7 +282,6 @@ const DASHBOARD_360_FILTERS_DEFAULT: Dashboard360Filters = {
   fgts_status: "todos",
   fgts_consulta_from: "",
   fgts_consulta_to: "",
-  clt_consultado: "todos",
   clt_situacao: "todos",
   clt_consulta_from: "",
   clt_consulta_to: "",
@@ -492,7 +490,6 @@ const Dashboard = () => {
   const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
   const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
 
-  const [cltConsultado, setCltConsultado] = usePersistedState<YesNoAll>("dashboard-clt:consultado", "todos")
   const [cltSituacao, setCltSituacao] = usePersistedState<CltSituacaoFilter>("dashboard-clt:situacao", "todos")
   const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
   const [cltConsultaTo, setCltConsultaTo] = usePersistedState<string>("dashboard-clt:consultaTo", "")
@@ -528,10 +525,6 @@ const Dashboard = () => {
   const [mercantilWithPhonesFilter, setMercantilWithPhonesFilter] = usePersistedState<boolean>("dashboard-mercantil:withPhonesFilter", false)
   const [mercantilNoPhonesFilter, setMercantilNoPhonesFilter] = usePersistedState<boolean>("dashboard-mercantil:noPhonesFilter", false)
   const [mercantilBirthMonthFilter, setMercantilBirthMonthFilter] = usePersistedState<string[]>("dashboard-mercantil:birthMonthFilter", [])
-  const [mercantilSituacao, setMercantilSituacao] = usePersistedState<"todos" | "consultado" | "sem_consulta">(
-    "dashboard-mercantil:situacao",
-    "todos"
-  )
   const [mercantilStatusFilter, setMercantilStatusFilter] = usePersistedState<string[]>("dashboard-mercantil:statusFilter", [])
   const [mercantilConsultaFrom, setMercantilConsultaFrom] = usePersistedState<string>("dashboard-mercantil:consultaFrom", "")
   const [mercantilConsultaTo, setMercantilConsultaTo] = usePersistedState<string>("dashboard-mercantil:consultaTo", "")
@@ -545,7 +538,6 @@ const Dashboard = () => {
   )
   const [mercantilSortBy, setMercantilSortBy] = usePersistedState<LeadSort>("dashboard-mercantil:sortBy", MERCANTIL_SORT_DEFAULT)
   const mercantilSortEffective: LeadSort = mercantilSortBy === "mercantil_updated_at" ? MERCANTIL_SORT_DEFAULT : mercantilSortBy
-  const mercantilStatusEffective = mercantilSituacao === "sem_consulta" ? [] : mercantilStatusFilter
 
   const [uy3SearchValue, setUy3SearchValue] = usePersistedState<string>("dashboard-uy3:searchValue", "")
   const [uy3OrigemFilter, setUy3OrigemFilter] = usePersistedState<string[]>("dashboard-uy3:origemFilter", [])
@@ -609,7 +601,7 @@ const Dashboard = () => {
       cltSearchValue, cltStatusFilter, cltMotivosFilter, cltOrigemFilter, cltHigienizacaoFilter,
       cltDateFromFilter, cltDateToFilter, cltContractFromFilter, cltContractToFilter,
       cltCpfMassFilter, cltNamesMassFilter, cltPhonesMassFilter, cltWithPhonesFilter, cltNoPhonesFilter, cltVendorsFilter, cltBirthMonthFilter,
-      cltConsultado, cltSituacao,
+      cltSituacao,
       cltConsultaFrom, cltConsultaTo, cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
       cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos, cltIdadeMin, cltIdadeMax,
       cltSexo, cltRendaMin, cltRendaMax, cltBaseMin, cltBaseMax, cltMargemMin, cltMargemMax,
@@ -620,7 +612,7 @@ const Dashboard = () => {
       mercantilOrigemFilter,
       mercantilCpfMassFilter, mercantilNamesMassFilter, mercantilPhonesMassFilter, mercantilWithPhonesFilter, mercantilNoPhonesFilter,
       mercantilBirthMonthFilter,
-      mercantilSituacao, mercantilStatusEffective,
+      mercantilStatusFilter,
       mercantilConsultaFrom, mercantilConsultaTo,
       mercantilParcelaMin, mercantilParcelaMax,
       mercantilQtdParcelasMin, mercantilQtdParcelasMax,
@@ -785,7 +777,7 @@ const Dashboard = () => {
         with_phones: mercantilWithPhonesFilter || undefined,
         without_phones: mercantilNoPhonesFilter || undefined,
         birth_month: mercantilBirthMonthFilter,
-        mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
+        mercantil_status: mercantilStatusFilter.length ? mercantilStatusFilter : undefined,
         mercantil_consulta_from: mercantilConsultaFrom || undefined,
         mercantil_consulta_to: mercantilConsultaTo || undefined,
         mercantil_parcela_min: mercantilParcelaMin || undefined,
@@ -1225,7 +1217,6 @@ const Dashboard = () => {
     setCltNoPhonesFilter(false)
     setCltVendorsFilter([])
     setCltBirthMonthFilter([])
-    setCltConsultado("todos")
     setCltSituacao("todos")
     setCltConsultaFrom("")
     setCltConsultaTo("")
@@ -1263,7 +1254,6 @@ const Dashboard = () => {
     setMercantilWithPhonesFilter(false)
     setMercantilNoPhonesFilter(false)
     setMercantilBirthMonthFilter([])
-    setMercantilSituacao("todos")
     setMercantilStatusFilter([])
     setMercantilConsultaFrom("")
     setMercantilConsultaTo("")
@@ -1401,7 +1391,7 @@ const Dashboard = () => {
     mercantilWithPhonesFilter ||
     mercantilNoPhonesFilter ||
     mercantilBirthMonthFilter.length ||
-    mercantilStatusEffective.length ||
+    mercantilStatusFilter.length ||
     mercantilConsultaFrom ||
     mercantilConsultaTo ||
     mercantilParcelaMin ||
@@ -1563,7 +1553,7 @@ const Dashboard = () => {
       with_phones: mercantilWithPhonesFilter || undefined,
       without_phones: mercantilNoPhonesFilter || undefined,
       birth_month: mercantilBirthMonthFilter.length ? mercantilBirthMonthFilter : undefined,
-      mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
+      mercantil_status: mercantilStatusFilter.length ? mercantilStatusFilter : undefined,
       mercantil_consulta_from: mercantilConsultaFrom || undefined,
       mercantil_consulta_to: mercantilConsultaTo || undefined,
       mercantil_parcela_min: mercantilParcelaMin || undefined,
@@ -1930,8 +1920,6 @@ const Dashboard = () => {
         fgtsConsultaToFilter={ui.fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={ui.setFgtsConsultaToFilter}
         /* CLT */
-        cltConsultado={activeTab === "360" ? dashboard360Filters.clt_consultado : cltConsultado}
-        onCltConsultadoChange={(value) => activeTab === "360" ? update360Filter("clt_consultado", value) : setCltConsultado(value)}
         cltSituacao={activeTab === "360" ? dashboard360Filters.clt_situacao : cltSituacao}
         onCltSituacaoChange={(value) => activeTab === "360" ? update360Filter("clt_situacao", value) : setCltSituacao(value)}
         cltConsultaFrom={activeTab === "360" ? dashboard360Filters.clt_consulta_from : cltConsultaFrom}
@@ -1982,12 +1970,10 @@ const Dashboard = () => {
         onCltTemAtivosChange={(value) => activeTab === "360" ? update360Filter("clt_tem_ativos", value) : setCltTemAtivos(value)}
         cltTemLegados={activeTab === "360" ? dashboard360Filters.clt_tem_legados : cltTemLegados}
         onCltTemLegadosChange={(value) => activeTab === "360" ? update360Filter("clt_tem_legados", value) : setCltTemLegados(value)}
-        mercantilSituacao={activeTab === "360" ? dashboard360Filters.mercantil_situacao : mercantilSituacao}
-        onMercantilSituacaoChange={(value) =>
-          activeTab === "360"
-            ? update360Filter("mercantil_situacao", value as MercantilSituacao360Filter)
-            : setMercantilSituacao(value as "todos" | "consultado" | "sem_consulta")
-        }
+        mercantilSituacao={activeTab === "360" ? dashboard360Filters.mercantil_situacao : "todos"}
+        onMercantilSituacaoChange={(value) => {
+          if (activeTab === "360") update360Filter("mercantil_situacao", value as MercantilSituacao360Filter)
+        }}
         mercantilStatusFilter={activeTab === "360" ? dashboard360Filters.mercantil_status : mercantilStatusFilter}
         onMercantilStatusFilterChange={(value) => activeTab === "360" ? update360Filter("mercantil_status", value) : setMercantilStatusFilter(value)}
         mercantilConsultaFrom={activeTab === "360" ? dashboard360Filters.mercantil_consulta_from : mercantilConsultaFrom}

@@ -50,7 +50,6 @@ class ExportLeadsRequest extends FormRequest
             'clt_elegivel' => ['nullable', 'in:sim,nao'],
             'clt_not_found' => ['nullable', 'in:sim,nao'],
 
-            'clt_consultado' => ['nullable', 'in:sim,nao'],
             'clt_consulta_from' => ['nullable', 'date_format:Y-m-d'],
             'clt_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
@@ -87,7 +86,7 @@ class ExportLeadsRequest extends FormRequest
             'clt_tem_legados' => ['nullable', 'in:sim,nao'],
 
             // ===== MERCANTIL: filtros =====
-            'mercantil_situacao' => ['nullable', 'in:consultado,sem_consulta,aprovado,nao_aprovado'],
+            'mercantil_situacao' => ['nullable', 'in:aprovado,nao_aprovado'],
             'mercantil_status' => ['nullable'],
             'mercantil_consulta_from' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_consulta_to' => ['nullable', 'date_format:Y-m-d'],

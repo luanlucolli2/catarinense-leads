@@ -67,10 +67,6 @@ interface FiltersModalProps {
   availableHigienizacoes: string[]
   availableVendors: { id: number; name: string }[]
 
-  /** ➕ CLT (props) */
-  cltConsultado: "todos" | "sim" | "nao"
-  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void
-
   /** novo filtro unificado de situação (3 estados) */
   cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
   onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void
@@ -138,8 +134,8 @@ interface FiltersModalProps {
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
 
   /** ➕ MERCANTIL */
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado"
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado") => void
+  mercantilSituacao: "todos" | "aprovado" | "nao_aprovado"
+  onMercantilSituacaoChange: (v: "todos" | "aprovado" | "nao_aprovado") => void
   mercantilStatusFilter: string[]
   onMercantilStatusFilterChange: (values: string[]) => void
   mercantilConsultaFrom: string
@@ -341,8 +337,6 @@ export const FiltersModal = ({
   availableVendors,
 
   // —— CLT
-  cltConsultado,
-  onCltConsultadoChange,
   cltSituacao,
   onCltSituacaoChange,
   cltConsultaFrom,
@@ -534,7 +528,6 @@ export const FiltersModal = ({
   const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
   // —— CLT locals ——
-  const [lCltConsultado, setLCltConsultado] = useState<"todos" | "sim" | "nao">(cltConsultado)
   const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado">(cltSituacao)
   const [lCltConsultaFrom, setLCltConsultaFrom] = useState(cltConsultaFrom)
   const [lCltConsultaTo, setLCltConsultaTo] = useState(cltConsultaTo)
@@ -562,7 +555,6 @@ export const FiltersModal = ({
   const [lCltTemLegados, setLCltTemLegados] = useState<"todos" | "sim" | "nao">(cltTemLegados)
 
   // —— MERCANTIL locals ——
-  const [lMercantilSituacao, setLMercantilSituacao] = useState<"todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado">(mercantilSituacao)
   const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
   const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
   const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)
@@ -594,7 +586,6 @@ export const FiltersModal = ({
     setLocalFgtsTo(fgtsConsultaToFilter)
 
     // CLT locals
-    setLCltConsultado(cltConsultado)
     setLCltSituacao(cltSituacao)
     setLCltConsultaFrom(cltConsultaFrom)
     setLCltConsultaTo(cltConsultaTo)
@@ -622,7 +613,6 @@ export const FiltersModal = ({
     setLCltTemLegados(cltTemLegados)
 
     // MERCANTIL locals
-    setLMercantilSituacao(mercantilSituacao)
     setLMercantilStatus(mercantilStatusFilter)
     setLMercantilConsultaFrom(mercantilConsultaFrom)
     setLMercantilConsultaTo(mercantilConsultaTo)
@@ -652,7 +642,7 @@ export const FiltersModal = ({
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
     // CLT deps
-    cltConsultado, cltSituacao, cltConsultaFrom, cltConsultaTo,
+    cltSituacao, cltConsultaFrom, cltConsultaTo,
     cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
     cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos,
     cltIdadeMin, cltIdadeMax, cltSexo,
@@ -661,7 +651,7 @@ export const FiltersModal = ({
     cltAtivosMin, cltAtivosMax, cltTemAtivos,
     cltTemLegados,
     // MERCANTIL deps
-    mercantilSituacao, mercantilStatusFilter,
+    mercantilStatusFilter,
     mercantilConsultaFrom, mercantilConsultaTo,
     mercantilParcelaMin, mercantilParcelaMax,
     mercantilQtdParcelasMin, mercantilQtdParcelasMax,

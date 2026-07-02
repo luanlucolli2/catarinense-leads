@@ -361,7 +361,6 @@ export interface LeadFilters {
   fgts_consulta_to?: string
 
   /** ➕ CLT — filtros específicos */
-  clt_consultado?: "sim" | "nao"
   /** novo filtro unificado de situação */
   clt_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
   clt_consulta_from?: string
@@ -393,7 +392,7 @@ export interface LeadFilters {
   clt_tem_legados?: "sim" | "nao"
 
   /** ➕ MERCANTIL — filtros específicos */
-  mercantil_situacao?: "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado"
+  mercantil_situacao?: "aprovado" | "nao_aprovado"
   mercantil_status?: string[]
   mercantil_consulta_from?: string
   mercantil_consulta_to?: string
@@ -478,7 +477,6 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
 
   // ➕ CLT – somente quando mode = "clt"
   if (supportsCltFilters) {
-    if (f.clt_consultado) p.set("clt_consultado", f.clt_consultado)
     if (f.clt_situacao) p.set("clt_situacao", f.clt_situacao)
     if (f.clt_consulta_from) p.set("clt_consulta_from", f.clt_consulta_from)
     if (f.clt_consulta_to) p.set("clt_consulta_to", f.clt_consulta_to)
@@ -678,7 +676,6 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
 
       // ➕ CLT
-      clt_consultado: filters.clt_consultado || undefined,
       clt_situacao: filters.clt_situacao || undefined,
       clt_consulta_from: filters.clt_consulta_from || undefined,
       clt_consulta_to: filters.clt_consulta_to || undefined,
@@ -736,7 +733,6 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
       names: filters.names ? splitAndNormalize(filters.names, false) : undefined,
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
 
-      mercantil_situacao: filters.mercantil_situacao || undefined,
       mercantil_status: filters.mercantil_status?.length ? filters.mercantil_status : undefined,
       mercantil_consulta_from: filters.mercantil_consulta_from || undefined,
       mercantil_consulta_to: filters.mercantil_consulta_to || undefined,
@@ -819,7 +815,6 @@ export async function fetchLeads360(filters: LeadFilters) {
       fgts_status: filters.fgts_status || undefined,
       fgts_consulta_from: filters.fgts_consulta_from || undefined,
       fgts_consulta_to: filters.fgts_consulta_to || undefined,
-      clt_consultado: filters.clt_consultado || undefined,
       clt_situacao: filters.clt_situacao || undefined,
       clt_consulta_from: filters.clt_consulta_from || undefined,
       clt_consulta_to: filters.clt_consulta_to || undefined,
