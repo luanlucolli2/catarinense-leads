@@ -209,6 +209,7 @@ export interface LeadFromApi360 {
   not_found: boolean | null
   margem_disponivel: string | number | null
   politica_credito_aprovado: boolean | number | "0" | "1" | null
+  politica_credito_valor_maximo_disponivel: string | number | null
   clt_consultado_em: string | null
   clt_dados_atualizados_em: string | null
   mercantil_status: string | null

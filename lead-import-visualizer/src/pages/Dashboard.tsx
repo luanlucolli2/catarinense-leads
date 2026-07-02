@@ -224,7 +224,7 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "nome",
   "telefone_1",
   "politica_credito_aprovado",
-  "margem_disponivel",
+  "politica_credito_valor_maximo_disponivel",
   "clt_consultado_em",
   "mercantil_status",
   "mercantil_valor_liberado",
@@ -234,9 +234,10 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "uy3_consultado_em",
 ]
 
-const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v8"
+const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v9"
 
 const DASHBOARD_360_COLUMNS_LEGACY_STORAGE_KEYS = [
+  "leadstable:360:visibleColumns:v8",
   "leadstable:360:visibleColumns:v7",
   "leadstable:360:visibleColumns:v6",
   "leadstable:360:visibleColumns:v5",
@@ -881,6 +882,7 @@ const Dashboard = () => {
         not_found: !!lead.not_found,
         margem_disponivel: formatCurrency(lead.margem_disponivel as any),
         politica_credito_aprovado: toBool(lead.politica_credito_aprovado),
+        politica_credito_valor_maximo_disponivel: formatCurrency(lead.politica_credito_valor_maximo_disponivel as any),
         clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
         clt_dados_atualizados_em: lead.clt_dados_atualizados_em ? formatDate(lead.clt_dados_atualizados_em) : "",
         mercantil_status: lead.mercantil_status || "",
