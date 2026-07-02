@@ -486,46 +486,92 @@ export const LeadsControls = ({
     return null;
   };
 
-  const activeFilterLabels = useMemo(() => {
-    if (mode === "360") {
-      const items: string[] = [];
-      const bankLabels: Record<LeadBankKey, string> = {
-        fgts: "FGTS",
-        clt: "CLT Facta",
-        mercantil: "Mercantil",
-        uy3: "UY3",
-      };
+  const activeFilterGroups360 = useMemo(() => {
+    if (mode !== "360") return [];
 
-      if (withPhonesFilter) items.push("Com telefone");
-      if (noPhonesFilter) items.push("Sem telefone");
-      if (selectedBanks.length) {
-        items.push(`Fontes: ${summarizeList(selectedBanks.filter((bank) => bank !== "fgts").map((bank) => bankLabels[bank]))}`);
-        items.push(`Combinação: ${bankCombinationMode === "all" ? "Todos" : "Qualquer"}`);
-      }
+    const bankLabels: Record<LeadBankKey, string> = {
+      fgts: "FGTS",
+      clt: "CLT Facta",
+      mercantil: "Mercantil",
+      uy3: "UY3",
+    };
 
-      if (cltSituacao !== "todos") items.push(`CLT: ${cltSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
-      const cltConsulta = rangeLabel("CLT consulta", cltConsultaFrom, cltConsultaTo);
-      if (cltConsulta) items.push(cltConsulta);
-      if (cltMesesMin || cltMesesMax) items.push(`CLT meses adm.: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
-      if (cltMargemMin || cltMargemMax) items.push(`CLT margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
-      if (cltPrestacaoMin || cltPrestacaoMax) items.push(`CLT parcelas: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+    const general: string[] = [];
+    const clt: string[] = [];
+    const mercantil: string[] = [];
+    const uy3: string[] = [];
 
-      if (mercantilSituacao !== "todos") items.push(`Mercantil: ${mercantilSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
-      const mercantilConsulta = rangeLabel("Mercantil consulta", mercantilConsultaFrom, mercantilConsultaTo);
-      if (mercantilConsulta) items.push(mercantilConsulta);
-      if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Mercantil parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
-      if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Mercantil parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
-
-      if (uy3Situacao !== "todos") items.push(`UY3: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
-      const uy3Consulta = rangeLabel("UY3 consulta", uy3ConsultaFrom, uy3ConsultaTo);
-      if (uy3Consulta) items.push(uy3Consulta);
-      if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) items.push(`UY3 meses adm.: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
-      if (uy3MargemMin || uy3MargemMax) items.push(`UY3 margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
-      if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) items.push(`UY3 valor: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
-      if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) items.push(`UY3 parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
-
-      return items;
+    if (withPhonesFilter) general.push("Com telefone");
+    if (noPhonesFilter) general.push("Sem telefone");
+    if (selectedBanks.length) {
+      general.push(`Fontes: ${selectedBanks.filter((bank) => bank !== "fgts").map((bank) => bankLabels[bank]).join(", ")}`);
+      general.push(`Combinação: ${bankCombinationMode === "all" ? "Todos os bancos" : "Qualquer banco"}`);
     }
+
+    if (cltSituacao !== "todos") clt.push(`Situação: ${cltSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const cltConsulta = rangeLabel("Consulta", cltConsultaFrom, cltConsultaTo);
+    if (cltConsulta) clt.push(cltConsulta);
+    if (cltMesesMin || cltMesesMax) clt.push(`Meses admissão: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
+    if (cltMargemMin || cltMargemMax) clt.push(`Margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
+    if (cltPrestacaoMin || cltPrestacaoMax) clt.push(`Parcelas: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+
+    if (mercantilSituacao !== "todos") mercantil.push(`Situação: ${mercantilSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const mercantilConsulta = rangeLabel("Consulta", mercantilConsultaFrom, mercantilConsultaTo);
+    if (mercantilConsulta) mercantil.push(mercantilConsulta);
+    if (mercantilParcelaMin || mercantilParcelaMax) mercantil.push(`Valor parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
+    if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) mercantil.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
+
+    if (uy3Situacao !== "todos") uy3.push(`Situação: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const uy3Consulta = rangeLabel("Consulta", uy3ConsultaFrom, uy3ConsultaTo);
+    if (uy3Consulta) uy3.push(uy3Consulta);
+    if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) uy3.push(`Meses admissão: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
+    if (uy3MargemMin || uy3MargemMax) uy3.push(`Margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
+    if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) uy3.push(`Valor liberado: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
+    if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) uy3.push(`Qtd. parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
+
+    return [
+      { title: "Gerais", labels: general },
+      { title: "CLT Facta", labels: clt },
+      { title: "Mercantil", labels: mercantil },
+      { title: "UY3", labels: uy3 },
+    ].filter((group) => group.labels.length > 0);
+  }, [
+    mode,
+    withPhonesFilter,
+    noPhonesFilter,
+    selectedBanks,
+    bankCombinationMode,
+    cltSituacao,
+    cltConsultaFrom,
+    cltConsultaTo,
+    cltMesesMin,
+    cltMesesMax,
+    cltMargemMin,
+    cltMargemMax,
+    cltPrestacaoMin,
+    cltPrestacaoMax,
+    mercantilSituacao,
+    mercantilConsultaFrom,
+    mercantilConsultaTo,
+    mercantilParcelaMin,
+    mercantilParcelaMax,
+    mercantilQtdParcelasMin,
+    mercantilQtdParcelasMax,
+    uy3Situacao,
+    uy3ConsultaFrom,
+    uy3ConsultaTo,
+    uy3MesesAdmissaoMin,
+    uy3MesesAdmissaoMax,
+    uy3MargemMin,
+    uy3MargemMax,
+    uy3ValorLiberadoMin,
+    uy3ValorLiberadoMax,
+    uy3NumeroParcelasMin,
+    uy3NumeroParcelasMax,
+  ]);
+
+  const activeFilterLabels = useMemo(() => {
+    if (mode === "360") return [];
 
     const items: string[] = [];
     const bankLabels: Record<LeadBankKey, string> = {
@@ -744,18 +790,37 @@ export const LeadsControls = ({
                   )}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {activeFilterLabels.map((label) => (
-                  <span key={label} className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 shadow-sm">
-                    {label}
-                  </span>
-                ))}
-                {currentSortLabel && (
-                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 shadow-sm">
-                    Ordenação: {currentSortLabel}
-                  </span>
-                )}
-              </div>
+              {mode === "360" ? (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {activeFilterGroups360.map((group) => (
+                    <div key={group.title} className="rounded-lg border border-blue-100 bg-white/80 p-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                        {group.title}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {group.labels.map((label) => (
+                          <span key={`${group.title}-${label}`} className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 shadow-sm">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {activeFilterLabels.map((label) => (
+                    <span key={label} className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 shadow-sm">
+                      {label}
+                    </span>
+                  ))}
+                  {currentSortLabel && (
+                    <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 shadow-sm">
+                      Ordenação: {currentSortLabel}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <Button
               onClick={onClearFilters}
