@@ -16,7 +16,7 @@ class ExportLeadsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mode' => ['nullable', Rule::in(['base', 'fgts', 'clt', 'mercantil', 'uy3'])],
+            'mode' => ['nullable', Rule::in(['base', 'fgts', 'clt', 'mercantil', 'uy3', '360'])],
 
             'columns' => ['required', 'array', 'min:1'],
             'columns.*' => ['required', 'string', 'distinct', Rule::in(LeadExportColumns::allowed())],
@@ -37,6 +37,8 @@ class ExportLeadsRequest extends FormRequest
             'with_phones' => ['nullable', 'boolean'],
             'without_phones' => ['nullable', 'boolean'],
             'birth_month' => ['nullable'],
+            'selected_banks' => ['nullable'],
+            'bank_combination_mode' => ['nullable', 'in:any,all'],
 
             // FGTS OFF
             'fgts_status' => ['nullable', 'in:autorizado,nao_autorizado,nao_consultado'],
@@ -44,11 +46,10 @@ class ExportLeadsRequest extends FormRequest
             'fgts_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
             // ===== CLT: filtros =====
-            'clt_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado'],
+            'clt_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado,aprovado,nao_aprovado'],
             'clt_elegivel' => ['nullable', 'in:sim,nao'],
             'clt_not_found' => ['nullable', 'in:sim,nao'],
 
-            'clt_consultado' => ['nullable', 'in:sim,nao'],
             'clt_consulta_from' => ['nullable', 'date_format:Y-m-d'],
             'clt_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
@@ -73,6 +74,8 @@ class ExportLeadsRequest extends FormRequest
             'clt_base_max' => ['nullable'],
             'clt_margem_min' => ['nullable'],
             'clt_margem_max' => ['nullable'],
+            'clt_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'clt_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
             'clt_prestacao_min' => ['nullable'],
             'clt_prestacao_max' => ['nullable'],
 
@@ -83,17 +86,34 @@ class ExportLeadsRequest extends FormRequest
             'clt_tem_legados' => ['nullable', 'in:sim,nao'],
 
             // ===== MERCANTIL: filtros =====
-            'mercantil_situacao' => ['nullable', 'in:consultado,sem_consulta'],
+            'mercantil_situacao' => ['nullable', 'in:aprovado,nao_aprovado'],
             'mercantil_status' => ['nullable'],
             'mercantil_consulta_from' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_consulta_to' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_import_from' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_import_to' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_valor_parcela_min' => ['nullable'],
+            'mercantil_valor_parcela_max' => ['nullable'],
+            'mercantil_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'mercantil_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
             'mercantil_parcela_min' => ['nullable'],
             'mercantil_parcela_max' => ['nullable'],
             'mercantil_qtd_parcelas_min' => ['nullable', 'integer', 'min:0'],
             'mercantil_qtd_parcelas_max' => ['nullable', 'integer', 'min:0'],
             'mercantil_origens' => ['nullable'],
+
+            // ===== UY3: filtros =====
+            'uy3_situacao' => ['nullable', 'in:aprovado,nao_aprovado'],
+            'uy3_consulta_from' => ['nullable', 'date_format:Y-m-d'],
+            'uy3_consulta_to' => ['nullable', 'date_format:Y-m-d'],
+            'uy3_meses_admissao_min' => ['nullable', 'integer', 'min:0'],
+            'uy3_meses_admissao_max' => ['nullable', 'integer', 'min:0'],
+            'uy3_margem_min' => ['nullable'],
+            'uy3_margem_max' => ['nullable'],
+            'uy3_valor_liberado_min' => ['nullable'],
+            'uy3_valor_liberado_max' => ['nullable'],
+            'uy3_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'uy3_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
         ];
     }
 
@@ -109,6 +129,7 @@ class ExportLeadsRequest extends FormRequest
             'names',
             'phones',
             'birth_month',
+            'selected_banks',
             'clt_categoria_codigos',
             'clt_sexo',
             'mercantil_status',

@@ -7,7 +7,7 @@ interface ExportModalProps {
   onClose: () => void;
   onExport: (columns: string[]) => void;
   /** Define quais colunas exibir: BASE | FGTS | CLT | MERCANTIL */
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
+  mode: "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 }
 
 type Group = "Cadastral" | "Produto" | "Registro";
@@ -183,6 +183,25 @@ const COLUMNS_UY3: ColumnDef[] = [
   { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
 ];
 
+const COLUMNS_360: ColumnDef[] = [
+  { id: "cpf", label: "CPF", selected: true, group: "Cadastral" },
+  { id: "nome", label: "Nome", selected: true, group: "Cadastral" },
+  { id: "fone1", label: "Telefone 1", selected: true, group: "Cadastral" },
+  { id: "ultima_origem_cadastral", label: "Origem cadastral", selected: true, group: "Registro" },
+  { id: "consulta", label: "Motivo da consulta", selected: true, group: "Produto" },
+  { id: "libera", label: "Valor liberado FGTS", selected: true, group: "Produto" },
+  { id: "fgts_off_authorized", label: "FGTS Off autorizado", selected: true, group: "Produto" },
+  { id: "elegivel", label: "CLT elegível", selected: true, group: "Produto" },
+  { id: "margem_disponivel", label: "Margem CLT", selected: true, group: "Produto" },
+  { id: "clt_consultado_em", label: "Consulta CLT", selected: true, group: "Produto" },
+  { id: "mercantil_status", label: "Status Mercantil", selected: true, group: "Produto" },
+  { id: "mercantil_valor_liberado", label: "Valor liberado Mercantil", selected: true, group: "Produto" },
+  { id: "mercantil_data_hora_origem", label: "Consulta Mercantil", selected: true, group: "Produto" },
+  { id: "uy3_status", label: "Status UY3", selected: true, group: "Produto" },
+  { id: "uy3_valor_liberado", label: "Valor liberado UY3", selected: true, group: "Produto" },
+  { id: "uy3_consultado_em", label: "Consulta UY3", selected: true, group: "Produto" },
+];
+
 const EXPORT_COLUMNS_STORAGE_KEY = "dashboard-export-columns";
 
 const getDefaultSelectedColumns = (columns: ColumnDef[]) =>
@@ -243,10 +262,12 @@ export const ExportModal = ({
   onExport,
   mode,
 }: ExportModalProps) => {
-  const modeLabel = mode === "UY3" ? "CLT UY3" : mode
+  const modeLabel = mode === "360" ? "360" : mode === "UY3" ? "CLT UY3" : mode
   const columnsSource = useMemo<ColumnDef[]>(
     () =>
-      mode === "BASE"
+      mode === "360"
+        ? COLUMNS_360
+        : mode === "BASE"
         ? COLUMNS_BASE
         : mode === "FGTS"
           ? COLUMNS_FGTS

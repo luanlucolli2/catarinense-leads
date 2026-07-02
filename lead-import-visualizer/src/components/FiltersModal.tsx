@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { cn } from "@/lib/utils"
+import { FiltersModal360 } from "./FiltersModal360"
 interface FiltersModalProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
+  mode: "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
   isOpen: boolean
   onClose: () => void
@@ -66,13 +67,9 @@ interface FiltersModalProps {
   availableHigienizacoes: string[]
   availableVendors: { id: number; name: string }[]
 
-  /** ➕ CLT (props) */
-  cltConsultado: "todos" | "sim" | "nao"
-  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void
-
   /** novo filtro unificado de situação (3 estados) */
-  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
-  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void
 
   cltConsultaFrom: string
   onCltConsultaFromChange: (v: string) => void
@@ -137,8 +134,8 @@ interface FiltersModalProps {
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
 
   /** ➕ MERCANTIL */
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta"
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void
+  mercantilSituacao: "todos" | "aprovado" | "nao_aprovado"
+  onMercantilSituacaoChange: (v: "todos" | "aprovado" | "nao_aprovado") => void
   mercantilStatusFilter: string[]
   onMercantilStatusFilterChange: (values: string[]) => void
   mercantilConsultaFrom: string
@@ -157,6 +154,32 @@ interface FiltersModalProps {
   onMercantilOrigensFilterChange: (values: string[]) => void
   availableMercantilOrigens: string[]
   availableMercantilStatuses: string[]
+  selectedBanks: ("fgts" | "clt" | "mercantil" | "uy3")[]
+  onSelectedBanksChange: (values: ("fgts" | "clt" | "mercantil" | "uy3")[]) => void
+  bankCombinationMode: "all" | "any"
+  onBankCombinationModeChange: (value: "all" | "any") => void
+  uy3Situacao: "todos" | "aprovado" | "nao_aprovado"
+  onUy3SituacaoChange: (value: "todos" | "aprovado" | "nao_aprovado") => void
+  uy3ConsultaFrom: string
+  onUy3ConsultaFromChange: (value: string) => void
+  uy3ConsultaTo: string
+  onUy3ConsultaToChange: (value: string) => void
+  uy3MesesAdmissaoMin: string
+  onUy3MesesAdmissaoMinChange: (value: string) => void
+  uy3MesesAdmissaoMax: string
+  onUy3MesesAdmissaoMaxChange: (value: string) => void
+  uy3MargemMin: string
+  onUy3MargemMinChange: (value: string) => void
+  uy3MargemMax: string
+  onUy3MargemMaxChange: (value: string) => void
+  uy3ValorLiberadoMin: string
+  onUy3ValorLiberadoMinChange: (value: string) => void
+  uy3ValorLiberadoMax: string
+  onUy3ValorLiberadoMaxChange: (value: string) => void
+  uy3NumeroParcelasMin: string
+  onUy3NumeroParcelasMinChange: (value: string) => void
+  uy3NumeroParcelasMax: string
+  onUy3NumeroParcelasMaxChange: (value: string) => void
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -314,8 +337,6 @@ export const FiltersModal = ({
   availableVendors,
 
   // —— CLT
-  cltConsultado,
-  onCltConsultadoChange,
   cltSituacao,
   onCltSituacaoChange,
   cltConsultaFrom,
@@ -386,7 +407,106 @@ export const FiltersModal = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  selectedBanks,
+  onSelectedBanksChange,
+  bankCombinationMode,
+  onBankCombinationModeChange,
+  uy3Situacao,
+  onUy3SituacaoChange,
+  uy3ConsultaFrom,
+  onUy3ConsultaFromChange,
+  uy3ConsultaTo,
+  onUy3ConsultaToChange,
+  uy3MesesAdmissaoMin,
+  onUy3MesesAdmissaoMinChange,
+  uy3MesesAdmissaoMax,
+  onUy3MesesAdmissaoMaxChange,
+  uy3MargemMin,
+  onUy3MargemMinChange,
+  uy3MargemMax,
+  onUy3MargemMaxChange,
+  uy3ValorLiberadoMin,
+  onUy3ValorLiberadoMinChange,
+  uy3ValorLiberadoMax,
+  onUy3ValorLiberadoMaxChange,
+  uy3NumeroParcelasMin,
+  onUy3NumeroParcelasMinChange,
+  uy3NumeroParcelasMax,
+  onUy3NumeroParcelasMaxChange,
 }: FiltersModalProps) => {
+  if (mode === "360") {
+    return (
+      <FiltersModal360
+        isOpen={isOpen}
+        onClose={onClose}
+        onApplyFilters={onApplyFilters}
+        onClearFilters={onClearFilters}
+        withPhonesFilter={withPhonesFilter}
+        onWithPhonesFilterChange={onWithPhonesFilterChange}
+        noPhonesFilter={noPhonesFilter}
+        onNoPhonesFilterChange={onNoPhonesFilterChange}
+        selectedBanks={selectedBanks.filter((bank) => bank !== "fgts")}
+        onSelectedBanksChange={onSelectedBanksChange}
+        bankCombinationMode={bankCombinationMode}
+        onBankCombinationModeChange={onBankCombinationModeChange}
+        cltSituacao={cltSituacao as "todos" | "aprovado" | "nao_aprovado"}
+        onCltSituacaoChange={onCltSituacaoChange}
+        cltConsultaFrom={cltConsultaFrom}
+        onCltConsultaFromChange={onCltConsultaFromChange}
+        cltConsultaTo={cltConsultaTo}
+        onCltConsultaToChange={onCltConsultaToChange}
+        cltMesesAdmissaoMin={cltMesesMin}
+        onCltMesesAdmissaoMinChange={onCltMesesMinChange}
+        cltMesesAdmissaoMax={cltMesesMax}
+        onCltMesesAdmissaoMaxChange={onCltMesesMaxChange}
+        cltMargemMin={cltMargemMin}
+        onCltMargemMinChange={onCltMargemMinChange}
+        cltMargemMax={cltMargemMax}
+        onCltMargemMaxChange={onCltMargemMaxChange}
+        cltNumeroParcelasMin={cltPrestacaoMin}
+        onCltNumeroParcelasMinChange={onCltPrestacaoMinChange}
+        cltNumeroParcelasMax={cltPrestacaoMax}
+        onCltNumeroParcelasMaxChange={onCltPrestacaoMaxChange}
+        mercantilSituacao={mercantilSituacao as "todos" | "aprovado" | "nao_aprovado"}
+        onMercantilSituacaoChange={onMercantilSituacaoChange}
+        mercantilConsultaFrom={mercantilConsultaFrom}
+        onMercantilConsultaFromChange={onMercantilConsultaFromChange}
+        mercantilConsultaTo={mercantilConsultaTo}
+        onMercantilConsultaToChange={onMercantilConsultaToChange}
+        mercantilValorParcelaMin={mercantilParcelaMin}
+        onMercantilValorParcelaMinChange={onMercantilParcelaMinChange}
+        mercantilValorParcelaMax={mercantilParcelaMax}
+        onMercantilValorParcelaMaxChange={onMercantilParcelaMaxChange}
+        mercantilNumeroParcelasMin={mercantilQtdParcelasMin}
+        onMercantilNumeroParcelasMinChange={onMercantilQtdParcelasMinChange}
+        mercantilNumeroParcelasMax={mercantilQtdParcelasMax}
+        onMercantilNumeroParcelasMaxChange={onMercantilQtdParcelasMaxChange}
+        uy3Situacao={uy3Situacao}
+        onUy3SituacaoChange={onUy3SituacaoChange}
+        uy3ConsultaFrom={uy3ConsultaFrom}
+        onUy3ConsultaFromChange={onUy3ConsultaFromChange}
+        uy3ConsultaTo={uy3ConsultaTo}
+        onUy3ConsultaToChange={onUy3ConsultaToChange}
+        uy3MesesAdmissaoMin={uy3MesesAdmissaoMin}
+        onUy3MesesAdmissaoMinChange={onUy3MesesAdmissaoMinChange}
+        uy3MesesAdmissaoMax={uy3MesesAdmissaoMax}
+        onUy3MesesAdmissaoMaxChange={onUy3MesesAdmissaoMaxChange}
+        uy3MargemMin={uy3MargemMin}
+        onUy3MargemMinChange={onUy3MargemMinChange}
+        uy3MargemMax={uy3MargemMax}
+        onUy3MargemMaxChange={onUy3MargemMaxChange}
+        uy3ValorLiberadoMin={uy3ValorLiberadoMin}
+        onUy3ValorLiberadoMinChange={onUy3ValorLiberadoMinChange}
+        uy3ValorLiberadoMax={uy3ValorLiberadoMax}
+        onUy3ValorLiberadoMaxChange={onUy3ValorLiberadoMaxChange}
+        uy3NumeroParcelasMin={uy3NumeroParcelasMin}
+        onUy3NumeroParcelasMinChange={onUy3NumeroParcelasMinChange}
+        uy3NumeroParcelasMax={uy3NumeroParcelasMax}
+        onUy3NumeroParcelasMaxChange={onUy3NumeroParcelasMaxChange}
+      />
+    )
+  }
+
   const [localSearch, setLocalSearch] = useState(searchValue)
   const [localContractFrom, setLocalContractFrom] = useState(contractDateFromFilter)
   const [localContractTo, setLocalContractTo] = useState(contractDateToFilter)
@@ -408,8 +528,7 @@ export const FiltersModal = ({
   const [localFgtsTo, setLocalFgtsTo] = useState(fgtsConsultaToFilter)
 
   // —— CLT locals ——
-  const [lCltConsultado, setLCltConsultado] = useState<"todos" | "sim" | "nao">(cltConsultado)
-  const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel">(cltSituacao)
+  const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado">(cltSituacao)
   const [lCltConsultaFrom, setLCltConsultaFrom] = useState(cltConsultaFrom)
   const [lCltConsultaTo, setLCltConsultaTo] = useState(cltConsultaTo)
   const [lCltAdmissaoFrom, setLCltAdmissaoFrom] = useState(cltAdmissaoFrom)
@@ -436,7 +555,6 @@ export const FiltersModal = ({
   const [lCltTemLegados, setLCltTemLegados] = useState<"todos" | "sim" | "nao">(cltTemLegados)
 
   // —— MERCANTIL locals ——
-  const [lMercantilSituacao, setLMercantilSituacao] = useState<"todos" | "consultado" | "sem_consulta">(mercantilSituacao)
   const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
   const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
   const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)
@@ -468,7 +586,6 @@ export const FiltersModal = ({
     setLocalFgtsTo(fgtsConsultaToFilter)
 
     // CLT locals
-    setLCltConsultado(cltConsultado)
     setLCltSituacao(cltSituacao)
     setLCltConsultaFrom(cltConsultaFrom)
     setLCltConsultaTo(cltConsultaTo)
@@ -496,7 +613,6 @@ export const FiltersModal = ({
     setLCltTemLegados(cltTemLegados)
 
     // MERCANTIL locals
-    setLMercantilSituacao(mercantilSituacao)
     setLMercantilStatus(mercantilStatusFilter)
     setLMercantilConsultaFrom(mercantilConsultaFrom)
     setLMercantilConsultaTo(mercantilConsultaTo)
@@ -526,7 +642,7 @@ export const FiltersModal = ({
     fgtsConsultaFromFilter,
     fgtsConsultaToFilter,
     // CLT deps
-    cltConsultado, cltSituacao, cltConsultaFrom, cltConsultaTo,
+    cltSituacao, cltConsultaFrom, cltConsultaTo,
     cltAdmissaoFrom, cltAdmissaoTo, cltMesesMin, cltMesesMax,
     cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltCategoriaCodigos,
     cltIdadeMin, cltIdadeMax, cltSexo,
@@ -535,7 +651,7 @@ export const FiltersModal = ({
     cltAtivosMin, cltAtivosMax, cltTemAtivos,
     cltTemLegados,
     // MERCANTIL deps
-    mercantilSituacao, mercantilStatusFilter,
+    mercantilStatusFilter,
     mercantilConsultaFrom, mercantilConsultaTo,
     mercantilParcelaMin, mercantilParcelaMax,
     mercantilQtdParcelasMin, mercantilQtdParcelasMax,
@@ -574,7 +690,6 @@ export const FiltersModal = ({
     }
 
     if (mode === "CLT") {
-      onCltConsultadoChange(lCltConsultado)
       onCltSituacaoChange(lCltSituacao)
       onCltConsultaFromChange(lCltConsultaFrom)
       onCltConsultaToChange(lCltConsultaTo)
@@ -603,8 +718,7 @@ export const FiltersModal = ({
     }
 
     if (mode === "MERCANTIL") {
-      onMercantilSituacaoChange(lMercantilSituacao)
-      onMercantilStatusFilterChange(lMercantilSituacao === "sem_consulta" ? [] : lMercantilStatus)
+      onMercantilStatusFilterChange(lMercantilStatus)
       onMercantilConsultaFromChange(lMercantilConsultaFrom)
       onMercantilConsultaToChange(lMercantilConsultaTo)
       onMercantilParcelaMinChange(lMercantilParcelaMin)
@@ -640,7 +754,6 @@ export const FiltersModal = ({
 
   // CLT actives
   const actCltSituacao =
-    (lCltConsultado !== "todos") ||
     (lCltSituacao !== "todos") ||
     any([lCltConsultaFrom, lCltConsultaTo])
 
@@ -661,11 +774,9 @@ export const FiltersModal = ({
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
     lCltTemLegados !== "todos"
 
-  const mercantilStatusActive =
-    lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0
+  const mercantilStatusActive = lMercantilStatus.length > 0
 
   const actMercantilSituacao =
-    lMercantilSituacao !== "todos" ||
     mercantilStatusActive ||
     any([lMercantilConsultaFrom, lMercantilConsultaTo]) ||
     lMercantilOrigens.length > 0
@@ -1002,17 +1113,6 @@ export const FiltersModal = ({
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <Label text="Consultado?" active={lCltConsultado !== "todos"} />
-                      <Select value={lCltConsultado} onValueChange={(v) => setLCltConsultado(v as any)}>
-                        <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
-                        <SelectContent className="shadow-lg">
-                          <SelectItem value="todos">Todos</SelectItem>
-                          <SelectItem value="sim">Sim</SelectItem>
-                          <SelectItem value="nao">Não</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
                       <Label text="Situação" active={lCltSituacao !== "todos"} />
                       <Select value={lCltSituacao} onValueChange={(v) => setLCltSituacao(v as any)}>
                         <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
@@ -1209,38 +1309,20 @@ export const FiltersModal = ({
               <div>
                 <Section
                   title="Situação e Status"
-                  description="Situação agregada, status de retorno e origem do job Mercantil."
+                  description="Status de retorno, data da consulta e origem do job Mercantil."
                   active={actMercantilSituacao}
                 >
                   <div>
-                    <Label text="Situação" active={lMercantilSituacao !== "todos"} />
-                    <Select value={lMercantilSituacao} onValueChange={(v) => setLMercantilSituacao(v as any)}>
-                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
-                      <SelectContent className="shadow-lg">
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="consultado">Consultado</SelectItem>
-                        <SelectItem value="sem_consulta">Sem consulta</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
                     <Label
                       text="Status Mercantil"
-                      active={lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0}
+                      active={lMercantilStatus.length > 0}
                     />
                     <MultiSelect
                       options={availableMercantilStatuses}
                       selected={lMercantilStatus}
                       onChange={setLMercantilStatus}
                       placeholder="Selecionar status…"
-                      disabled={lMercantilSituacao === "sem_consulta"}
                     />
-                    {lMercantilSituacao === "sem_consulta" && (
-                      <p className="mt-1 text-[11px] text-gray-500">
-                        Status bloqueado quando Situação = Sem consulta.
-                      </p>
-                    )}
                   </div>
 
                   <div>

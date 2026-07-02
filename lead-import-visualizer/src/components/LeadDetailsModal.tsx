@@ -29,7 +29,7 @@ import {
   Calendar,
   DollarSign,
   AlertTriangle,
-  Briefcase,
+  Briefcase
 } from "lucide-react"
 
 import { fetchLeadDetail, LeadDetailFromApi } from "@/api/leads"
@@ -139,6 +139,8 @@ export const LeadDetailsModal = ({
 
   // helpers CLT
   const clt = data
+  const mercantil = data
+  const uy3 = data
   const cltStatus = clt.not_found
     ? "Não encontrado"
     : clt.elegivel === true
@@ -281,6 +283,77 @@ export const LeadDetailsModal = ({
               </Card>
             </TabsContent>
 
+            <TabsContent value="mercantil">
+              <Card className="mb-4">
+                <CardHeader className="pb-3 sm:pb-4">
+                  <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 sm:h-5 sm:w-5" />
+                    Mercantil
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Status" value={mercantil.mercantil_status ?? "—"} />
+                    <Info label="Consulta" value={mercantil.mercantil_data_hora_origem ? fmtDateTime(mercantil.mercantil_data_hora_origem) : "—"} />
+                    <Info label="Origem mercantil" value={mercantil.ultima_origem_mercantil ?? "—"} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Valor empréstimo" value={formatCurrency(mercantil.mercantil_valor_emprestimo as any)} />
+                    <Info label="Valor liberado" value={formatCurrency(mercantil.mercantil_valor_liberado as any)} />
+                    <Info label="Valor parcela" value={formatCurrency(mercantil.mercantil_valor_parcela as any)} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Valor financiado" value={formatCurrency(mercantil.mercantil_valor_financiado as any)} />
+                    <Info label="IOF" value={formatCurrency(mercantil.mercantil_valor_iof as any)} />
+                    <Info label="Taxa juros mês" value={mercantil.mercantil_taxa_juros_mes ? `${mercantil.mercantil_taxa_juros_mes}%` : "—"} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Qtd. parcelas" value={mercantil.mercantil_quantidade_parcelas != null ? String(mercantil.mercantil_quantidade_parcelas) : "—"} />
+                    <Info label="1º vencimento" value={formatDateOnly(mercantil.mercantil_data_primeiro_vencimento)} />
+                    <Info label="Mensagem" value={mercantil.mercantil_mensagem_erro ?? "—"} />
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="uy3">
+              <Card className="mb-4">
+                <CardHeader className="pb-3 sm:pb-4">
+                  <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 sm:h-5 sm:w-5" />
+                    UY3
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Status" value={uy3.uy3_status ?? "—"} />
+                    <Info label="Tipo webhook" value={uy3.uy3_type_webhook ?? "—"} />
+                    <Info label="Consulta" value={uy3.uy3_consultado_em ? fmtDateTime(uy3.uy3_consultado_em) : "—"} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Data admissão" value={formatDateOnly(uy3.uy3_data_admissao)} />
+                    <Info label="Margem disponível" value={formatCurrency(uy3.uy3_margem_disponivel as any)} />
+                    <Info label="Valor liberado" value={formatCurrency(uy3.uy3_valor_liberado as any)} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Qtd. parcelas" value={uy3.uy3_numero_parcelas != null ? String(uy3.uy3_numero_parcelas) : "—"} />
+                    <Info label="Elegível empréstimo" value={uy3.uy3_elegivel_emprestimo === true ? "Sim" : uy3.uy3_elegivel_emprestimo === false ? "Não" : "—"} />
+                    <Info label="Código requisição" value={uy3.uy3_codigo_requisicao ?? "—"} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="Inscrição empregador" value={uy3.uy3_numero_inscricao_empregador ?? "—"} />
+                    <Info label="PEP código" value={uy3.uy3_pessoa_exposta_politicamente_codigo != null ? String(uy3.uy3_pessoa_exposta_politicamente_codigo) : "—"} />
+                    <Info label="Validade solicitação" value={uy3.uy3_data_hora_validade_solicitacao ? fmtDateTime(uy3.uy3_data_hora_validade_solicitacao) : "—"} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Info label="É MEI" value={uy3.uy3_is_mei === true ? "Sim" : uy3.uy3_is_mei === false ? "Não" : "—"} />
+                    <Info label="Recuperação judicial" value={uy3.uy3_is_judicial_recovery === true ? "Sim" : uy3.uy3_is_judicial_recovery === false ? "Não" : "—"} />
+                    <Info label="Origem cadastral" value={uy3.ultima_origem_cadastral ?? "—"} />
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <div className="h-2" />
           </div>
         </Tabs>
@@ -306,8 +379,9 @@ const TabsBar = () => (
       <TabButton value="telefones" icon={<Phone className="h-3 w-3 sm:h-4 sm:w-4" />}>Telefones</TabButton>
       <TabButton value="contratos" icon={<FileText className="h-3 w-3 sm:h-4 sm:w-4" />}>Contratos</TabButton>
       <TabButton value="historico" icon={<History className="h-3 w-3 sm:h-4 sm:w-4" />}>Histórico</TabButton>
-      {/* ➕ Aba exclusiva CLT */}
       <TabButton value="clt" icon={<Briefcase className="h-3 w-3 sm:h-4 sm:w-4" />}>CLT</TabButton>
+      <TabButton value="mercantil" icon={<Briefcase className="h-3 w-3 sm:h-4 sm:w-4" />}>Mercantil</TabButton>
+      <TabButton value="uy3" icon={<Briefcase className="h-3 w-3 sm:h-4 sm:w-4" />}>UY3</TabButton>
     </TabsList>
   </div>
 )

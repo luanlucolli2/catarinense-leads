@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Modules\CLT\Models\CltSnapshot;
+use App\Modules\Uy3\Models\Uy3Snapshot;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -64,5 +65,15 @@ class Lead extends Model
     public function cltSnapshot(): HasOne
     {
         return $this->hasOne(CltSnapshot::class, 'cpf', 'cpf');
+    }
+
+    public function mercantilSnapshot(): HasOne
+    {
+        return $this->hasOne(MercantilSnapshot::class, 'cpf', 'cpf');
+    }
+
+    public function uy3Snapshot(): HasOne
+    {
+        return $this->hasOne(Uy3Snapshot::class, 'cpf', 'cpf');
     }
 }

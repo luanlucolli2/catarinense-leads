@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Mode = "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
+type Mode = "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 
 interface ColumnsModalProps {
   isOpen: boolean;
@@ -16,9 +16,11 @@ interface ColumnsModalProps {
 
   /** defaults (para "Redefinir") */
   defaultVisibleColumns: string[];
+  stickyIdentityColumns?: boolean;
+  onStickyIdentityColumnsChange?: (value: boolean) => void;
 }
 
-type Group = "Cadastral" | "Produto" | "Registro";
+type Group = "Cadastral" | "FGTS" | "Facta" | "Mercantil" | "UY3" | "Produto" | "Registro";
 
 type CatalogItem = {
   id: string;
@@ -29,6 +31,62 @@ type CatalogItem = {
 
 /** Catálogo (somente colunas configuráveis; Ações é fixa) */
 const CATALOG: Record<Mode, CatalogItem[]> = {
+  360: [
+    { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
+    { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
+    { id: "data_nascimento", label: "Data de nascimento", group: "Cadastral" },
+    { id: "telefone_1", label: "Fone 1", group: "Cadastral" },
+    { id: "classe_1", label: "Classe 1", group: "Cadastral" },
+    { id: "telefone_2", label: "Fone 2", group: "Cadastral" },
+    { id: "classe_2", label: "Classe 2", group: "Cadastral" },
+    { id: "telefone_3", label: "Fone 3", group: "Cadastral" },
+    { id: "classe_3", label: "Classe 3", group: "Cadastral" },
+    { id: "telefone_4", label: "Fone 4", group: "Cadastral" },
+    { id: "classe_4", label: "Classe 4", group: "Cadastral" },
+    { id: "consulta", label: "Motivo da consulta", group: "FGTS" },
+    { id: "saldo", label: "Saldo", group: "FGTS" },
+    { id: "libera", label: "Valor liberado", group: "FGTS" },
+    { id: "data_atualizacao", label: "Data de higienização", group: "FGTS" },
+    { id: "fgts_off_authorized", label: "Autorizado (FGTS Off)", group: "FGTS" },
+    { id: "fgts_off_consultado_em", label: "Consulta FGTS Off", group: "FGTS" },
+    { id: "contratos", label: "Qtd. contratos", group: "FGTS" },
+    { id: "data_contrato_recente", label: "Último contrato", group: "FGTS" },
+    { id: "vendedor", label: "Vendedor", group: "FGTS" },
+    { id: "elegivel", label: "Elegível", group: "Facta" },
+    { id: "not_found", label: "Não encontrado", group: "Facta" },
+    { id: "margem_disponivel", label: "Margem disponível", group: "Facta" },
+    { id: "politica_credito_aprovado", label: "Política aprovada", group: "Facta" },
+    { id: "clt_consultado_em", label: "Consulta Facta", group: "Facta" },
+    { id: "clt_dados_atualizados_em", label: "Dados Facta", group: "Facta" },
+    { id: "mercantil_status", label: "Status", group: "Mercantil" },
+    { id: "mercantil_mensagem_erro", label: "Mensagem", group: "Mercantil" },
+    { id: "mercantil_data_hora_origem", label: "Consulta Mercantil", group: "Mercantil" },
+    { id: "mercantil_valor_financiado", label: "Valor financiado", group: "Mercantil" },
+    { id: "mercantil_valor_iof", label: "IOF", group: "Mercantil" },
+    { id: "mercantil_data_primeiro_vencimento", label: "1º vencimento", group: "Mercantil" },
+    { id: "mercantil_valor_emprestimo", label: "Valor empréstimo", group: "Mercantil" },
+    { id: "mercantil_quantidade_parcelas", label: "Qtd. parcelas", group: "Mercantil" },
+    { id: "mercantil_valor_liberado", label: "Valor liberado", group: "Mercantil" },
+    { id: "mercantil_taxa_juros_mes", label: "Taxa juros", group: "Mercantil" },
+    { id: "mercantil_valor_parcela", label: "Valor parcela", group: "Mercantil" },
+    { id: "uy3_type_webhook", label: "Tipo webhook", group: "UY3" },
+    { id: "uy3_status", label: "Status", group: "UY3" },
+    { id: "uy3_consultado_em", label: "Consulta UY3", group: "UY3" },
+    { id: "uy3_data_admissao", label: "Data admissão", group: "UY3" },
+    { id: "uy3_valor_liberado", label: "Valor liberado", group: "UY3" },
+    { id: "uy3_numero_parcelas", label: "Qtd. parcelas", group: "UY3" },
+    { id: "uy3_codigo_requisicao", label: "Código requisição", group: "UY3" },
+    { id: "uy3_margem_disponivel", label: "Margem disponível", group: "UY3" },
+    { id: "uy3_elegivel_emprestimo", label: "Elegível empréstimo", group: "UY3" },
+    { id: "uy3_numero_inscricao_empregador", label: "Inscrição empregador", group: "UY3" },
+    { id: "uy3_pessoa_exposta_politicamente_codigo", label: "PEP código", group: "UY3" },
+    { id: "uy3_data_hora_validade_solicitacao", label: "Validade solicitação", group: "UY3" },
+    { id: "uy3_is_mei", label: "É MEI", group: "UY3" },
+    { id: "uy3_is_judicial_recovery", label: "Recuperação judicial", group: "UY3" },
+    { id: "ultima_origem_cadastral", label: "Origem cadastral", group: "Registro" },
+    { id: "ultima_origem_higienizacao", label: "Origem higienização", group: "Registro" },
+    { id: "ultima_origem_mercantil", label: "Origem mercantil", group: "Registro" },
+  ],
   BASE: [
     { id: "cpf", label: "CPF", group: "Cadastral", pinned: true },
     { id: "nome", label: "Nome", group: "Cadastral", pinned: true },
@@ -205,10 +263,13 @@ export const ColumnsModal = ({
   visibleColumns,
   onSave,
   defaultVisibleColumns,
+  stickyIdentityColumns = true,
+  onStickyIdentityColumnsChange,
 }: ColumnsModalProps) => {
   const columnsSource = useMemo(() => CATALOG[mode], [mode]);
-  const modeLabel = mode === "UY3" ? "CLT UY3" : mode;
+  const modeLabel = mode === "360" ? "360" : mode === "UY3" ? "CLT UY3" : mode;
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [localStickyIdentityColumns, setLocalStickyIdentityColumns] = useState(stickyIdentityColumns);
 
   useEffect(() => {
     if (isOpen) {
@@ -217,6 +278,7 @@ export const ColumnsModal = ({
         return acc;
       }, {} as Record<string, boolean>);
       setSelected(init);
+      setLocalStickyIdentityColumns(stickyIdentityColumns);
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -249,6 +311,9 @@ export const ColumnsModal = ({
       return acc;
     }, {} as Record<string, boolean>);
     setSelected(base);
+    if (mode === "360") {
+      setLocalStickyIdentityColumns(true);
+    }
   };
 
   const handleSave = () => {
@@ -256,12 +321,13 @@ export const ColumnsModal = ({
       .filter(c => selected[c.id] || c.pinned)
       .map(c => c.id);
     onSave(cols);
+    onStickyIdentityColumnsChange?.(localStickyIdentityColumns);
     onClose();
   };
 
   const selectedCount = columnsSource.filter(c => selected[c.id] || c.pinned).length;
 
-  const groups: Group[] = ["Cadastral", "Produto", "Registro"];
+  const groups = Array.from(new Set(columnsSource.map((column) => column.group)));
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
@@ -313,7 +379,7 @@ export const ColumnsModal = ({
                         {c.label}
                         {c.pinned && (
                           <span className="ml-2 inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                            <CheckSquare className="w-3 h-3 mr-1" /> Fixa
+                            <CheckSquare className="w-3 h-3 mr-1" /> Sempre
                           </span>
                         )}
                       </span>
@@ -323,6 +389,23 @@ export const ColumnsModal = ({
               </div>
             ))}
           </div>
+
+          {mode === "360" ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <label className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-gray-800">Fixar CPF e Nome</div>
+                  <div className="text-xs text-gray-500">Mantém essas colunas presas na esquerda ao rolar a tabela.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={localStickyIdentityColumns}
+                  onChange={(event) => setLocalStickyIdentityColumns(event.target.checked)}
+                  className="h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600"
+                />
+              </label>
+            </div>
+          ) : null}
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">

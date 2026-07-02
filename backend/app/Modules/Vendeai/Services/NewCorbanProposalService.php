@@ -12,12 +12,13 @@ class NewCorbanProposalService
     {
         $requestPayload = $this->buildPayload($payload);
         $baseUrl = rtrim((string) config('newcorban.base_url'), '/');
+        $apiToken = trim((string) config('newcorban.api_token'));
         $sentAt = now();
 
-        if ($baseUrl === '') {
+        if ($baseUrl === '' || $apiToken === '') {
             $webhook->update([
                 'newcorban_request_payload' => $requestPayload,
-                'newcorban_error' => 'NEWCORBAN_URL not configured.',
+                'newcorban_error' => 'NEWCORBAN_BASE_URL or NEWCORBAN_API_TOKEN not configured.',
             ]);
 
             return;
@@ -25,9 +26,10 @@ class NewCorbanProposalService
 
         try {
             $response = Http::acceptJson()
+                ->withToken($apiToken)
                 ->asJson()
                 ->timeout(max(1, (int) config('newcorban.timeout', 15)))
-                ->post($baseUrl . '/api/propostas/', $requestPayload);
+                ->post($baseUrl . '/proposals', $requestPayload);
 
             $responseBody = $response->json();
 
@@ -39,8 +41,13 @@ class NewCorbanProposalService
                 'newcorban_request_payload' => $requestPayload,
                 'newcorban_response_status' => $response->status(),
                 'newcorban_response_body' => $responseBody,
-                'newcorban_proposta_id' => $this->stringOrNull($responseBody['proposta_id'] ?? null, 80),
-                'newcorban_cliente_id' => $this->stringOrNull($responseBody['cliente_id'] ?? null, 80),
+                'newcorban_proposta_id' => $this->stringOrNull(data_get($responseBody, 'data.id') ?? ($responseBody['proposta_id'] ?? null), 80),
+                'newcorban_cliente_id' => $this->stringOrNull(
+                    data_get($responseBody, 'data.customer_id')
+                    ?? data_get($responseBody, 'data.cliente_id')
+                    ?? ($responseBody['cliente_id'] ?? null),
+                    80
+                ),
                 'newcorban_sent_at' => $sentAt,
                 'newcorban_error' => $this->responseError($response->status(), $responseBody),
             ]);
@@ -58,82 +65,57 @@ class NewCorbanProposalService
         $cpf = $this->onlyDigits(data_get($payload, 'chat_summary.details.contact.cpf'));
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
 
-        return [
-            'auth' => [
-                'username' => (string) config('newcorban.username'),
-                'password' => (string) config('newcorban.password'),
-                'empresa' => (string) config('newcorban.empresa'),
+        return $this->filterNulls([
+            'proposal' => [
+                'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
+                'covenant_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
+                'product_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
+                'promoter_id' => $this->newCorbanPromotoraId(data_get($payload, 'proposal.bank')),
+                'origin_id' => $this->defaultConfigValue('origin_id'),
+                'status_id' => 0,
+                'table_code' => $this->newCorbanTableCode(
+                    data_get($payload, 'proposal.bank'),
+                    data_get($payload, 'proposal.table_id')
+                ),
+                'term' => $this->integerOrNull(data_get($payload, 'proposal.number_of_payments')),
+                'rate' => null,
+                'financed_amount' => $this->numberOrNull(data_get($payload, 'proposal.gross_value')),
+                'installment_amount' => $this->numberOrNull(data_get($payload, 'proposal.installment_value')),
+                'released_amount' => $this->numberOrNull(data_get($payload, 'proposal.liquid_value')),
+                'typing_login' => $this->newCorbanLoginDigitacao(data_get($payload, 'proposal.bank')),
             ],
-            'requestType' => 'createProposta',
-            'content' => [
-                'cliente' => [
-                    'pessoais' => [
-                        'cpf' => $cpf,
-                        'nome' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.name')),
-                        'nascimento' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.birth_date')),
-                        'sexo' => null,
-                        'estado_civil' => 'SOLTEIRO',
-                        'nacionalidade' => 'BRASILEIRO',
-                        'mae' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.mother_name')),
-                        'pai' => 'nao informado',
-                        'renda' => 1412,
-                        'email' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.email')),
-                        'falecido' => false,
-                        'nao_perturbe' => false,
-                        'analfabeto' => false,
-                    ],
-                    'documentos' => $cpf === null ? null : [
-                        $cpf => [
-                            'numero' => $cpf,
-                            'tipo' => 'CPF',
-                            'data_emissao' => null,
-                            'uf' => null,
-                        ],
-                    ],
-                    'enderecos' => null,
-                    'telefones' => $phone['numero'] === null ? null : [
-                        $phone['numero'] => [
-                            'ddd' => $phone['ddd'],
-                            'numero' => $phone['numero'],
-                        ],
-                    ],
-                ],
-                'proposta' => [
-                    'documento_id' => $cpf,
-                    'endereco_id' => null,
-                    'telefone_id' => $phone['numero'],
-                    'banco_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
-                    'convenio_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
-                    'proposta_id_banco' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
-                    'produto_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
-                    'status' => '0',
-                    'tipo_cadastro' => 'API',
-                    'tipo_liberacao' => null,
-                    'banco_averbacao' => null,
-                    'conta' => null,
-                    'conta_digito' => null,
-                    'agencia' => null,
-                    'promotora_id' => $this->newCorbanPromotoraId(data_get($payload, 'proposal.bank')),
-                    'equipe_id' => '287',
-                    'link_formalizacao' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
-                    'vendedor' => '3384',
-                    'franquia_id' => null,
-                    'vendedor_participante' => null,
-                    'origem_id' => '9243',
-                    'proposta_id' => false,
-                    'login_digitacao' => $this->newCorbanLoginDigitacao(data_get($payload, 'proposal.bank')),
-                    'valor_parcela' => $this->numberOrNull(data_get($payload, 'proposal.installment_value')),
-                    'valor_financiado' => $this->numberOrNull(data_get($payload, 'proposal.gross_value')),
-                    'valor_liberado' => $this->numberOrNull(data_get($payload, 'proposal.liquid_value')),
-                    'prazo' => $this->integerOrNull(data_get($payload, 'proposal.number_of_payments')),
-                    'taxa' => null,
-                    'tabela_id' => $this->newCorbanTabelaId(
-                        data_get($payload, 'proposal.bank'),
-                        data_get($payload, 'proposal.table_id')
-                    ),
-                ],
+            'assignment' => [
+                'seller_id' => $this->defaultConfigValue('seller_id'),
+                'co_seller_id' => $this->defaultConfigValue('co_seller_id'),
+                'team_id' => $this->defaultConfigValue('team_id'),
+                'franchise_id' => $this->defaultConfigValue('franchise_id'),
             ],
-        ];
+            'bank_reference' => [
+                'proposal_number' => $this->stringOrNull(data_get($payload, 'proposal.proposal_number')),
+                'api_reference' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
+                'formalization_link' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
+            ],
+            'customer' => $this->filterNulls([
+                'cpf' => $cpf,
+                'name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.name')),
+                'birth_date' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.birth_date')),
+                'gender' => null,
+                'marital_status' => 'SOLTEIRO',
+                'nationality' => 'BRASILEIRO',
+                'mother_name' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.mother_name')),
+                'father_name' => 'nao informado',
+                'income' => 1412,
+                'email' => $this->stringOrNull(data_get($payload, 'chat_summary.details.contact.email')),
+                'deceased' => false,
+                'do_not_disturb' => false,
+                'illiterate' => false,
+            ]),
+            'phone' => $phone['numero'] === null ? null : [
+                'area_code' => $phone['ddd'],
+                'number' => $phone['numero'],
+                'type' => 'CELULAR',
+            ],
+        ]);
     }
 
     private function phoneParts(mixed $value): array
@@ -156,75 +138,51 @@ class NewCorbanProposalService
 
     private function responseError(int $status, array $body): ?string
     {
-        if (($body['error'] ?? false) === true) {
-            return $this->stringOrNull($body['mensagem'] ?? 'New Corban returned error.', 1000);
+        if ($status === 201 && ($body['success'] ?? false) === true) {
+            return null;
         }
 
-        return $status >= 200 && $status < 300 ? null : 'HTTP ' . $status;
+        if (($body['success'] ?? null) === false || ($body['error'] ?? false) === true) {
+            return $this->firstResponseMessage($body) ?? 'New Corban returned error.';
+        }
+
+        return $this->firstResponseMessage($body) ?? ('HTTP ' . $status);
     }
 
     private function newCorbanProductId(mixed $value): ?string
     {
-        return match (mb_strtolower((string) $this->stringOrNull($value))) {
-            'fgts' => '7',
-            'clt' => '13',
-            default => null,
-        };
+        return $this->configValueForProduct($value, 'product_id');
     }
 
     private function newCorbanBankId(mixed $value): ?string
     {
-        return match ($this->bankKey($value)) {
-            'mercantil' => '389',
-            'presenca' => '3299',
-            'v8', 'facta' => '935',
-            'pan' => '623',
-            'c6' => '626',
-            'soma' => '2560092',
-            'novo_saque' => '500001',
-            default => null,
-        };
+        return $this->configValueForBank($value, 'bank_id');
     }
 
-    private function newCorbanPromotoraId(mixed $value): string
+    private function newCorbanPromotoraId(mixed $value): ?string
     {
-        return match ($this->bankKey($value)) {
-            'v8' => '413',
-            'soma' => '3570',
-            'novo_saque' => '4412',
-            default => '411',
-        };
+        return $this->configValueForBank($value, 'promoter_id');
     }
 
     private function newCorbanLoginDigitacao(mixed $value): ?string
     {
-        return match ($this->bankKey($value)) {
-            'presenca' => '42485740801_U4UN',
-            'c6' => '11521981906_000855',
-            'pan' => '11521981906_007528',
-            'facta' => '20953',
-            'soma' => 'soma_live_f34a9523608ed2c1',
-            'v8' => 'karen@catarinensecredito.com.br',
-            'novo_saque' => 'contatoia@catarinensecredito.com.br',
-            default => null,
-        };
+        return $this->configValueForBank($value, 'typing_login');
     }
 
     private function newCorbanConvenioId(mixed $value): ?string
     {
-        return match (mb_strtolower((string) $this->stringOrNull($value))) {
-            'fgts' => '100000',
-            'clt' => '54451',
-            default => null,
-        };
+        return $this->configValueForProduct($value, 'covenant_id');
     }
 
-    private function newCorbanTabelaId(mixed $bank, mixed $tableId): ?string
+    private function newCorbanTableCode(mixed $bank, mixed $tableId): ?string
     {
-        return match ($this->bankKey($bank)) {
-            'soma', 'novo_saque' => null,
-            default => $this->stringOrNull($tableId),
-        };
+        $bankConfig = $this->bankConfig($bank);
+
+        if (($bankConfig['omit_table_code'] ?? false) === true) {
+            return null;
+        }
+
+        return $this->stringOrNull($tableId);
     }
 
     private function onlyDigits(mixed $value): ?string
@@ -246,11 +204,126 @@ class NewCorbanProposalService
         $collapsed = str_replace([' ', '_', '-'], '', $normalized);
 
         return match (true) {
-            $normalized === 'presença' => 'presenca',
+            $normalized === 'presença' || str_contains($collapsed, 'presenca') => 'presenca',
+            str_contains($collapsed, 'mercantil') => 'mercantil',
             str_contains($collapsed, 'novosaque') => 'novo_saque',
-            str_contains($normalized, 'soma') => 'soma',
+            str_contains($collapsed, 'soma') => 'soma',
+            str_starts_with($collapsed, 'facta') => 'facta',
+            str_starts_with($collapsed, 'pan') => 'pan',
+            str_starts_with($collapsed, 'c6') => 'c6',
             default => $normalized,
         };
+    }
+
+    private function productKey(mixed $value): ?string
+    {
+        $normalized = mb_strtolower((string) $this->stringOrNull($value));
+
+        return $normalized === '' ? null : $normalized;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function bankConfig(mixed $value): array
+    {
+        $config = config('newcorban.banks.' . $this->bankKey($value), []);
+
+        return is_array($config) ? $config : [];
+    }
+
+    private function configValueForBank(mixed $value, string $field): ?string
+    {
+        return $this->stringOrNull($this->bankConfig($value)[$field] ?? null);
+    }
+
+    private function configValueForProduct(mixed $value, string $field): ?string
+    {
+        $productKey = $this->productKey($value);
+
+        if ($productKey === null) {
+            return null;
+        }
+
+        $config = config('newcorban.products.' . $productKey, []);
+
+        if (! is_array($config)) {
+            return null;
+        }
+
+        return $this->stringOrNull($config[$field] ?? null);
+    }
+
+    private function defaultConfigValue(string $field): ?string
+    {
+        return $this->stringOrNull(config('newcorban.defaults.' . $field));
+    }
+
+    private function firstResponseMessage(array $body): ?string
+    {
+        $message = $this->stringOrNull($body['message'] ?? null, 1000)
+            ?? $this->stringOrNull($body['mensagem'] ?? null, 1000);
+
+        if ($message !== null) {
+            return $message;
+        }
+
+        $messages = $this->flattenStringValues($body['errors'] ?? null);
+
+        if ($messages === []) {
+            return null;
+        }
+
+        return $this->stringOrNull(implode(' | ', array_slice($messages, 0, 3)), 1000);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function flattenStringValues(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        if (! is_array($value)) {
+            $string = $this->stringOrNull($value);
+
+            return $string === null ? [] : [$string];
+        }
+
+        $values = [];
+
+        foreach ($value as $item) {
+            foreach ($this->flattenStringValues($item) as $stringValue) {
+                $values[] = $stringValue;
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function filterNulls(array $payload): array
+    {
+        $filtered = [];
+
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $value = $this->filterNulls($value);
+            }
+
+            if ($value === null || $value === []) {
+                continue;
+            }
+
+            $filtered[$key] = $value;
+        }
+
+        return $filtered;
     }
 
     private function stringOrNull(mixed $value, ?int $maxLength = null): ?string

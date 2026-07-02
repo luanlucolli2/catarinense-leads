@@ -1,14 +1,17 @@
-import { Search, Upload, Download, Filter, Columns as ColumnsIcon } from "lucide-react";
+import { Search, Upload, Download, Filter, Columns as ColumnsIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
 import { FiltersModal } from "./FiltersModal";
 import { ColumnsModal } from "./columns/ColumnsModal";
-import type { LeadSort } from "@/api/leads";
+import factaLogo from "@/assets/factalogo.png";
+import mercantilLogo from "@/assets/mercantilogo.png";
+import uy3Logo from "@/assets/logouy3png.png";
+import type { LeadBankCombinationMode, LeadBankKey, LeadSort } from "@/api/leads";
 
 interface LeadsControlsProps {
-  mode: "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
+  mode: "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3";
 
   onImportClick: () => void;
   onExportClick: () => void;
@@ -71,11 +74,8 @@ interface LeadsControlsProps {
   fgtsConsultaToFilter: string;
   onFgtsConsultaToFilterChange: (v: string) => void;
 
-  cltConsultado: "todos" | "sim" | "nao";
-  onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
-
-  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel";
-  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void;
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado";
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void;
 
   cltConsultaFrom: string;
   onCltConsultaFromChange: (v: string) => void;
@@ -138,8 +138,8 @@ interface LeadsControlsProps {
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta";
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void;
+  mercantilSituacao: "todos" | "aprovado" | "nao_aprovado";
+  onMercantilSituacaoChange: (v: "todos" | "aprovado" | "nao_aprovado") => void;
   mercantilStatusFilter: string[];
   onMercantilStatusFilterChange: (values: string[]) => void;
   mercantilConsultaFrom: string;
@@ -158,7 +158,35 @@ interface LeadsControlsProps {
   onMercantilOrigensFilterChange: (values: string[]) => void;
   availableMercantilOrigens: string[];
   availableMercantilStatuses: string[];
+  selectedBanks: LeadBankKey[];
+  onSelectedBanksChange: (values: LeadBankKey[]) => void;
+  bankCombinationMode: LeadBankCombinationMode;
+  onBankCombinationModeChange: (value: LeadBankCombinationMode) => void;
+  uy3Situacao: "todos" | "aprovado" | "nao_aprovado";
+  onUy3SituacaoChange: (value: "todos" | "aprovado" | "nao_aprovado") => void;
+  uy3ConsultaFrom: string;
+  onUy3ConsultaFromChange: (value: string) => void;
+  uy3ConsultaTo: string;
+  onUy3ConsultaToChange: (value: string) => void;
+  uy3MesesAdmissaoMin: string;
+  onUy3MesesAdmissaoMinChange: (value: string) => void;
+  uy3MesesAdmissaoMax: string;
+  onUy3MesesAdmissaoMaxChange: (value: string) => void;
+  uy3MargemMin: string;
+  onUy3MargemMinChange: (value: string) => void;
+  uy3MargemMax: string;
+  onUy3MargemMaxChange: (value: string) => void;
+  uy3ValorLiberadoMin: string;
+  onUy3ValorLiberadoMinChange: (value: string) => void;
+  uy3ValorLiberadoMax: string;
+  onUy3ValorLiberadoMaxChange: (value: string) => void;
+  uy3NumeroParcelasMin: string;
+  onUy3NumeroParcelasMinChange: (value: string) => void;
+  uy3NumeroParcelasMax: string;
+  onUy3NumeroParcelasMaxChange: (value: string) => void;
 
+  visibleColumns360: string[];
+  onVisibleColumns360Change: (cols: string[]) => void;
   visibleColumnsBASE: string[];
   onVisibleColumnsBASEChange: (cols: string[]) => void;
   visibleColumnsFGTS: string[];
@@ -170,35 +198,42 @@ interface LeadsControlsProps {
   visibleColumnsUY3: string[];
   onVisibleColumnsUY3Change: (cols: string[]) => void;
 
+  defaultVisibleColumns360: string[];
   defaultVisibleColumnsBASE: string[];
   defaultVisibleColumnsFGTS: string[];
   defaultVisibleColumnsCLT: string[];
   defaultVisibleColumnsMERCANTIL: string[];
   defaultVisibleColumnsUY3: string[];
+  stickyIdentityColumns360: boolean;
+  onStickyIdentityColumns360Change: (value: boolean) => void;
 
   disableFilters?: boolean;
   disableExport?: boolean;
 }
 
-const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
+const SORT_OPTIONS: Record<"360" | "BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
+  360: [
+    { value: "lead_updated_at", label: "Atualizado recentemente" },
+    { value: "lead_created_at", label: "Criado recentemente" },
+  ],
   BASE: [
-    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
-    { value: "lead_created_at", label: "Cadastro criado recentemente" },
+    { value: "lead_updated_at", label: "Atualizado recentemente" },
+    { value: "lead_created_at", label: "Criado recentemente" },
   ],
   CLT: [
-    { value: "clt_consulted_at", label: "Consulta CLT mais recente" },
-    { value: "clt_updated_at", label: "Dados CLT atualizados recentemente" },
-    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+    { value: "clt_consulted_at", label: "Consulta recente (CLT)" },
+    { value: "clt_updated_at", label: "Atualizado recentemente (CLT)" },
+    { value: "lead_updated_at", label: "Cadastro atualizado" },
   ],
   MERCANTIL: [
-    { value: "mercantil_consulted_at", label: "Consulta Mercantil mais recente" },
-    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+    { value: "mercantil_consulted_at", label: "Consulta recente (Mercantil)" },
+    { value: "lead_updated_at", label: "Cadastro atualizado" },
   ],
   UY3: [
-    { value: "uy3_consulted_at", label: "Dados UY3 atualizados recentemente" },
-    { value: "lead_updated_at", label: "Cadastro atualizado recentemente" },
+    { value: "uy3_consulted_at", label: "Atualizado recentemente (UY3)" },
+    { value: "lead_updated_at", label: "Cadastro atualizado" },
   ],
-}
+};
 
 export const LeadsControls = ({
   mode,
@@ -252,8 +287,6 @@ export const LeadsControls = ({
   onFgtsConsultaFromFilterChange,
   fgtsConsultaToFilter,
   onFgtsConsultaToFilterChange,
-  cltConsultado,
-  onCltConsultadoChange,
   cltSituacao,
   onCltSituacaoChange,
   cltConsultaFrom,
@@ -324,6 +357,34 @@ export const LeadsControls = ({
   onMercantilOrigensFilterChange,
   availableMercantilOrigens,
   availableMercantilStatuses,
+  selectedBanks,
+  onSelectedBanksChange,
+  bankCombinationMode,
+  onBankCombinationModeChange,
+  uy3Situacao,
+  onUy3SituacaoChange,
+  uy3ConsultaFrom,
+  onUy3ConsultaFromChange,
+  uy3ConsultaTo,
+  onUy3ConsultaToChange,
+  uy3MesesAdmissaoMin,
+  onUy3MesesAdmissaoMinChange,
+  uy3MesesAdmissaoMax,
+  onUy3MesesAdmissaoMaxChange,
+  uy3MargemMin,
+  onUy3MargemMinChange,
+  uy3MargemMax,
+  onUy3MargemMaxChange,
+  uy3ValorLiberadoMin,
+  onUy3ValorLiberadoMinChange,
+  uy3ValorLiberadoMax,
+  onUy3ValorLiberadoMaxChange,
+  uy3NumeroParcelasMin,
+  onUy3NumeroParcelasMinChange,
+  uy3NumeroParcelasMax,
+  onUy3NumeroParcelasMaxChange,
+  visibleColumns360,
+  onVisibleColumns360Change,
   visibleColumnsBASE,
   onVisibleColumnsBASEChange,
   visibleColumnsFGTS,
@@ -334,11 +395,14 @@ export const LeadsControls = ({
   onVisibleColumnsMERCANTILChange,
   visibleColumnsUY3,
   onVisibleColumnsUY3Change,
+  defaultVisibleColumns360,
   defaultVisibleColumnsBASE,
   defaultVisibleColumnsFGTS,
   defaultVisibleColumnsCLT,
   defaultVisibleColumnsMERCANTIL,
   defaultVisibleColumnsUY3,
+  stickyIdentityColumns360,
+  onStickyIdentityColumns360Change,
   disableFilters = false,
   disableExport = false,
 }: LeadsControlsProps) => {
@@ -352,16 +416,16 @@ export const LeadsControls = ({
 
   useEffect(() => {
     if (localSearchValue === searchValue) return;
-
     const timeout = window.setTimeout(() => {
       onSearchChange(localSearchValue);
     }, 500);
-
     return () => window.clearTimeout(timeout);
   }, [localSearchValue, onSearchChange, searchValue]);
 
   const currentVisible =
-    mode === "BASE"
+    mode === "360"
+      ? visibleColumns360
+      : mode === "BASE"
       ? visibleColumnsBASE
       : mode === "FGTS"
       ? visibleColumnsFGTS
@@ -370,8 +434,11 @@ export const LeadsControls = ({
         : mode === "MERCANTIL"
           ? visibleColumnsMERCANTIL
           : visibleColumnsUY3;
+
   const currentDefaults =
-    mode === "BASE"
+    mode === "360"
+      ? defaultVisibleColumns360
+      : mode === "BASE"
       ? defaultVisibleColumnsBASE
       : mode === "FGTS"
       ? defaultVisibleColumnsFGTS
@@ -382,7 +449,8 @@ export const LeadsControls = ({
           : defaultVisibleColumnsUY3;
 
   const onSaveVisible = (cols: string[]) => {
-    if (mode === "BASE") onVisibleColumnsBASEChange(cols);
+    if (mode === "360") onVisibleColumns360Change(cols);
+    else if (mode === "BASE") onVisibleColumnsBASEChange(cols);
     else if (mode === "FGTS") onVisibleColumnsFGTSChange(cols);
     else if (mode === "CLT") onVisibleColumnsCLTChange(cols);
     else if (mode === "MERCANTIL") onVisibleColumnsMERCANTILChange(cols);
@@ -401,13 +469,13 @@ export const LeadsControls = ({
   }, [currentVisible, currentDefaults]);
 
   const sortLabels: Partial<Record<LeadSort, string>> = {
-    lead_updated_at: "Cadastro atualizado recentemente",
-    lead_created_at: "Cadastro criado recentemente",
-    clt_updated_at: "Dados CLT atualizados recentemente",
-    clt_consulted_at: "Consulta CLT mais recente",
-    mercantil_updated_at: "Dados Mercantil atualizados recentemente",
-    mercantil_consulted_at: "Consulta Mercantil mais recente",
-    uy3_consulted_at: "Dados UY3 atualizados recentemente",
+    lead_updated_at: "Atualizado recentemente",
+    lead_created_at: "Criado recentemente",
+    clt_updated_at: "Atualizado recentemente (CLT)",
+    clt_consulted_at: "Consulta recente (CLT)",
+    mercantil_updated_at: "Atualizado recentemente (Mercantil)",
+    mercantil_consulted_at: "Consulta recente (Mercantil)",
+    uy3_consulted_at: "Atualizado recentemente (UY3)",
   };
 
   const summarizeList = (values: string[], max = 3) => {
@@ -423,14 +491,82 @@ export const LeadsControls = ({
     return null;
   };
 
+  const currentSortLabel =
+    mode === "UY3" && sortBy === "lead_updated_at"
+      ? "Atualizado recentemente"
+      : sortBy
+        ? sortLabels[sortBy] ?? sortBy
+        : null;
+
+  const sortOptions = mode === "360" || mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" || mode === "UY3" ? SORT_OPTIONS[mode] : [];
+
+  const activeFilterGroups360 = useMemo(() => {
+    if (mode !== "360") return [];
+
+    const bankLabels: Record<LeadBankKey, string> = {
+      fgts: "FGTS",
+      clt: "Facta",
+      mercantil: "Mercantil",
+      uy3: "UY3",
+    };
+
+    const general: string[] = [];
+    const clt: string[] = [];
+    const mercantil: string[] = [];
+    const uy3: string[] = [];
+
+    if (searchValue) general.push(`Busca: ${searchValue}`);
+    if (currentSortLabel) general.push(`Ordenação: ${currentSortLabel}`);
+    if (withPhonesFilter) general.push("Com telefone");
+    if (noPhonesFilter) general.push("Sem telefone");
+    if (selectedBanks.length) {
+      general.push(`Fontes: ${selectedBanks.filter((bank) => bank !== "fgts").map((bank) => bankLabels[bank]).join(", ")}`);
+      general.push(`Combinação: ${bankCombinationMode === "all" ? "Todos os bancos" : "Qualquer banco"}`);
+    }
+
+    if (cltSituacao !== "todos") clt.push(`Situação: ${cltSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const cltConsulta = rangeLabel("Consulta", cltConsultaFrom, cltConsultaTo);
+    if (cltConsulta) clt.push(cltConsulta);
+    if (cltMesesMin || cltMesesMax) clt.push(`Meses admissão: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
+    if (cltMargemMin || cltMargemMax) clt.push(`Margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
+    if (cltPrestacaoMin || cltPrestacaoMax) clt.push(`Parcelas: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+
+    if (mercantilSituacao !== "todos") mercantil.push(`Situação: ${mercantilSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const mercantilConsulta = rangeLabel("Consulta", mercantilConsultaFrom, mercantilConsultaTo);
+    if (mercantilConsulta) mercantil.push(mercantilConsulta);
+    if (mercantilParcelaMin || mercantilParcelaMax) mercantil.push(`Valor parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
+    if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) mercantil.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
+
+    if (uy3Situacao !== "todos") uy3.push(`Situação: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+    const uy3Consulta = rangeLabel("Consulta", uy3ConsultaFrom, uy3ConsultaTo);
+    if (uy3Consulta) uy3.push(uy3Consulta);
+    if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) uy3.push(`Meses admissão: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
+    if (uy3MargemMin || uy3MargemMax) uy3.push(`Margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
+    if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) uy3.push(`Valor liberado: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
+    if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) uy3.push(`Qtd. parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
+
+    return [
+      { title: "Gerais", labels: general, imageSrc: null },
+      { title: "Facta", labels: clt, imageSrc: factaLogo },
+      { title: "Mercantil", labels: mercantil, imageSrc: mercantilLogo },
+      { title: "UY3", labels: uy3, imageSrc: uy3Logo },
+    ].filter((group) => group.labels.length > 0);
+  }, [
+    mode, searchValue, currentSortLabel, withPhonesFilter, noPhonesFilter, selectedBanks, bankCombinationMode,
+    cltSituacao, cltConsultaFrom, cltConsultaTo, cltMesesMin, cltMesesMax, cltMargemMin, cltMargemMax, cltPrestacaoMin, cltPrestacaoMax,
+    mercantilSituacao, mercantilConsultaFrom, mercantilConsultaTo, mercantilParcelaMin, mercantilParcelaMax, mercantilQtdParcelasMin, mercantilQtdParcelasMax,
+    uy3Situacao, uy3ConsultaFrom, uy3ConsultaTo, uy3MesesAdmissaoMin, uy3MesesAdmissaoMax, uy3MargemMin, uy3MargemMax, uy3ValorLiberadoMin, uy3ValorLiberadoMax, uy3NumeroParcelasMin, uy3NumeroParcelasMax,
+  ]);
+
   const activeFilterLabels = useMemo(() => {
+    if (mode === "360") return [];
     const items: string[] = [];
 
     if (searchValue) items.push(`Busca: ${searchValue}`);
     if (origemFilter.length) items.push(`Origem: ${summarizeList(origemFilter)}`);
-    if (cpfMassFilter) items.push(`CPFs: ${cpfMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
-    if (namesMassFilter) items.push(`Nomes: ${namesMassFilter.split(/\r?\n/).map((v) => v.trim()).filter(Boolean).length}`);
-    if (phonesMassFilter) items.push(`Telefones: ${phonesMassFilter.split(/\r?\n|[;,]+/).map((v) => v.trim()).filter(Boolean).length}`);
+    if (cpfMassFilter) items.push(`CPFs em lote (${cpfMassFilter.split(/\r?\n|[;,]+/).filter(Boolean).length})`);
+    if (namesMassFilter) items.push(`Nomes em lote (${namesMassFilter.split(/\r?\n/).filter(Boolean).length})`);
+    if (phonesMassFilter) items.push(`Telefones em lote (${phonesMassFilter.split(/\r?\n|[;,]+/).filter(Boolean).length})`);
     if (withPhonesFilter) items.push("Com telefone");
     if (noPhonesFilter) items.push("Sem telefone");
     if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
@@ -458,7 +594,6 @@ export const LeadsControls = ({
 
     if (mode === "CLT") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
-      if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
       if (cltSituacao !== "todos") {
         const map = {
           nao_encontrado: "Não encontrado",
@@ -487,7 +622,6 @@ export const LeadsControls = ({
     }
 
     if (mode === "MERCANTIL") {
-      if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
       if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
       const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
       if (consulta) items.push(consulta);
@@ -499,7 +633,7 @@ export const LeadsControls = ({
     return items;
   }, [
     birthMonthFilter, cltAdmissaoFrom, cltAdmissaoTo, cltAtivosMax, cltAtivosMin,
-    cltCategoriaCodigos, cltConsultaFrom, cltConsultaTo, cltConsultado, cltIdadeMax,
+    cltCategoriaCodigos, cltConsultaFrom, cltConsultaTo, cltIdadeMax,
     cltIdadeMin, cltInicioEmpregadorFrom, cltInicioEmpregadorTo, cltBaseMax, cltBaseMin,
     cltMargemMax, cltMargemMin, cltMesesMax, cltMesesMin, cltPrestacaoMax, cltPrestacaoMin,
     cltRendaMax, cltRendaMin, cltSexo, cltSituacao, cltTemAtivos, cltTemLegados,
@@ -511,71 +645,61 @@ export const LeadsControls = ({
     namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter, withPhonesFilter,
   ]);
 
-  const currentSortLabel =
-    mode === "UY3" && sortBy === "lead_updated_at"
-      ? "Cadastro atualizado recentemente"
-      : sortBy
-        ? sortLabels[sortBy] ?? sortBy
-        : null;
-  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" || mode === "UY3" ? SORT_OPTIONS[mode] : [];
-
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
-      <div className="p-4">
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6 flex flex-col overflow-hidden">
+      <div className="p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           
           {/* Inputs Section (Search & Sort) */}
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:flex-1">
-            <label className="w-full sm:max-w-[320px]">
-              <span className="mb-1 block text-xs font-medium text-gray-700">Busca rápida</span>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  type="text"
-                  placeholder="Nome, CPF ou Telefone"
-                  value={localSearchValue}
-                  onChange={(e) => setLocalSearchValue(e.target.value)}
-                  className="pl-9 h-10 w-full"
-                />
-              </div>
-            </label>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full lg:flex-1">
+            <div className="relative w-full sm:max-w-[320px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                type="text"
+                placeholder="Nome, CPF ou Telefone"
+                value={localSearchValue}
+                onChange={(e) => setLocalSearchValue(e.target.value)}
+                className="pl-9 h-10 w-full transition-shadow focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+              />
+            </div>
 
             {sortOptions.length > 0 && (
-              <label className="w-full sm:w-[260px]">
-                <span className="mb-1 block text-xs font-medium text-gray-700">Ordenação</span>
-                <div className="relative flex items-center">
-                  <select
-                    value={sortBy}
-                    onChange={(event) => onSortByChange(event.target.value as LeadSort)}
-                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="" disabled>Ordenar por...</option>
-                    {sortOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+              <div className="relative w-full sm:max-w-[260px]">
+                <select
+                  value={sortBy}
+                  onChange={(event) => onSortByChange(event.target.value as LeadSort)}
+                  className="h-10 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-8 text-sm text-gray-700 shadow-sm outline-none transition-shadow hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="" disabled>Ordenar resultados por...</option>
+                  {sortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                  <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                 </div>
-              </label>
+              </div>
             )}
           </div>
 
           {/* Action Buttons Section */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-end sm:justify-end gap-2 w-full lg:w-auto shrink-0 self-end">
+          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-center justify-end gap-2 shrink-0">
             <Button
               onClick={() => setIsColumnsModalOpen(true)}
               variant="outline"
               className={cn(
-                "h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 relative w-full sm:w-auto",
-                hasCustomColumns && "border-blue-500 bg-blue-50/50 text-blue-700 hover:bg-blue-50"
+                "h-10 flex items-center justify-center gap-2 px-4 relative transition-colors shadow-sm",
+                hasCustomColumns 
+                  ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800" 
+                  : "border-gray-200 text-gray-700 hover:bg-gray-50"
               )}
-              title="Selecionar colunas visíveis"
             >
               <ColumnsIcon className="w-4 h-4" />
               <span>Colunas</span>
               {hasCustomColumns && (
-                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
+                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 ring-2 ring-white" />
               )}
             </Button>
 
@@ -584,15 +708,17 @@ export const LeadsControls = ({
               variant="outline"
               disabled={disableFilters}
               className={cn(
-                "h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 relative w-full sm:w-auto",
-                hasActiveFilters && !disableFilters && "border-blue-500 bg-blue-50/50 text-blue-700 hover:bg-blue-50"
+                "h-10 flex items-center justify-center gap-2 px-4 relative transition-colors shadow-sm",
+                hasActiveFilters && !disableFilters 
+                  ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                  : "border-gray-200 text-gray-700 hover:bg-gray-50"
               )}
-              title={disableFilters ? "Filtros indisponíveis para CLT (Mercantil)" : undefined}
+              title={disableFilters ? "Filtros indisponíveis neste modo" : undefined}
             >
               <Filter className="w-4 h-4" />
               <span>Filtros</span>
               {hasActiveFilters && !disableFilters && (
-                <span className="absolute top-0 right-0 -mt-1 -mr-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
+                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 ring-2 ring-white" />
               )}
             </Button>
 
@@ -600,8 +726,8 @@ export const LeadsControls = ({
               onClick={onExportClick}
               variant="outline"
               disabled={disableExport}
-              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 hover:bg-gray-50 w-full sm:w-auto"
-              title={disableExport ? "Exportação indisponível para CLT (Mercantil)" : undefined}
+              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm"
+              title={disableExport ? "Exportação indisponível neste modo" : undefined}
             >
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Exportar</span>
@@ -609,52 +735,97 @@ export const LeadsControls = ({
 
             <Button
               onClick={onImportClick}
-              className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
+              className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-colors"
             >
               <Upload className="w-4 h-4" />
               <span className="hidden sm:inline">Importar</span>
             </Button>
           </div>
         </div>
-
-        {/* Indicador de filtros ativos */}
-        {hasActiveFilters && !disableFilters && (
-          <div className="mt-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 bg-blue-50/50 border border-blue-100 rounded-lg p-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <Filter className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900">
-                  Filtros aplicados
-                  {typeof filteredCount === "number" && (
-                    <span className="text-blue-600 font-normal ml-1">· {filteredCount} leads encontrados</span>
-                  )}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {activeFilterLabels.map((label) => (
-                  <span key={label} className="inline-flex items-center rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 shadow-sm">
-                    {label}
-                  </span>
-                ))}
-                {currentSortLabel && (
-                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 shadow-sm">
-                    Ordenação: {currentSortLabel}
-                  </span>
-                )}
-              </div>
-            </div>
-            <Button
-              onClick={onClearFilters}
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs text-blue-700 hover:text-blue-800 hover:bg-blue-100/50 shrink-0 self-start w-full sm:w-auto"
-            >
-              Limpar todos
-            </Button>
-          </div>
-        )}
       </div>
 
+      {/* Seção de Filtros Ativos (Rodapé do Header) */}
+      {(hasActiveFilters || typeof filteredCount === "number") && !disableFilters && (
+        <div className="bg-white px-4 pb-4 sm:px-5 sm:pb-5">
+          <div className="border-t border-gray-200 bg-gradient-to-r from-white to-transparent pt-4 sm:pt-5">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 text-gray-800 font-medium text-sm">
+                  <Filter className="w-4 h-4 text-gray-500" />
+                  {hasActiveFilters ? "Filtros aplicados" : "Resultado atual"}
+                </div>
+                {typeof filteredCount === "number" && (
+                  <>
+                    <span className="text-gray-300">•</span>
+                    <span className="text-sm font-medium text-blue-600 bg-blue-100/50 px-2 py-0.5 rounded-full">
+                      {filteredCount} leads encontrados
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Modo 360 - Renderização por grupos limpos */}
+              {hasActiveFilters && mode === "360" ? (
+                <div className="flex flex-wrap gap-x-8 gap-y-4">
+                  {activeFilterGroups360.map((group) => (
+                    <div key={group.title} className="flex flex-col gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                        {group.imageSrc ? <img src={group.imageSrc} alt="" className="h-3.5 w-3.5 object-contain" /> : null}
+                        {group.title}
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.labels.map((label) => (
+                          <span key={`${group.title}-${label}`} className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : hasActiveFilters ? (
+                /* Outros Modos - Flat list */
+                <div className="flex flex-wrap gap-2">
+                  {activeFilterLabels.map((label) => (
+                    <span key={label} className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                      {label}
+                    </span>
+                  ))}
+                  {currentSortLabel && (
+                    <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                      Ordenação: {currentSortLabel}
+                    </span>
+                  )}
+                </div>
+              ) : currentSortLabel ? (
+                <div className="flex flex-wrap gap-2">
+                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                    Ordenação: {currentSortLabel}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Botão de Limpar (Canto superior direito em telas maiores) */}
+            {hasActiveFilters ? (
+              <Button
+                onClick={onClearFilters}
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 self-start w-full sm:w-auto"
+              >
+                <X className="w-3.5 h-3.5 mr-1" />
+                Limpar todos
+              </Button>
+            ) : null}
+          </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modais omitidos para concisão (mesma lógica) */}
       <FiltersModal
         mode={mode}
         isOpen={isFiltersModalOpen}
@@ -703,8 +874,6 @@ export const LeadsControls = ({
         onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
         fgtsConsultaToFilter={fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
-        cltConsultado={cltConsultado}
-        onCltConsultadoChange={onCltConsultadoChange}
         cltSituacao={cltSituacao}
         onCltSituacaoChange={onCltSituacaoChange}
         cltConsultaFrom={cltConsultaFrom}
@@ -775,6 +944,32 @@ export const LeadsControls = ({
         onMercantilOrigensFilterChange={onMercantilOrigensFilterChange}
         availableMercantilOrigens={availableMercantilOrigens}
         availableMercantilStatuses={availableMercantilStatuses}
+        selectedBanks={selectedBanks}
+        onSelectedBanksChange={onSelectedBanksChange}
+        bankCombinationMode={bankCombinationMode}
+        onBankCombinationModeChange={onBankCombinationModeChange}
+        uy3Situacao={uy3Situacao}
+        onUy3SituacaoChange={onUy3SituacaoChange}
+        uy3ConsultaFrom={uy3ConsultaFrom}
+        onUy3ConsultaFromChange={onUy3ConsultaFromChange}
+        uy3ConsultaTo={uy3ConsultaTo}
+        onUy3ConsultaToChange={onUy3ConsultaToChange}
+        uy3MesesAdmissaoMin={uy3MesesAdmissaoMin}
+        onUy3MesesAdmissaoMinChange={onUy3MesesAdmissaoMinChange}
+        uy3MesesAdmissaoMax={uy3MesesAdmissaoMax}
+        onUy3MesesAdmissaoMaxChange={onUy3MesesAdmissaoMaxChange}
+        uy3MargemMin={uy3MargemMin}
+        onUy3MargemMinChange={onUy3MargemMinChange}
+        uy3MargemMax={uy3MargemMax}
+        onUy3MargemMaxChange={onUy3MargemMaxChange}
+        uy3ValorLiberadoMin={uy3ValorLiberadoMin}
+        onUy3ValorLiberadoMinChange={onUy3ValorLiberadoMinChange}
+        uy3ValorLiberadoMax={uy3ValorLiberadoMax}
+        onUy3ValorLiberadoMaxChange={onUy3ValorLiberadoMaxChange}
+        uy3NumeroParcelasMin={uy3NumeroParcelasMin}
+        onUy3NumeroParcelasMinChange={onUy3NumeroParcelasMinChange}
+        uy3NumeroParcelasMax={uy3NumeroParcelasMax}
+        onUy3NumeroParcelasMaxChange={onUy3NumeroParcelasMaxChange}
       />
 
       <ColumnsModal
@@ -784,6 +979,8 @@ export const LeadsControls = ({
         visibleColumns={currentVisible}
         onSave={onSaveVisible}
         defaultVisibleColumns={currentDefaults}
+        stickyIdentityColumns={mode === "360" ? stickyIdentityColumns360 : undefined}
+        onStickyIdentityColumnsChange={mode === "360" ? onStickyIdentityColumns360Change : undefined}
       />
     </div>
   );
