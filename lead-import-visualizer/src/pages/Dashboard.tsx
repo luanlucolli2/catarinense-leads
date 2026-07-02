@@ -224,9 +224,6 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "telefone_1",
-  "consulta",
-  "libera",
-  "data_atualizacao",
   "politica_credito_aprovado",
   "margem_disponivel",
   "mercantil_status",
@@ -237,9 +234,10 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "uy3_numero_parcelas",
 ]
 
-const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v2"
+const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v3"
 
 const DASHBOARD_360_COLUMNS_LEGACY_STORAGE_KEYS = [
+  "leadstable:360:visibleColumns:v2",
   "leadstable:360:visibleColumns:v1",
 ]
 
