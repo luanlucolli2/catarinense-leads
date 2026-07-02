@@ -357,8 +357,13 @@ function loadFilters(): FiltersState {
       return { from: "", to: "", windowMode, periodPreset: "always", ...base };
     }
 
+    if (periodPreset !== "always" && periodPreset !== "custom") {
+      const preset = presetRange(periodPreset);
+      return { from: preset.from, to: preset.to, windowMode, periodPreset, ...base };
+    }
+
     if (windowMode === "rolling") {
-      const rolled = periodPreset === "custom" || periodPreset === "always" ? rollRangeToNow(from, to) : presetRange(periodPreset);
+      const rolled = rollRangeToNow(from, to);
       return { from: rolled.from, to: rolled.to, windowMode, periodPreset, ...base };
     }
 
@@ -662,18 +667,27 @@ export default function IntegracoesVendeaiPage() {
   const skipNextSearchAutoApplyRef = useRef(false);
 
   const rollingTick = applied.windowMode === "rolling" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
+  const presetTick = applied.periodPreset !== "always" && applied.periodPreset !== "custom" ? Math.floor(nowTs / AUTO_REFRESH_MS) : 0;
 
   const effectiveRange = useMemo(() => {
-    if (applied.windowMode === "rolling") {
-      if (applied.periodPreset !== "always" && applied.periodPreset !== "custom") {
-        return presetRange(applied.periodPreset, new Date(rollingTick * AUTO_REFRESH_MS));
-      }
+    if (applied.periodPreset !== "always" && applied.periodPreset !== "custom") {
+      return presetRange(applied.periodPreset, new Date(presetTick * AUTO_REFRESH_MS));
+    }
 
+    if (applied.windowMode === "rolling") {
       return rollRangeToNow(applied.from, applied.to, new Date(rollingTick * AUTO_REFRESH_MS));
     }
 
     return { from: applied.from, to: applied.to };
-  }, [applied.from, applied.to, applied.windowMode, applied.periodPreset, rollingTick]);
+  }, [applied.from, applied.to, applied.windowMode, applied.periodPreset, rollingTick, presetTick]);
+
+  useEffect(() => {
+    if (periodPresetInput === "always" || periodPresetInput === "custom") return;
+
+    const nextRange = presetRange(periodPresetInput, new Date(nowTs));
+    setFromInput((current) => (current === nextRange.from ? current : nextRange.from));
+    setToInput((current) => (current === nextRange.to ? current : nextRange.to));
+  }, [periodPresetInput, nowTs]);
 
   const fromIso = useMemo(() => toUtcIso(effectiveRange.from), [effectiveRange.from]);
   const toIso = useMemo(() => toUtcIso(effectiveRange.to), [effectiveRange.to]);
