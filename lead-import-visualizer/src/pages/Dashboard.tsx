@@ -134,6 +134,7 @@ type Dashboard360Filters = {
 }
 
 const BASE_SORT_DEFAULT: LeadSort = "lead_updated_at"
+const DASHBOARD_360_SORT_DEFAULT: LeadSort = "lead_updated_at"
 const CLT_SORT_DEFAULT: LeadSort = "clt_consulted_at"
 const MERCANTIL_SORT_DEFAULT: LeadSort = "mercantil_consulted_at"
 const UY3_SORT_DEFAULT: LeadSort = "uy3_consulted_at"
@@ -399,6 +400,8 @@ const Dashboard = () => {
     DASHBOARD_360_COLUMNS_STORAGE_KEY,
     resolveDashboard360DefaultColumns()
   )
+  const [dashboard360SearchValue, setDashboard360SearchValue] = usePersistedState<string>("dashboard-360:searchValue", "")
+  const [dashboard360SortBy, setDashboard360SortBy] = usePersistedState<LeadSort>("dashboard-360:sortBy:v1", DASHBOARD_360_SORT_DEFAULT)
   const [dashboard360StickyIdentityColumns, setDashboard360StickyIdentityColumns] = usePersistedState<boolean>(
     "dashboard-360:stickyIdentityColumns:v1",
     true
@@ -631,12 +634,16 @@ const Dashboard = () => {
       uy3CpfMassFilter, uy3NamesMassFilter, uy3PhonesMassFilter, uy3WithPhonesFilter, uy3NoPhonesFilter,
       uy3BirthMonthFilter,
       uy3SortBy,
+      dashboard360SearchValue,
+      dashboard360SortBy,
       dashboard360Filters,
     ],
     queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
       if (activeTab === "360") {
         return fetchLeads360({
           page: currentPage,
+          search: dashboard360SearchValue,
+          sort: dashboard360SortBy,
           with_phones: dashboard360Filters.with_phones || undefined,
           without_phones: dashboard360Filters.without_phones || undefined,
           selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
@@ -1158,6 +1165,8 @@ const Dashboard = () => {
 
   const clear360 = () => {
     setDashboard360Filters(DASHBOARD_360_FILTERS_DEFAULT)
+    setDashboard360SearchValue("")
+    setDashboard360SortBy(DASHBOARD_360_SORT_DEFAULT)
   }
 
   const clearBase = () => {
@@ -1665,8 +1674,8 @@ const Dashboard = () => {
   const ui = activeTab === "360"
     ? {
       mode: "360" as const,
-      searchValue: "",
-      setSearchValue: (_: string) => {},
+      searchValue: dashboard360SearchValue,
+      setSearchValue: setDashboard360SearchValue,
       statusFilter: "todos" as const,
       setStatusFilter: (_: StatusFilter) => {},
       motivosFilter: [] as string[],
@@ -1697,8 +1706,8 @@ const Dashboard = () => {
       setVendorsFilter: (_: string[]) => {},
       birthMonthFilter: [] as string[],
       setBirthMonthFilter: (_: string[]) => {},
-      sortBy: "" as LeadSort | "",
-      setSortBy: (_: LeadSort | "") => {},
+      sortBy: dashboard360SortBy,
+      setSortBy: (value: LeadSort | "") => value && setDashboard360SortBy(value),
       fgtsAuthorizedFilter: "todos" as const,
       setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
       fgtsConsultaFromFilter: "",
@@ -1988,7 +1997,11 @@ const Dashboard = () => {
         cltTemLegados={activeTab === "360" ? dashboard360Filters.clt_tem_legados : cltTemLegados}
         onCltTemLegadosChange={(value) => activeTab === "360" ? update360Filter("clt_tem_legados", value) : setCltTemLegados(value)}
         mercantilSituacao={activeTab === "360" ? dashboard360Filters.mercantil_situacao : mercantilSituacao}
-        onMercantilSituacaoChange={(value) => activeTab === "360" ? update360Filter("mercantil_situacao", value) : setMercantilSituacao(value)}
+        onMercantilSituacaoChange={(value) =>
+          activeTab === "360"
+            ? update360Filter("mercantil_situacao", value as MercantilSituacao360Filter)
+            : setMercantilSituacao(value as "todos" | "consultado" | "sem_consulta")
+        }
         mercantilStatusFilter={activeTab === "360" ? dashboard360Filters.mercantil_status : mercantilStatusFilter}
         onMercantilStatusFilterChange={(value) => activeTab === "360" ? update360Filter("mercantil_status", value) : setMercantilStatusFilter(value)}
         mercantilConsultaFrom={activeTab === "360" ? dashboard360Filters.mercantil_consulta_from : mercantilConsultaFrom}

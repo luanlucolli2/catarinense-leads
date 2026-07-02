@@ -363,7 +363,7 @@ export interface LeadFilters {
   /** ➕ CLT — filtros específicos */
   clt_consultado?: "sim" | "nao"
   /** novo filtro unificado de situação */
-  clt_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel"
+  clt_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
   clt_consulta_from?: string
   clt_consulta_to?: string
   clt_admissao_from?: string
@@ -393,7 +393,7 @@ export interface LeadFilters {
   clt_tem_legados?: "sim" | "nao"
 
   /** ➕ MERCANTIL — filtros específicos */
-  mercantil_situacao?: "consultado" | "sem_consulta"
+  mercantil_situacao?: "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado"
   mercantil_status?: string[]
   mercantil_consulta_from?: string
   mercantil_consulta_to?: string
@@ -801,6 +801,7 @@ export async function fetchLeads360(filters: LeadFilters) {
       search: filters.search?.trim() || undefined,
       selected_banks: filters.selected_banks?.length ? filters.selected_banks : undefined,
       bank_combination_mode: filters.selected_banks?.length ? (filters.bank_combination_mode || "any") : undefined,
+      sort: filters.sort || undefined,
       origens: filters.origens?.length ? filters.origens : undefined,
       birth_month: months.length ? months : undefined,
       with_phones: filters.with_phones || undefined,

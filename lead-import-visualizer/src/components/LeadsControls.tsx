@@ -214,7 +214,11 @@ interface LeadsControlsProps {
   disableExport?: boolean;
 }
 
-const SORT_OPTIONS: Record<"BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
+const SORT_OPTIONS: Record<"360" | "BASE" | "CLT" | "MERCANTIL" | "UY3", { value: LeadSort; label: string }[]> = {
+  360: [
+    { value: "lead_updated_at", label: "Atualizado recentemente" },
+    { value: "lead_created_at", label: "Criado recentemente" },
+  ],
   BASE: [
     { value: "lead_updated_at", label: "Atualizado recentemente" },
     { value: "lead_created_at", label: "Criado recentemente" },
@@ -492,6 +496,15 @@ export const LeadsControls = ({
     return null;
   };
 
+  const currentSortLabel =
+    mode === "UY3" && sortBy === "lead_updated_at"
+      ? "Atualizado recentemente"
+      : sortBy
+        ? sortLabels[sortBy] ?? sortBy
+        : null;
+
+  const sortOptions = mode === "360" || mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" || mode === "UY3" ? SORT_OPTIONS[mode] : [];
+
   const activeFilterGroups360 = useMemo(() => {
     if (mode !== "360") return [];
 
@@ -507,6 +520,8 @@ export const LeadsControls = ({
     const mercantil: string[] = [];
     const uy3: string[] = [];
 
+    if (searchValue) general.push(`Busca: ${searchValue}`);
+    if (currentSortLabel) general.push(`Ordenação: ${currentSortLabel}`);
     if (withPhonesFilter) general.push("Com telefone");
     if (noPhonesFilter) general.push("Sem telefone");
     if (selectedBanks.length) {
@@ -542,7 +557,7 @@ export const LeadsControls = ({
       { title: "UY3", labels: uy3, imageSrc: uy3Logo },
     ].filter((group) => group.labels.length > 0);
   }, [
-    mode, withPhonesFilter, noPhonesFilter, selectedBanks, bankCombinationMode,
+    mode, searchValue, currentSortLabel, withPhonesFilter, noPhonesFilter, selectedBanks, bankCombinationMode,
     cltSituacao, cltConsultaFrom, cltConsultaTo, cltMesesMin, cltMesesMax, cltMargemMin, cltMargemMax, cltPrestacaoMin, cltPrestacaoMax,
     mercantilSituacao, mercantilConsultaFrom, mercantilConsultaTo, mercantilParcelaMin, mercantilParcelaMax, mercantilQtdParcelasMin, mercantilQtdParcelasMax,
     uy3Situacao, uy3ConsultaFrom, uy3ConsultaTo, uy3MesesAdmissaoMin, uy3MesesAdmissaoMax, uy3MargemMin, uy3MargemMax, uy3ValorLiberadoMin, uy3ValorLiberadoMax, uy3NumeroParcelasMin, uy3NumeroParcelasMax,
@@ -637,15 +652,6 @@ export const LeadsControls = ({
     namesMassFilter, noPhonesFilter, origemFilter, phonesMassFilter, searchValue, vendorsFilter, withPhonesFilter,
   ]);
 
-  const currentSortLabel =
-    mode === "UY3" && sortBy === "lead_updated_at"
-      ? "Atualizado recentemente"
-      : sortBy
-        ? sortLabels[sortBy] ?? sortBy
-        : null;
-        
-  const sortOptions = mode === "BASE" || mode === "CLT" || mode === "MERCANTIL" || mode === "UY3" ? SORT_OPTIONS[mode] : [];
-
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6 flex flex-col overflow-hidden">
       <div className="p-4 sm:p-5">
@@ -653,18 +659,16 @@ export const LeadsControls = ({
           
           {/* Inputs Section (Search & Sort) */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full lg:flex-1">
-            {mode !== "360" && (
-              <div className="relative w-full sm:max-w-[320px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  type="text"
-                  placeholder="Nome, CPF ou Telefone"
-                  value={localSearchValue}
-                  onChange={(e) => setLocalSearchValue(e.target.value)}
-                  className="pl-9 h-10 w-full transition-shadow focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
-                />
-              </div>
-            )}
+            <div className="relative w-full sm:max-w-[320px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                type="text"
+                placeholder="Nome, CPF ou Telefone"
+                value={localSearchValue}
+                onChange={(e) => setLocalSearchValue(e.target.value)}
+                className="pl-9 h-10 w-full transition-shadow focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+              />
+            </div>
 
             {sortOptions.length > 0 && (
               <div className="relative w-full sm:max-w-[260px]">
