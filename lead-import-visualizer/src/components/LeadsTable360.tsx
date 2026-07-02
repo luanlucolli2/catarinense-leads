@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button"
 import { LeadDetailsModal } from "./LeadDetailsModal"
 import { cn } from "@/lib/utils"
 import type { Telefone } from "./LeadsTable"
+import factaLogo from "@/assets/factalogo.png"
+import mercantilLogo from "@/assets/mercantilogo.png"
+import uy3Logo from "@/assets/logouy3png.png"
 
 const EMPTY = "--"
 
@@ -78,6 +81,46 @@ const display = (value?: string | number | null) =>
 const phoneAt = (lead: ProcessedLead360, index: number) => lead.telefones[index]?.fone || EMPTY
 const phoneClassAt = (lead: ProcessedLead360, index: number) => lead.telefones[index]?.classe || EMPTY
 
+const getColumnTone = (columnId: string) => {
+  if (["cpf", "nome", "data_nascimento", "telefone_1", "classe_1", "telefone_2", "classe_2", "telefone_3", "classe_3", "telefone_4", "classe_4", "ultima_origem_cadastral", "ultima_origem_higienizacao"].includes(columnId)) {
+    return "border-gray-200 bg-slate-50 text-slate-600"
+  }
+
+  if (["consulta", "saldo", "libera", "data_atualizacao", "fgts_off_authorized", "fgts_off_consultado_em", "contratos", "data_contrato_recente", "vendedor"].includes(columnId)) {
+    return "border-amber-200 bg-amber-50 text-amber-800"
+  }
+
+  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
+    return "border-[#d2782d]/30 bg-[#d2782d]/10 text-[#9a561f]"
+  }
+
+  if (["mercantil_status", "mercantil_mensagem_erro", "mercantil_data_hora_origem", "mercantil_valor_financiado", "mercantil_valor_iof", "mercantil_data_primeiro_vencimento", "mercantil_valor_emprestimo", "mercantil_quantidade_parcelas", "mercantil_valor_liberado", "mercantil_taxa_juros_mes", "mercantil_valor_parcela", "ultima_origem_mercantil"].includes(columnId)) {
+    return "border-blue-200 bg-blue-50 text-blue-700"
+  }
+
+  if (["uy3_type_webhook", "uy3_status", "uy3_consultado_em", "uy3_data_admissao", "uy3_valor_liberado", "uy3_numero_parcelas", "uy3_codigo_requisicao", "uy3_margem_disponivel", "uy3_elegivel_emprestimo", "uy3_numero_inscricao_empregador", "uy3_pessoa_exposta_politicamente_codigo", "uy3_data_hora_validade_solicitacao", "uy3_is_mei", "uy3_is_judicial_recovery"].includes(columnId)) {
+    return "border-[#f46c00]/30 bg-[#f46c00]/10 text-[#b44f00]"
+  }
+
+  return "border-gray-200 bg-slate-50 text-slate-600"
+}
+
+const getColumnIcon = (columnId: string) => {
+  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
+    return { src: factaLogo, alt: "Facta" }
+  }
+
+  if (["mercantil_status", "mercantil_mensagem_erro", "mercantil_data_hora_origem", "mercantil_valor_financiado", "mercantil_valor_iof", "mercantil_data_primeiro_vencimento", "mercantil_valor_emprestimo", "mercantil_quantidade_parcelas", "mercantil_valor_liberado", "mercantil_taxa_juros_mes", "mercantil_valor_parcela", "ultima_origem_mercantil"].includes(columnId)) {
+    return { src: mercantilLogo, alt: "Mercantil" }
+  }
+
+  if (["uy3_type_webhook", "uy3_status", "uy3_consultado_em", "uy3_data_admissao", "uy3_valor_liberado", "uy3_numero_parcelas", "uy3_codigo_requisicao", "uy3_margem_disponivel", "uy3_elegivel_emprestimo", "uy3_numero_inscricao_empregador", "uy3_pessoa_exposta_politicamente_codigo", "uy3_data_hora_validade_solicitacao", "uy3_is_mei", "uy3_is_judicial_recovery"].includes(columnId)) {
+    return { src: uy3Logo, alt: "UY3" }
+  }
+
+  return null
+}
+
 const DesktopCell = ({
   children,
   sticky,
@@ -110,8 +153,8 @@ const DesktopHead = ({
 }) => (
   <th
     className={cn(
-      "border-b border-gray-200 bg-slate-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600",
-      sticky && "sticky z-20 bg-slate-50",
+      "border-b px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide",
+      sticky && "sticky z-20",
       sticky,
       className
     )}
@@ -185,12 +228,12 @@ export const LeadsTable360 = ({
       { id: "contratos", label: "Contratos", render: (lead: ProcessedLead360) => display(lead.contratos) },
       { id: "data_contrato_recente", label: "Ult. contrato", render: (lead: ProcessedLead360) => display(lead.data_contrato_recente) },
       { id: "vendedor", label: "Vendedor", render: (lead: ProcessedLead360) => display(lead.vendedor) },
-      { id: "elegivel", label: "CLT elegivel", render: (lead: ProcessedLead360) => boolLabel(lead.elegivel) },
-      { id: "not_found", label: "CLT nao encontrado", render: (lead: ProcessedLead360) => boolLabel(lead.not_found) },
-      { id: "margem_disponivel", label: "CLT margem", render: (lead: ProcessedLead360) => display(lead.margem_disponivel) },
-      { id: "politica_credito_aprovado", label: "CLT politica", render: (lead: ProcessedLead360) => boolLabel(lead.politica_credito_aprovado) },
-      { id: "clt_consultado_em", label: "CLT consulta", render: (lead: ProcessedLead360) => display(lead.clt_consultado_em) },
-      { id: "clt_dados_atualizados_em", label: "CLT dados", render: (lead: ProcessedLead360) => display(lead.clt_dados_atualizados_em) },
+      { id: "elegivel", label: "Facta elegivel", render: (lead: ProcessedLead360) => boolLabel(lead.elegivel) },
+      { id: "not_found", label: "Facta nao encontrado", render: (lead: ProcessedLead360) => boolLabel(lead.not_found) },
+      { id: "margem_disponivel", label: "Facta margem", render: (lead: ProcessedLead360) => display(lead.margem_disponivel) },
+      { id: "politica_credito_aprovado", label: "Facta politica", render: (lead: ProcessedLead360) => boolLabel(lead.politica_credito_aprovado) },
+      { id: "clt_consultado_em", label: "Facta consulta", render: (lead: ProcessedLead360) => display(lead.clt_consultado_em) },
+      { id: "clt_dados_atualizados_em", label: "Facta dados", render: (lead: ProcessedLead360) => display(lead.clt_dados_atualizados_em) },
       { id: "mercantil_status", label: "Mercantil status", render: (lead: ProcessedLead360) => display(lead.mercantil_status) },
       { id: "mercantil_mensagem_erro", label: "Mercantil msg", render: (lead: ProcessedLead360) => display(lead.mercantil_mensagem_erro) },
       { id: "mercantil_data_hora_origem", label: "Mercantil consulta", render: (lead: ProcessedLead360) => display(lead.mercantil_data_hora_origem) },
@@ -240,16 +283,29 @@ export const LeadsTable360 = ({
         <table className="min-w-max border-collapse">
           <thead>
             <tr>
-              <DesktopHead sticky="left-0" className="min-w-[160px]">CPF</DesktopHead>
-              <DesktopHead sticky="left-[160px]" className="min-w-[240px]">Nome</DesktopHead>
+              <DesktopHead sticky="left-0" className="min-w-[160px] bg-slate-50 text-slate-600">CPF</DesktopHead>
+              <DesktopHead sticky="left-[160px]" className="min-w-[240px] bg-slate-50 text-slate-600">Nome</DesktopHead>
               {visibleColumnsData
                 .filter((column) => column.id !== "cpf" && column.id !== "nome")
-                .map((column) => (
-                  <DesktopHead key={column.id} className="min-w-[160px]">
-                    {column.label}
-                  </DesktopHead>
-                ))}
-              <DesktopHead sticky="right-0" className="min-w-[110px] text-center">Acoes</DesktopHead>
+                .map((column) => {
+                  const icon = getColumnIcon(column.id)
+
+                  return (
+                    <DesktopHead key={column.id} className={cn("min-w-[160px]", getColumnTone(column.id))}>
+                      <span className="flex items-center gap-2">
+                        {icon ? (
+                          <img
+                            src={icon.src}
+                            alt={icon.alt}
+                            className="h-4 w-4 shrink-0 rounded-sm object-contain"
+                          />
+                        ) : null}
+                        <span>{column.label}</span>
+                      </span>
+                    </DesktopHead>
+                  )
+                })}
+              <DesktopHead sticky="right-0" className="min-w-[110px] bg-slate-50 text-center text-slate-600">Acoes</DesktopHead>
             </tr>
           </thead>
           {isLoading ? (
@@ -329,7 +385,7 @@ export const LeadsTable360 = ({
                 )}
 
                 {hasAny(["elegivel", "margem_disponivel", "clt_consultado_em"]) && (
-                  <CardSection title="CLT Facta">
+                  <CardSection title="Facta">
                     {visibleSet.has("elegivel") && <DataRow label="Elegível" value={boolLabel(lead.elegivel)} />}
                     {visibleSet.has("margem_disponivel") && <DataRow label="Margem" value={display(lead.margem_disponivel)} />}
                     {visibleSet.has("clt_consultado_em") && <DataRow label="Consulta" value={display(lead.clt_consultado_em)} />}

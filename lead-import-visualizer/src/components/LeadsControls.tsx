@@ -493,7 +493,7 @@ export const LeadsControls = ({
 
     const bankLabels: Record<LeadBankKey, string> = {
       fgts: "FGTS",
-      clt: "CLT Facta",
+      clt: "Facta",
       mercantil: "Mercantil",
       uy3: "UY3",
     };
@@ -533,7 +533,7 @@ export const LeadsControls = ({
 
     return [
       { title: "Gerais", labels: general, imageSrc: null },
-      { title: "CLT Facta", labels: clt, imageSrc: factaLogo },
+      { title: "Facta", labels: clt, imageSrc: factaLogo },
       { title: "Mercantil", labels: mercantil, imageSrc: mercantilLogo },
       { title: "UY3", labels: uy3, imageSrc: uy3Logo },
     ].filter((group) => group.labels.length > 0);

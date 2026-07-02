@@ -223,20 +223,45 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "cpf",
   "nome",
   "telefone_1",
-  "ultima_origem_cadastral",
   "consulta",
   "libera",
-  "fgts_off_authorized",
-  "elegivel",
+  "data_atualizacao",
+  "politica_credito_aprovado",
   "margem_disponivel",
-  "clt_consultado_em",
   "mercantil_status",
   "mercantil_valor_liberado",
-  "mercantil_data_hora_origem",
-  "uy3_status",
+  "mercantil_valor_parcela",
+  "uy3_elegivel_emprestimo",
   "uy3_valor_liberado",
-  "uy3_consultado_em",
+  "uy3_numero_parcelas",
 ]
+
+const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v2"
+
+const DASHBOARD_360_COLUMNS_LEGACY_STORAGE_KEYS = [
+  "leadstable:360:visibleColumns:v1",
+]
+
+const resolveDashboard360DefaultColumns = (): string[] => {
+  if (typeof window === "undefined") return DASHBOARD_360_COLUMNS_DEFAULT
+
+  const current = window.localStorage.getItem(DASHBOARD_360_COLUMNS_STORAGE_KEY)
+
+  if (current) {
+    try {
+      const parsed = JSON.parse(current)
+      if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+        return parsed
+      }
+    } catch {
+      // Ignore invalid persisted value and fall back to the new default.
+    }
+  }
+
+  DASHBOARD_360_COLUMNS_LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key))
+
+  return DASHBOARD_360_COLUMNS_DEFAULT
+}
 
 const DASHBOARD_360_FILTERS_DEFAULT: Dashboard360Filters = {
   search: "",
@@ -371,8 +396,8 @@ const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1)
 
   const [dashboard360VisibleColumns, setDashboard360VisibleColumns] = usePersistedState<string[]>(
-    "leadstable:360:visibleColumns:v1",
-    DASHBOARD_360_COLUMNS_DEFAULT
+    DASHBOARD_360_COLUMNS_STORAGE_KEY,
+    resolveDashboard360DefaultColumns()
   )
   const [dashboard360Filters, setDashboard360Filters] = usePersistedState<Dashboard360Filters>(
     "dashboard-360:filters:v1",
@@ -1840,9 +1865,9 @@ const Dashboard = () => {
             <option value="360">360 Operacional</option>
             <option value="BASE">Somente dados cadastrais</option>
             <option value="FGTS">Cadastrais + FGTS</option>
-            <option value="CLT">Cadastrais + CLT Facta</option>
-            <option value="MERCANTIL">Cadastrais + CLT Mercantil</option>
-            <option value="UY3">Cadastrais + CLT UY3</option>
+            <option value="CLT">Cadastrais + Facta</option>
+            <option value="MERCANTIL">Cadastrais + Mercantil</option>
+            <option value="UY3">Cadastrais + UY3</option>
           </select>
         </label>
       </div>

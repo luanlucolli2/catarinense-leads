@@ -18,7 +18,7 @@ interface ColumnsModalProps {
   defaultVisibleColumns: string[];
 }
 
-type Group = "Cadastral" | "FGTS" | "CLT Facta" | "Mercantil" | "UY3" | "Produto" | "Registro";
+type Group = "Cadastral" | "FGTS" | "Facta" | "Mercantil" | "UY3" | "Produto" | "Registro";
 
 type CatalogItem = {
   id: string;
@@ -50,12 +50,12 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "contratos", label: "Qtd. contratos", group: "FGTS" },
     { id: "data_contrato_recente", label: "Último contrato", group: "FGTS" },
     { id: "vendedor", label: "Vendedor", group: "FGTS" },
-    { id: "elegivel", label: "Elegível", group: "CLT Facta" },
-    { id: "not_found", label: "Não encontrado", group: "CLT Facta" },
-    { id: "margem_disponivel", label: "Margem disponível", group: "CLT Facta" },
-    { id: "politica_credito_aprovado", label: "Política aprovada", group: "CLT Facta" },
-    { id: "clt_consultado_em", label: "Consulta CLT", group: "CLT Facta" },
-    { id: "clt_dados_atualizados_em", label: "Dados CLT", group: "CLT Facta" },
+    { id: "elegivel", label: "Elegível", group: "Facta" },
+    { id: "not_found", label: "Não encontrado", group: "Facta" },
+    { id: "margem_disponivel", label: "Margem disponível", group: "Facta" },
+    { id: "politica_credito_aprovado", label: "Política aprovada", group: "Facta" },
+    { id: "clt_consultado_em", label: "Consulta Facta", group: "Facta" },
+    { id: "clt_dados_atualizados_em", label: "Dados Facta", group: "Facta" },
     { id: "mercantil_status", label: "Status", group: "Mercantil" },
     { id: "mercantil_mensagem_erro", label: "Mensagem", group: "Mercantil" },
     { id: "mercantil_data_hora_origem", label: "Consulta Mercantil", group: "Mercantil" },

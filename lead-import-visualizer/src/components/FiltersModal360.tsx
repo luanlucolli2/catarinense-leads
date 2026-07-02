@@ -174,9 +174,9 @@ function Group({
 }
 
 const BANKS = [
-  { value: "clt" as LeadBankKey, label: "CLT Facta", imageSrc: factaLogo, alt: "Facta" },
-  { value: "mercantil" as LeadBankKey, label: "CLT Mercantil", imageSrc: mercantilLogo, alt: "Mercantil" },
-  { value: "uy3" as LeadBankKey, label: "CLT UY3", imageSrc: uy3Logo, alt: "UY3" },
+  { value: "clt" as LeadBankKey, label: "Facta", imageSrc: factaLogo, alt: "Facta" },
+  { value: "mercantil" as LeadBankKey, label: "Mercantil", imageSrc: mercantilLogo, alt: "Mercantil" },
+  { value: "uy3" as LeadBankKey, label: "UY3", imageSrc: uy3Logo, alt: "UY3" },
 ]
 
 export const FiltersModal360 = ({
@@ -382,7 +382,7 @@ export const FiltersModal360 = ({
   if (localWithPhones) chips.push("Com telefone")
   if (localNoPhones) chips.push("Sem telefone")
   if (localSelectedBanks.length > 0) chips.push(`Bancos (${localSelectedBanks.length})`)
-  if (showClt && actClt) chips.push("CLT Facta")
+  if (showClt && actClt) chips.push("Facta")
   if (showMercantil && actMercantil) chips.push("Mercantil")
   if (showUy3 && actUy3) chips.push("UY3")
 
@@ -516,7 +516,7 @@ export const FiltersModal360 = ({
           </Group>
 
           {showClt && (
-            <Group title="Filtros CLT Facta" imageSrc={factaLogo} imageAlt="Facta">
+            <Group title="Filtros Facta" imageSrc={factaLogo} imageAlt="Facta">
               <div>
                 <Section title="Situação e Período" active={localCltSituacao !== "todos" || any([localCltConsultaFrom, localCltConsultaTo])}>
                   <div className="mb-3">
