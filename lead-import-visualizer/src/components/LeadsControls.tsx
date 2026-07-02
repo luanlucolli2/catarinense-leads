@@ -207,6 +207,8 @@ interface LeadsControlsProps {
   defaultVisibleColumnsCLT: string[];
   defaultVisibleColumnsMERCANTIL: string[];
   defaultVisibleColumnsUY3: string[];
+  stickyIdentityColumns360: boolean;
+  onStickyIdentityColumns360Change: (value: boolean) => void;
 
   disableFilters?: boolean;
   disableExport?: boolean;
@@ -400,6 +402,8 @@ export const LeadsControls = ({
   defaultVisibleColumnsCLT,
   defaultVisibleColumnsMERCANTIL,
   defaultVisibleColumnsUY3,
+  stickyIdentityColumns360,
+  onStickyIdentityColumns360Change,
   disableFilters = false,
   disableExport = false,
 }: LeadsControlsProps) => {
@@ -972,6 +976,8 @@ export const LeadsControls = ({
         visibleColumns={currentVisible}
         onSave={onSaveVisible}
         defaultVisibleColumns={currentDefaults}
+        stickyIdentityColumns={mode === "360" ? stickyIdentityColumns360 : undefined}
+        onStickyIdentityColumnsChange={mode === "360" ? onStickyIdentityColumns360Change : undefined}
       />
     </div>
   );

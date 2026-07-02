@@ -16,6 +16,8 @@ interface ColumnsModalProps {
 
   /** defaults (para "Redefinir") */
   defaultVisibleColumns: string[];
+  stickyIdentityColumns?: boolean;
+  onStickyIdentityColumnsChange?: (value: boolean) => void;
 }
 
 type Group = "Cadastral" | "FGTS" | "Facta" | "Mercantil" | "UY3" | "Produto" | "Registro";
@@ -261,10 +263,13 @@ export const ColumnsModal = ({
   visibleColumns,
   onSave,
   defaultVisibleColumns,
+  stickyIdentityColumns = true,
+  onStickyIdentityColumnsChange,
 }: ColumnsModalProps) => {
   const columnsSource = useMemo(() => CATALOG[mode], [mode]);
   const modeLabel = mode === "360" ? "360 Operacional" : mode === "UY3" ? "CLT UY3" : mode;
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [localStickyIdentityColumns, setLocalStickyIdentityColumns] = useState(stickyIdentityColumns);
 
   useEffect(() => {
     if (isOpen) {
@@ -273,6 +278,7 @@ export const ColumnsModal = ({
         return acc;
       }, {} as Record<string, boolean>);
       setSelected(init);
+      setLocalStickyIdentityColumns(stickyIdentityColumns);
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -305,6 +311,9 @@ export const ColumnsModal = ({
       return acc;
     }, {} as Record<string, boolean>);
     setSelected(base);
+    if (mode === "360") {
+      setLocalStickyIdentityColumns(true);
+    }
   };
 
   const handleSave = () => {
@@ -312,6 +321,7 @@ export const ColumnsModal = ({
       .filter(c => selected[c.id] || c.pinned)
       .map(c => c.id);
     onSave(cols);
+    onStickyIdentityColumnsChange?.(localStickyIdentityColumns);
     onClose();
   };
 
@@ -369,7 +379,7 @@ export const ColumnsModal = ({
                         {c.label}
                         {c.pinned && (
                           <span className="ml-2 inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                            <CheckSquare className="w-3 h-3 mr-1" /> Fixa
+                            <CheckSquare className="w-3 h-3 mr-1" /> Sempre
                           </span>
                         )}
                       </span>
@@ -379,6 +389,23 @@ export const ColumnsModal = ({
               </div>
             ))}
           </div>
+
+          {mode === "360" ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <label className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-gray-800">Fixar CPF e Nome</div>
+                  <div className="text-xs text-gray-500">Mantém essas colunas presas na esquerda ao rolar a tabela.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={localStickyIdentityColumns}
+                  onChange={(event) => setLocalStickyIdentityColumns(event.target.checked)}
+                  className="h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600"
+                />
+              </label>
+            </div>
+          ) : null}
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">

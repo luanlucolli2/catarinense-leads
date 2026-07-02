@@ -399,6 +399,10 @@ const Dashboard = () => {
     DASHBOARD_360_COLUMNS_STORAGE_KEY,
     resolveDashboard360DefaultColumns()
   )
+  const [dashboard360StickyIdentityColumns, setDashboard360StickyIdentityColumns] = usePersistedState<boolean>(
+    "dashboard-360:stickyIdentityColumns:v1",
+    true
+  )
   const [dashboard360Filters, setDashboard360Filters] = usePersistedState<Dashboard360Filters>(
     "dashboard-360:filters:v1",
     DASHBOARD_360_FILTERS_DEFAULT
@@ -2047,6 +2051,8 @@ const Dashboard = () => {
         defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
         defaultVisibleColumnsMERCANTIL={MERCANTIL_COLUMNS_DEFAULT}
         defaultVisibleColumnsUY3={UY3_COLUMNS_DEFAULT}
+        stickyIdentityColumns360={dashboard360StickyIdentityColumns}
+        onStickyIdentityColumns360Change={setDashboard360StickyIdentityColumns}
       />
 
       {activeTab === "360" ? (
@@ -2057,6 +2063,7 @@ const Dashboard = () => {
           onPageChange={setCurrentPage}
           isLoading={isLoading || isFetching || loadingOptions}
           visibleColumns={dashboard360VisibleColumns}
+          stickyIdentityColumns={dashboard360StickyIdentityColumns}
         />
       ) : activeTab === "BASE" ? (
         <LeadsTableFGTS

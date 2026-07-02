@@ -70,6 +70,7 @@ type Props = {
   onPageChange: (page: number) => void
   isLoading: boolean
   visibleColumns: string[]
+  stickyIdentityColumns?: boolean
 }
 
 const boolLabel = (value: boolean | null | undefined) =>
@@ -200,6 +201,7 @@ export const LeadsTable360 = ({
   onPageChange,
   isLoading,
   visibleColumns,
+  stickyIdentityColumns = true,
 }: Props) => {
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -283,8 +285,8 @@ export const LeadsTable360 = ({
         <table className="min-w-max border-collapse">
           <thead>
             <tr>
-              <DesktopHead sticky="left-0" className="min-w-[160px] bg-slate-50 text-slate-600">CPF</DesktopHead>
-              <DesktopHead sticky="left-[160px]" className="min-w-[240px] bg-slate-50 text-slate-600">Nome</DesktopHead>
+              <DesktopHead sticky={stickyIdentityColumns ? "left-0" : undefined} className="min-w-[160px] bg-slate-50 text-slate-600">CPF</DesktopHead>
+              <DesktopHead sticky={stickyIdentityColumns ? "left-[160px]" : undefined} className="min-w-[240px] bg-slate-50 text-slate-600">Nome</DesktopHead>
               {visibleColumnsData
                 .filter((column) => column.id !== "cpf" && column.id !== "nome")
                 .map((column) => {
@@ -321,8 +323,8 @@ export const LeadsTable360 = ({
               ) : (
                 leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-slate-50/60">
-                    <DesktopCell sticky="left-0" className="min-w-[160px] font-mono">{lead.cpf}</DesktopCell>
-                    <DesktopCell sticky="left-[160px]" className="min-w-[240px] font-medium">{display(lead.nome)}</DesktopCell>
+                    <DesktopCell sticky={stickyIdentityColumns ? "left-0" : undefined} className="min-w-[160px] font-mono">{lead.cpf}</DesktopCell>
+                    <DesktopCell sticky={stickyIdentityColumns ? "left-[160px]" : undefined} className="min-w-[240px] font-medium">{display(lead.nome)}</DesktopCell>
                     {visibleColumnsData
                       .filter((column) => column.id !== "cpf" && column.id !== "nome")
                       .map((column) => (
