@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
-import { X, Filter } from "lucide-react"
+import { X, Filter, Check, Info } from "lucide-react"
+import factaLogo from "@/assets/factalogo.png"
+import mercantilLogo from "@/assets/mercantilogo.png"
+import uy3Logo from "@/assets/logouy3png.png"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -85,37 +88,95 @@ type Props = {
 }
 
 const NO_FOCUS = "focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none"
+const CHECKBOX_CLASS_NAME = "border-blue-300 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
 
-const Section = ({
+const any = (arr: (string | null | undefined)[]) => arr.some((v) => !!(v && String(v).trim()))
+
+function Section({
   title,
+  description,
+  active = false,
+  imageSrc,
   children,
 }: {
   title: string
+  description?: string
+  active?: boolean
+  imageSrc?: string
   children: React.ReactNode
-}) => (
-  <section className="rounded-lg border border-gray-200 bg-white p-4">
-    <h3 className="mb-3 text-sm font-semibold text-gray-900">{title}</h3>
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{children}</div>
-  </section>
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-lg border p-4 sm:p-5 bg-white transition-all duration-200",
+        "shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-md h-full",
+        active
+          ? "border-blue-300 ring-1 ring-blue-200 shadow-md"
+          : "border-gray-200"
+      )}
+    >
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {imageSrc && <img src={imageSrc} alt="" className="h-5 w-5 object-contain" />}
+          <div>
+            <h3 className={cn("text-sm font-semibold tracking-tight", active ? "text-blue-700" : "text-gray-800")}>
+              {title}
+            </h3>
+            {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
+          </div>
+        </div>
+        {active && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50/80 px-2 py-0.5 text-[11px] font-medium text-blue-700 shadow-sm whitespace-nowrap">
+            <Check className="h-3 w-3" /> ativo
+          </span>
+        )}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  )
+}
+
+const Label = ({ text, active = false }: { text: string; active?: boolean }) => (
+  <label className={cn("text-xs font-medium", active ? "text-blue-700" : "text-gray-700")}>{text}</label>
 )
 
-const Field = ({
-  label,
+function Group({
+  title,
+  imageSrc,
+  imageAlt,
   children,
 }: {
-  label: string
+  title: string
+  imageSrc?: string
+  imageAlt?: string
   children: React.ReactNode
-}) => (
-  <div className="space-y-2">
-    <label className="text-xs font-medium text-gray-700">{label}</label>
-    {children}
-  </div>
-)
+}) {
+  return (
+    <div className="mb-6">
+      <div className="mb-3 border-b pb-2 bg-gradient-to-r from-white to-transparent">
+        <div className="flex items-center gap-2">
+          {imageSrc ? <img src={imageSrc} alt={imageAlt ?? ""} className="h-5 w-5 object-contain" /> : null}
+          <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
+        </div>
+      </div>
+      <div
+        className={cn(
+          "grid grid-flow-dense gap-4 sm:gap-5",
+          "[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]",
+          "lg:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]",
+          "xl:[grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]"
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
 
-const BANKS: Array<{ value: LeadBankKey; label: string }> = [
-  { value: "clt", label: "CLT Facta" },
-  { value: "mercantil", label: "Mercantil" },
-  { value: "uy3", label: "UY3" },
+const BANKS = [
+  { value: "clt" as LeadBankKey, label: "CLT Facta", imageSrc: factaLogo, alt: "Facta" },
+  { value: "mercantil" as LeadBankKey, label: "CLT Mercantil", imageSrc: mercantilLogo, alt: "Mercantil" },
+  { value: "uy3" as LeadBankKey, label: "CLT UY3", imageSrc: uy3Logo, alt: "UY3" },
 ]
 
 export const FiltersModal360 = ({
@@ -252,45 +313,15 @@ export const FiltersModal360 = ({
     setLocalUy3ParcelasMin(uy3NumeroParcelasMin)
     setLocalUy3ParcelasMax(uy3NumeroParcelasMax)
   }, [
-    isOpen,
-    withPhonesFilter,
-    noPhonesFilter,
-    selectedBanks,
-    bankCombinationMode,
-    cltSituacao,
-    cltConsultaFrom,
-    cltConsultaTo,
-    cltMesesAdmissaoMin,
-    cltMesesAdmissaoMax,
-    cltMargemMin,
-    cltMargemMax,
-    cltNumeroParcelasMin,
-    cltNumeroParcelasMax,
-    mercantilSituacao,
-    mercantilConsultaFrom,
-    mercantilConsultaTo,
-    mercantilValorParcelaMin,
-    mercantilValorParcelaMax,
-    mercantilNumeroParcelasMin,
-    mercantilNumeroParcelasMax,
-    uy3Situacao,
-    uy3ConsultaFrom,
-    uy3ConsultaTo,
-    uy3MesesAdmissaoMin,
-    uy3MesesAdmissaoMax,
-    uy3MargemMin,
-    uy3MargemMax,
-    uy3ValorLiberadoMin,
-    uy3ValorLiberadoMax,
-    uy3NumeroParcelasMin,
-    uy3NumeroParcelasMax,
+    isOpen, withPhonesFilter, noPhonesFilter, selectedBanks, bankCombinationMode,
+    cltSituacao, cltConsultaFrom, cltConsultaTo, cltMesesAdmissaoMin, cltMesesAdmissaoMax, cltMargemMin, cltMargemMax, cltNumeroParcelasMin, cltNumeroParcelasMax,
+    mercantilSituacao, mercantilConsultaFrom, mercantilConsultaTo, mercantilValorParcelaMin, mercantilValorParcelaMax, mercantilNumeroParcelasMin, mercantilNumeroParcelasMax,
+    uy3Situacao, uy3ConsultaFrom, uy3ConsultaTo, uy3MesesAdmissaoMin, uy3MesesAdmissaoMax, uy3MargemMin, uy3MargemMax, uy3ValorLiberadoMin, uy3ValorLiberadoMax, uy3NumeroParcelasMin, uy3NumeroParcelasMax,
   ])
 
   useEffect(() => {
     if (isOpen) document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = ""
-    }
+    return () => { document.body.style.overflow = "" }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -341,211 +372,383 @@ export const FiltersModal360 = ({
   const showMercantil = localSelectedBanks.includes("mercantil")
   const showUy3 = localSelectedBanks.includes("uy3")
 
+  // Actives logic for header chips
+  const actPhones = localWithPhones || localNoPhones
+  const actClt = localCltSituacao !== "todos" || any([localCltConsultaFrom, localCltConsultaTo, localCltMesesMin, localCltMesesMax, localCltMargemMin, localCltMargemMax, localCltParcelasMin, localCltParcelasMax])
+  const actMercantil = localMercantilSituacao !== "todos" || any([localMercantilConsultaFrom, localMercantilConsultaTo, localMercantilParcelaMin, localMercantilParcelaMax, localMercantilParcelasMin, localMercantilParcelasMax])
+  const actUy3 = localUy3Situacao !== "todos" || any([localUy3ConsultaFrom, localUy3ConsultaTo, localUy3MesesMin, localUy3MesesMax, localUy3MargemMin, localUy3MargemMax, localUy3ValorMin, localUy3ValorMax, localUy3ParcelasMin, localUy3ParcelasMax])
+
+  const chips: string[] = []
+  if (localWithPhones) chips.push("Com telefone")
+  if (localNoPhones) chips.push("Sem telefone")
+  if (localSelectedBanks.length > 0) chips.push(`Bancos (${localSelectedBanks.length})`)
+  if (showClt && actClt) chips.push("CLT Facta")
+  if (showMercantil && actMercantil) chips.push("Mercantil")
+  if (showUy3 && actUy3) chips.push("UY3")
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b p-4 sm:p-6">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Filtros avançados</h2>
-            <p className="text-sm text-gray-500">360 Operacional</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
+      <div className="filters-modal flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
+        
+        {/* Cabeçalho */}
+        <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Filter className="h-5 w-5 text-gray-600" />
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Filtros avançados</h2>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className={cn("rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700", NO_FOCUS)}
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button onClick={onClose} className={cn("rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700", NO_FOCUS)}>
-            <X className="h-5 w-5" />
-          </button>
+
+          <div className="flex flex-wrap gap-2">
+            {chips.length === 0 ? (
+              <span className="text-xs text-gray-500">Nenhum filtro ativo.</span>
+            ) : (
+              chips.map((c, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 shadow-[0_1px_0_rgba(0,0,0,0.05)]"
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-600 shadow-inner" />
+                  {c}
+                </span>
+              ))
+            )}
+          </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6">
-          <div className="space-y-6">
-            <Section title="Geral">
-              <div className="md:col-span-2 xl:col-span-4 grid gap-3 md:grid-cols-2">
-                <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white p-3">
-                  <Checkbox
-                    checked={localWithPhones}
-                    onCheckedChange={(checked) => {
-                      const next = !!checked
-                      setLocalWithPhones(next)
-                      if (next) setLocalNoPhones(false)
-                    }}
-                  />
-                  <span className="text-sm text-gray-800">Com telefone</span>
-                </label>
-                <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white p-3">
-                  <Checkbox
-                    checked={localNoPhones}
-                    onCheckedChange={(checked) => {
-                      const next = !!checked
-                      setLocalNoPhones(next)
-                      if (next) setLocalWithPhones(false)
-                    }}
-                  />
-                  <span className="text-sm text-gray-800">Sem telefone</span>
-                </label>
+        <div className="px-4 sm:px-6 py-2 bg-gray-50/90 backdrop-blur border-b flex items-center gap-2 shadow-[inset_0_-1px_0_rgba(0,0,0,0.03)]">
+          <Info className="w-4 h-4 text-gray-500" />
+          <span className="text-xs sm:text-sm text-gray-700">
+            Filtrando dados de: <strong>360 Operacional</strong>
+          </span>
+        </div>
+
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gradient-to-b from-white to-gray-50">
+          
+          <Group title="Geral">
+            <div>
+              <Section title="Telefones" description="Filtre pela presença de telefone." active={actPhones}>
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
+                    <Checkbox
+                      checked={localWithPhones}
+                      onCheckedChange={(checked) => {
+                        const next = !!checked
+                        setLocalWithPhones(next)
+                        if (next) setLocalNoPhones(false)
+                      }}
+                      className={cn("mt-0.5", CHECKBOX_CLASS_NAME)}
+                    />
+                    <div className="space-y-1">
+                      <div className={cn("text-sm font-medium", localWithPhones ? "text-blue-700" : "text-gray-800")}>
+                        Com telefone
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/60 p-3 cursor-pointer">
+                    <Checkbox
+                      checked={localNoPhones}
+                      onCheckedChange={(checked) => {
+                        const next = !!checked
+                        setLocalNoPhones(next)
+                        if (next) setLocalWithPhones(false)
+                      }}
+                      className={cn("mt-0.5", CHECKBOX_CLASS_NAME)}
+                    />
+                    <div className="space-y-1">
+                      <div className={cn("text-sm font-medium", localNoPhones ? "text-blue-700" : "text-gray-800")}>
+                        Sem telefone
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </Section>
+            </div>
+
+            <div className="col-span-1 lg:col-span-2">
+              <Section title="Bancos da Consulta" description="Combine múltiplos bancos e defina a regra." active={localSelectedBanks.length > 0}>
+                <div className="grid gap-3 md:grid-cols-3 mb-4">
+                  {BANKS.map((bank) => (
+                    <label
+                      key={bank.value}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors",
+                        localSelectedBanks.includes(bank.value)
+                          ? "border-blue-500 bg-blue-50/50 text-blue-900 shadow-sm"
+                          : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                      )}
+                    >
+                      <Checkbox
+                        className={CHECKBOX_CLASS_NAME}
+                        checked={localSelectedBanks.includes(bank.value)}
+                        onCheckedChange={(checked) => {
+                          if (Boolean(checked) !== localSelectedBanks.includes(bank.value)) toggleBank(bank.value)
+                        }}
+                      />
+                      <img src={bank.imageSrc} alt={bank.alt} className="h-6 w-6 object-contain" />
+                      <span className="font-medium">{bank.label}</span>
+                    </label>
+                  ))}
+                </div>
+                
+                <div>
+                  <Label text="Modo de combinação" active={localBankMode !== "any"} />
+                  <Select value={localBankMode} onValueChange={(value) => setLocalBankMode(value as LeadBankCombinationMode)}>
+                    <SelectTrigger className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localBankMode !== "any" && "ring-1 ring-blue-200")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Qualquer banco selecionado</SelectItem>
+                      <SelectItem value="all">Todos os bancos selecionados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </Section>
+            </div>
+          </Group>
+
+          {showClt && (
+            <Group title="Filtros CLT Facta" imageSrc={factaLogo} imageAlt="Facta">
+              <div>
+                <Section title="Situação e Período" active={localCltSituacao !== "todos" || any([localCltConsultaFrom, localCltConsultaTo])}>
+                  <div className="mb-3">
+                    <Label text="Situação" active={localCltSituacao !== "todos"} />
+                    <Select value={localCltSituacao} onValueChange={(value) => setLocalCltSituacao(value as LoanSituation)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="aprovado">Aprovado</SelectItem>
+                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label text="Período da Consulta" active={any([localCltConsultaFrom, localCltConsultaTo])} />
+                    <div className="mt-1 grid grid-cols-2 gap-3">
+                      <Input type="date" value={localCltConsultaFrom} onChange={(e) => setLocalCltConsultaFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localCltConsultaFrom && "ring-1 ring-blue-200")} />
+                      <Input type="date" value={localCltConsultaTo} onChange={(e) => setLocalCltConsultaTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localCltConsultaTo && "ring-1 ring-blue-200")} />
+                    </div>
+                  </div>
+                </Section>
               </div>
-            </Section>
 
-            <Section title="Fontes">
-              <div className="md:col-span-2 xl:col-span-4 grid gap-3 md:grid-cols-3">
-                {BANKS.map((bank) => (
-                  <button
-                    key={bank.value}
-                    type="button"
-                    onClick={() => toggleBank(bank.value)}
-                    className={cn(
-                      "rounded-lg border px-4 py-3 text-left text-sm transition-colors",
-                      localSelectedBanks.includes(bank.value)
-                        ? "border-blue-500 bg-blue-50 text-blue-700"
-                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                    )}
-                  >
-                    {bank.label}
-                  </button>
-                ))}
+              <div>
+                <Section title="Vínculo" active={any([localCltMesesMin, localCltMesesMax])}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Meses admissão (mín)" active={!!localCltMesesMin} />
+                      <Input type="number" value={localCltMesesMin} onChange={(e) => setLocalCltMesesMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 1" />
+                    </div>
+                    <div>
+                      <Label text="Meses admissão (máx)" active={!!localCltMesesMax} />
+                      <Input type="number" value={localCltMesesMax} onChange={(e) => setLocalCltMesesMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 240" />
+                    </div>
+                  </div>
+                </Section>
               </div>
-              <Field label="Combinação">
-                <Select value={localBankMode} onValueChange={(value) => setLocalBankMode(value as LeadBankCombinationMode)}>
-                  <SelectTrigger className={NO_FOCUS}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Qualquer banco</SelectItem>
-                    <SelectItem value="all">Todos os bancos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </Section>
 
-            {showClt && (
-              <Section title="CLT Facta">
-                <Field label="Situação">
-                  <Select value={localCltSituacao} onValueChange={(value) => setLocalCltSituacao(value as LoanSituation)}>
-                    <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="aprovado">Aprovado</SelectItem>
-                      <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Consulta de">
-                  <Input type="date" value={localCltConsultaFrom} onChange={(e) => setLocalCltConsultaFrom(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Consulta até">
-                  <Input type="date" value={localCltConsultaTo} onChange={(e) => setLocalCltConsultaTo(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Meses admissão mín.">
-                  <Input value={localCltMesesMin} onChange={(e) => setLocalCltMesesMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Meses admissão máx.">
-                  <Input value={localCltMesesMax} onChange={(e) => setLocalCltMesesMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Margem mín.">
-                  <Input value={localCltMargemMin} onChange={(e) => setLocalCltMargemMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Margem máx.">
-                  <Input value={localCltMargemMax} onChange={(e) => setLocalCltMargemMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas mín.">
-                  <Input value={localCltParcelasMin} onChange={(e) => setLocalCltParcelasMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas máx.">
-                  <Input value={localCltParcelasMax} onChange={(e) => setLocalCltParcelasMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-              </Section>
-            )}
+              <div>
+                <Section title="Margem e Parcelas" active={any([localCltMargemMin, localCltMargemMax, localCltParcelasMin, localCltParcelasMax])}>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <Label text="Margem (mín)" active={!!localCltMargemMin} />
+                      <Input inputMode="decimal" value={localCltMargemMin} onChange={(e) => setLocalCltMargemMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 0,00" />
+                    </div>
+                    <div>
+                      <Label text="Margem (máx)" active={!!localCltMargemMax} />
+                      <Input inputMode="decimal" value={localCltMargemMax} onChange={(e) => setLocalCltMargemMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 2000,00" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Qtd. parcelas (mín)" active={!!localCltParcelasMin} />
+                      <Input type="number" value={localCltParcelasMin} onChange={(e) => setLocalCltParcelasMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 1" />
+                    </div>
+                    <div>
+                      <Label text="Qtd. parcelas (máx)" active={!!localCltParcelasMax} />
+                      <Input type="number" value={localCltParcelasMax} onChange={(e) => setLocalCltParcelasMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 120" />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            </Group>
+          )}
 
-            {showMercantil && (
-              <Section title="Mercantil">
-                <Field label="Situação">
-                  <Select value={localMercantilSituacao} onValueChange={(value) => setLocalMercantilSituacao(value as LoanSituation)}>
-                    <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="aprovado">Aprovado</SelectItem>
-                      <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Consulta de">
-                  <Input type="date" value={localMercantilConsultaFrom} onChange={(e) => setLocalMercantilConsultaFrom(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Consulta até">
-                  <Input type="date" value={localMercantilConsultaTo} onChange={(e) => setLocalMercantilConsultaTo(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Valor parcela mín.">
-                  <Input value={localMercantilParcelaMin} onChange={(e) => setLocalMercantilParcelaMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Valor parcela máx.">
-                  <Input value={localMercantilParcelaMax} onChange={(e) => setLocalMercantilParcelaMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas mín.">
-                  <Input value={localMercantilParcelasMin} onChange={(e) => setLocalMercantilParcelasMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas máx.">
-                  <Input value={localMercantilParcelasMax} onChange={(e) => setLocalMercantilParcelasMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-              </Section>
-            )}
+          {showMercantil && (
+            <Group title="Filtros Mercantil" imageSrc={mercantilLogo} imageAlt="Mercantil">
+              <div>
+                <Section title="Situação e Período" active={localMercantilSituacao !== "todos" || any([localMercantilConsultaFrom, localMercantilConsultaTo])}>
+                  <div className="mb-3">
+                    <Label text="Situação" active={localMercantilSituacao !== "todos"} />
+                    <Select value={localMercantilSituacao} onValueChange={(value) => setLocalMercantilSituacao(value as LoanSituation)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="aprovado">Aprovado</SelectItem>
+                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label text="Período da Consulta" active={any([localMercantilConsultaFrom, localMercantilConsultaTo])} />
+                    <div className="mt-1 grid grid-cols-2 gap-3">
+                      <Input type="date" value={localMercantilConsultaFrom} onChange={(e) => setLocalMercantilConsultaFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localMercantilConsultaFrom && "ring-1 ring-blue-200")} />
+                      <Input type="date" value={localMercantilConsultaTo} onChange={(e) => setLocalMercantilConsultaTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localMercantilConsultaTo && "ring-1 ring-blue-200")} />
+                    </div>
+                  </div>
+                </Section>
+              </div>
 
-            {showUy3 && (
-              <Section title="UY3">
-                <Field label="Situação">
-                  <Select value={localUy3Situacao} onValueChange={(value) => setLocalUy3Situacao(value as LoanSituation)}>
-                    <SelectTrigger className={NO_FOCUS}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="aprovado">Aprovado</SelectItem>
-                      <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Consulta de">
-                  <Input type="date" value={localUy3ConsultaFrom} onChange={(e) => setLocalUy3ConsultaFrom(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Consulta até">
-                  <Input type="date" value={localUy3ConsultaTo} onChange={(e) => setLocalUy3ConsultaTo(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Meses admissão mín.">
-                  <Input value={localUy3MesesMin} onChange={(e) => setLocalUy3MesesMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Meses admissão máx.">
-                  <Input value={localUy3MesesMax} onChange={(e) => setLocalUy3MesesMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Margem mín.">
-                  <Input value={localUy3MargemMin} onChange={(e) => setLocalUy3MargemMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Margem máx.">
-                  <Input value={localUy3MargemMax} onChange={(e) => setLocalUy3MargemMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Valor liberado mín.">
-                  <Input value={localUy3ValorMin} onChange={(e) => setLocalUy3ValorMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Valor liberado máx.">
-                  <Input value={localUy3ValorMax} onChange={(e) => setLocalUy3ValorMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas mín.">
-                  <Input value={localUy3ParcelasMin} onChange={(e) => setLocalUy3ParcelasMin(e.target.value)} className={NO_FOCUS} />
-                </Field>
-                <Field label="Parcelas máx.">
-                  <Input value={localUy3ParcelasMax} onChange={(e) => setLocalUy3ParcelasMax(e.target.value)} className={NO_FOCUS} />
-                </Field>
-              </Section>
-            )}
-          </div>
+              <div>
+                <Section title="Financeiro" active={any([localMercantilParcelaMin, localMercantilParcelaMax, localMercantilParcelasMin, localMercantilParcelasMax])}>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <Label text="Valor parcela (mín)" active={!!localMercantilParcelaMin} />
+                      <Input inputMode="decimal" value={localMercantilParcelaMin} onChange={(e) => setLocalMercantilParcelaMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 0,00" />
+                    </div>
+                    <div>
+                      <Label text="Valor parcela (máx)" active={!!localMercantilParcelaMax} />
+                      <Input inputMode="decimal" value={localMercantilParcelaMax} onChange={(e) => setLocalMercantilParcelaMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 1000,00" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Qtd. parcelas (mín)" active={!!localMercantilParcelasMin} />
+                      <Input type="number" value={localMercantilParcelasMin} onChange={(e) => setLocalMercantilParcelasMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 1" />
+                    </div>
+                    <div>
+                      <Label text="Qtd. parcelas (máx)" active={!!localMercantilParcelasMax} />
+                      <Input type="number" value={localMercantilParcelasMax} onChange={(e) => setLocalMercantilParcelasMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 120" />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            </Group>
+          )}
+
+          {showUy3 && (
+            <Group title="Filtros UY3" imageSrc={uy3Logo} imageAlt="UY3">
+              <div>
+                <Section title="Situação e Período" active={localUy3Situacao !== "todos" || any([localUy3ConsultaFrom, localUy3ConsultaTo])}>
+                  <div className="mb-3">
+                    <Label text="Situação" active={localUy3Situacao !== "todos"} />
+                    <Select value={localUy3Situacao} onValueChange={(value) => setLocalUy3Situacao(value as LoanSituation)}>
+                      <SelectTrigger className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos</SelectItem>
+                        <SelectItem value="aprovado">Aprovado</SelectItem>
+                        <SelectItem value="nao_aprovado">Não aprovado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label text="Atualização de" active={any([localUy3ConsultaFrom, localUy3ConsultaTo])} />
+                    <div className="mt-1 grid grid-cols-2 gap-3">
+                      <Input type="date" value={localUy3ConsultaFrom} onChange={(e) => setLocalUy3ConsultaFrom(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localUy3ConsultaFrom && "ring-1 ring-blue-200")} />
+                      <Input type="date" value={localUy3ConsultaTo} onChange={(e) => setLocalUy3ConsultaTo(e.target.value)} className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]", localUy3ConsultaTo && "ring-1 ring-blue-200")} />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              <div>
+                <Section title="Vínculo" active={any([localUy3MesesMin, localUy3MesesMax])}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label text="Meses admissão (mín)" active={!!localUy3MesesMin} />
+                      <Input type="number" value={localUy3MesesMin} onChange={(e) => setLocalUy3MesesMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 1" />
+                    </div>
+                    <div>
+                      <Label text="Meses admissão (máx)" active={!!localUy3MesesMax} />
+                      <Input type="number" value={localUy3MesesMax} onChange={(e) => setLocalUy3MesesMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 240" />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              <div className="col-span-1 lg:col-span-2">
+                <Section title="Financeiro" active={any([localUy3MargemMin, localUy3MargemMax, localUy3ValorMin, localUy3ValorMax, localUy3ParcelasMin, localUy3ParcelasMax])}>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="space-y-3">
+                      <div>
+                        <Label text="Margem (mín)" active={!!localUy3MargemMin} />
+                        <Input inputMode="decimal" value={localUy3MargemMin} onChange={(e) => setLocalUy3MargemMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 0,00" />
+                      </div>
+                      <div>
+                        <Label text="Margem (máx)" active={!!localUy3MargemMax} />
+                        <Input inputMode="decimal" value={localUy3MargemMax} onChange={(e) => setLocalUy3MargemMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 2000,00" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <Label text="Valor liberado (mín)" active={!!localUy3ValorMin} />
+                        <Input inputMode="decimal" value={localUy3ValorMin} onChange={(e) => setLocalUy3ValorMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 0,00" />
+                      </div>
+                      <div>
+                        <Label text="Valor liberado (máx)" active={!!localUy3ValorMax} />
+                        <Input inputMode="decimal" value={localUy3ValorMax} onChange={(e) => setLocalUy3ValorMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="R$ 10000,00" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <Label text="Qtd. parcelas (mín)" active={!!localUy3ParcelasMin} />
+                        <Input type="number" value={localUy3ParcelasMin} onChange={(e) => setLocalUy3ParcelasMin(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 1" />
+                      </div>
+                      <div>
+                        <Label text="Qtd. parcelas (máx)" active={!!localUy3ParcelasMax} />
+                        <Input type="number" value={localUy3ParcelasMax} onChange={(e) => setLocalUy3ParcelasMax(e.target.value)} className={cn(NO_FOCUS, "mt-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")} placeholder="Ex.: 120" />
+                      </div>
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            </Group>
+          )}
+
         </main>
 
-        <footer className="flex flex-col-reverse gap-2 border-t bg-white p-4 sm:flex-row sm:justify-end">
-          <Button variant="outline" onClick={() => { onClearFilters(); onClose() }}>
+        <footer className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end sm:gap-2 flex-shrink-0 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 shadow-sm">
+          <Button
+            variant="outline"
+            className={cn("border-gray-300 text-gray-700 hover:bg-gray-50", NO_FOCUS)}
+            onClick={() => { onClearFilters(); onClose() }}
+          >
             Limpar filtros
           </Button>
-          <Button variant="outline" onClick={onClose}>
+
+          <Button
+            variant="outline"
+            className={cn("border-gray-300 text-gray-700 hover:bg-gray-50", NO_FOCUS)}
+            onClick={onClose}
+          >
             Cancelar
           </Button>
-          <Button className="bg-blue-600 hover:bg-blue-700" onClick={apply}>
+
+          <Button className={cn("bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg transition-shadow", NO_FOCUS)} onClick={apply}>
             <Filter className="mr-2 h-4 w-4" />
             Aplicar filtros
           </Button>
         </footer>
       </div>
+
+      <style>{`
+        .filters-modal *:focus { outline: none !important; box-shadow: none !important; }
+        .filters-modal *:focus-visible { outline: none !important; box-shadow: none !important; }
+        .filters-modal input:focus,
+        .filters-modal textarea:focus,
+        .filters-modal select:focus,
+        .filters-modal button:focus { outline: none !important; box-shadow: none !important; }
+      `}</style>
     </div>
   )
 }
