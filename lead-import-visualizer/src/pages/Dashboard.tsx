@@ -224,18 +224,22 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "nome",
   "telefone_1",
   "politica_credito_aprovado",
-  "margem_disponivel",
   "mercantil_status",
-  "mercantil_valor_liberado",
-  "mercantil_valor_parcela",
   "uy3_elegivel_emprestimo",
+  "margem_disponivel",
+  "mercantil_valor_liberado",
   "uy3_valor_liberado",
-  "uy3_numero_parcelas",
+  "clt_consultado_em",
+  "mercantil_data_hora_origem",
+  "uy3_consultado_em",
 ]
 
-const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v3"
+const DASHBOARD_360_COLUMNS_STORAGE_KEY = "leadstable:360:visibleColumns:v6"
 
 const DASHBOARD_360_COLUMNS_LEGACY_STORAGE_KEYS = [
+  "leadstable:360:visibleColumns:v5",
+  "leadstable:360:visibleColumns:v4",
+  "leadstable:360:visibleColumns:v3",
   "leadstable:360:visibleColumns:v2",
   "leadstable:360:visibleColumns:v1",
 ]
