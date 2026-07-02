@@ -427,7 +427,7 @@ export const FiltersModal360 = ({
         <div className="px-4 sm:px-6 py-2 bg-gray-50/90 backdrop-blur border-b flex items-center gap-2 shadow-[inset_0_-1px_0_rgba(0,0,0,0.03)]">
           <Info className="w-4 h-4 text-gray-500" />
           <span className="text-xs sm:text-sm text-gray-700">
-            Filtrando dados de: <strong>360 Operacional</strong>
+            Filtrando dados de: <strong>360</strong>
           </span>
         </div>
 

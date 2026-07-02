@@ -262,7 +262,7 @@ export const ExportModal = ({
   onExport,
   mode,
 }: ExportModalProps) => {
-  const modeLabel = mode === "360" ? "360 Operacional" : mode === "UY3" ? "CLT UY3" : mode
+  const modeLabel = mode === "360" ? "360" : mode === "UY3" ? "CLT UY3" : mode
   const columnsSource = useMemo<ColumnDef[]>(
     () =>
       mode === "360"

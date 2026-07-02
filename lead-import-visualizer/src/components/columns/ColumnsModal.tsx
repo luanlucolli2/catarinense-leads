@@ -267,7 +267,7 @@ export const ColumnsModal = ({
   onStickyIdentityColumnsChange,
 }: ColumnsModalProps) => {
   const columnsSource = useMemo(() => CATALOG[mode], [mode]);
-  const modeLabel = mode === "360" ? "360 Operacional" : mode === "UY3" ? "CLT UY3" : mode;
+  const modeLabel = mode === "360" ? "360" : mode === "UY3" ? "CLT UY3" : mode;
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [localStickyIdentityColumns, setLocalStickyIdentityColumns] = useState(stickyIdentityColumns);
 
