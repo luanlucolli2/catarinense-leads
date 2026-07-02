@@ -74,8 +74,8 @@ interface LeadsControlsProps {
   cltConsultado: "todos" | "sim" | "nao";
   onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void;
 
-  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel";
-  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void;
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado";
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void;
 
   cltConsultaFrom: string;
   onCltConsultaFromChange: (v: string) => void;
@@ -138,8 +138,8 @@ interface LeadsControlsProps {
   cltTemLegados: "todos" | "sim" | "nao";
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void;
 
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta";
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void;
+  mercantilSituacao: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado";
+  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado") => void;
   mercantilStatusFilter: string[];
   onMercantilStatusFilterChange: (values: string[]) => void;
   mercantilConsultaFrom: string;
@@ -487,6 +487,46 @@ export const LeadsControls = ({
   };
 
   const activeFilterLabels = useMemo(() => {
+    if (mode === "360") {
+      const items: string[] = [];
+      const bankLabels: Record<LeadBankKey, string> = {
+        fgts: "FGTS",
+        clt: "CLT Facta",
+        mercantil: "Mercantil",
+        uy3: "UY3",
+      };
+
+      if (withPhonesFilter) items.push("Com telefone");
+      if (noPhonesFilter) items.push("Sem telefone");
+      if (selectedBanks.length) {
+        items.push(`Fontes: ${summarizeList(selectedBanks.filter((bank) => bank !== "fgts").map((bank) => bankLabels[bank]))}`);
+        items.push(`Combinação: ${bankCombinationMode === "all" ? "Todos" : "Qualquer"}`);
+      }
+
+      if (cltSituacao !== "todos") items.push(`CLT: ${cltSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+      const cltConsulta = rangeLabel("CLT consulta", cltConsultaFrom, cltConsultaTo);
+      if (cltConsulta) items.push(cltConsulta);
+      if (cltMesesMin || cltMesesMax) items.push(`CLT meses adm.: ${cltMesesMin || "0"} a ${cltMesesMax || "max"}`);
+      if (cltMargemMin || cltMargemMax) items.push(`CLT margem: ${cltMargemMin || "0"} a ${cltMargemMax || "max"}`);
+      if (cltPrestacaoMin || cltPrestacaoMax) items.push(`CLT parcelas: ${cltPrestacaoMin || "0"} a ${cltPrestacaoMax || "max"}`);
+
+      if (mercantilSituacao !== "todos") items.push(`Mercantil: ${mercantilSituacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+      const mercantilConsulta = rangeLabel("Mercantil consulta", mercantilConsultaFrom, mercantilConsultaTo);
+      if (mercantilConsulta) items.push(mercantilConsulta);
+      if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Mercantil parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
+      if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Mercantil parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
+
+      if (uy3Situacao !== "todos") items.push(`UY3: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
+      const uy3Consulta = rangeLabel("UY3 consulta", uy3ConsultaFrom, uy3ConsultaTo);
+      if (uy3Consulta) items.push(uy3Consulta);
+      if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) items.push(`UY3 meses adm.: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
+      if (uy3MargemMin || uy3MargemMax) items.push(`UY3 margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
+      if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) items.push(`UY3 valor: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
+      if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) items.push(`UY3 parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
+
+      return items;
+    }
+
     const items: string[] = [];
     const bankLabels: Record<LeadBankKey, string> = {
       fgts: "FGTS",
@@ -504,12 +544,7 @@ export const LeadsControls = ({
     if (noPhonesFilter) items.push("Sem telefone");
     if (birthMonthFilter.length) items.push(`Mês nasc.: ${summarizeList(birthMonthFilter)}`);
 
-    if (mode === "360" && selectedBanks.length) {
-      items.push(`Fontes: ${summarizeList(selectedBanks.map((bank) => bankLabels[bank]))}`);
-      items.push(`Combinação: ${bankCombinationMode === "all" ? "Todas" : "Qualquer"}`);
-    }
-
-    if (mode === "FGTS" || mode === "360") {
+    if (mode === "FGTS") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
       if (motivosFilter.length) items.push(`Motivos: ${summarizeList(motivosFilter)}`);
       if (higienizacaoFilter.length) items.push(`Origem hig.: ${summarizeList(higienizacaoFilter)}`);
@@ -530,7 +565,7 @@ export const LeadsControls = ({
       if (fgtsConsulta) items.push(fgtsConsulta);
     }
 
-    if (mode === "CLT" || mode === "360") {
+    if (mode === "CLT") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
       if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
       if (cltSituacao !== "todos") {
@@ -560,7 +595,7 @@ export const LeadsControls = ({
       if (cltTemLegados !== "todos") items.push(`Tem legados: ${cltTemLegados === "sim" ? "Sim" : "Não"}`);
     }
 
-    if (mode === "MERCANTIL" || mode === "360") {
+    if (mode === "MERCANTIL") {
       if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
       if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
       const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
@@ -568,16 +603,6 @@ export const LeadsControls = ({
       if (mercantilParcelaMin || mercantilParcelaMax) items.push(`Parcela: ${mercantilParcelaMin || "0"} a ${mercantilParcelaMax || "max"}`);
       if (mercantilQtdParcelasMin || mercantilQtdParcelasMax) items.push(`Qtd. parcelas: ${mercantilQtdParcelasMin || "0"} a ${mercantilQtdParcelasMax || "max"}`);
       if (mercantilOrigensFilter.length) items.push(`Origem: ${summarizeList(mercantilOrigensFilter)}`);
-    }
-
-    if (mode === "360") {
-      if (uy3Situacao !== "todos") items.push(`UY3 situação: ${uy3Situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`);
-      const uy3Consulta = rangeLabel("UY3 consulta", uy3ConsultaFrom, uy3ConsultaTo);
-      if (uy3Consulta) items.push(uy3Consulta);
-      if (uy3MesesAdmissaoMin || uy3MesesAdmissaoMax) items.push(`UY3 meses adm.: ${uy3MesesAdmissaoMin || "0"} a ${uy3MesesAdmissaoMax || "max"}`);
-      if (uy3MargemMin || uy3MargemMax) items.push(`UY3 margem: ${uy3MargemMin || "0"} a ${uy3MargemMax || "max"}`);
-      if (uy3ValorLiberadoMin || uy3ValorLiberadoMax) items.push(`UY3 valor: ${uy3ValorLiberadoMin || "0"} a ${uy3ValorLiberadoMax || "max"}`);
-      if (uy3NumeroParcelasMin || uy3NumeroParcelasMax) items.push(`UY3 parcelas: ${uy3NumeroParcelasMin || "0"} a ${uy3NumeroParcelasMax || "max"}`);
     }
 
     return items;
@@ -613,6 +638,7 @@ export const LeadsControls = ({
           
           {/* Inputs Section (Search & Sort) */}
           <div className="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:flex-1">
+            {mode !== "360" && (
             <label className="w-full sm:max-w-[320px]">
               <span className="mb-1 block text-xs font-medium text-gray-700">Busca rápida</span>
               <div className="relative">
@@ -626,6 +652,7 @@ export const LeadsControls = ({
                 />
               </div>
             </label>
+            )}
 
             {sortOptions.length > 0 && (
               <label className="w-full sm:w-[260px]">

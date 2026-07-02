@@ -59,8 +59,9 @@ import {
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
-type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
+type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
 type Uy3SituacaoFilter = "todos" | "aprovado" | "nao_aprovado"
+type MercantilSituacao360Filter = "todos" | "aprovado" | "nao_aprovado"
 type ActiveTab = "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
 type Dashboard360Filters = {
@@ -110,7 +111,7 @@ type Dashboard360Filters = {
   clt_ativos_max: string
   clt_tem_ativos: YesNoAll
   clt_tem_legados: YesNoAll
-  mercantil_situacao: "todos" | "consultado" | "sem_consulta"
+  mercantil_situacao: MercantilSituacao360Filter
   mercantil_status: string[]
   mercantil_consulta_from: string
   mercantil_consulta_to: string
@@ -405,6 +406,7 @@ const Dashboard = () => {
   ) => {
     setDashboard360Filters((current) => ({ ...current, [key]: value }))
   }
+  const dashboard360SelectedBanks = dashboard360Filters.selected_banks.filter((bank) => bank !== "fgts")
 
   const [baseSearchValue, setBaseSearchValue] = usePersistedState<string>("dashboard-base:searchValue", "")
   const [baseOrigemFilter, setBaseOrigemFilter] = usePersistedState<string[]>("dashboard-base:origemFilter", [])
@@ -604,70 +606,28 @@ const Dashboard = () => {
     ],
     queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
       if (activeTab === "360") {
-        const catCodes = dashboard360Filters.clt_categoria_codigos
-          ? dashboard360Filters.clt_categoria_codigos.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean)
-          : undefined
-
         return fetchLeads360({
           page: currentPage,
-          search: dashboard360Filters.search,
-          origens: dashboard360Filters.origens,
-          cpf: dashboard360Filters.cpf || undefined,
-          names: dashboard360Filters.names || undefined,
-          phones: dashboard360Filters.phones || undefined,
           with_phones: dashboard360Filters.with_phones || undefined,
           without_phones: dashboard360Filters.without_phones || undefined,
-          birth_month: dashboard360Filters.birth_month,
-          selected_banks: dashboard360Filters.selected_banks,
+          selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
           bank_combination_mode: dashboard360Filters.bank_combination_mode,
-          motivos: dashboard360Filters.motivos,
-          origens_hig: dashboard360Filters.origens_hig,
-          date_from: dashboard360Filters.date_from || undefined,
-          date_to: dashboard360Filters.date_to || undefined,
-          contract_from: dashboard360Filters.contract_from || undefined,
-          contract_to: dashboard360Filters.contract_to || undefined,
-          vendors: dashboard360Filters.vendors,
-          fgts_status: dashboard360Filters.fgts_status !== "todos" ? dashboard360Filters.fgts_status : undefined,
-          fgts_consulta_from: dashboard360Filters.fgts_consulta_from || undefined,
-          fgts_consulta_to: dashboard360Filters.fgts_consulta_to || undefined,
-          clt_consultado: dashboard360Filters.clt_consultado !== "todos" ? dashboard360Filters.clt_consultado : undefined,
           clt_situacao: dashboard360Filters.clt_situacao !== "todos" ? dashboard360Filters.clt_situacao : undefined,
           clt_consulta_from: dashboard360Filters.clt_consulta_from || undefined,
           clt_consulta_to: dashboard360Filters.clt_consulta_to || undefined,
-          clt_admissao_from: dashboard360Filters.clt_admissao_from || undefined,
-          clt_admissao_to: dashboard360Filters.clt_admissao_to || undefined,
           clt_meses_min: dashboard360Filters.clt_meses_min || undefined,
           clt_meses_max: dashboard360Filters.clt_meses_max || undefined,
-          clt_inicio_empregador_from: dashboard360Filters.clt_inicio_empregador_from || undefined,
-          clt_inicio_empregador_to: dashboard360Filters.clt_inicio_empregador_to || undefined,
-          clt_categoria_codigos: catCodes,
-          clt_idade_min: dashboard360Filters.clt_idade_min || undefined,
-          clt_idade_max: dashboard360Filters.clt_idade_max || undefined,
-          clt_sexo: dashboard360Filters.clt_sexo.length ? (dashboard360Filters.clt_sexo as ("M" | "F")[]) : undefined,
-          clt_renda_min: dashboard360Filters.clt_renda_min || undefined,
-          clt_renda_max: dashboard360Filters.clt_renda_max || undefined,
-          clt_base_min: dashboard360Filters.clt_base_min || undefined,
-          clt_base_max: dashboard360Filters.clt_base_max || undefined,
           clt_margem_min: dashboard360Filters.clt_margem_min || undefined,
           clt_margem_max: dashboard360Filters.clt_margem_max || undefined,
-          clt_prestacao_min: dashboard360Filters.clt_prestacao_min || undefined,
-          clt_prestacao_max: dashboard360Filters.clt_prestacao_max || undefined,
-          clt_ativos_min: dashboard360Filters.clt_ativos_min || undefined,
-          clt_ativos_max: dashboard360Filters.clt_ativos_max || undefined,
-          clt_tem_ativos: dashboard360Filters.clt_tem_ativos !== "todos" ? dashboard360Filters.clt_tem_ativos : undefined,
-          clt_tem_legados: dashboard360Filters.clt_tem_legados !== "todos" ? dashboard360Filters.clt_tem_legados : undefined,
-          mercantil_situacao:
-            dashboard360Filters.mercantil_situacao === "consultado" || dashboard360Filters.mercantil_situacao === "sem_consulta"
-              ? dashboard360Filters.mercantil_situacao
-              : undefined,
-          mercantil_status: dashboard360Filters.mercantil_status.length ? dashboard360Filters.mercantil_status : undefined,
+          clt_numero_parcelas_min: dashboard360Filters.clt_prestacao_min || undefined,
+          clt_numero_parcelas_max: dashboard360Filters.clt_prestacao_max || undefined,
+          mercantil_situacao: dashboard360Filters.mercantil_situacao !== "todos" ? dashboard360Filters.mercantil_situacao : undefined,
           mercantil_consulta_from: dashboard360Filters.mercantil_consulta_from || undefined,
           mercantil_consulta_to: dashboard360Filters.mercantil_consulta_to || undefined,
-          mercantil_parcela_min: dashboard360Filters.mercantil_parcela_min || undefined,
-          mercantil_parcela_max: dashboard360Filters.mercantil_parcela_max || undefined,
-          mercantil_qtd_parcelas_min: dashboard360Filters.mercantil_qtd_parcelas_min || undefined,
-          mercantil_qtd_parcelas_max: dashboard360Filters.mercantil_qtd_parcelas_max || undefined,
-          mercantil_origens: dashboard360Filters.mercantil_origens.length ? dashboard360Filters.mercantil_origens : undefined,
+          mercantil_valor_parcela_min: dashboard360Filters.mercantil_parcela_min || undefined,
+          mercantil_valor_parcela_max: dashboard360Filters.mercantil_parcela_max || undefined,
+          mercantil_numero_parcelas_min: dashboard360Filters.mercantil_qtd_parcelas_min || undefined,
+          mercantil_numero_parcelas_max: dashboard360Filters.mercantil_qtd_parcelas_max || undefined,
           uy3_situacao: dashboard360Filters.uy3_situacao !== "todos" ? dashboard360Filters.uy3_situacao : undefined,
           uy3_consulta_from: dashboard360Filters.uy3_consulta_from || undefined,
           uy3_consulta_to: dashboard360Filters.uy3_consulta_to || undefined,
@@ -1299,60 +1259,25 @@ const Dashboard = () => {
   }
 
   const hasActiveFilters360 =
-    dashboard360Filters.search ||
-    dashboard360Filters.origens.length ||
-    dashboard360Filters.cpf ||
-    dashboard360Filters.names ||
-    dashboard360Filters.phones ||
     dashboard360Filters.with_phones ||
     dashboard360Filters.without_phones ||
-    dashboard360Filters.birth_month.length ||
-    dashboard360Filters.selected_banks.length ||
-    dashboard360Filters.motivos.length ||
-    dashboard360Filters.origens_hig.length ||
-    dashboard360Filters.date_from ||
-    dashboard360Filters.date_to ||
-    dashboard360Filters.contract_from ||
-    dashboard360Filters.contract_to ||
-    dashboard360Filters.vendors.length ||
-    dashboard360Filters.fgts_status !== "todos" ||
-    dashboard360Filters.fgts_consulta_from ||
-    dashboard360Filters.fgts_consulta_to ||
-    dashboard360Filters.clt_consultado !== "todos" ||
+    dashboard360SelectedBanks.length ||
     dashboard360Filters.clt_situacao !== "todos" ||
     dashboard360Filters.clt_consulta_from ||
     dashboard360Filters.clt_consulta_to ||
-    dashboard360Filters.clt_admissao_from ||
-    dashboard360Filters.clt_admissao_to ||
     dashboard360Filters.clt_meses_min ||
     dashboard360Filters.clt_meses_max ||
-    dashboard360Filters.clt_inicio_empregador_from ||
-    dashboard360Filters.clt_inicio_empregador_to ||
-    dashboard360Filters.clt_categoria_codigos ||
-    dashboard360Filters.clt_idade_min ||
-    dashboard360Filters.clt_idade_max ||
-    dashboard360Filters.clt_sexo.length ||
-    dashboard360Filters.clt_renda_min ||
-    dashboard360Filters.clt_renda_max ||
-    dashboard360Filters.clt_base_min ||
-    dashboard360Filters.clt_base_max ||
     dashboard360Filters.clt_margem_min ||
     dashboard360Filters.clt_margem_max ||
     dashboard360Filters.clt_prestacao_min ||
     dashboard360Filters.clt_prestacao_max ||
-    dashboard360Filters.clt_ativos_min ||
-    dashboard360Filters.clt_ativos_max ||
-    dashboard360Filters.clt_tem_ativos !== "todos" ||
-    dashboard360Filters.clt_tem_legados !== "todos" ||
     dashboard360Filters.mercantil_situacao !== "todos" ||
-    dashboard360Filters.mercantil_status.length ||
     dashboard360Filters.mercantil_consulta_from ||
     dashboard360Filters.mercantil_consulta_to ||
     dashboard360Filters.mercantil_parcela_min ||
     dashboard360Filters.mercantil_parcela_max ||
     dashboard360Filters.mercantil_qtd_parcelas_min ||
     dashboard360Filters.mercantil_qtd_parcelas_max ||
-    dashboard360Filters.mercantil_origens.length ||
     dashboard360Filters.uy3_situacao !== "todos" ||
     dashboard360Filters.uy3_consulta_from ||
     dashboard360Filters.uy3_consulta_to ||
@@ -1471,69 +1396,27 @@ const Dashboard = () => {
 
   const collectFilters = () => {
     if (activeTab === "360") {
-      const catCodes = dashboard360Filters.clt_categoria_codigos
-        ? dashboard360Filters.clt_categoria_codigos.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean)
-        : undefined
-
       return {
-        search: dashboard360Filters.search || undefined,
-        origens: dashboard360Filters.origens.length ? dashboard360Filters.origens : undefined,
-        cpf: dashboard360Filters.cpf || undefined,
-        names: dashboard360Filters.names || undefined,
-        phones: dashboard360Filters.phones || undefined,
         with_phones: dashboard360Filters.with_phones || undefined,
         without_phones: dashboard360Filters.without_phones || undefined,
-        birth_month: dashboard360Filters.birth_month.length ? dashboard360Filters.birth_month : undefined,
-        selected_banks: dashboard360Filters.selected_banks.length ? dashboard360Filters.selected_banks : undefined,
-        bank_combination_mode: dashboard360Filters.selected_banks.length ? dashboard360Filters.bank_combination_mode : undefined,
-        motivos: dashboard360Filters.motivos.length ? dashboard360Filters.motivos : undefined,
-        origens_hig: dashboard360Filters.origens_hig.length ? dashboard360Filters.origens_hig : undefined,
-        date_from: dashboard360Filters.date_from || undefined,
-        date_to: dashboard360Filters.date_to || undefined,
-        contract_from: dashboard360Filters.contract_from || undefined,
-        contract_to: dashboard360Filters.contract_to || undefined,
-        vendors: dashboard360Filters.vendors.length ? dashboard360Filters.vendors : undefined,
-        fgts_status: dashboard360Filters.fgts_status !== "todos" ? dashboard360Filters.fgts_status : undefined,
-        fgts_consulta_from: dashboard360Filters.fgts_consulta_from || undefined,
-        fgts_consulta_to: dashboard360Filters.fgts_consulta_to || undefined,
-        clt_consultado: dashboard360Filters.clt_consultado !== "todos" ? dashboard360Filters.clt_consultado : undefined,
+        selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
+        bank_combination_mode: dashboard360SelectedBanks.length ? dashboard360Filters.bank_combination_mode : undefined,
         clt_situacao: dashboard360Filters.clt_situacao !== "todos" ? dashboard360Filters.clt_situacao : undefined,
         clt_consulta_from: dashboard360Filters.clt_consulta_from || undefined,
         clt_consulta_to: dashboard360Filters.clt_consulta_to || undefined,
-        clt_admissao_from: dashboard360Filters.clt_admissao_from || undefined,
-        clt_admissao_to: dashboard360Filters.clt_admissao_to || undefined,
         clt_meses_min: dashboard360Filters.clt_meses_min || undefined,
         clt_meses_max: dashboard360Filters.clt_meses_max || undefined,
-        clt_inicio_empregador_from: dashboard360Filters.clt_inicio_empregador_from || undefined,
-        clt_inicio_empregador_to: dashboard360Filters.clt_inicio_empregador_to || undefined,
-        clt_categoria_codigos: catCodes,
-        clt_idade_min: dashboard360Filters.clt_idade_min || undefined,
-        clt_idade_max: dashboard360Filters.clt_idade_max || undefined,
-        clt_sexo: dashboard360Filters.clt_sexo.length ? (dashboard360Filters.clt_sexo as ("M" | "F")[]) : undefined,
-        clt_renda_min: dashboard360Filters.clt_renda_min || undefined,
-        clt_renda_max: dashboard360Filters.clt_renda_max || undefined,
-        clt_base_min: dashboard360Filters.clt_base_min || undefined,
-        clt_base_max: dashboard360Filters.clt_base_max || undefined,
         clt_margem_min: dashboard360Filters.clt_margem_min || undefined,
         clt_margem_max: dashboard360Filters.clt_margem_max || undefined,
-        clt_prestacao_min: dashboard360Filters.clt_prestacao_min || undefined,
-        clt_prestacao_max: dashboard360Filters.clt_prestacao_max || undefined,
-        clt_ativos_min: dashboard360Filters.clt_ativos_min || undefined,
-        clt_ativos_max: dashboard360Filters.clt_ativos_max || undefined,
-        clt_tem_ativos: dashboard360Filters.clt_tem_ativos !== "todos" ? dashboard360Filters.clt_tem_ativos : undefined,
-        clt_tem_legados: dashboard360Filters.clt_tem_legados !== "todos" ? dashboard360Filters.clt_tem_legados : undefined,
-        mercantil_situacao:
-          dashboard360Filters.mercantil_situacao === "consultado" || dashboard360Filters.mercantil_situacao === "sem_consulta"
-            ? dashboard360Filters.mercantil_situacao
-            : undefined,
-        mercantil_status: dashboard360Filters.mercantil_status.length ? dashboard360Filters.mercantil_status : undefined,
+        clt_numero_parcelas_min: dashboard360Filters.clt_prestacao_min || undefined,
+        clt_numero_parcelas_max: dashboard360Filters.clt_prestacao_max || undefined,
+        mercantil_situacao: dashboard360Filters.mercantil_situacao !== "todos" ? dashboard360Filters.mercantil_situacao : undefined,
         mercantil_consulta_from: dashboard360Filters.mercantil_consulta_from || undefined,
         mercantil_consulta_to: dashboard360Filters.mercantil_consulta_to || undefined,
-        mercantil_parcela_min: dashboard360Filters.mercantil_parcela_min || undefined,
-        mercantil_parcela_max: dashboard360Filters.mercantil_parcela_max || undefined,
-        mercantil_qtd_parcelas_min: dashboard360Filters.mercantil_qtd_parcelas_min || undefined,
-        mercantil_qtd_parcelas_max: dashboard360Filters.mercantil_qtd_parcelas_max || undefined,
-        mercantil_origens: dashboard360Filters.mercantil_origens.length ? dashboard360Filters.mercantil_origens : undefined,
+        mercantil_valor_parcela_min: dashboard360Filters.mercantil_parcela_min || undefined,
+        mercantil_valor_parcela_max: dashboard360Filters.mercantil_parcela_max || undefined,
+        mercantil_numero_parcelas_min: dashboard360Filters.mercantil_qtd_parcelas_min || undefined,
+        mercantil_numero_parcelas_max: dashboard360Filters.mercantil_qtd_parcelas_max || undefined,
         uy3_situacao: dashboard360Filters.uy3_situacao !== "todos" ? dashboard360Filters.uy3_situacao : undefined,
         uy3_consulta_from: dashboard360Filters.uy3_consulta_from || undefined,
         uy3_consulta_to: dashboard360Filters.uy3_consulta_to || undefined,
@@ -1753,46 +1636,46 @@ const Dashboard = () => {
   const ui = activeTab === "360"
     ? {
       mode: "360" as const,
-      searchValue: dashboard360Filters.search,
-      setSearchValue: (value: string) => update360Filter("search", value),
+      searchValue: "",
+      setSearchValue: (_: string) => {},
       statusFilter: "todos" as const,
       setStatusFilter: (_: StatusFilter) => {},
-      motivosFilter: dashboard360Filters.motivos,
-      setMotivosFilter: (value: string[]) => update360Filter("motivos", value),
-      origemFilter: dashboard360Filters.origens,
-      setOrigemFilter: (value: string[]) => update360Filter("origens", value),
-      higienizacaoFilter: dashboard360Filters.origens_hig,
-      setHigienizacaoFilter: (value: string[]) => update360Filter("origens_hig", value),
-      dateFromFilter: dashboard360Filters.date_from,
-      setDateFromFilter: (value: string) => update360Filter("date_from", value),
-      dateToFilter: dashboard360Filters.date_to,
-      setDateToFilter: (value: string) => update360Filter("date_to", value),
-      contractDateFromFilter: dashboard360Filters.contract_from,
-      setContractDateFromFilter: (value: string) => update360Filter("contract_from", value),
-      contractDateToFilter: dashboard360Filters.contract_to,
-      setContractDateToFilter: (value: string) => update360Filter("contract_to", value),
-      cpfMassFilter: dashboard360Filters.cpf,
-      setCpfMassFilter: (value: string) => update360Filter("cpf", value),
-      namesMassFilter: dashboard360Filters.names,
-      setNamesMassFilter: (value: string) => update360Filter("names", value),
-      phonesMassFilter: dashboard360Filters.phones,
-      setPhonesMassFilter: (value: string) => update360Filter("phones", value),
+      motivosFilter: [] as string[],
+      setMotivosFilter: (_: string[]) => {},
+      origemFilter: [] as string[],
+      setOrigemFilter: (_: string[]) => {},
+      higienizacaoFilter: [] as string[],
+      setHigienizacaoFilter: (_: string[]) => {},
+      dateFromFilter: "",
+      setDateFromFilter: (_: string) => {},
+      dateToFilter: "",
+      setDateToFilter: (_: string) => {},
+      contractDateFromFilter: "",
+      setContractDateFromFilter: (_: string) => {},
+      contractDateToFilter: "",
+      setContractDateToFilter: (_: string) => {},
+      cpfMassFilter: "",
+      setCpfMassFilter: (_: string) => {},
+      namesMassFilter: "",
+      setNamesMassFilter: (_: string) => {},
+      phonesMassFilter: "",
+      setPhonesMassFilter: (_: string) => {},
       withPhonesFilter: dashboard360Filters.with_phones,
       setWithPhonesFilter: (value: boolean) => update360Filter("with_phones", value),
       noPhonesFilter: dashboard360Filters.without_phones,
       setNoPhonesFilter: (value: boolean) => update360Filter("without_phones", value),
-      vendorsFilter: dashboard360Filters.vendors,
-      setVendorsFilter: (value: string[]) => update360Filter("vendors", value),
-      birthMonthFilter: dashboard360Filters.birth_month,
-      setBirthMonthFilter: (value: string[]) => update360Filter("birth_month", value),
+      vendorsFilter: [] as string[],
+      setVendorsFilter: (_: string[]) => {},
+      birthMonthFilter: [] as string[],
+      setBirthMonthFilter: (_: string[]) => {},
       sortBy: "" as LeadSort | "",
       setSortBy: (_: LeadSort | "") => {},
-      fgtsAuthorizedFilter: dashboard360Filters.fgts_status,
-      setFgtsAuthorizedFilter: (value: FgtsStatusFilter) => update360Filter("fgts_status", value),
-      fgtsConsultaFromFilter: dashboard360Filters.fgts_consulta_from,
-      setFgtsConsultaFromFilter: (value: string) => update360Filter("fgts_consulta_from", value),
-      fgtsConsultaToFilter: dashboard360Filters.fgts_consulta_to,
-      setFgtsConsultaToFilter: (value: string) => update360Filter("fgts_consulta_to", value),
+      fgtsAuthorizedFilter: "todos" as const,
+      setFgtsAuthorizedFilter: (_: FgtsStatusFilter) => {},
+      fgtsConsultaFromFilter: "",
+      setFgtsConsultaFromFilter: (_: string) => {},
+      fgtsConsultaToFilter: "",
+      setFgtsConsultaToFilter: (_: string) => {},
     }
     : activeTab === "BASE"
     ? {
@@ -2095,8 +1978,8 @@ const Dashboard = () => {
         onMercantilOrigensFilterChange={(value) => activeTab === "360" ? update360Filter("mercantil_origens", value) : setMercantilOrigensMercantilFilter(value)}
         availableMercantilOrigens={filterOptions?.origens_mercantil ?? []}
         availableMercantilStatuses={filterOptions?.mercantil_status ?? []}
-        selectedBanks={activeTab === "360" ? dashboard360Filters.selected_banks : []}
-        onSelectedBanksChange={(value) => activeTab === "360" && update360Filter("selected_banks", value)}
+        selectedBanks={activeTab === "360" ? dashboard360SelectedBanks : []}
+        onSelectedBanksChange={(value) => activeTab === "360" && update360Filter("selected_banks", value.filter((bank) => bank !== "fgts"))}
         bankCombinationMode={activeTab === "360" ? dashboard360Filters.bank_combination_mode : "any"}
         onBankCombinationModeChange={(value) => activeTab === "360" && update360Filter("bank_combination_mode", value)}
         uy3Situacao={activeTab === "360" ? dashboard360Filters.uy3_situacao : "todos"}

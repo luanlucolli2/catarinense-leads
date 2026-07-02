@@ -382,6 +382,8 @@ export interface LeadFilters {
   clt_base_max?: string
   clt_margem_min?: string
   clt_margem_max?: string
+  clt_numero_parcelas_min?: string | number
+  clt_numero_parcelas_max?: string | number
   clt_prestacao_min?: string
   clt_prestacao_max?: string
   clt_ativos_min?: string | number
@@ -395,6 +397,10 @@ export interface LeadFilters {
   mercantil_status?: string[]
   mercantil_consulta_from?: string
   mercantil_consulta_to?: string
+  mercantil_valor_parcela_min?: string
+  mercantil_valor_parcela_max?: string
+  mercantil_numero_parcelas_min?: string | number
+  mercantil_numero_parcelas_max?: string | number
   mercantil_parcela_min?: string
   mercantil_parcela_max?: string
   mercantil_qtd_parcelas_min?: string | number
@@ -495,6 +501,8 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.clt_base_max) p.set("clt_base_max", f.clt_base_max)
     if (f.clt_margem_min) p.set("clt_margem_min", f.clt_margem_min)
     if (f.clt_margem_max) p.set("clt_margem_max", f.clt_margem_max)
+    if (f.clt_numero_parcelas_min !== undefined && f.clt_numero_parcelas_min !== "") p.set("clt_numero_parcelas_min", String(f.clt_numero_parcelas_min))
+    if (f.clt_numero_parcelas_max !== undefined && f.clt_numero_parcelas_max !== "") p.set("clt_numero_parcelas_max", String(f.clt_numero_parcelas_max))
     if (f.clt_prestacao_min) p.set("clt_prestacao_min", f.clt_prestacao_min)
     if (f.clt_prestacao_max) p.set("clt_prestacao_max", f.clt_prestacao_max)
 
@@ -511,11 +519,15 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.mercantil_status?.length) p.set("mercantil_status", f.mercantil_status.join(","))
     if (f.mercantil_consulta_from) p.set("mercantil_consulta_from", f.mercantil_consulta_from)
     if (f.mercantil_consulta_to) p.set("mercantil_consulta_to", f.mercantil_consulta_to)
-    if (f.mercantil_parcela_min) p.set("mercantil_parcela_min", f.mercantil_parcela_min)
-    if (f.mercantil_parcela_max) p.set("mercantil_parcela_max", f.mercantil_parcela_max)
-    if (f.mercantil_qtd_parcelas_min !== undefined && f.mercantil_qtd_parcelas_min !== "")
+    if (f.mercantil_valor_parcela_min || f.mercantil_parcela_min) p.set("mercantil_parcela_min", f.mercantil_valor_parcela_min || f.mercantil_parcela_min || "")
+    if (f.mercantil_valor_parcela_max || f.mercantil_parcela_max) p.set("mercantil_parcela_max", f.mercantil_valor_parcela_max || f.mercantil_parcela_max || "")
+    if (f.mercantil_numero_parcelas_min !== undefined && f.mercantil_numero_parcelas_min !== "")
+      p.set("mercantil_qtd_parcelas_min", String(f.mercantil_numero_parcelas_min))
+    else if (f.mercantil_qtd_parcelas_min !== undefined && f.mercantil_qtd_parcelas_min !== "")
       p.set("mercantil_qtd_parcelas_min", String(f.mercantil_qtd_parcelas_min))
-    if (f.mercantil_qtd_parcelas_max !== undefined && f.mercantil_qtd_parcelas_max !== "")
+    if (f.mercantil_numero_parcelas_max !== undefined && f.mercantil_numero_parcelas_max !== "")
+      p.set("mercantil_qtd_parcelas_max", String(f.mercantil_numero_parcelas_max))
+    else if (f.mercantil_qtd_parcelas_max !== undefined && f.mercantil_qtd_parcelas_max !== "")
       p.set("mercantil_qtd_parcelas_max", String(f.mercantil_qtd_parcelas_max))
     if (f.mercantil_origens?.length) p.set("mercantil_origens", f.mercantil_origens.join(","))
   }

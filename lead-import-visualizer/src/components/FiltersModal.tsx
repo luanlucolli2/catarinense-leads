@@ -72,8 +72,8 @@ interface FiltersModalProps {
   onCltConsultadoChange: (v: "todos" | "sim" | "nao") => void
 
   /** novo filtro unificado de situação (3 estados) */
-  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel"
-  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel") => void
+  cltSituacao: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
+  onCltSituacaoChange: (v: "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado") => void
 
   cltConsultaFrom: string
   onCltConsultaFromChange: (v: string) => void
@@ -138,8 +138,8 @@ interface FiltersModalProps {
   onCltTemLegadosChange: (v: "todos" | "sim" | "nao") => void
 
   /** ➕ MERCANTIL */
-  mercantilSituacao: "todos" | "consultado" | "sem_consulta"
-  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta") => void
+  mercantilSituacao: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado"
+  onMercantilSituacaoChange: (v: "todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado") => void
   mercantilStatusFilter: string[]
   onMercantilStatusFilterChange: (values: string[]) => void
   mercantilConsultaFrom: string
@@ -447,122 +447,46 @@ export const FiltersModal = ({
         onClose={onClose}
         onApplyFilters={onApplyFilters}
         onClearFilters={onClearFilters}
-        searchValue={searchValue}
-        onSearchChange={onSearchChange}
-        origemFilter={origemFilter}
-        onOrigemFilterChange={onOrigemFilterChange}
-        cpfMassFilter={cpfMassFilter}
-        onCpfMassFilterChange={onCpfMassFilterChange}
-        namesMassFilter={namesMassFilter}
-        onNamesMassFilterChange={onNamesMassFilterChange}
-        phonesMassFilter={phonesMassFilter}
-        onPhonesMassFilterChange={onPhonesMassFilterChange}
         withPhonesFilter={withPhonesFilter}
         onWithPhonesFilterChange={onWithPhonesFilterChange}
         noPhonesFilter={noPhonesFilter}
         onNoPhonesFilterChange={onNoPhonesFilterChange}
-        birthMonthFilter={birthMonthFilter}
-        onBirthMonthFilterChange={onBirthMonthFilterChange}
-        availableOrigens={availableOrigens}
-        selectedBanks={selectedBanks}
+        selectedBanks={selectedBanks.filter((bank) => bank !== "fgts")}
         onSelectedBanksChange={onSelectedBanksChange}
         bankCombinationMode={bankCombinationMode}
         onBankCombinationModeChange={onBankCombinationModeChange}
-        motivosFilter={motivosFilter}
-        onMotivosFilterChange={onMotivosFilterChange}
-        higienizacaoFilter={higienizacaoFilter}
-        onHigienizacaoFilterChange={onHigienizacaoFilterChange}
-        dateFromFilter={dateFromFilter}
-        onDateFromFilterChange={onDateFromFilterChange}
-        dateToFilter={dateToFilter}
-        onDateToFilterChange={onDateToFilterChange}
-        contractDateFromFilter={contractDateFromFilter}
-        onContractDateFromFilterChange={onContractDateFromFilterChange}
-        contractDateToFilter={contractDateToFilter}
-        onContractDateToFilterChange={onContractDateToFilterChange}
-        vendorsFilter={vendorsFilter}
-        onVendorsFilterChange={onVendorsFilterChange}
-        fgtsAuthorizedFilter={fgtsAuthorizedFilter}
-        onFgtsAuthorizedFilterChange={onFgtsAuthorizedFilterChange}
-        fgtsConsultaFromFilter={fgtsConsultaFromFilter}
-        onFgtsConsultaFromFilterChange={onFgtsConsultaFromFilterChange}
-        fgtsConsultaToFilter={fgtsConsultaToFilter}
-        onFgtsConsultaToFilterChange={onFgtsConsultaToFilterChange}
-        availableMotivos={availableMotivos}
-        availableHigienizacoes={availableHigienizacoes}
-        availableVendors={availableVendors}
-        cltConsultado={cltConsultado}
-        onCltConsultadoChange={onCltConsultadoChange}
-        cltSituacao={cltSituacao}
+        cltSituacao={cltSituacao as "todos" | "aprovado" | "nao_aprovado"}
         onCltSituacaoChange={onCltSituacaoChange}
         cltConsultaFrom={cltConsultaFrom}
         onCltConsultaFromChange={onCltConsultaFromChange}
         cltConsultaTo={cltConsultaTo}
         onCltConsultaToChange={onCltConsultaToChange}
-        cltAdmissaoFrom={cltAdmissaoFrom}
-        onCltAdmissaoFromChange={onCltAdmissaoFromChange}
-        cltAdmissaoTo={cltAdmissaoTo}
-        onCltAdmissaoToChange={onCltAdmissaoToChange}
-        cltMesesMin={cltMesesMin}
-        onCltMesesMinChange={onCltMesesMinChange}
-        cltMesesMax={cltMesesMax}
-        onCltMesesMaxChange={onCltMesesMaxChange}
-        cltInicioEmpregadorFrom={cltInicioEmpregadorFrom}
-        onCltInicioEmpregadorFromChange={onCltInicioEmpregadorFromChange}
-        cltInicioEmpregadorTo={cltInicioEmpregadorTo}
-        onCltInicioEmpregadorToChange={onCltInicioEmpregadorToChange}
-        cltCategoriaCodigos={cltCategoriaCodigos}
-        onCltCategoriaCodigosChange={onCltCategoriaCodigosChange}
-        cltIdadeMin={cltIdadeMin}
-        onCltIdadeMinChange={onCltIdadeMinChange}
-        cltIdadeMax={cltIdadeMax}
-        onCltIdadeMaxChange={onCltIdadeMaxChange}
-        cltSexo={cltSexo}
-        onCltSexoChange={onCltSexoChange}
-        cltRendaMin={cltRendaMin}
-        onCltRendaMinChange={onCltRendaMinChange}
-        cltRendaMax={cltRendaMax}
-        onCltRendaMaxChange={onCltRendaMaxChange}
-        cltBaseMin={cltBaseMin}
-        onCltBaseMinChange={onCltBaseMinChange}
-        cltBaseMax={cltBaseMax}
-        onCltBaseMaxChange={onCltBaseMaxChange}
+        cltMesesAdmissaoMin={cltMesesMin}
+        onCltMesesAdmissaoMinChange={onCltMesesMinChange}
+        cltMesesAdmissaoMax={cltMesesMax}
+        onCltMesesAdmissaoMaxChange={onCltMesesMaxChange}
         cltMargemMin={cltMargemMin}
         onCltMargemMinChange={onCltMargemMinChange}
         cltMargemMax={cltMargemMax}
         onCltMargemMaxChange={onCltMargemMaxChange}
-        cltPrestacaoMin={cltPrestacaoMin}
-        onCltPrestacaoMinChange={onCltPrestacaoMinChange}
-        cltPrestacaoMax={cltPrestacaoMax}
-        onCltPrestacaoMaxChange={onCltPrestacaoMaxChange}
-        cltAtivosMin={cltAtivosMin}
-        onCltAtivosMinChange={onCltAtivosMinChange}
-        cltAtivosMax={cltAtivosMax}
-        onCltAtivosMaxChange={onCltAtivosMaxChange}
-        cltTemAtivos={cltTemAtivos}
-        onCltTemAtivosChange={onCltTemAtivosChange}
-        cltTemLegados={cltTemLegados}
-        onCltTemLegadosChange={onCltTemLegadosChange}
-        mercantilSituacao={mercantilSituacao}
+        cltNumeroParcelasMin={cltPrestacaoMin}
+        onCltNumeroParcelasMinChange={onCltPrestacaoMinChange}
+        cltNumeroParcelasMax={cltPrestacaoMax}
+        onCltNumeroParcelasMaxChange={onCltPrestacaoMaxChange}
+        mercantilSituacao={mercantilSituacao as "todos" | "aprovado" | "nao_aprovado"}
         onMercantilSituacaoChange={onMercantilSituacaoChange}
-        mercantilStatusFilter={mercantilStatusFilter}
-        onMercantilStatusFilterChange={onMercantilStatusFilterChange}
         mercantilConsultaFrom={mercantilConsultaFrom}
         onMercantilConsultaFromChange={onMercantilConsultaFromChange}
         mercantilConsultaTo={mercantilConsultaTo}
         onMercantilConsultaToChange={onMercantilConsultaToChange}
-        mercantilParcelaMin={mercantilParcelaMin}
-        onMercantilParcelaMinChange={onMercantilParcelaMinChange}
-        mercantilParcelaMax={mercantilParcelaMax}
-        onMercantilParcelaMaxChange={onMercantilParcelaMaxChange}
-        mercantilQtdParcelasMin={mercantilQtdParcelasMin}
-        onMercantilQtdParcelasMinChange={onMercantilQtdParcelasMinChange}
-        mercantilQtdParcelasMax={mercantilQtdParcelasMax}
-        onMercantilQtdParcelasMaxChange={onMercantilQtdParcelasMaxChange}
-        mercantilOrigensFilter={mercantilOrigensFilter}
-        onMercantilOrigensFilterChange={onMercantilOrigensFilterChange}
-        availableMercantilOrigens={availableMercantilOrigens}
-        availableMercantilStatuses={availableMercantilStatuses}
+        mercantilValorParcelaMin={mercantilParcelaMin}
+        onMercantilValorParcelaMinChange={onMercantilParcelaMinChange}
+        mercantilValorParcelaMax={mercantilParcelaMax}
+        onMercantilValorParcelaMaxChange={onMercantilParcelaMaxChange}
+        mercantilNumeroParcelasMin={mercantilQtdParcelasMin}
+        onMercantilNumeroParcelasMinChange={onMercantilQtdParcelasMinChange}
+        mercantilNumeroParcelasMax={mercantilQtdParcelasMax}
+        onMercantilNumeroParcelasMaxChange={onMercantilQtdParcelasMaxChange}
         uy3Situacao={uy3Situacao}
         onUy3SituacaoChange={onUy3SituacaoChange}
         uy3ConsultaFrom={uy3ConsultaFrom}
@@ -611,7 +535,7 @@ export const FiltersModal = ({
 
   // —— CLT locals ——
   const [lCltConsultado, setLCltConsultado] = useState<"todos" | "sim" | "nao">(cltConsultado)
-  const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel">(cltSituacao)
+  const [lCltSituacao, setLCltSituacao] = useState<"todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado">(cltSituacao)
   const [lCltConsultaFrom, setLCltConsultaFrom] = useState(cltConsultaFrom)
   const [lCltConsultaTo, setLCltConsultaTo] = useState(cltConsultaTo)
   const [lCltAdmissaoFrom, setLCltAdmissaoFrom] = useState(cltAdmissaoFrom)
@@ -638,7 +562,7 @@ export const FiltersModal = ({
   const [lCltTemLegados, setLCltTemLegados] = useState<"todos" | "sim" | "nao">(cltTemLegados)
 
   // —— MERCANTIL locals ——
-  const [lMercantilSituacao, setLMercantilSituacao] = useState<"todos" | "consultado" | "sem_consulta">(mercantilSituacao)
+  const [lMercantilSituacao, setLMercantilSituacao] = useState<"todos" | "consultado" | "sem_consulta" | "aprovado" | "nao_aprovado">(mercantilSituacao)
   const [lMercantilStatus, setLMercantilStatus] = useState<string[]>(mercantilStatusFilter)
   const [lMercantilConsultaFrom, setLMercantilConsultaFrom] = useState(mercantilConsultaFrom)
   const [lMercantilConsultaTo, setLMercantilConsultaTo] = useState(mercantilConsultaTo)

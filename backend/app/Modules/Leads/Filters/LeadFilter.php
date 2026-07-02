@@ -121,6 +121,8 @@ class LeadFilter
             || $r->filled('clt_base_max')
             || $r->filled('clt_margem_min')
             || $r->filled('clt_margem_max')
+            || $r->filled('clt_numero_parcelas_min')
+            || $r->filled('clt_numero_parcelas_max')
             || $r->filled('clt_prestacao_min')
             || $r->filled('clt_prestacao_max')
             || $r->filled('clt_ativos_min')
@@ -134,6 +136,10 @@ class LeadFilter
             || $r->filled('mercantil_origens')
             || $r->filled('mercantil_consulta_from')
             || $r->filled('mercantil_consulta_to')
+            || $r->filled('mercantil_valor_parcela_min')
+            || $r->filled('mercantil_valor_parcela_max')
+            || $r->filled('mercantil_numero_parcelas_min')
+            || $r->filled('mercantil_numero_parcelas_max')
             || $r->filled('mercantil_parcela_min')
             || $r->filled('mercantil_parcela_max')
             || $r->filled('mercantil_qtd_parcelas_min')
@@ -1134,6 +1140,16 @@ class LeadFilter
             if ($situacao !== null) {
                 if ($situacao === 'elegivel') {
                     $query->where('cs.not_found', 0)->where('cs.elegivel', 1);
+                } elseif ($situacao === 'aprovado') {
+                    $query->where('cs.not_found', 0)->where('cs.politica_credito_aprovado', 1);
+                } elseif ($situacao === 'nao_aprovado') {
+                    $query->where(function (Builder $situationQuery) {
+                        $situationQuery
+                            ->where('cs.not_found', 1)
+                            ->orWhereNull('cs.not_found')
+                            ->orWhere('cs.politica_credito_aprovado', 0)
+                            ->orWhereNull('cs.politica_credito_aprovado');
+                    });
                 } elseif ($situacao === 'nao_elegivel') {
                     $query->where('cs.not_found', 0)
                         ->where(function ($situationQuery) {
@@ -1212,6 +1228,11 @@ class LeadFilter
             self::range($query, $r, 'clt_renda_min', 'clt_renda_max', 'cs.valor_renda');
             self::range($query, $r, 'clt_base_min', 'clt_base_max', 'cs.valor_base_margem');
             self::range($query, $r, 'clt_margem_min', 'clt_margem_max', 'cs.margem_disponivel');
+            if ($r->filled('clt_numero_parcelas_min') || $r->filled('clt_numero_parcelas_max')) {
+                $min = (int) $r->input('clt_numero_parcelas_min', 0);
+                $max = (int) $r->input('clt_numero_parcelas_max', PHP_INT_MAX);
+                $query->whereBetween('cs.politica_credito_prazo_maximo_disponivel', [$min, $max]);
+            }
             self::range($query, $r, 'clt_prestacao_min', 'clt_prestacao_max', 'cs.valor_max_prestacao');
 
             if ($r->filled('clt_ativos_min') || $r->filled('clt_ativos_max')) {
@@ -1270,8 +1291,16 @@ class LeadFilter
             return;
         }
 
-        if ($situacao === 'consultado' || $hasSnapshotScopedFilters) {
+        if ($situacao === 'consultado' || $situacao === 'aprovado' || $situacao === 'nao_aprovado' || $hasSnapshotScopedFilters) {
             $query->whereNotNull('ms.cpf');
+        }
+
+        if ($situacao === 'aprovado') {
+            $query->where('ms.status', 'SUCESSO');
+        } elseif ($situacao === 'nao_aprovado') {
+            $query->where(function (Builder $statusQuery): void {
+                $statusQuery->whereNull('ms.status')->orWhere('ms.status', '!=', 'SUCESSO');
+            });
         }
 
         if (!empty($statuses)) {
@@ -1284,11 +1313,12 @@ class LeadFilter
             $query->whereBetween('ms.data_hora_origem', ["{$from} 00:00:00", "{$to} 23:59:59"]);
         }
 
+        self::range($query, $r, 'mercantil_valor_parcela_min', 'mercantil_valor_parcela_max', 'ms.valor_parcela');
         self::range($query, $r, 'mercantil_parcela_min', 'mercantil_parcela_max', 'ms.valor_parcela');
 
-        if ($r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max')) {
-            $min = (int) $r->input('mercantil_qtd_parcelas_min', 0);
-            $max = (int) $r->input('mercantil_qtd_parcelas_max', PHP_INT_MAX);
+        if ($r->filled('mercantil_numero_parcelas_min') || $r->filled('mercantil_numero_parcelas_max') || $r->filled('mercantil_qtd_parcelas_min') || $r->filled('mercantil_qtd_parcelas_max')) {
+            $min = (int) $r->input('mercantil_numero_parcelas_min', $r->input('mercantil_qtd_parcelas_min', 0));
+            $max = (int) $r->input('mercantil_numero_parcelas_max', $r->input('mercantil_qtd_parcelas_max', PHP_INT_MAX));
             $query->whereBetween('ms.quantidade_parcelas', [$min, $max]);
         }
     }
@@ -1400,6 +1430,8 @@ class LeadFilter
             || $r->filled('clt_base_max')
             || $r->filled('clt_margem_min')
             || $r->filled('clt_margem_max')
+            || $r->filled('clt_numero_parcelas_min')
+            || $r->filled('clt_numero_parcelas_max')
             || $r->filled('clt_prestacao_min')
             || $r->filled('clt_prestacao_max')
             || $r->filled('clt_ativos_min')
@@ -1415,6 +1447,10 @@ class LeadFilter
             || $r->filled('mercantil_origens')
             || $r->filled('mercantil_consulta_from')
             || $r->filled('mercantil_consulta_to')
+            || $r->filled('mercantil_valor_parcela_min')
+            || $r->filled('mercantil_valor_parcela_max')
+            || $r->filled('mercantil_numero_parcelas_min')
+            || $r->filled('mercantil_numero_parcelas_max')
             || $r->filled('mercantil_parcela_min')
             || $r->filled('mercantil_parcela_max')
             || $r->filled('mercantil_qtd_parcelas_min')
@@ -1502,6 +1538,8 @@ class LeadFilter
 
         $map = [
             'elegivel' => 'elegivel',
+            'aprovado' => 'aprovado',
+            'nao_aprovado' => 'nao_aprovado',
             'nao_elegivel' => 'nao_elegivel',
             'nao_encontrado' => 'nao_encontrado',
         ];
@@ -1524,6 +1562,8 @@ class LeadFilter
         $map = [
             'consultado' => 'consultado',
             'sem_consulta' => 'sem_consulta',
+            'aprovado' => 'aprovado',
+            'nao_aprovado' => 'nao_aprovado',
             // compatibilidade com valores antigos do front:
             'sucesso' => 'consultado',
             'com_erro' => 'consultado',

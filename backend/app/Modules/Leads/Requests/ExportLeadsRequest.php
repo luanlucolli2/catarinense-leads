@@ -46,7 +46,7 @@ class ExportLeadsRequest extends FormRequest
             'fgts_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
             // ===== CLT: filtros =====
-            'clt_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado'],
+            'clt_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado,aprovado,nao_aprovado'],
             'clt_elegivel' => ['nullable', 'in:sim,nao'],
             'clt_not_found' => ['nullable', 'in:sim,nao'],
 
@@ -75,6 +75,8 @@ class ExportLeadsRequest extends FormRequest
             'clt_base_max' => ['nullable'],
             'clt_margem_min' => ['nullable'],
             'clt_margem_max' => ['nullable'],
+            'clt_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'clt_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
             'clt_prestacao_min' => ['nullable'],
             'clt_prestacao_max' => ['nullable'],
 
@@ -85,12 +87,16 @@ class ExportLeadsRequest extends FormRequest
             'clt_tem_legados' => ['nullable', 'in:sim,nao'],
 
             // ===== MERCANTIL: filtros =====
-            'mercantil_situacao' => ['nullable', 'in:consultado,sem_consulta'],
+            'mercantil_situacao' => ['nullable', 'in:consultado,sem_consulta,aprovado,nao_aprovado'],
             'mercantil_status' => ['nullable'],
             'mercantil_consulta_from' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_consulta_to' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_import_from' => ['nullable', 'date_format:Y-m-d'],
             'mercantil_import_to' => ['nullable', 'date_format:Y-m-d'],
+            'mercantil_valor_parcela_min' => ['nullable'],
+            'mercantil_valor_parcela_max' => ['nullable'],
+            'mercantil_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'mercantil_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
             'mercantil_parcela_min' => ['nullable'],
             'mercantil_parcela_max' => ['nullable'],
             'mercantil_qtd_parcelas_min' => ['nullable', 'integer', 'min:0'],
