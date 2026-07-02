@@ -700,7 +700,6 @@ export const FiltersModal = ({
     }
 
     if (mode === "CLT") {
-      onCltConsultadoChange(lCltConsultado)
       onCltSituacaoChange(lCltSituacao)
       onCltConsultaFromChange(lCltConsultaFrom)
       onCltConsultaToChange(lCltConsultaTo)
@@ -729,8 +728,7 @@ export const FiltersModal = ({
     }
 
     if (mode === "MERCANTIL") {
-      onMercantilSituacaoChange(lMercantilSituacao)
-      onMercantilStatusFilterChange(lMercantilSituacao === "sem_consulta" ? [] : lMercantilStatus)
+      onMercantilStatusFilterChange(lMercantilStatus)
       onMercantilConsultaFromChange(lMercantilConsultaFrom)
       onMercantilConsultaToChange(lMercantilConsultaTo)
       onMercantilParcelaMinChange(lMercantilParcelaMin)
@@ -766,7 +764,6 @@ export const FiltersModal = ({
 
   // CLT actives
   const actCltSituacao =
-    (lCltConsultado !== "todos") ||
     (lCltSituacao !== "todos") ||
     any([lCltConsultaFrom, lCltConsultaTo])
 
@@ -787,11 +784,9 @@ export const FiltersModal = ({
     any([lCltAtivosMin, lCltAtivosMax]) || lCltTemAtivos !== "todos" ||
     lCltTemLegados !== "todos"
 
-  const mercantilStatusActive =
-    lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0
+  const mercantilStatusActive = lMercantilStatus.length > 0
 
   const actMercantilSituacao =
-    lMercantilSituacao !== "todos" ||
     mercantilStatusActive ||
     any([lMercantilConsultaFrom, lMercantilConsultaTo]) ||
     lMercantilOrigens.length > 0
@@ -1128,17 +1123,6 @@ export const FiltersModal = ({
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <Label text="Consultado?" active={lCltConsultado !== "todos"} />
-                      <Select value={lCltConsultado} onValueChange={(v) => setLCltConsultado(v as any)}>
-                        <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
-                        <SelectContent className="shadow-lg">
-                          <SelectItem value="todos">Todos</SelectItem>
-                          <SelectItem value="sim">Sim</SelectItem>
-                          <SelectItem value="nao">Não</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
                       <Label text="Situação" active={lCltSituacao !== "todos"} />
                       <Select value={lCltSituacao} onValueChange={(v) => setLCltSituacao(v as any)}>
                         <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
@@ -1335,38 +1319,20 @@ export const FiltersModal = ({
               <div>
                 <Section
                   title="Situação e Status"
-                  description="Situação agregada, status de retorno e origem do job Mercantil."
+                  description="Status de retorno, data da consulta e origem do job Mercantil."
                   active={actMercantilSituacao}
                 >
                   <div>
-                    <Label text="Situação" active={lMercantilSituacao !== "todos"} />
-                    <Select value={lMercantilSituacao} onValueChange={(v) => setLMercantilSituacao(v as any)}>
-                      <SelectTrigger className={cn(NO_FOCUS, "shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}><SelectValue /></SelectTrigger>
-                      <SelectContent className="shadow-lg">
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="consultado">Consultado</SelectItem>
-                        <SelectItem value="sem_consulta">Sem consulta</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
                     <Label
                       text="Status Mercantil"
-                      active={lMercantilSituacao !== "sem_consulta" && lMercantilStatus.length > 0}
+                      active={lMercantilStatus.length > 0}
                     />
                     <MultiSelect
                       options={availableMercantilStatuses}
                       selected={lMercantilStatus}
                       onChange={setLMercantilStatus}
                       placeholder="Selecionar status…"
-                      disabled={lMercantilSituacao === "sem_consulta"}
                     />
-                    {lMercantilSituacao === "sem_consulta" && (
-                      <p className="mt-1 text-[11px] text-gray-500">
-                        Status bloqueado quando Situação = Sem consulta.
-                      </p>
-                    )}
                   </div>
 
                   <div>

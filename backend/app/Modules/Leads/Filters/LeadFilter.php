@@ -659,18 +659,22 @@ class LeadFilter
         self::applyBirthMonthFilter($query, $birth);
 
         if ($mode === 'fgts') {
+            self::applyFgtsPresence($query);
             self::applyFgtsScopedFilters($query, $r);
         }
 
         if ($mode === 'clt') {
+            self::applyCltPresence($query);
             self::applyCltScopedFilters($query, $r);
         }
 
         if ($mode === 'mercantil') {
+            self::applyMercantilPresence($query);
             self::applyMercantilScopedFilters($query, $r);
         }
 
         if ($mode === 'uy3') {
+            self::applyUy3Presence($query);
             self::applyUy3ScopedFilters($query, $r);
         }
 

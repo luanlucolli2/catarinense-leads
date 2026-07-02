@@ -746,7 +746,6 @@ const Dashboard = () => {
           with_phones: cltWithPhonesFilter || undefined,
           without_phones: cltNoPhonesFilter || undefined,
           birth_month: cltBirthMonthFilter,
-          clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
           clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
           clt_consulta_from: cltConsultaFrom || undefined,
           clt_consulta_to: cltConsultaTo || undefined,
@@ -786,10 +785,6 @@ const Dashboard = () => {
         with_phones: mercantilWithPhonesFilter || undefined,
         without_phones: mercantilNoPhonesFilter || undefined,
         birth_month: mercantilBirthMonthFilter,
-        mercantil_situacao:
-          mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
-            ? mercantilSituacao
-            : undefined,
         mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
         mercantil_consulta_from: mercantilConsultaFrom || undefined,
         mercantil_consulta_to: mercantilConsultaTo || undefined,
@@ -1377,7 +1372,6 @@ const Dashboard = () => {
     cltWithPhonesFilter ||
     cltNoPhonesFilter ||
     cltBirthMonthFilter.length ||
-    cltConsultado !== "todos" ||
     cltSituacao !== "todos" ||
     cltConsultaFrom ||
     cltConsultaTo ||
@@ -1407,7 +1401,6 @@ const Dashboard = () => {
     mercantilWithPhonesFilter ||
     mercantilNoPhonesFilter ||
     mercantilBirthMonthFilter.length ||
-    mercantilSituacao !== "todos" ||
     mercantilStatusEffective.length ||
     mercantilConsultaFrom ||
     mercantilConsultaTo ||
@@ -1533,7 +1526,6 @@ const Dashboard = () => {
         with_phones: cltWithPhonesFilter || undefined,
         without_phones: cltNoPhonesFilter || undefined,
         birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
-        clt_consultado: cltConsultado !== "todos" ? cltConsultado : undefined,
         clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
         clt_consulta_from: cltConsultaFrom || undefined,
         clt_consulta_to: cltConsultaTo || undefined,
@@ -1571,10 +1563,6 @@ const Dashboard = () => {
       with_phones: mercantilWithPhonesFilter || undefined,
       without_phones: mercantilNoPhonesFilter || undefined,
       birth_month: mercantilBirthMonthFilter.length ? mercantilBirthMonthFilter : undefined,
-      mercantil_situacao:
-        mercantilSituacao === "consultado" || mercantilSituacao === "sem_consulta"
-          ? mercantilSituacao
-          : undefined,
       mercantil_status: mercantilStatusEffective.length ? mercantilStatusEffective : undefined,
       mercantil_consulta_from: mercantilConsultaFrom || undefined,
       mercantil_consulta_to: mercantilConsultaTo || undefined,

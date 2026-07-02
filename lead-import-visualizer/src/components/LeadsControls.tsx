@@ -599,7 +599,6 @@ export const LeadsControls = ({
 
     if (mode === "CLT") {
       if (eligibleFilter !== "todos") items.push(`Status: ${eligibleFilter === "elegiveis" ? "Elegíveis" : "Não elegíveis"}`);
-      if (cltConsultado !== "todos") items.push(`Consultado: ${cltConsultado === "sim" ? "Sim" : "Não"}`);
       if (cltSituacao !== "todos") {
         const map = {
           nao_encontrado: "Não encontrado",
@@ -628,7 +627,6 @@ export const LeadsControls = ({
     }
 
     if (mode === "MERCANTIL") {
-      if (mercantilSituacao !== "todos") items.push(`Situação: ${mercantilSituacao === "consultado" ? "Consultado" : "Sem consulta"}`);
       if (mercantilStatusFilter.length) items.push(`Status: ${summarizeList(mercantilStatusFilter)}`);
       const consulta = rangeLabel("Data consulta", mercantilConsultaFrom, mercantilConsultaTo);
       if (consulta) items.push(consulta);
@@ -752,7 +750,7 @@ export const LeadsControls = ({
       </div>
 
       {/* Seção de Filtros Ativos (Rodapé do Header) */}
-      {hasActiveFilters && !disableFilters && (
+      {(hasActiveFilters || typeof filteredCount === "number") && !disableFilters && (
         <div className="bg-white px-4 pb-4 sm:px-5 sm:pb-5">
           <div className="border-t border-gray-200 bg-gradient-to-r from-white to-transparent pt-4 sm:pt-5">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -761,7 +759,7 @@ export const LeadsControls = ({
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <div className="flex items-center gap-2 text-gray-800 font-medium text-sm">
                   <Filter className="w-4 h-4 text-gray-500" />
-                  Filtros aplicados
+                  {hasActiveFilters ? "Filtros aplicados" : "Resultado atual"}
                 </div>
                 {typeof filteredCount === "number" && (
                   <>
@@ -774,7 +772,7 @@ export const LeadsControls = ({
               </div>
 
               {/* Modo 360 - Renderização por grupos limpos */}
-              {mode === "360" ? (
+              {hasActiveFilters && mode === "360" ? (
                 <div className="flex flex-wrap gap-x-8 gap-y-4">
                   {activeFilterGroups360.map((group) => (
                     <div key={group.title} className="flex flex-col gap-1.5">
@@ -792,7 +790,7 @@ export const LeadsControls = ({
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : hasActiveFilters ? (
                 /* Outros Modos - Flat list */
                 <div className="flex flex-wrap gap-2">
                   {activeFilterLabels.map((label) => (
@@ -806,19 +804,27 @@ export const LeadsControls = ({
                     </span>
                   )}
                 </div>
-              )}
+              ) : currentSortLabel ? (
+                <div className="flex flex-wrap gap-2">
+                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                    Ordenação: {currentSortLabel}
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             {/* Botão de Limpar (Canto superior direito em telas maiores) */}
-            <Button
-              onClick={onClearFilters}
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 self-start w-full sm:w-auto"
-            >
-              <X className="w-3.5 h-3.5 mr-1" />
-              Limpar todos
-            </Button>
+            {hasActiveFilters ? (
+              <Button
+                onClick={onClearFilters}
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 self-start w-full sm:w-auto"
+              >
+                <X className="w-3.5 h-3.5 mr-1" />
+                Limpar todos
+              </Button>
+            ) : null}
           </div>
           </div>
         </div>
