@@ -360,26 +360,32 @@ export const LeadsTable360 = ({
           <div className="py-8 text-center text-sm text-gray-500">Nenhum lead encontrado.</div>
         ) : (
           leads.map((lead) => (
-            <div key={lead.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
+            <div key={lead.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+              <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_55%,#f8fafc_100%)] p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 shadow-sm">
+                    Dashboard 360
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => viewLead(lead.id)}>
+                    <Eye className="mr-2 h-4 w-4" />
+                    Ver
+                  </Button>
+                </div>
+
                 <div className="min-w-0">
                   <div className="font-medium text-gray-900">{display(lead.nome)}</div>
-                  <div className="font-mono text-sm text-gray-600">{lead.cpf}</div>
+                  <div className="mt-1 font-mono text-sm text-gray-600">{lead.cpf}</div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => viewLead(lead.id)}>
-                  <Eye className="mr-2 h-4 w-4" />
-                  Ver
-                </Button>
               </div>
 
-              <div className="mt-4 space-y-4">
-                <CardSection title="Cadastral">
+              <div className="space-y-4 p-4">
+                <CardSection title="Cadastral" tone="neutral">
                   {visibleSet.has("telefone_1") && <DataRow label="Telefone" value={phoneAt(lead, 0)} />}
                   {visibleSet.has("ultima_origem_cadastral") && <DataRow label="Origem" value={display(lead.ultima_origem_cadastral)} />}
                 </CardSection>
 
                 {hasAny(["consulta", "libera", "fgts_off_authorized", "data_atualizacao"]) && (
-                  <CardSection title="FGTS">
+                  <CardSection title="FGTS" tone="fgts">
                     {visibleSet.has("consulta") && <DataRow label="Consulta" value={display(lead.consulta)} />}
                     {visibleSet.has("libera") && <DataRow label="Libera" value={display(lead.libera)} />}
                     {visibleSet.has("fgts_off_authorized") && <DataRow label="FGTS Off" value={boolLabel(lead.fgts_off_authorized)} />}
@@ -388,7 +394,7 @@ export const LeadsTable360 = ({
                 )}
 
                 {hasAny(["politica_credito_aprovado", "politica_credito_valor_maximo_disponivel", "clt_consultado_em", "elegivel"]) && (
-                  <CardSection title="Facta">
+                  <CardSection title="Facta" tone="facta" iconSrc={factaLogo} iconAlt="Facta">
                     {visibleSet.has("politica_credito_aprovado") && <DataRow label="Status" value={boolLabel(lead.politica_credito_aprovado)} />}
                     {visibleSet.has("elegivel") && <DataRow label="Elegível" value={boolLabel(lead.elegivel)} />}
                     {visibleSet.has("politica_credito_valor_maximo_disponivel") && <DataRow label="Valor liberado" value={display(lead.politica_credito_valor_maximo_disponivel)} />}
@@ -397,7 +403,7 @@ export const LeadsTable360 = ({
                 )}
 
                 {hasAny(["mercantil_status", "mercantil_valor_liberado", "mercantil_data_hora_origem"]) && (
-                  <CardSection title="Mercantil">
+                  <CardSection title="Mercantil" tone="mercantil" iconSrc={mercantilLogo} iconAlt="Mercantil">
                     {visibleSet.has("mercantil_status") && <DataRow label="Status" value={display(lead.mercantil_status)} />}
                     {visibleSet.has("mercantil_valor_liberado") && <DataRow label="Liberado" value={display(lead.mercantil_valor_liberado)} />}
                     {visibleSet.has("mercantil_data_hora_origem") && <DataRow label="Consulta" value={display(lead.mercantil_data_hora_origem)} />}
@@ -405,7 +411,7 @@ export const LeadsTable360 = ({
                 )}
 
                 {hasAny(["uy3_elegivel_emprestimo", "uy3_status", "uy3_valor_liberado", "uy3_consultado_em"]) && (
-                  <CardSection title="UY3">
+                  <CardSection title="UY3" tone="uy3" iconSrc={uy3Logo} iconAlt="UY3">
                     {visibleSet.has("uy3_elegivel_emprestimo") && <DataRow label="Status" value={boolLabel(lead.uy3_elegivel_emprestimo)} />}
                     {visibleSet.has("uy3_status") && <DataRow label="Status técnico" value={display(lead.uy3_status)} />}
                     {visibleSet.has("uy3_valor_liberado") && <DataRow label="Liberado" value={display(lead.uy3_valor_liberado)} />}
@@ -434,14 +440,36 @@ export const LeadsTable360 = ({
 
 const CardSection = ({
   title,
+  tone = "neutral",
+  iconSrc,
+  iconAlt,
   children,
 }: {
   title: string
+  tone?: "neutral" | "fgts" | "facta" | "mercantil" | "uy3"
+  iconSrc?: string
+  iconAlt?: string
   children: React.ReactNode
 }) => (
-  <div className="space-y-2">
-    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
-    <div className="space-y-1">{children}</div>
+  <div
+    className={cn(
+      "space-y-3 rounded-2xl border p-3 shadow-sm",
+      tone === "neutral" && "border-slate-200 bg-slate-50/70",
+      tone === "fgts" && "border-amber-200 bg-amber-50/80",
+      tone === "facta" && "border-[#d2782d]/25 bg-[#d2782d]/[0.08]",
+      tone === "mercantil" && "border-blue-200 bg-blue-50/80",
+      tone === "uy3" && "border-[#f46c00]/25 bg-[#f46c00]/[0.08]"
+    )}
+  >
+    <div className="flex items-center gap-2">
+      {iconSrc ? (
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/85 shadow-sm">
+          <img src={iconSrc} alt={iconAlt || title} className="h-4 w-4 object-contain" />
+        </span>
+      ) : null}
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</div>
+    </div>
+    <div className="space-y-1.5">{children}</div>
   </div>
 )
 
@@ -452,8 +480,8 @@ const DataRow = ({
   label: string
   value: string
 }) => (
-  <div className="flex items-start justify-between gap-3 text-sm">
-    <span className="text-gray-500">{label}</span>
-    <span className="text-right text-gray-900">{value}</span>
+  <div className="flex items-start justify-between gap-3 rounded-xl bg-white/80 px-3 py-2 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+    <span className="text-right font-medium text-slate-900">{value}</span>
   </div>
 )
