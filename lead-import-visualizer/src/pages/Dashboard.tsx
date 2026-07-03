@@ -398,6 +398,7 @@ const DASHBOARD_360_EXPORT_COLUMN_MAP: Record<string, string> = {
 const Dashboard = () => {
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "360")
   const [currentPage, setCurrentPage] = useState(1)
+  const [perPage, setPerPage] = useState(10)
 
   const [dashboard360VisibleColumns, setDashboard360VisibleColumns] = usePersistedState<string[]>(
     DASHBOARD_360_COLUMNS_STORAGE_KEY,
@@ -559,6 +560,28 @@ const Dashboard = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const updatePerPage = () => {
+      const desktop = window.innerWidth >= 1024
+      const reservedHeight = desktop ? 470 : 360
+      const rowHeight = desktop ? 46 : 180
+      const nextPerPage = Math.max(10, Math.min(30, Math.floor((window.innerHeight - reservedHeight) / rowHeight)))
+
+      setPerPage((current) => (current === nextPerPage ? current : nextPerPage))
+    }
+
+    updatePerPage()
+    window.addEventListener("resize", updatePerPage)
+
+    return () => window.removeEventListener("resize", updatePerPage)
+  }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [perPage])
+
   const {
     data: filterOptions,
     isLoading: loadingOptions,
@@ -589,6 +612,7 @@ const Dashboard = () => {
       "leads",
       activeTab,
       currentPage,
+      perPage,
       // BASE
       baseSearchValue,
       baseOrigemFilter,
@@ -639,6 +663,7 @@ const Dashboard = () => {
       if (activeTab === "360") {
         return fetchLeads360({
           page: currentPage,
+          per_page: perPage,
           search: dashboard360SearchValue,
           sort: dashboard360SortBy,
           with_phones: dashboard360Filters.with_phones || undefined,
@@ -678,6 +703,7 @@ const Dashboard = () => {
       if (activeTab === "BASE") {
         return fetchLeadsBase({
           page: currentPage,
+          per_page: perPage,
           search: baseSearchValue,
           origens: baseOrigemFilter,
           cpf: baseCpfMassFilter,
@@ -693,6 +719,7 @@ const Dashboard = () => {
       if (activeTab === "UY3") {
         return fetchLeadsUy3({
           page: currentPage,
+          per_page: perPage,
           search: uy3SearchValue,
           origens: uy3OrigemFilter,
           cpf: uy3CpfMassFilter,
@@ -708,6 +735,7 @@ const Dashboard = () => {
       if (activeTab === "FGTS") {
         return fetchLeadsFGTS({
           page: currentPage,
+          per_page: perPage,
           search: searchValue,
           status: statusFilter,
           motivos: motivosFilter,
@@ -736,6 +764,7 @@ const Dashboard = () => {
           : undefined
         return fetchLeadsCLT({
           page: currentPage,
+          per_page: perPage,
           search: cltSearchValue,
           status: cltStatusFilter,
           origens: cltOrigemFilter,
@@ -776,6 +805,7 @@ const Dashboard = () => {
 
       return fetchLeadsMercantil({
         page: currentPage,
+        per_page: perPage,
         search: mercantilSearchValue,
         origens: mercantilOrigemFilter,
         cpf: mercantilCpfMassFilter,

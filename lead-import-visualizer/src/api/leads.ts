@@ -335,6 +335,7 @@ export type PaginatedLeadsResponse360 = PaginatedResponse<LeadFromApi360>
 
 export interface LeadFilters {
   page?: number
+  per_page?: number
   sort?: LeadSort
   search?: string
   selected_banks?: LeadBankKey[]
@@ -445,6 +446,7 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
 
   // filtros básicos
   if (f.page) p.set("page", String(f.page))
+  if (f.per_page) p.set("per_page", String(f.per_page))
   if (f.sort) p.set("sort", f.sort)
   if (f.search) {
     const raw = f.search.trim()
@@ -589,6 +591,10 @@ const shouldUsePost = (filters: LeadFilters, mode: Mode) => {
 /* ---------- Endpoints: lista ---------- */
 export async function fetchLeadsBase(filters: LeadFilters) {
   const mode: Mode = "base"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -606,7 +612,7 @@ export async function fetchLeadsBase(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponseBase>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
@@ -620,6 +626,10 @@ export async function fetchLeadsBase(filters: LeadFilters) {
 
 export async function fetchLeadsFGTS(filters: LeadFilters) {
   const mode: Mode = "fgts"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -647,7 +657,7 @@ export async function fetchLeadsFGTS(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponseFGTS>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
@@ -661,6 +671,10 @@ export async function fetchLeadsFGTS(filters: LeadFilters) {
 
 export async function fetchLeadsCLT(filters: LeadFilters) {
   const mode: Mode = "clt"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -706,7 +720,7 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponseCLT>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
@@ -720,6 +734,10 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
 
 export async function fetchLeadsMercantil(filters: LeadFilters) {
   const mode: Mode = "mercantil"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -746,7 +764,7 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponseMercantil>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
@@ -760,6 +778,10 @@ export async function fetchLeadsMercantil(filters: LeadFilters) {
 
 export async function fetchLeadsUy3(filters: LeadFilters) {
   const mode: Mode = "uy3"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -777,7 +799,7 @@ export async function fetchLeadsUy3(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponseUY3>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
@@ -791,6 +813,10 @@ export async function fetchLeadsUy3(filters: LeadFilters) {
 
 export async function fetchLeads360(filters: LeadFilters) {
   const mode: Mode = "360"
+  const pageParams = {
+    ...(filters.page ? { page: filters.page } : {}),
+    ...(filters.per_page ? { per_page: filters.per_page } : {}),
+  }
   if (shouldUsePost(filters, mode)) {
     const months = normalizeMonths(filters.birth_month)
     const payload: any = {
@@ -865,7 +891,7 @@ export async function fetchLeads360(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponse360>(
       "/leads/search",
       payload,
-      { params: filters.page ? { page: filters.page } : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined }
     )
     return data
   }
