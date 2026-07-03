@@ -65,14 +65,13 @@ class NewCorbanProposalService
         $cpf = $this->onlyDigits(data_get($payload, 'chat_summary.details.contact.cpf'));
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
 
-        return $this->filterNulls([
+        $requestPayload = $this->filterNulls([
             'proposal' => [
                 'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
                 'covenant_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
                 'product_id' => $this->newCorbanProductId(data_get($payload, 'proposal.product')),
                 'promoter_id' => $this->newCorbanPromotoraId(data_get($payload, 'proposal.bank')),
                 'origin_id' => $this->defaultConfigValue('origin_id'),
-                'status_id' => 0,
                 'table_code' => $this->newCorbanTableCode(
                     data_get($payload, 'proposal.bank'),
                     data_get($payload, 'proposal.table_id')
@@ -116,6 +115,10 @@ class NewCorbanProposalService
                 'type' => 'CELULAR',
             ],
         ]);
+
+        $requestPayload['proposal']['status_id'] = null;
+
+        return $requestPayload;
     }
 
     private function phoneParts(mixed $value): array
