@@ -204,6 +204,7 @@ class NewCorbanProposalService
 
         return match (true) {
             $normalized === 'presença' || str_contains($collapsed, 'presenca') => 'presenca',
+            str_contains($collapsed, 'hubcredito') => 'hubcredito',
             str_contains($collapsed, 'mercantil') => 'mercantil',
             str_contains($collapsed, 'novosaque') => 'novo_saque',
             str_contains($collapsed, 'soma') => 'soma',
