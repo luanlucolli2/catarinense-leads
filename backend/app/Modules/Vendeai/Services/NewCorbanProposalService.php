@@ -25,21 +25,32 @@ class NewCorbanProposalService
         }
 
         try {
-            $response = Http::acceptJson()
-                ->withToken($apiToken)
-                ->asJson()
-                ->timeout(max(1, (int) config('newcorban.timeout', 15)))
-                ->post($baseUrl . '/proposals', $requestPayload);
+            $response = null;
+            $responseBody = null;
 
-            $responseBody = $response->json();
+            foreach (range(1, 2) as $attempt) {
+                $response = Http::acceptJson()
+                    ->withToken($apiToken)
+                    ->asJson()
+                    ->timeout(max(1, (int) config('newcorban.timeout', 15)))
+                    ->post($baseUrl . '/proposals', $requestPayload);
 
-            if (! is_array($responseBody)) {
-                $responseBody = ['raw' => $response->body()];
+                $responseBody = $response->json();
+
+                if (! is_array($responseBody)) {
+                    $responseBody = ['raw' => $response->body()];
+                }
+
+                if (! $this->shouldRetryClienteNaoEncontrado($response->status(), $responseBody) || $attempt === 2) {
+                    break;
+                }
+
+                usleep(250000);
             }
 
             $webhook->update([
                 'newcorban_request_payload' => $requestPayload,
-                'newcorban_response_status' => $response->status(),
+                'newcorban_response_status' => $response?->status(),
                 'newcorban_response_body' => $responseBody,
                 'newcorban_proposta_id' => $this->stringOrNull(data_get($responseBody, 'data.id') ?? ($responseBody['proposta_id'] ?? null), 80),
                 'newcorban_cliente_id' => $this->stringOrNull(
@@ -49,7 +60,7 @@ class NewCorbanProposalService
                     80
                 ),
                 'newcorban_sent_at' => $sentAt,
-                'newcorban_error' => $this->responseError($response->status(), $responseBody),
+                'newcorban_error' => $this->responseError($response?->status() ?? 0, $responseBody ?? []),
             ]);
         } catch (Throwable $e) {
             $webhook->update([
@@ -275,6 +286,18 @@ class NewCorbanProposalService
         }
 
         return $this->stringOrNull(implode(' | ', array_slice($messages, 0, 3)), 1000);
+    }
+
+    private function shouldRetryClienteNaoEncontrado(int $status, array $body): bool
+    {
+        if ($status !== 404) {
+            return false;
+        }
+
+        $message = mb_strtolower((string) ($this->firstResponseMessage($body) ?? ''));
+
+        return str_contains($message, 'cliente não encontrado')
+            || str_contains($message, 'cliente nao encontrado');
     }
 
     /**
