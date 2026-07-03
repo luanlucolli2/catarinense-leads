@@ -65,7 +65,7 @@ class NewCorbanProposalService
         $cpf = $this->onlyDigits(data_get($payload, 'chat_summary.details.contact.cpf'));
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
 
-        $requestPayload = $this->filterNulls([
+        return $this->filterNulls([
             'proposal' => [
                 'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
                 'covenant_id' => $this->newCorbanConvenioId(data_get($payload, 'proposal.product')),
@@ -115,10 +115,6 @@ class NewCorbanProposalService
                 'type' => 'CELULAR',
             ],
         ]);
-
-        $requestPayload['proposal']['status_id'] = null;
-
-        return $requestPayload;
     }
 
     private function phoneParts(mixed $value): array
@@ -208,6 +204,7 @@ class NewCorbanProposalService
 
         return match (true) {
             $normalized === 'presença' || str_contains($collapsed, 'presenca') => 'presenca',
+            str_contains($collapsed, 'hubcredito') => 'hubcredito',
             str_contains($collapsed, 'mercantil') => 'mercantil',
             str_contains($collapsed, 'novosaque') => 'novo_saque',
             str_contains($collapsed, 'soma') => 'soma',

@@ -45,6 +45,11 @@ return [
             'promoter_id' => '411',
             'typing_login' => '20953',
         ],
+        'hubcredito' => [
+            'bank_id' => '2744',
+            'promoter_id' => '4633',
+            'typing_login' => '05395929940@9019',
+        ],
         'pan' => [
             'bank_id' => '623',
             'promoter_id' => '411',
