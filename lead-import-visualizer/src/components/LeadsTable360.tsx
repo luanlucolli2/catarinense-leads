@@ -33,6 +33,7 @@ export interface ProcessedLead360 {
   not_found: boolean
   margem_disponivel: string
   politica_credito_aprovado: boolean | null
+  politica_credito_valor_maximo_disponivel: string
   clt_consultado_em: string
   clt_dados_atualizados_em: string
   mercantil_status: string
@@ -91,7 +92,7 @@ const getColumnTone = (columnId: string) => {
     return "border-amber-200 bg-amber-50 text-amber-800"
   }
 
-  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
+  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "politica_credito_valor_maximo_disponivel", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
     return "border-[#d2782d]/30 bg-[#d2782d]/10 text-[#9a561f]"
   }
 
@@ -107,7 +108,7 @@ const getColumnTone = (columnId: string) => {
 }
 
 const getColumnIcon = (columnId: string) => {
-  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
+  if (["elegivel", "not_found", "margem_disponivel", "politica_credito_aprovado", "politica_credito_valor_maximo_disponivel", "clt_consultado_em", "clt_dados_atualizados_em"].includes(columnId)) {
     return { src: factaLogo, alt: "Facta" }
   }
 
@@ -230,33 +231,33 @@ export const LeadsTable360 = ({
       { id: "contratos", label: "Contratos", render: (lead: ProcessedLead360) => display(lead.contratos) },
       { id: "data_contrato_recente", label: "Ult. contrato", render: (lead: ProcessedLead360) => display(lead.data_contrato_recente) },
       { id: "vendedor", label: "Vendedor", render: (lead: ProcessedLead360) => display(lead.vendedor) },
+      { id: "politica_credito_aprovado", label: "Situacao", render: (lead: ProcessedLead360) => boolLabel(lead.politica_credito_aprovado) },
+      { id: "politica_credito_valor_maximo_disponivel", label: "Valor liberado", render: (lead: ProcessedLead360) => display(lead.politica_credito_valor_maximo_disponivel) },
+      { id: "clt_consultado_em", label: "Consulta", render: (lead: ProcessedLead360) => display(lead.clt_consultado_em) },
+      { id: "mercantil_status", label: "Situacao", render: (lead: ProcessedLead360) => display(lead.mercantil_status) },
+      { id: "mercantil_valor_liberado", label: "Valor liberado", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_liberado) },
+      { id: "mercantil_data_hora_origem", label: "Consulta", render: (lead: ProcessedLead360) => display(lead.mercantil_data_hora_origem) },
+      { id: "uy3_elegivel_emprestimo", label: "Situacao", render: (lead: ProcessedLead360) => boolLabel(lead.uy3_elegivel_emprestimo) },
+      { id: "uy3_valor_liberado", label: "Valor liberado", render: (lead: ProcessedLead360) => display(lead.uy3_valor_liberado) },
+      { id: "uy3_consultado_em", label: "Consulta", render: (lead: ProcessedLead360) => display(lead.uy3_consultado_em) },
       { id: "elegivel", label: "Facta elegivel", render: (lead: ProcessedLead360) => boolLabel(lead.elegivel) },
       { id: "not_found", label: "Facta nao encontrado", render: (lead: ProcessedLead360) => boolLabel(lead.not_found) },
-      { id: "margem_disponivel", label: "Facta margem", render: (lead: ProcessedLead360) => display(lead.margem_disponivel) },
-      { id: "politica_credito_aprovado", label: "Facta politica", render: (lead: ProcessedLead360) => boolLabel(lead.politica_credito_aprovado) },
-      { id: "clt_consultado_em", label: "Facta consulta", render: (lead: ProcessedLead360) => display(lead.clt_consultado_em) },
       { id: "clt_dados_atualizados_em", label: "Facta dados", render: (lead: ProcessedLead360) => display(lead.clt_dados_atualizados_em) },
-      { id: "mercantil_status", label: "Mercantil status", render: (lead: ProcessedLead360) => display(lead.mercantil_status) },
       { id: "mercantil_mensagem_erro", label: "Mercantil msg", render: (lead: ProcessedLead360) => display(lead.mercantil_mensagem_erro) },
-      { id: "mercantil_data_hora_origem", label: "Mercantil consulta", render: (lead: ProcessedLead360) => display(lead.mercantil_data_hora_origem) },
       { id: "mercantil_valor_financiado", label: "Mercantil financiado", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_financiado) },
       { id: "mercantil_valor_iof", label: "Mercantil IOF", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_iof) },
       { id: "mercantil_data_primeiro_vencimento", label: "Mercantil venc.", render: (lead: ProcessedLead360) => display(lead.mercantil_data_primeiro_vencimento) },
       { id: "mercantil_valor_emprestimo", label: "Mercantil emprestimo", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_emprestimo) },
       { id: "mercantil_quantidade_parcelas", label: "Mercantil parcelas", render: (lead: ProcessedLead360) => display(lead.mercantil_quantidade_parcelas) },
-      { id: "mercantil_valor_liberado", label: "Mercantil liberado", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_liberado) },
       { id: "mercantil_taxa_juros_mes", label: "Mercantil juros", render: (lead: ProcessedLead360) => display(lead.mercantil_taxa_juros_mes) },
       { id: "mercantil_valor_parcela", label: "Mercantil parcela", render: (lead: ProcessedLead360) => display(lead.mercantil_valor_parcela) },
       { id: "ultima_origem_mercantil", label: "Origem mercantil", render: (lead: ProcessedLead360) => display(lead.ultima_origem_mercantil) },
       { id: "uy3_type_webhook", label: "UY3 tipo", render: (lead: ProcessedLead360) => display(lead.uy3_type_webhook) },
       { id: "uy3_status", label: "UY3 status", render: (lead: ProcessedLead360) => display(lead.uy3_status) },
-      { id: "uy3_consultado_em", label: "UY3 consulta", render: (lead: ProcessedLead360) => display(lead.uy3_consultado_em) },
       { id: "uy3_data_admissao", label: "UY3 admissao", render: (lead: ProcessedLead360) => display(lead.uy3_data_admissao) },
-      { id: "uy3_valor_liberado", label: "UY3 liberado", render: (lead: ProcessedLead360) => display(lead.uy3_valor_liberado) },
       { id: "uy3_numero_parcelas", label: "UY3 parcelas", render: (lead: ProcessedLead360) => display(lead.uy3_numero_parcelas) },
       { id: "uy3_codigo_requisicao", label: "UY3 req.", render: (lead: ProcessedLead360) => display(lead.uy3_codigo_requisicao) },
       { id: "uy3_margem_disponivel", label: "UY3 margem", render: (lead: ProcessedLead360) => display(lead.uy3_margem_disponivel) },
-      { id: "uy3_elegivel_emprestimo", label: "UY3 elegivel", render: (lead: ProcessedLead360) => boolLabel(lead.uy3_elegivel_emprestimo) },
       { id: "uy3_numero_inscricao_empregador", label: "UY3 empregador", render: (lead: ProcessedLead360) => display(lead.uy3_numero_inscricao_empregador) },
       { id: "uy3_pessoa_exposta_politicamente_codigo", label: "UY3 PEP", render: (lead: ProcessedLead360) => display(lead.uy3_pessoa_exposta_politicamente_codigo) },
       { id: "uy3_data_hora_validade_solicitacao", label: "UY3 validade", render: (lead: ProcessedLead360) => display(lead.uy3_data_hora_validade_solicitacao) },
@@ -386,10 +387,11 @@ export const LeadsTable360 = ({
                   </CardSection>
                 )}
 
-                {hasAny(["elegivel", "margem_disponivel", "clt_consultado_em"]) && (
+                {hasAny(["politica_credito_aprovado", "politica_credito_valor_maximo_disponivel", "clt_consultado_em", "elegivel"]) && (
                   <CardSection title="Facta">
+                    {visibleSet.has("politica_credito_aprovado") && <DataRow label="Status" value={boolLabel(lead.politica_credito_aprovado)} />}
                     {visibleSet.has("elegivel") && <DataRow label="Elegível" value={boolLabel(lead.elegivel)} />}
-                    {visibleSet.has("margem_disponivel") && <DataRow label="Margem" value={display(lead.margem_disponivel)} />}
+                    {visibleSet.has("politica_credito_valor_maximo_disponivel") && <DataRow label="Valor liberado" value={display(lead.politica_credito_valor_maximo_disponivel)} />}
                     {visibleSet.has("clt_consultado_em") && <DataRow label="Consulta" value={display(lead.clt_consultado_em)} />}
                   </CardSection>
                 )}
@@ -402,9 +404,10 @@ export const LeadsTable360 = ({
                   </CardSection>
                 )}
 
-                {hasAny(["uy3_status", "uy3_valor_liberado", "uy3_consultado_em"]) && (
+                {hasAny(["uy3_elegivel_emprestimo", "uy3_status", "uy3_valor_liberado", "uy3_consultado_em"]) && (
                   <CardSection title="UY3">
-                    {visibleSet.has("uy3_status") && <DataRow label="Status" value={display(lead.uy3_status)} />}
+                    {visibleSet.has("uy3_elegivel_emprestimo") && <DataRow label="Status" value={boolLabel(lead.uy3_elegivel_emprestimo)} />}
+                    {visibleSet.has("uy3_status") && <DataRow label="Status técnico" value={display(lead.uy3_status)} />}
                     {visibleSet.has("uy3_valor_liberado") && <DataRow label="Liberado" value={display(lead.uy3_valor_liberado)} />}
                     {visibleSet.has("uy3_consultado_em") && <DataRow label="Consulta" value={display(lead.uy3_consultado_em)} />}
                   </CardSection>

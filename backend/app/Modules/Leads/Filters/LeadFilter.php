@@ -542,6 +542,7 @@ class LeadFilter
                     DB::raw('cs.not_found as not_found'),
                     DB::raw('cs.margem_disponivel as margem_disponivel'),
                     DB::raw('cs.politica_credito_aprovado as politica_credito_aprovado'),
+                    DB::raw('cs.politica_credito_valor_maximo_disponivel as politica_credito_valor_maximo_disponivel'),
                     DB::raw('cs.consulted_at as clt_consultado_em'),
                     DB::raw('cs.updated_at as clt_dados_atualizados_em'),
                     DB::raw('ms.status as mercantil_status'),
