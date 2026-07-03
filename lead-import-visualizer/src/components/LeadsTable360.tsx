@@ -283,7 +283,7 @@ export const LeadsTable360 = ({
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="hidden overflow-x-auto lg:block">
-        <table className="min-w-max border-collapse">
+        <table className="min-w-max w-full border-collapse">
           <thead>
             <tr>
               <DesktopHead sticky={stickyIdentityColumns ? "left-0" : undefined} className="min-w-[160px] bg-slate-50 text-slate-600">CPF</DesktopHead>
