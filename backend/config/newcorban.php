@@ -58,7 +58,7 @@ return [
         'c6' => [
             'bank_id' => '626',
             'promoter_id' => '411',
-            'typing_login' => '11521981906_000855',
+            'typing_login' => '03805806086_000855',
         ],
         'soma' => [
             'bank_id' => '2560092',
