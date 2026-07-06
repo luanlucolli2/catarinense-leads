@@ -75,7 +75,6 @@ class NewCorbanProposalService
     {
         $cpf = $this->onlyDigits(data_get($payload, 'chat_summary.details.contact.cpf'));
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
-        $proposalNumber = $this->stringOrNull(data_get($payload, 'proposal.proposal_number'));
         $requestPayload = $this->filterNulls([
             'proposal' => [
                 'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
@@ -101,8 +100,8 @@ class NewCorbanProposalService
                 'franchise_id' => $this->defaultConfigValue('franchise_id'),
             ],
             'bank_reference' => [
-                'proposal_number' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
-                'api_reference' => $proposalNumber,
+                'proposal_number' => $this->stringOrNull(data_get($payload, 'proposal.proposal_number')),
+                'api_reference' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
                 'formalization_link' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
             ],
             'customer' => $this->filterNulls([
@@ -126,10 +125,6 @@ class NewCorbanProposalService
                 'type' => 'CELULAR',
             ],
         ]);
-
-        if (isset($requestPayload['bank_reference']) && is_array($requestPayload['bank_reference'])) {
-            $requestPayload['bank_reference']['api_reference'] = $proposalNumber;
-        }
 
         return $requestPayload;
     }
