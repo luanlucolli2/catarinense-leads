@@ -75,6 +75,8 @@ class NewCorbanProposalService
     {
         $cpf = $this->onlyDigits(data_get($payload, 'chat_summary.details.contact.cpf'));
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
+        $proposalId = $this->stringOrNull(data_get($payload, 'proposal.proposal_id'));
+        $proposalNumber = $this->stringOrNull(data_get($payload, 'proposal.proposal_number'));
         $requestPayload = $this->filterNulls([
             'proposal' => [
                 'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
@@ -100,8 +102,8 @@ class NewCorbanProposalService
                 'franchise_id' => $this->defaultConfigValue('franchise_id'),
             ],
             'bank_reference' => [
-                'proposal_number' => $this->stringOrNull(data_get($payload, 'proposal.proposal_number')),
-                'api_reference' => $this->stringOrNull(data_get($payload, 'proposal.proposal_id')),
+                'proposal_number' => $proposalNumber ?? $proposalId,
+                'api_reference' => $proposalNumber === null ? null : $proposalId,
                 'formalization_link' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
             ],
             'customer' => $this->filterNulls([
