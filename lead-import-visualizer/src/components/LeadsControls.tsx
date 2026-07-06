@@ -646,20 +646,20 @@ export const LeadsControls = ({
   ]);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6 flex flex-col overflow-hidden">
-      <div className="p-4 sm:p-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm mb-4 flex flex-col overflow-hidden">
+      <div className="p-3 sm:p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           {/* Inputs Section (Search & Sort) */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full lg:flex-1">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:flex-1">
             <div className="relative w-full sm:max-w-[320px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
               <Input
                 type="text"
                 placeholder="Nome, CPF ou Telefone"
                 value={localSearchValue}
                 onChange={(e) => setLocalSearchValue(e.target.value)}
-                className="pl-9 h-10 w-full transition-shadow focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                className="pl-8 h-9 text-sm w-full transition-shadow focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
               />
             </div>
 
@@ -668,9 +668,9 @@ export const LeadsControls = ({
                 <select
                   value={sortBy}
                   onChange={(event) => onSortByChange(event.target.value as LeadSort)}
-                  className="h-10 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-8 text-sm text-gray-700 shadow-sm outline-none transition-shadow hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="h-9 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-8 text-sm text-gray-700 shadow-sm outline-none transition-shadow hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
-                  <option value="" disabled>Ordenar resultados por...</option>
+                  <option value="" disabled>Ordenar por...</option>
                   {sortOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -690,16 +690,16 @@ export const LeadsControls = ({
               onClick={() => setIsColumnsModalOpen(true)}
               variant="outline"
               className={cn(
-                "h-10 flex items-center justify-center gap-2 px-4 relative transition-colors shadow-sm",
+                "h-9 flex items-center justify-center gap-1.5 px-3 text-sm relative transition-colors shadow-sm",
                 hasCustomColumns 
                   ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800" 
                   : "border-gray-200 text-gray-700 hover:bg-gray-50"
               )}
             >
-              <ColumnsIcon className="w-4 h-4" />
+              <ColumnsIcon className="w-3.5 h-3.5" />
               <span>Colunas</span>
               {hasCustomColumns && (
-                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 ring-2 ring-white" />
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-white" />
               )}
             </Button>
 
@@ -708,17 +708,17 @@ export const LeadsControls = ({
               variant="outline"
               disabled={disableFilters}
               className={cn(
-                "h-10 flex items-center justify-center gap-2 px-4 relative transition-colors shadow-sm",
+                "h-9 flex items-center justify-center gap-1.5 px-3 text-sm relative transition-colors shadow-sm",
                 hasActiveFilters && !disableFilters 
                   ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
                   : "border-gray-200 text-gray-700 hover:bg-gray-50"
               )}
               title={disableFilters ? "Filtros indisponíveis neste modo" : undefined}
             >
-              <Filter className="w-4 h-4" />
+              <Filter className="w-3.5 h-3.5" />
               <span>Filtros</span>
               {hasActiveFilters && !disableFilters && (
-                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 ring-2 ring-white" />
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-white" />
               )}
             </Button>
 
@@ -726,18 +726,18 @@ export const LeadsControls = ({
               onClick={onExportClick}
               variant="outline"
               disabled={disableExport}
-              className="h-10 flex items-center justify-center gap-2 px-4 border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm"
+              className="h-9 flex items-center justify-center gap-1.5 px-3 text-sm border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm"
               title={disableExport ? "Exportação indisponível neste modo" : undefined}
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Exportar</span>
             </Button>
 
             <Button
               onClick={onImportClick}
-              className="h-10 flex items-center justify-center gap-2 px-4 bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-colors"
+              className="h-9 flex items-center justify-center gap-1.5 px-3 text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-colors"
             >
-              <Upload className="w-4 h-4" />
+              <Upload className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Importar</span>
             </Button>
           </div>
@@ -746,20 +746,20 @@ export const LeadsControls = ({
 
       {/* Seção de Filtros Ativos (Rodapé do Header) */}
       {(hasActiveFilters || typeof filteredCount === "number") && !disableFilters && (
-        <div className="bg-white px-4 pb-4 sm:px-5 sm:pb-5">
-          <div className="border-t border-gray-200 bg-gradient-to-r from-white to-transparent pt-4 sm:pt-5">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="bg-white px-3 pb-3 sm:px-4 sm:pb-4">
+          <div className="border-t border-gray-200 bg-gradient-to-r from-white to-transparent pt-3">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             
             <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                <div className="flex items-center gap-2 text-gray-800 font-medium text-sm">
-                  <Filter className="w-4 h-4 text-gray-500" />
+              <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                <div className="flex items-center gap-1.5 text-gray-800 font-medium text-[13px]">
+                  <Filter className="w-3.5 h-3.5 text-gray-500" />
                   {hasActiveFilters ? "Filtros aplicados" : "Resultado atual"}
                 </div>
                 {typeof filteredCount === "number" && (
                   <>
-                    <span className="text-gray-300">•</span>
-                    <span className="text-sm font-medium text-blue-600 bg-blue-100/50 px-2 py-0.5 rounded-full">
+                    <span className="text-gray-300 text-xs">•</span>
+                    <span className="text-xs font-medium text-blue-600 bg-blue-100/50 px-2 py-0.5 rounded-full">
                       {filteredCount} leads encontrados
                     </span>
                   </>
@@ -768,16 +768,16 @@ export const LeadsControls = ({
 
               {/* Modo 360 - Renderização por grupos limpos */}
               {hasActiveFilters && mode === "360" ? (
-                <div className="flex flex-wrap gap-x-8 gap-y-4">
+                <div className="flex flex-wrap gap-x-6 gap-y-3">
                   {activeFilterGroups360.map((group) => (
-                    <div key={group.title} className="flex flex-col gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                        {group.imageSrc ? <img src={group.imageSrc} alt="" className="h-3.5 w-3.5 object-contain" /> : null}
+                    <div key={group.title} className="flex flex-col gap-1">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                        {group.imageSrc ? <img src={group.imageSrc} alt="" className="h-3 w-3 object-contain" /> : null}
                         {group.title}
                       </span>
                       <div className="flex flex-wrap gap-1.5">
                         {group.labels.map((label) => (
-                          <span key={`${group.title}-${label}`} className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                          <span key={`${group.title}-${label}`} className="inline-flex items-center rounded bg-white border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm">
                             {label}
                           </span>
                         ))}
@@ -787,21 +787,21 @@ export const LeadsControls = ({
                 </div>
               ) : hasActiveFilters ? (
                 /* Outros Modos - Flat list */
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {activeFilterLabels.map((label) => (
-                    <span key={label} className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                    <span key={label} className="inline-flex items-center rounded bg-white border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm">
                       {label}
                     </span>
                   ))}
                   {currentSortLabel && (
-                    <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                    <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 shadow-sm">
                       Ordenação: {currentSortLabel}
                     </span>
                   )}
                 </div>
               ) : currentSortLabel ? (
-                <div className="flex flex-wrap gap-2">
-                  <span className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 shadow-sm">
                     Ordenação: {currentSortLabel}
                   </span>
                 </div>
@@ -814,9 +814,9 @@ export const LeadsControls = ({
                 onClick={onClearFilters}
                 variant="ghost"
                 size="sm"
-                className="h-8 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 self-start w-full sm:w-auto"
+                className="h-7 px-2 text-[11px] text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 self-start w-full sm:w-auto"
               >
-                <X className="w-3.5 h-3.5 mr-1" />
+                <X className="w-3 h-3 mr-1" />
                 Limpar todos
               </Button>
             ) : null}
@@ -825,7 +825,7 @@ export const LeadsControls = ({
         </div>
       )}
 
-      {/* Modais omitidos para concisão (mesma lógica) */}
+      {/* Modais */}
       <FiltersModal
         mode={mode}
         isOpen={isFiltersModalOpen}
