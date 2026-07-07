@@ -1292,6 +1292,11 @@ export default function IntegracoesVendeaiPage() {
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-gray-500">Atualizadas</span>
+                    </div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block" />
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-slate-700">{formatNumber(metrics.leads.started_total ?? 0)}</span>
                       <span className="mt-1 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
                     </div>
                   </div>

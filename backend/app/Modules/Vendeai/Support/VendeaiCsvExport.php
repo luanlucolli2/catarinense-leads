@@ -158,13 +158,13 @@ final class VendeaiCsvExport
         VendeaiLeadFilters::applyFilters($query, $filters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
-            'date_column' => 'vendeai_leads.first_received_at',
+            'date_column' => 'vendeai_leads.last_received_at',
             'from' => $from,
             'to' => $to,
         ]);
 
         return $query
-            ->orderBy('vendeai_leads.first_received_at', $direction)
+            ->orderBy('vendeai_leads.last_received_at', $direction)
             ->orderBy('vendeai_leads.id', $direction)
             ->orderBy('attempts.received_at', $direction)
             ->orderBy('attempts.id', $direction);

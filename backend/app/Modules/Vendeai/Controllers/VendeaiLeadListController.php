@@ -42,7 +42,7 @@ class VendeaiLeadListController extends Controller
                     ->tap(fn ($query) => VendeaiLeadFilters::applyFilters($query, $validated, [
                         'lead_alias' => 'vendeai_leads',
                         'attempt_alias' => 'vendeai_newcorban_proposal_attempts',
-                        'date_column' => 'vendeai_leads.first_received_at',
+                        'date_column' => 'vendeai_leads.last_received_at',
                         'from' => $from,
                         'to' => $to,
                     ]))
@@ -88,7 +88,7 @@ class VendeaiLeadListController extends Controller
         VendeaiLeadFilters::applyFilters($query, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
-            'date_column' => 'vendeai_leads.first_received_at',
+            'date_column' => 'vendeai_leads.last_received_at',
             'from' => $from,
             'to' => $to,
         ]);

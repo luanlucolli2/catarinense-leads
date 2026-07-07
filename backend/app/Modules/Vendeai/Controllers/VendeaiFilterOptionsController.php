@@ -20,7 +20,7 @@ class VendeaiFilterOptionsController extends Controller
         VendeaiLeadFilters::applyFilters($baseQuery, $validated, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => null,
-            'date_column' => 'vendeai_leads.first_received_at',
+            'date_column' => 'vendeai_leads.last_received_at',
             'from' => $from,
             'to' => $to,
         ]);
