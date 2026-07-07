@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatCPF, formatPhone } from "@/lib/formatters";
+import newcorbanLogo from "@/assets/newcorbanlogo.png";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
 
@@ -644,12 +645,23 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
           ) : null}
           <DetailLine label="Criada em" value={formatDateTime(attempt.proposal.proposal_created_at)} />
         </div>
-        <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
-          <div className="text-sm font-medium text-slate-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
-          <DetailLine label="Proposta VendeAI" value={attempt.proposal.proposal_number || attempt.proposal.proposal_id || "-"} />
-          <DetailLine label="Enviada em" value={formatDateTime(attempt.newcorban_sent_at || attempt.received_at)} />
-          {attempt.newcorban_error ? <div className="pt-1 text-xs font-medium text-rose-700">{attempt.newcorban_error}</div> : null}
+        <div className="min-w-0 space-y-1 rounded-md border border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+            <span>Envio NewCorban</span>
+          </div>
+          <div className="text-sm font-medium text-white">{attempt.newcorban_proposta_id || "Não criada"}</div>
+          {attempt.proposal.proposal_number || attempt.proposal.proposal_id ? (
+            <div className="break-words text-xs leading-5 text-slate-200">
+              <span className="font-medium text-white">Proposta VendeAI:</span> {attempt.proposal.proposal_number || attempt.proposal.proposal_id}
+            </div>
+          ) : null}
+          {attempt.newcorban_sent_at || attempt.received_at ? (
+            <div className="break-words text-xs leading-5 text-slate-200">
+              <span className="font-medium text-white">Enviada em:</span> {formatDateTime(attempt.newcorban_sent_at || attempt.received_at)}
+            </div>
+          ) : null}
+          {attempt.newcorban_error ? <div className="pt-1 text-xs font-medium text-rose-300">{attempt.newcorban_error}</div> : null}
         </div>
       </div>
     </div>
@@ -724,9 +736,12 @@ function ProposalSummaryDetails({
           <DetailLine label="Criada em" value={formatDateTime(data.proposal_created_at)} />
           <DetailLine label="Atualizada em" value={formatDateTime(data.proposal_status_updated_at)} />
         </div>
-        <div className="min-w-0 space-y-1 rounded-md border border-dashed border-slate-200 bg-white/80 px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
-          <div className="text-sm text-slate-400">Nenhum envio registrado</div>
+        <div className="min-w-0 space-y-1 rounded-md border border-dashed border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+            <span>Envio NewCorban</span>
+          </div>
+          <div className="text-sm text-slate-300">Nenhum envio registrado</div>
         </div>
       </div>
     </div>
