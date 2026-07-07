@@ -162,6 +162,7 @@ export interface VendeaiLead {
 
 export interface VendeaiLeadAttempt {
   id: number;
+  original_number: number | null;
   received_at: string | null;
   newcorban_sent_at: string | null;
   newcorban_response_status: number | null;

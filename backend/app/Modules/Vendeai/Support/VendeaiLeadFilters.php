@@ -98,11 +98,12 @@ final class VendeaiLeadFilters
         $normalized = mb_strtolower($normalized);
         $normalized = str_replace([' ', 'ç'], ['_', 'c'], $normalized);
 
-        if ($normalized === 'mercantil_api') {
-            return 'mercantil';
-        }
-
-        return $normalized;
+        return match ($normalized) {
+            'mercantil_api' => 'mercantil',
+            'novo_saque_api' => 'novo_saque',
+            'soma_celcoin', 'soma_uy3' => 'soma',
+            default => $normalized,
+        };
     }
 
     public static function normalizeDigits(?string $value): ?string
@@ -121,7 +122,12 @@ final class VendeaiLeadFilters
         $base = "COALESCE(NULLIF({$leadAlias}.proposal_bank, ''), NULLIF({$leadAlias}.simulation_bank, ''))";
         $normalized = "LOWER(REPLACE(REPLACE(TRIM(COALESCE({$base}, '')), ' ', '_'), 'ç', 'c'))";
 
-        return "CASE WHEN {$normalized} = 'mercantil_api' THEN 'mercantil' ELSE {$normalized} END";
+        return "CASE
+            WHEN {$normalized} = 'mercantil_api' THEN 'mercantil'
+            WHEN {$normalized} = 'novo_saque_api' THEN 'novo_saque'
+            WHEN {$normalized} IN ('soma_celcoin', 'soma_uy3') THEN 'soma'
+            ELSE {$normalized}
+        END";
     }
 
     public static function digitsExpression(string $column): string

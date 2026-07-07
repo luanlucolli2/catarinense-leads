@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatCPF, formatPhone } from "@/lib/formatters";
+import newcorbanLogo from "@/assets/newcorbanlogo.png";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
 
@@ -447,15 +448,25 @@ function productLabel(label: string): string {
   return label;
 }
 
+function canonicalBankValue(label: string): string {
+  const normalized = label.toLowerCase().trim().replace(/ /g, "_");
+  if (normalized === "mercantil_api") return "mercantil";
+  if (normalized === "novo_saque_api") return "novo_saque";
+  if (normalized === "soma_celcoin" || normalized === "soma_uy3") return "soma";
+  if (normalized === "presença") return "presenca";
+  return normalized;
+}
+
 function bankLabel(label: string): string {
-  const normalized = label.toLowerCase();
-  if (normalized === "mercantil" || normalized === "mercantil_api") return "Mercantil";
-  if (normalized === "presenca" || normalized === "presença") return "Presença Bank";
+  const normalized = canonicalBankValue(label);
+  if (normalized === "mercantil") return "Mercantil";
+  if (normalized === "presenca") return "Presença Bank";
   if (normalized === "facta") return "FACTA";
   if (normalized === "v8") return "V8";
   if (normalized === "pan") return "Banco PAN";
   if (normalized === "c6") return "C6 Bank";
-  if (normalized === "novo_saque" || normalized === "novo saque") return "Novo Saque";
+  if (normalized === "novo_saque") return "Novo Saque";
+  if (normalized === "soma") return "Soma";
   if (normalized === "sem_valor") return "Não informado";
   return label;
 }
@@ -578,8 +589,8 @@ function SimulationDetails({
   );
 }
 
-function AttemptLabel({ index }: { index: number }) {
-  return <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta {index + 1}</div>;
+function AttemptLabel({ number }: { number: number }) {
+  return <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta {number}</div>;
 }
 
 function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] }) {
@@ -594,12 +605,29 @@ function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] })
   return <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span>;
 }
 
-function AttemptProposalCard({ attempt, index }: { attempt: VendeaiLeadAttempt; index: number }) {
+function sortAttemptsOldestFirst(attempts: VendeaiLeadAttempt[]): VendeaiLeadAttempt[] {
+  return [...attempts].sort((left, right) => {
+    const leftTime = Date.parse(left.proposal.proposal_created_at || left.received_at || left.newcorban_sent_at || "");
+    const rightTime = Date.parse(right.proposal.proposal_created_at || right.received_at || right.newcorban_sent_at || "");
+
+    if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+      return left.id - right.id;
+    }
+
+    if (Number.isNaN(leftTime)) return 1;
+    if (Number.isNaN(rightTime)) return -1;
+    if (leftTime === rightTime) return left.id - right.id;
+
+    return leftTime - rightTime;
+  });
+}
+
+function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt; number: number }) {
   return (
     <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <AttemptLabel index={index} />
+          <AttemptLabel number={number} />
           <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -627,12 +655,23 @@ function AttemptProposalCard({ attempt, index }: { attempt: VendeaiLeadAttempt; 
           ) : null}
           <DetailLine label="Criada em" value={formatDateTime(attempt.proposal.proposal_created_at)} />
         </div>
-        <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
-          <div className="text-sm font-medium text-slate-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
-          <DetailLine label="Proposta VendeAI" value={attempt.proposal.proposal_number || attempt.proposal.proposal_id || "-"} />
-          <DetailLine label="Enviada em" value={formatDateTime(attempt.newcorban_sent_at || attempt.received_at)} />
-          {attempt.newcorban_error ? <div className="pt-1 text-xs font-medium text-rose-700">{attempt.newcorban_error}</div> : null}
+        <div className="min-w-0 space-y-1 rounded-md border border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+            <span>Envio NewCorban</span>
+          </div>
+          <div className="text-sm font-medium text-white">{attempt.newcorban_proposta_id || "Não criada"}</div>
+          {attempt.proposal.proposal_number || attempt.proposal.proposal_id ? (
+            <div className="break-words text-xs leading-5 text-slate-200">
+              <span className="font-medium text-white">Proposta VendeAI:</span> {attempt.proposal.proposal_number || attempt.proposal.proposal_id}
+            </div>
+          ) : null}
+          {attempt.newcorban_sent_at || attempt.received_at ? (
+            <div className="break-words text-xs leading-5 text-slate-200">
+              <span className="font-medium text-white">Enviada em:</span> {formatDateTime(attempt.newcorban_sent_at || attempt.received_at)}
+            </div>
+          ) : null}
+          {attempt.newcorban_error ? <div className="pt-1 text-xs font-medium text-rose-300">{attempt.newcorban_error}</div> : null}
         </div>
       </div>
     </div>
@@ -707,9 +746,12 @@ function ProposalSummaryDetails({
           <DetailLine label="Criada em" value={formatDateTime(data.proposal_created_at)} />
           <DetailLine label="Atualizada em" value={formatDateTime(data.proposal_status_updated_at)} />
         </div>
-        <div className="min-w-0 space-y-1 rounded-md border border-dashed border-slate-200 bg-white/80 px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
-          <div className="text-sm text-slate-400">Nenhum envio registrado</div>
+        <div className="min-w-0 space-y-1 rounded-md border border-dashed border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+            <span>Envio NewCorban</span>
+          </div>
+          <div className="text-sm text-slate-300">Nenhum envio registrado</div>
         </div>
       </div>
     </div>
@@ -900,10 +942,20 @@ export default function IntegracoesVendeaiPage() {
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
 
-  const bankOptions = useMemo(
-    () => (filterOptionsQuery.data?.banks ?? []).map((value) => ({ value, label: bankLabel(value) })),
-    [filterOptionsQuery.data?.banks]
-  );
+  const bankOptions = useMemo(() => {
+    const banks = filterOptionsQuery.data?.banks ?? [];
+    const grouped = new Map<string, { value: string; label: string }>();
+
+    banks.forEach((value) => {
+      const canonical = canonicalBankValue(value);
+
+      if (!grouped.has(canonical)) {
+        grouped.set(canonical, { value: canonical, label: bankLabel(canonical) });
+      }
+    });
+
+    return Array.from(grouped.values()).sort((left, right) => left.label.localeCompare(right.label, "pt-BR"));
+  }, [filterOptionsQuery.data?.banks]);
   const stageOptions = useMemo(
     () => (filterOptionsQuery.data?.stages ?? []).map((value) => ({ value, label: stageLabel(value) })),
     [filterOptionsQuery.data?.stages]
@@ -1347,6 +1399,12 @@ export default function IntegracoesVendeaiPage() {
                   </tr>
                 ) : (
                   leads.map((lead) => {
+                    const sortedAttempts = lead.newcorban_attempts?.length ? sortAttemptsOldestFirst(lead.newcorban_attempts) : [];
+                    const numberedAttempts = sortedAttempts.map((attempt, index) => ({
+                      attempt,
+                      originalNumber: attempt.original_number ?? index + 1,
+                    }));
+
                     return (
                         <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
@@ -1373,10 +1431,10 @@ export default function IntegracoesVendeaiPage() {
                             <SimulationDetails data={lead} />
                           </td>
                           <td className="px-4 py-3">
-                            {lead.newcorban_attempts?.length ? (
+                            {sortedAttempts.length ? (
                               <div className="min-w-[280px] max-w-[420px] space-y-3">
-                                {lead.newcorban_attempts.map((attempt, index) => (
-                                  <AttemptProposalCard key={attempt.id} attempt={attempt} index={index} />
+                                {numberedAttempts.map(({ attempt, originalNumber }) => (
+                                  <AttemptProposalCard key={attempt.id} attempt={attempt} number={originalNumber} />
                                 ))}
                               </div>
                             ) : (
