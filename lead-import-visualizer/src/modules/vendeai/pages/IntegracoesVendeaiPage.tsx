@@ -10,6 +10,7 @@ import {
   getVendeaiMetrics,
   listVendeaiLeads,
   startVendeaiExport,
+  type VendeaiLeadAttempt,
   type VendeaiLead,
   type VendeaiLeadSortField,
   type VendeaiNewcorbanStatusFilter,
@@ -522,7 +523,7 @@ function sortFieldLabel(value: VendeaiLeadSortField): string {
 function DetailLine({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value || value === "-") return null;
   return (
-    <div className="whitespace-nowrap text-xs text-gray-600">
+    <div className="break-words text-xs leading-5 text-gray-600">
       <span className="font-medium text-gray-700">{label}:</span> {value}
     </div>
   );
@@ -562,7 +563,7 @@ function SimulationDetails({
   }
 
   return (
-    <div className="min-w-[240px] space-y-1">
+    <div className="min-w-[220px] space-y-1">
       <DetailLine label="Produto" value={productLabel(data.simulation_product || "-")} />
       <DetailLine label="Banco" value={bankLabel(data.simulation_bank || "-")} />
       <DetailLine label="Valor líquido" value={formatCurrency(data.simulation_liquid_value)} />
@@ -577,7 +578,68 @@ function SimulationDetails({
   );
 }
 
-function ProposalDetails({
+function AttemptLabel({ index }: { index: number }) {
+  return <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta {index + 1}</div>;
+}
+
+function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] }) {
+  const label = status === "success" ? "Criada" : status === "failed" ? "Falha" : "Pendente";
+  const tone =
+    status === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : status === "failed"
+        ? "border-rose-200 bg-rose-50 text-rose-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+
+  return <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span>;
+}
+
+function AttemptProposalCard({ attempt, index }: { attempt: VendeaiLeadAttempt; index: number }) {
+  return (
+    <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <AttemptLabel index={index} />
+          <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <AttemptStatusPill status={attempt.status} />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+        <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Dados da proposta</div>
+          <DetailLine label="Número" value={attempt.proposal.proposal_number || "-"} />
+          <DetailLine label="Status" value={proposalStatusLabel(attempt.proposal.proposal_status)} />
+          <DetailLine label="Produto" value={productLabel(attempt.proposal.proposal_product || "-")} />
+          <DetailLine label="Banco" value={bankLabel(attempt.proposal.proposal_bank || "-")} />
+          <DetailLine label="Valor líquido" value={formatCurrency(attempt.proposal.proposal_liquid_value)} />
+          <DetailLine label="Valor bruto" value={formatCurrency(attempt.proposal.proposal_gross_value)} />
+          <DetailLine label="Parcela" value={formatCurrency(attempt.proposal.proposal_installment_value)} />
+          <DetailLine label="Parcelas" value={attempt.proposal.proposal_number_of_payments ? String(attempt.proposal.proposal_number_of_payments) : "-"} />
+          <DetailLine label="Tabela" value={attempt.proposal.proposal_table_name || attempt.proposal.proposal_table_id || "-"} />
+          {attempt.proposal.proposal_formalization_link ? (
+            <div className="break-all text-xs text-blue-700">
+              <a href={attempt.proposal.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+                Link de formalização
+              </a>
+            </div>
+          ) : null}
+          <DetailLine label="Criada em" value={formatDateTime(attempt.proposal.proposal_created_at)} />
+        </div>
+        <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
+          <div className="text-sm font-medium text-slate-900">{attempt.newcorban_proposta_id || "Não criada"}</div>
+          <DetailLine label="Proposta VendeAI" value={attempt.proposal.proposal_number || attempt.proposal.proposal_id || "-"} />
+          <DetailLine label="Enviada em" value={formatDateTime(attempt.newcorban_sent_at || attempt.received_at)} />
+          {attempt.newcorban_error ? <div className="pt-1 text-xs font-medium text-rose-700">{attempt.newcorban_error}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProposalSummaryDetails({
   data,
 }: {
   data: {
@@ -617,27 +679,39 @@ function ProposalDetails({
   }
 
   return (
-    <div className="min-w-[260px] space-y-1">
-      <div className="whitespace-nowrap font-medium text-gray-900">{data.proposal_id || "-"}</div>
-      <DetailLine label="Número" value={data.proposal_number || "-"} />
-      <DetailLine label="Status" value={proposalStatusLabel(data.proposal_status)} />
-      <DetailLine label="Status anterior" value={proposalStatusLabel(data.previous_proposal_status)} />
-      <DetailLine label="Produto" value={productLabel(data.proposal_product || "-")} />
-      <DetailLine label="Banco" value={bankLabel(data.proposal_bank || "-")} />
-      <DetailLine label="Valor líquido" value={formatCurrency(data.proposal_liquid_value)} />
-      <DetailLine label="Valor bruto" value={formatCurrency(data.proposal_gross_value)} />
-      <DetailLine label="Parcela" value={formatCurrency(data.proposal_installment_value)} />
-      <DetailLine label="Parcelas" value={data.proposal_number_of_payments ? String(data.proposal_number_of_payments) : "-"} />
-      <DetailLine label="Tabela" value={data.proposal_table_name || data.proposal_table_id || "-"} />
-      {data.proposal_formalization_link ? (
-        <div className="whitespace-nowrap text-xs text-blue-700">
-          <a href={data.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
-            Link de formalização
-          </a>
+    <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
+      <div className="mb-2 space-y-1">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta</div>
+        <div className="text-sm font-semibold text-slate-900">{data.proposal_id || "-"}</div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+        <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Dados da proposta</div>
+          <DetailLine label="Número" value={data.proposal_number || "-"} />
+          <DetailLine label="Status" value={proposalStatusLabel(data.proposal_status)} />
+          <DetailLine label="Status anterior" value={proposalStatusLabel(data.previous_proposal_status)} />
+          <DetailLine label="Produto" value={productLabel(data.proposal_product || "-")} />
+          <DetailLine label="Banco" value={bankLabel(data.proposal_bank || "-")} />
+          <DetailLine label="Valor líquido" value={formatCurrency(data.proposal_liquid_value)} />
+          <DetailLine label="Valor bruto" value={formatCurrency(data.proposal_gross_value)} />
+          <DetailLine label="Parcela" value={formatCurrency(data.proposal_installment_value)} />
+          <DetailLine label="Parcelas" value={data.proposal_number_of_payments ? String(data.proposal_number_of_payments) : "-"} />
+          <DetailLine label="Tabela" value={data.proposal_table_name || data.proposal_table_id || "-"} />
+          {data.proposal_formalization_link ? (
+            <div className="break-all text-xs text-blue-700">
+              <a href={data.proposal_formalization_link} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+                Link de formalização
+              </a>
+            </div>
+          ) : null}
+          <DetailLine label="Criada em" value={formatDateTime(data.proposal_created_at)} />
+          <DetailLine label="Atualizada em" value={formatDateTime(data.proposal_status_updated_at)} />
         </div>
-      ) : null}
-      <DetailLine label="Criada em" value={formatDateTime(data.proposal_created_at)} />
-      <DetailLine label="Atualizada em" value={formatDateTime(data.proposal_status_updated_at)} />
+        <div className="min-w-0 space-y-1 rounded-md border border-dashed border-slate-200 bg-white/80 px-3 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Envio NewCorban</div>
+          <div className="text-sm text-slate-400">Nenhum envio registrado</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1251,93 +1325,89 @@ export default function IntegracoesVendeaiPage() {
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Etapa</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Tags</th>
                   <th className="min-w-[200px] whitespace-nowrap px-4 py-3 text-left font-medium">Dados da simulação</th>
-                  <th className="min-w-[200px] whitespace-nowrap px-4 py-3 text-left font-medium">Dados da proposta</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Proposta NewCorban</th>
+                  <th className="min-w-[300px] whitespace-nowrap px-4 py-3 text-left font-medium">Propostas</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Eventos</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {leadsQuery.isLoading ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                       <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                       Carregando leads...
                     </td>
                   </tr>
                 ) : leadsQuery.isError ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
+                    <td colSpan={11} className="px-4 py-12 text-center text-red-600">Falha ao carregar leads.</td>
                   </tr>
                 ) : leads.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">Nenhum lead no período.</td>
                   </tr>
                 ) : (
-                  leads.map((lead) => (
-                    <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
-                      <td className="min-w-[180px] px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.inbox_phone_number)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex max-w-[240px] flex-wrap gap-1">
-                          {lead.tags?.length ? (
-                            lead.tags.slice(0, 4).map((tag) => (
-                              <span key={tag} className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
-                                {tag}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <SimulationDetails data={lead} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <ProposalDetails
-                          data={{
-                            proposal_id: lead.proposal_id,
-                            proposal_number: lead.proposal_number,
-                            proposal_bank: lead.proposal_bank,
-                            proposal_product: lead.proposal_product,
-                            proposal_status: lead.proposal_status,
-                            previous_proposal_status: lead.previous_proposal_status,
-                            proposal_liquid_value: lead.proposal_liquid_value,
-                            proposal_gross_value: lead.proposal_gross_value,
-                            proposal_number_of_payments: lead.proposal_number_of_payments,
-                            proposal_installment_value: lead.proposal_installment_value,
-                            proposal_table_name: lead.proposal_table_name,
-                            proposal_table_id: lead.proposal_table_id,
-                            proposal_formalization_link: lead.proposal_formalization_link,
-                            proposal_created_at: lead.proposal_created_at,
-                            proposal_status_updated_at: lead.proposal_status_updated_at,
-                          }}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        {lead.newcorban_error ? (
-                          <div className="max-w-[320px] space-y-1">
-                            <div className="text-sm text-red-700">{lead.newcorban_error}</div>
-                            <div className="whitespace-nowrap text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="whitespace-nowrap font-medium text-gray-900">{lead.newcorban_proposta_id || "-"}</div>
-                            <div className="whitespace-nowrap text-xs text-gray-500">Enviada em {formatDateTime(lead.newcorban_sent_at)}</div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <div className="font-medium text-blue-700">Último: {formatDateTime(lead.last_received_at)}</div>
-                        <div className="text-xs text-gray-500">Primeiro: {formatDateTime(lead.first_received_at)}</div>
-                      </td>
-                    </tr>
-                  ))
+                  leads.map((lead) => {
+                    return (
+                        <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
+                          <td className="min-w-[180px] px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.inbox_phone_number)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex max-w-[240px] flex-wrap gap-1">
+                              {lead.tags?.length ? (
+                                lead.tags.slice(0, 4).map((tag) => (
+                                  <span key={tag} className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
+                                    {tag}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <SimulationDetails data={lead} />
+                          </td>
+                          <td className="px-4 py-3">
+                            {lead.newcorban_attempts?.length ? (
+                              <div className="min-w-[280px] max-w-[420px] space-y-3">
+                                {lead.newcorban_attempts.map((attempt, index) => (
+                                  <AttemptProposalCard key={attempt.id} attempt={attempt} index={index} />
+                                ))}
+                              </div>
+                            ) : (
+                              <ProposalSummaryDetails
+                                data={{
+                                  proposal_id: lead.proposal_id,
+                                  proposal_number: lead.proposal_number,
+                                  proposal_bank: lead.proposal_bank,
+                                  proposal_product: lead.proposal_product,
+                                  proposal_status: lead.proposal_status,
+                                  previous_proposal_status: lead.previous_proposal_status,
+                                  proposal_liquid_value: lead.proposal_liquid_value,
+                                  proposal_gross_value: lead.proposal_gross_value,
+                                  proposal_number_of_payments: lead.proposal_number_of_payments,
+                                  proposal_installment_value: lead.proposal_installment_value,
+                                  proposal_table_name: lead.proposal_table_name,
+                                  proposal_table_id: lead.proposal_table_id,
+                                  proposal_formalization_link: lead.proposal_formalization_link,
+                                  proposal_created_at: lead.proposal_created_at,
+                                  proposal_status_updated_at: lead.proposal_status_updated_at,
+                                }}
+                              />
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <div className="font-medium text-blue-700">Último: {formatDateTime(lead.last_received_at)}</div>
+                            <div className="text-xs text-gray-500">Primeiro: {formatDateTime(lead.first_received_at)}</div>
+                          </td>
+                        </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

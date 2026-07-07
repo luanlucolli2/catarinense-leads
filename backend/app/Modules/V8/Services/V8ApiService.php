@@ -72,7 +72,7 @@ class V8ApiService
     public function authorizeConsult(string $consultId): array
     {
         $path = '/private-consignment/consult/' . urlencode($consultId) . '/authorize';
-        return $this->postBff($path, []);
+        return $this->postBff($path, self::authorizePayload());
     }
 
     public function listConsults(array $query): array
@@ -93,6 +93,16 @@ class V8ApiService
     private function getBff(string $path, array $query): array
     {
         return $this->request('get', $path, $query);
+    }
+
+    public static function authorizePayload(): array
+    {
+        return (array) config('v8.authorize_device', [
+            'operationalSystem' => 'Linux',
+            'deviceModel' => 'Servidor API',
+            'deviceName' => 'integracao-backend',
+            'deviceType' => 'desktop',
+        ]);
     }
 
     private function request(string $method, string $path, array $data): array

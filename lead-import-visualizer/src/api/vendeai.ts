@@ -157,6 +157,35 @@ export interface VendeaiLead {
   newcorban_proposta_id: string | null;
   newcorban_error: string | null;
   newcorban_sent_at: string | null;
+  newcorban_attempts: VendeaiLeadAttempt[];
+}
+
+export interface VendeaiLeadAttempt {
+  id: number;
+  received_at: string | null;
+  newcorban_sent_at: string | null;
+  newcorban_response_status: number | null;
+  newcorban_proposta_id: string | null;
+  newcorban_cliente_id: string | null;
+  newcorban_error: string | null;
+  status: "success" | "failed" | "pending";
+  proposal: {
+    proposal_id: string | null;
+    proposal_number: string | null;
+    proposal_bank: string | null;
+    proposal_product: string | null;
+    proposal_status: string | null;
+    previous_proposal_status: string | null;
+    proposal_liquid_value: string | null;
+    proposal_gross_value: string | null;
+    proposal_number_of_payments: number | null;
+    proposal_installment_value: string | null;
+    proposal_table_name: string | null;
+    proposal_table_id: string | null;
+    proposal_formalization_link: string | null;
+    proposal_created_at: string | null;
+    proposal_status_updated_at: string | null;
+  };
 }
 
 export interface VendeaiAttemptsResponse {

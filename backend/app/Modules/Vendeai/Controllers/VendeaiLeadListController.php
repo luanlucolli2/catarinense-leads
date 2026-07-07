@@ -5,6 +5,7 @@ namespace App\Modules\Vendeai\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Vendeai\Models\VendeaiLead;
 use App\Modules\Vendeai\Models\VendeaiProposalCreatedWebhook;
+use App\Modules\Vendeai\Support\VendeaiAttemptPayload;
 use App\Modules\Vendeai\Support\VendeaiDateRange;
 use App\Modules\Vendeai\Support\VendeaiLeadFilters;
 use Illuminate\Http\Request;
@@ -91,6 +92,58 @@ class VendeaiLeadListController extends Controller
 
         $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);
 
-        return response()->json($query->paginate($perPage));
+        $paginator = $query->paginate($perPage);
+        $leadIds = collect($paginator->items())
+            ->pluck('id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $attemptsByLead = VendeaiProposalCreatedWebhook::query()
+            ->whereIn('vendeai_lead_id', $leadIds)
+            ->orderByDesc('received_at')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'vendeai_lead_id',
+                'received_at',
+                'newcorban_sent_at',
+                'newcorban_response_status',
+                'newcorban_proposta_id',
+                'newcorban_cliente_id',
+                'newcorban_error',
+                'raw_payload',
+            ])
+            ->groupBy('vendeai_lead_id')
+            ->map(fn ($items) => $items->map(function (VendeaiProposalCreatedWebhook $attempt): array {
+                $proposal = VendeaiAttemptPayload::proposal($attempt->raw_payload);
+
+                return [
+                    'id' => (int) $attempt->id,
+                    'received_at' => $attempt->received_at?->toIso8601String(),
+                    'newcorban_sent_at' => $attempt->newcorban_sent_at?->toIso8601String(),
+                    'newcorban_response_status' => $attempt->newcorban_response_status,
+                    'newcorban_proposta_id' => $attempt->newcorban_proposta_id,
+                    'newcorban_cliente_id' => $attempt->newcorban_cliente_id,
+                    'newcorban_error' => $attempt->newcorban_error,
+                    'status' => $attempt->newcorban_proposta_id !== null
+                        ? 'success'
+                        : ($attempt->newcorban_sent_at === null ? 'pending' : 'failed'),
+                    'proposal' => [
+                        ...$proposal,
+                        'proposal_created_at' => $attempt->received_at?->toIso8601String(),
+                        'proposal_status_updated_at' => null,
+                    ],
+                ];
+            })->values()->all())
+            ->all();
+
+        $paginator->getCollection()->transform(function (object $lead) use ($attemptsByLead): object {
+            $lead->newcorban_attempts = $attemptsByLead[(int) $lead->id] ?? [];
+
+            return $lead;
+        });
+
+        return response()->json($paginator);
     }
 }

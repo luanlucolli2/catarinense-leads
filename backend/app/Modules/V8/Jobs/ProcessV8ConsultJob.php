@@ -781,12 +781,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             return $createdCount;
         }
 
+        $authorizePayload = V8ApiService::authorizePayload();
         $authResponses = Http::timeout(max(1, (int) config('v8.http.timeout', 15)))
             ->connectTimeout(max(1, (int) config('v8.http.connect_timeout', 10)))
-            ->pool(function ($pool) use ($consultIds, $baseUrl, $authHeaders) {
+            ->pool(function ($pool) use ($consultIds, $baseUrl, $authHeaders, $authorizePayload) {
                 $reqs = [];
                 foreach ($consultIds as $key => $consultId) {
-                    $reqs[] = $pool->as($key)->withHeaders($authHeaders)->post("{$baseUrl}/private-consignment/consult/" . urlencode($consultId) . "/authorize", []);
+                    $reqs[] = $pool->as($key)->withHeaders($authHeaders)->post("{$baseUrl}/private-consignment/consult/" . urlencode($consultId) . "/authorize", $authorizePayload);
                 }
                 return $reqs;
             });
