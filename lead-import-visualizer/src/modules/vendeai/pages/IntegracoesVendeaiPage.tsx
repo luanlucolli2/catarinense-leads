@@ -594,6 +594,23 @@ function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] })
   return <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span>;
 }
 
+function sortAttemptsOldestFirst(attempts: VendeaiLeadAttempt[]): VendeaiLeadAttempt[] {
+  return [...attempts].sort((left, right) => {
+    const leftTime = Date.parse(left.proposal.proposal_created_at || left.received_at || left.newcorban_sent_at || "");
+    const rightTime = Date.parse(right.proposal.proposal_created_at || right.received_at || right.newcorban_sent_at || "");
+
+    if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+      return left.id - right.id;
+    }
+
+    if (Number.isNaN(leftTime)) return 1;
+    if (Number.isNaN(rightTime)) return -1;
+    if (leftTime === rightTime) return left.id - right.id;
+
+    return leftTime - rightTime;
+  });
+}
+
 function AttemptProposalCard({ attempt, index }: { attempt: VendeaiLeadAttempt; index: number }) {
   return (
     <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
@@ -1347,6 +1364,8 @@ export default function IntegracoesVendeaiPage() {
                   </tr>
                 ) : (
                   leads.map((lead) => {
+                    const sortedAttempts = lead.newcorban_attempts?.length ? sortAttemptsOldestFirst(lead.newcorban_attempts) : [];
+
                     return (
                         <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
@@ -1373,9 +1392,9 @@ export default function IntegracoesVendeaiPage() {
                             <SimulationDetails data={lead} />
                           </td>
                           <td className="px-4 py-3">
-                            {lead.newcorban_attempts?.length ? (
+                            {sortedAttempts.length ? (
                               <div className="min-w-[280px] max-w-[420px] space-y-3">
-                                {lead.newcorban_attempts.map((attempt, index) => (
+                                {sortedAttempts.map((attempt, index) => (
                                   <AttemptProposalCard key={attempt.id} attempt={attempt} index={index} />
                                 ))}
                               </div>
