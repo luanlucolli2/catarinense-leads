@@ -22,7 +22,8 @@ class VendeaiMetricsController extends Controller
             $validated['newcorban_status'] = 'sent';
         }
         $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
-        $attemptLeadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated, 'leads');
+        $leadFilters = $validated;
+        unset($leadFilters['newcorban_status']);
 
         $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
@@ -39,20 +40,24 @@ class VendeaiMetricsController extends Controller
         $attempts = DB::table('vendeai_newcorban_proposal_attempts as attempts')
             ->leftJoin('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id');
 
-        VendeaiLeadFilters::applyFilters($leads, $validated, [
+        VendeaiLeadFilters::applyFilters($leads, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
             'date_column' => $leadPeriodColumn,
             'from' => $from,
             'to' => $to,
         ]);
-        VendeaiLeadFilters::applyFilters($startedLeads, $validated, [
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($leads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+
+        VendeaiLeadFilters::applyFilters($startedLeads, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
             'date_column' => 'vendeai_leads.first_received_at',
             'from' => $from,
             'to' => $to,
         ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($startedLeads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+
         VendeaiLeadFilters::applyFilters($attempts, $validated, [
             'lead_alias' => 'leads',
             'attempt_alias' => 'attempts',
@@ -60,12 +65,6 @@ class VendeaiMetricsController extends Controller
             'from' => $from,
             'to' => $to,
         ]);
-        if ($from !== null) {
-            $attempts->where($attemptLeadPeriodColumn, '>=', $from);
-        }
-        if ($to !== null) {
-            $attempts->where($attemptLeadPeriodColumn, '<=', $to);
-        }
 
         $attemptsTotal = (int) (clone $attempts)->count();
         $attemptsSuccess = (int) (clone $attempts)->whereNotNull('attempts.newcorban_proposta_id')->count();

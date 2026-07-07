@@ -474,6 +474,7 @@ function bankLabel(label: string): string {
   if (normalized === "v8") return "V8";
   if (normalized === "pan") return "Banco PAN";
   if (normalized === "c6") return "C6 Bank";
+  if (normalized === "hubcredito") return "Hub Crédito";
   if (normalized === "novo_saque") return "Novo Saque";
   if (normalized === "soma") return "Soma";
   if (normalized === "sem_valor") return "Não informado";

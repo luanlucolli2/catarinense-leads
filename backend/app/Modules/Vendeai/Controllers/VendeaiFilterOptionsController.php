@@ -25,6 +25,7 @@ class VendeaiFilterOptionsController extends Controller
             'from' => $from,
             'to' => $to,
         ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($baseQuery, $validated['newcorban_status'] ?? null, 'vendeai_leads');
 
         return response()->json([
             'banks' => $this->banks($baseQuery),
