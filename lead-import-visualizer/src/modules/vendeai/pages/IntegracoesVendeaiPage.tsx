@@ -12,6 +12,7 @@ import {
   startVendeaiExport,
   type VendeaiLeadAttempt,
   type VendeaiLead,
+  type VendeaiLeadPeriodBasis,
   type VendeaiLeadSortField,
   type VendeaiNewcorbanStatusFilter,
   type VendeaiNewcorbanStatusValue,
@@ -30,6 +31,7 @@ type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days
 type FiltersState = {
   from: string;
   to: string;
+  leadPeriodBasis: VendeaiLeadPeriodBasis;
   search: string;
   sort: VendeaiLeadSortField;
   direction: VendeaiSortDirection;
@@ -255,6 +257,7 @@ function defaultFilters(): FiltersState {
   return {
     from: "",
     to: "",
+    leadPeriodBasis: "updated",
     search: "",
     sort: "last_received_at",
     direction: "desc",
@@ -282,6 +285,7 @@ function loadFilters(): FiltersState {
     const from = isValidDateTimeLocal(parsed.from) ? parsed.from : fallback.from;
     const to = isValidDateTimeLocal(parsed.to) ? parsed.to : fallback.to;
     const search = typeof parsed.search === "string" ? parsed.search : fallback.search;
+    const leadPeriodBasis = parsed.leadPeriodBasis === "started" ? "started" : fallback.leadPeriodBasis;
     const sort =
       parsed.sort === "first_received_at" || parsed.sort === "last_received_at" || parsed.sort === "id"
         ? parsed.sort
@@ -344,6 +348,7 @@ function loadFilters(): FiltersState {
 
     const base = {
       search,
+      leadPeriodBasis,
       sort,
       direction,
       product,
@@ -382,6 +387,10 @@ function periodPresetLabel(value: PeriodPreset): string {
   if (value === "last30Days") return "30 dias";
   if (value === "custom") return "Personalizado";
   return "Sempre";
+}
+
+function leadPeriodBasisLabel(value: VendeaiLeadPeriodBasis): string {
+  return value === "started" ? "Somente iniciadas no período" : "Atualizadas no período (inclui iniciadas)";
 }
 
 function parseUtcDateTimeString(value: string): Date | null {
@@ -465,6 +474,7 @@ function bankLabel(label: string): string {
   if (normalized === "v8") return "V8";
   if (normalized === "pan") return "Banco PAN";
   if (normalized === "c6") return "C6 Bank";
+  if (normalized === "hubcredito") return "Hub Crédito";
   if (normalized === "novo_saque") return "Novo Saque";
   if (normalized === "soma") return "Soma";
   if (normalized === "sem_valor") return "Não informado";
@@ -630,9 +640,6 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
           <AttemptLabel number={number} />
           <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <AttemptStatusPill status={attempt.status} />
-        </div>
       </div>
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
         <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
@@ -656,16 +663,14 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
           <DetailLine label="Criada em" value={formatDateTime(attempt.proposal.proposal_created_at)} />
         </div>
         <div className="min-w-0 space-y-1 rounded-md border border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
-            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
-            <span>Envio NewCorban</span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+              <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+              <span>Envio NewCorban</span>
+            </div>
+            <AttemptStatusPill status={attempt.status} />
           </div>
           <div className="text-sm font-medium text-white">{attempt.newcorban_proposta_id || "Não criada"}</div>
-          {attempt.proposal.proposal_number || attempt.proposal.proposal_id ? (
-            <div className="break-words text-xs leading-5 text-slate-200">
-              <span className="font-medium text-white">Proposta VendeAI:</span> {attempt.proposal.proposal_number || attempt.proposal.proposal_id}
-            </div>
-          ) : null}
           {attempt.newcorban_sent_at || attempt.received_at ? (
             <div className="break-words text-xs leading-5 text-slate-200">
               <span className="font-medium text-white">Enviada em:</span> {formatDateTime(attempt.newcorban_sent_at || attempt.received_at)}
@@ -758,11 +763,23 @@ function ProposalSummaryDetails({
   );
 }
 
+function OutOfPeriodAttemptsNotice({ count, receivedAt }: { count: number; receivedAt: string | null }) {
+  if (count <= 0) return null;
+
+  return (
+    <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+      {count} proposta{count > 1 ? "s" : ""} fora do período filtrado
+      {count === 1 && receivedAt ? `, criada em ${formatDateTime(receivedAt)}` : ""}
+    </div>
+  );
+}
+
 export default function IntegracoesVendeaiPage() {
   const initial = useMemo(() => loadFilters(), []);
   const [fromInput, setFromInput] = useState(initial.from);
   const [toInput, setToInput] = useState(initial.to);
   const [searchInput, setSearchInput] = useState(initial.search);
+  const [leadPeriodBasisInput, setLeadPeriodBasisInput] = useState<VendeaiLeadPeriodBasis>(initial.leadPeriodBasis);
   const [windowModeInput, setWindowModeInput] = useState<FiltersState["windowMode"]>(initial.windowMode);
   const [periodPresetInput, setPeriodPresetInput] = useState<PeriodPreset>(initial.periodPreset);
   const [directionInput, setDirectionInput] = useState<VendeaiSortDirection>(initial.direction);
@@ -840,6 +857,7 @@ export default function IntegracoesVendeaiPage() {
     () => ({
       from: fromIso,
       to: toIso,
+      leadPeriodBasis: applied.leadPeriodBasis,
       product: applied.product,
       search: applied.search,
       bank: applied.bank,
@@ -853,6 +871,7 @@ export default function IntegracoesVendeaiPage() {
       fromIso,
       toIso,
       applied.product,
+      applied.leadPeriodBasis,
       applied.search,
       applied.bank,
       applied.stage,
@@ -920,12 +939,13 @@ export default function IntegracoesVendeaiPage() {
   }, [periodPresetInput, windowModeInput, fromInput, toInput, fromIso, toIso]);
 
   const filterOptionsQuery = useQuery({
-    queryKey: ["vendeai:filter-options", filterOptionsRange.from, filterOptionsRange.to, productInput],
+    queryKey: ["vendeai:filter-options", filterOptionsRange.from, filterOptionsRange.to, leadPeriodBasisInput, productInput],
     queryFn: ({ signal }) =>
       getVendeaiFilterOptions(
         {
           from: filterOptionsRange.from,
           to: filterOptionsRange.to,
+          leadPeriodBasis: leadPeriodBasisInput,
           product: productInput,
         },
         signal
@@ -974,12 +994,16 @@ export default function IntegracoesVendeaiPage() {
   );
   const tagOptions = filterOptionsQuery.data?.tags ?? [];
 
-  const controlLabels = [`Ordenação: ${sortFieldLabel(applied.sort)} · ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`];
+  const controlLabels = [
+    `Base do período: ${leadPeriodBasisLabel(applied.leadPeriodBasis)}`,
+    `Ordenação: ${sortFieldLabel(applied.sort)} · ${applied.direction === "desc" ? "Mais recentes" : "Mais antigos"}`,
+  ];
   const filterLabels = [
     ...(applied.periodPreset === "always"
       ? []
       : [
           `Período: ${periodPresetLabel(applied.periodPreset)}`,
+          `Conversas: ${leadPeriodBasisLabel(applied.leadPeriodBasis)}`,
           `Modo: ${applied.windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`,
           `De ${formatDateTime(fromIso ?? effectiveRange.from)}`,
           `Até ${formatDateTime(toIso ?? effectiveRange.to)}`,
@@ -997,6 +1021,7 @@ export default function IntegracoesVendeaiPage() {
   const applyFilters = (): boolean => {
     const nextBase = {
       search: searchInput.trim(),
+      leadPeriodBasis: leadPeriodBasisInput,
       sort: applied.sort,
       direction: directionInput,
       windowMode: windowModeInput,
@@ -1101,6 +1126,7 @@ export default function IntegracoesVendeaiPage() {
     setFromInput(defaults.from);
     setToInput(defaults.to);
     setSearchInput(defaults.search);
+    setLeadPeriodBasisInput(defaults.leadPeriodBasis);
     setWindowModeInput(defaults.windowMode);
     setPeriodPresetInput(defaults.periodPreset);
     setDirectionInput(defaults.direction);
@@ -1133,6 +1159,7 @@ export default function IntegracoesVendeaiPage() {
     setFromInput("");
     setToInput("");
     setSearchInput("");
+    setLeadPeriodBasisInput("updated");
     setWindowModeInput("always");
     setPeriodPresetInput("always");
     setProductInput([]);
@@ -1224,6 +1251,7 @@ export default function IntegracoesVendeaiPage() {
         from={fromInput}
         to={toInput}
         search={searchInput}
+        leadPeriodBasis={leadPeriodBasisInput}
         windowMode={windowModeInput}
         periodPreset={periodPresetInput}
         product={productInput}
@@ -1242,6 +1270,7 @@ export default function IntegracoesVendeaiPage() {
         rangeError={rangeError}
         onClose={() => setIsFiltersModalOpen(false)}
         onSearchChange={setSearchInput}
+        onLeadPeriodBasisChange={setLeadPeriodBasisInput}
         onFromChange={handleFromInputChange}
         onToChange={handleToInputChange}
         onWindowModeChange={setWindowModeInput}
@@ -1297,6 +1326,13 @@ export default function IntegracoesVendeaiPage() {
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-blue-600">{formatNumber(metrics.leads.total)}</span>
+                      <span className="mt-1 text-xs font-medium uppercase text-gray-500">
+                        {applied.leadPeriodBasis === "started" ? "Iniciadas" : "Atualizadas"}
+                      </span>
+                    </div>
+                    <div className="hidden h-6 w-px bg-gray-200 sm:block" />
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold leading-none text-slate-700">{formatNumber(metrics.leads.started_total ?? 0)}</span>
                       <span className="mt-1 text-xs font-medium uppercase text-gray-500">Iniciadas</span>
                     </div>
                   </div>
@@ -1436,7 +1472,16 @@ export default function IntegracoesVendeaiPage() {
                                 {numberedAttempts.map(({ attempt, originalNumber }) => (
                                   <AttemptProposalCard key={attempt.id} attempt={attempt} number={originalNumber} />
                                 ))}
+                                <OutOfPeriodAttemptsNotice
+                                  count={lead.newcorban_attempts_out_of_period_count ?? 0}
+                                  receivedAt={lead.newcorban_attempts_out_of_period_received_at ?? null}
+                                />
                               </div>
+                            ) : (lead.newcorban_attempts_out_of_period_count ?? 0) > 0 ? (
+                              <OutOfPeriodAttemptsNotice
+                                count={lead.newcorban_attempts_out_of_period_count ?? 0}
+                                receivedAt={lead.newcorban_attempts_out_of_period_received_at ?? null}
+                              />
                             ) : (
                               <ProposalSummaryDetails
                                 data={{

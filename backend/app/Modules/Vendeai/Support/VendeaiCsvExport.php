@@ -97,13 +97,33 @@ final class VendeaiCsvExport
     {
         [$from, $to] = VendeaiDateRange::fromValidated($filters);
         $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($filters);
+        $leadFilters = $filters;
 
         if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($filters['newcorban_status'])) {
             $filters['newcorban_status'] = 'sent';
         }
+        unset($leadFilters['newcorban_status']);
+
+        $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
         $query = DB::table('vendeai_leads')
-            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.vendeai_lead_id', '=', 'vendeai_leads.id')
+            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
+                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+            })
+            ->leftJoin('vendeai_newcorban_proposal_attempts as filter_attempts', 'filter_attempts.id', '=', 'latest_attempts.id')
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', function ($join) use ($filters, $from, $to) {
+                $join->on('attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+                VendeaiLeadFilters::applyAttemptStatusFilter($join, $filters['newcorban_status'] ?? null, 'attempts');
+
+                if ($from !== null) {
+                    $join->where('attempts.received_at', '>=', $from);
+                }
+
+                if ($to !== null) {
+                    $join->where('attempts.received_at', '<=', $to);
+                }
+            })
             ->select([
                 'vendeai_leads.id',
                 'vendeai_leads.account_id',
@@ -155,16 +175,17 @@ final class VendeaiCsvExport
                 'attempts.newcorban_response_body',
             ]);
 
-        VendeaiLeadFilters::applyFilters($query, $filters, [
+        VendeaiLeadFilters::applyFilters($query, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
-            'attempt_alias' => 'attempts',
-            'date_column' => 'vendeai_leads.first_received_at',
+            'attempt_alias' => 'filter_attempts',
+            'date_column' => $leadPeriodColumn,
             'from' => $from,
             'to' => $to,
         ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($query, $filters['newcorban_status'] ?? null, 'vendeai_leads');
 
         return $query
-            ->orderBy('vendeai_leads.first_received_at', $direction)
+            ->orderBy($leadPeriodColumn, $direction)
             ->orderBy('vendeai_leads.id', $direction)
             ->orderBy('attempts.received_at', $direction)
             ->orderBy('attempts.id', $direction);

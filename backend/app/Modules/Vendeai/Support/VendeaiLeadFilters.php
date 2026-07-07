@@ -4,6 +4,7 @@ namespace App\Modules\Vendeai\Support;
 
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -16,6 +17,7 @@ final class VendeaiLeadFilters
         $rules = [
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'lead_period_basis' => ['nullable', Rule::in(['updated', 'started'])],
             'product' => ['nullable'],
             'product.*' => [Rule::in(['clt', 'fgts'])],
             'search' => ['nullable', 'string', 'max:255'],
@@ -87,6 +89,82 @@ final class VendeaiLeadFilters
         self::applyTagsFilter($query, self::tagValues($filters['tags'] ?? null), "{$leadAlias}.tags");
     }
 
+    public static function newcorbanStatusValues(mixed $value): array
+    {
+        return array_values(array_intersect(
+            self::stringList($value),
+            ['not_sent', 'success', 'failed', 'sent']
+        ));
+    }
+
+    public static function applyConversationAttemptStatusFilter(
+        EloquentBuilder|QueryBuilder|JoinClause $query,
+        mixed $statuses,
+        string $leadAlias = 'vendeai_leads',
+        string $attemptTable = 'vendeai_newcorban_proposal_attempts',
+    ): void {
+        $statuses = self::newcorbanStatusValues($statuses);
+
+        if ($statuses === []) {
+            return;
+        }
+
+        $query->where(function ($outer) use ($attemptTable, $leadAlias, $statuses) {
+            foreach (array_values($statuses) as $index => $status) {
+                $method = $index === 0 ? 'where' : 'orWhere';
+
+                match ($status) {
+                    'not_sent' => $outer->{$method}(function ($notSent) use ($attemptTable, $leadAlias) {
+                        $notSent->whereNotExists(function ($exists) use ($attemptTable, $leadAlias) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from($attemptTable)
+                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
+                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
+                        });
+                    }),
+                    'success' => $outer->{$method}(function ($success) use ($attemptTable, $leadAlias) {
+                        $success->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from($attemptTable)
+                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
+                                ->whereNotNull("{$attemptTable}.newcorban_proposta_id");
+                        });
+                    }),
+                    'failed' => $outer->{$method}(function ($failed) use ($attemptTable, $leadAlias) {
+                        $failed->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from($attemptTable)
+                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
+                                ->whereNull("{$attemptTable}.newcorban_proposta_id")
+                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
+                        });
+                    }),
+                    'sent' => $outer->{$method}(function ($sent) use ($attemptTable, $leadAlias) {
+                        $sent->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from($attemptTable)
+                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
+                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
+                        });
+                    }),
+                    default => null,
+                };
+            }
+        });
+    }
+
+    public static function applyAttemptStatusFilter(
+        EloquentBuilder|QueryBuilder|JoinClause $query,
+        mixed $statuses,
+        string $attemptAlias = 'attempts',
+    ): void {
+        self::applyNewcorbanStatusFilter($query, self::newcorbanStatusValues($statuses), $attemptAlias);
+    }
+
     public static function normalizeBankValue(?string $value): ?string
     {
         $normalized = self::stringValue($value);
@@ -133,6 +211,13 @@ final class VendeaiLeadFilters
     public static function digitsExpression(string $column): string
     {
         return "REGEXP_REPLACE(COALESCE({$column}, ''), '[^0-9]', '')";
+    }
+
+    public static function leadPeriodColumn(array $filters, string $leadAlias = 'vendeai_leads'): string
+    {
+        return ($filters['lead_period_basis'] ?? 'updated') === 'started'
+            ? "{$leadAlias}.first_received_at"
+            : "{$leadAlias}.last_received_at";
     }
 
     private static function applyDateFilter(EloquentBuilder|QueryBuilder $query, string $column, mixed $from, mixed $to): void
@@ -254,7 +339,7 @@ final class VendeaiLeadFilters
         });
     }
 
-    private static function applyNewcorbanStatusFilter(EloquentBuilder|QueryBuilder $query, array $statuses, ?string $attemptAlias): void
+    private static function applyNewcorbanStatusFilter(EloquentBuilder|QueryBuilder|JoinClause $query, array $statuses, ?string $attemptAlias): void
     {
         if ($statuses === [] || $attemptAlias === null) {
             return;
@@ -291,24 +376,16 @@ final class VendeaiLeadFilters
 
     private static function applyInboxPhoneNumberFilter(EloquentBuilder|QueryBuilder $query, array $values, string $column): void
     {
-        $digits = array_values(array_unique(array_filter(array_map(
-            fn (string $value): ?string => self::normalizeDigits($value),
+        $values = array_values(array_unique(array_filter(array_map(
+            fn (string $value): ?string => self::stringValue($value),
             $values
         ))));
 
-        if ($digits === []) {
+        if ($values === []) {
             return;
         }
 
-        $query->where(function ($inner) use ($column, $digits) {
-            foreach (array_values($digits) as $index => $value) {
-                if ($index === 0) {
-                    $inner->whereRaw(self::digitsExpression($column) . ' = ?', [$value]);
-                } else {
-                    $inner->orWhereRaw(self::digitsExpression($column) . ' = ?', [$value]);
-                }
-            }
-        });
+        $query->whereIn($column, $values);
     }
 
     private static function applyTagsFilter(EloquentBuilder|QueryBuilder $query, array $tags, string $column): void

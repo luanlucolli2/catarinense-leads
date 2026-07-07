@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 type WindowMode = "always" | "rolling" | "fixed";
+type LeadPeriodBasis = "updated" | "started";
 type ProductFilter = "clt" | "fgts";
 type PeriodPreset = "always" | "today" | "yesterday" | "last7Days" | "last30Days" | "custom";
 type NewcorbanStatusFilter = "not_sent" | "sent" | "success" | "failed";
@@ -29,6 +30,7 @@ type VendeaiFiltersModalProps = {
   from: string;
   to: string;
   search: string;
+  leadPeriodBasis: LeadPeriodBasis;
   windowMode: WindowMode;
   periodPreset: PeriodPreset;
   product: ProductFilter[];
@@ -47,6 +49,7 @@ type VendeaiFiltersModalProps = {
   rangeError: string | null;
   onClose: () => void;
   onSearchChange: (value: string) => void;
+  onLeadPeriodBasisChange: (value: LeadPeriodBasis) => void;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onWindowModeChange: (value: WindowMode) => void;
@@ -143,6 +146,7 @@ export function VendeaiFiltersModal({
   from,
   to,
   search,
+  leadPeriodBasis,
   windowMode,
   periodPreset,
   product,
@@ -161,6 +165,7 @@ export function VendeaiFiltersModal({
   rangeError,
   onClose,
   onSearchChange,
+  onLeadPeriodBasisChange,
   onFromChange,
   onToChange,
   onWindowModeChange,
@@ -188,6 +193,7 @@ export function VendeaiFiltersModal({
 
   const chips = [
     ...(periodPreset === "always" ? [] : [`Período · ${periodPreset === "today" ? "Hoje" : periodPreset === "yesterday" ? "Ontem" : periodPreset === "last7Days" ? "7 dias" : periodPreset === "last30Days" ? "30 dias" : "Personalizado"}`]),
+    ...(leadPeriodBasis === "started" ? ["Conversas · Somente iniciadas no período"] : []),
     ...(windowMode === "always" ? [] : [`Modo · ${windowMode === "rolling" ? "Janela móvel" : "Intervalo fixo"}`]),
     ...(search.trim() ? [`Busca · ${search.trim()}`] : []),
     ...(product.length ? [`Produto · ${selectedSummary([{ value: "clt", label: "Crédito do Trabalhador" }, { value: "fgts", label: "FGTS" }], product)}`] : []),
@@ -258,6 +264,19 @@ export function VendeaiFiltersModal({
           <Group title="Visualização">
             <div className="[grid-column:1/-1]">
               <Section title="Período" description="Defina o intervalo usado na tabela e nas métricas." active={periodPreset !== "always"}>
+                <div>
+                  <Label text="Base das conversas" />
+                  <Select value={leadPeriodBasis} onValueChange={(value) => onLeadPeriodBasisChange(value as LeadPeriodBasis)}>
+                    <SelectTrigger className={cn(NO_FOCUS, "mt-2 border-gray-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)]")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="shadow-lg">
+                      <SelectItem value="updated">Atualizadas no período (inclui iniciadas)</SelectItem>
+                      <SelectItem value="started">Somente iniciadas no período</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div>
                   <Label text="Período" />
                   <Select value={periodPreset} onValueChange={(value) => onPeriodPresetChange(value as PeriodPreset)}>

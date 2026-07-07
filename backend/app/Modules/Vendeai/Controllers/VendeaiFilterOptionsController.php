@@ -15,15 +15,17 @@ class VendeaiFilterOptionsController extends Controller
     {
         $validated = $request->validate(VendeaiLeadFilters::rules(includeDirection: false));
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
 
         $baseQuery = DB::table('vendeai_leads');
         VendeaiLeadFilters::applyFilters($baseQuery, $validated, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => null,
-            'date_column' => 'vendeai_leads.first_received_at',
+            'date_column' => $leadPeriodColumn,
             'from' => $from,
             'to' => $to,
         ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($baseQuery, $validated['newcorban_status'] ?? null, 'vendeai_leads');
 
         return response()->json([
             'banks' => $this->banks($baseQuery),

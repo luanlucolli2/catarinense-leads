@@ -21,6 +21,9 @@ class VendeaiMetricsController extends Controller
         if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
             $validated['newcorban_status'] = 'sent';
         }
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
+        $leadFilters = $validated;
+        unset($leadFilters['newcorban_status']);
 
         $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
@@ -29,16 +32,32 @@ class VendeaiMetricsController extends Controller
                 $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
             })
             ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id');
+        $startedLeads = DB::table('vendeai_leads')
+            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
+                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
+            })
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id');
         $attempts = DB::table('vendeai_newcorban_proposal_attempts as attempts')
             ->leftJoin('vendeai_leads as leads', 'leads.id', '=', 'attempts.vendeai_lead_id');
 
-        VendeaiLeadFilters::applyFilters($leads, $validated, [
+        VendeaiLeadFilters::applyFilters($leads, $leadFilters, [
+            'lead_alias' => 'vendeai_leads',
+            'attempt_alias' => 'attempts',
+            'date_column' => $leadPeriodColumn,
+            'from' => $from,
+            'to' => $to,
+        ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($leads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+
+        VendeaiLeadFilters::applyFilters($startedLeads, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
             'date_column' => 'vendeai_leads.first_received_at',
             'from' => $from,
             'to' => $to,
         ]);
+        VendeaiLeadFilters::applyConversationAttemptStatusFilter($startedLeads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+
         VendeaiLeadFilters::applyFilters($attempts, $validated, [
             'lead_alias' => 'leads',
             'attempt_alias' => 'attempts',
@@ -62,6 +81,7 @@ class VendeaiMetricsController extends Controller
             ],
             'leads' => [
                 'total' => (int) (clone $leads)->distinct('vendeai_leads.id')->count('vendeai_leads.id'),
+                'started_total' => (int) (clone $startedLeads)->distinct('vendeai_leads.id')->count('vendeai_leads.id'),
                 'offered_total' => $this->sumMoney($leads, "COALESCE(vendeai_leads.simulation_best_liquid_value, vendeai_leads.simulation_liquid_value)"),
                 'typed_total' => $this->sumMoney($leads, 'vendeai_leads.proposal_liquid_value'),
                 'paid_total' => $this->sumMoney(
