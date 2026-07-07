@@ -630,9 +630,6 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
           <AttemptLabel number={number} />
           <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <AttemptStatusPill status={attempt.status} />
-        </div>
       </div>
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
         <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
@@ -656,9 +653,12 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
           <DetailLine label="Criada em" value={formatDateTime(attempt.proposal.proposal_created_at)} />
         </div>
         <div className="min-w-0 space-y-1 rounded-md border border-[#16324a] bg-[#0b1b2a] px-3 py-2.5">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
-            <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
-            <span>Envio NewCorban</span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-100/80">
+              <img src={newcorbanLogo} alt="NewCorban" className="h-4 w-auto shrink-0 object-contain" />
+              <span>Envio NewCorban</span>
+            </div>
+            <AttemptStatusPill status={attempt.status} />
           </div>
           <div className="text-sm font-medium text-white">{attempt.newcorban_proposta_id || "Não criada"}</div>
           {attempt.proposal.proposal_number || attempt.proposal.proposal_id ? (
