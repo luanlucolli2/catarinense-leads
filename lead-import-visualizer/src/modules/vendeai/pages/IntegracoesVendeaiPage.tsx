@@ -448,15 +448,25 @@ function productLabel(label: string): string {
   return label;
 }
 
+function canonicalBankValue(label: string): string {
+  const normalized = label.toLowerCase().trim().replace(/ /g, "_");
+  if (normalized === "mercantil_api") return "mercantil";
+  if (normalized === "novo_saque_api") return "novo_saque";
+  if (normalized === "soma_celcoin" || normalized === "soma_uy3") return "soma";
+  if (normalized === "presença") return "presenca";
+  return normalized;
+}
+
 function bankLabel(label: string): string {
-  const normalized = label.toLowerCase();
-  if (normalized === "mercantil" || normalized === "mercantil_api") return "Mercantil";
-  if (normalized === "presenca" || normalized === "presença") return "Presença Bank";
+  const normalized = canonicalBankValue(label);
+  if (normalized === "mercantil") return "Mercantil";
+  if (normalized === "presenca") return "Presença Bank";
   if (normalized === "facta") return "FACTA";
   if (normalized === "v8") return "V8";
   if (normalized === "pan") return "Banco PAN";
   if (normalized === "c6") return "C6 Bank";
-  if (normalized === "novo_saque" || normalized === "novo saque") return "Novo Saque";
+  if (normalized === "novo_saque") return "Novo Saque";
+  if (normalized === "soma") return "Soma";
   if (normalized === "sem_valor") return "Não informado";
   return label;
 }
@@ -932,10 +942,20 @@ export default function IntegracoesVendeaiPage() {
   const lastLeadsPage = leadsQuery.data?.last_page ?? 1;
   const totalLeads = leadsQuery.data?.total ?? 0;
 
-  const bankOptions = useMemo(
-    () => (filterOptionsQuery.data?.banks ?? []).map((value) => ({ value, label: bankLabel(value) })),
-    [filterOptionsQuery.data?.banks]
-  );
+  const bankOptions = useMemo(() => {
+    const banks = filterOptionsQuery.data?.banks ?? [];
+    const grouped = new Map<string, { value: string; label: string }>();
+
+    banks.forEach((value) => {
+      const canonical = canonicalBankValue(value);
+
+      if (!grouped.has(canonical)) {
+        grouped.set(canonical, { value: canonical, label: bankLabel(canonical) });
+      }
+    });
+
+    return Array.from(grouped.values()).sort((left, right) => left.label.localeCompare(right.label, "pt-BR"));
+  }, [filterOptionsQuery.data?.banks]);
   const stageOptions = useMemo(
     () => (filterOptionsQuery.data?.stages ?? []).map((value) => ({ value, label: stageLabel(value) })),
     [filterOptionsQuery.data?.stages]
