@@ -97,6 +97,7 @@ final class VendeaiCsvExport
     {
         [$from, $to] = VendeaiDateRange::fromValidated($filters);
         $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($filters);
 
         if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($filters['newcorban_status'])) {
             $filters['newcorban_status'] = 'sent';
@@ -158,13 +159,13 @@ final class VendeaiCsvExport
         VendeaiLeadFilters::applyFilters($query, $filters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
-            'date_column' => 'vendeai_leads.last_received_at',
+            'date_column' => $leadPeriodColumn,
             'from' => $from,
             'to' => $to,
         ]);
 
         return $query
-            ->orderBy('vendeai_leads.last_received_at', $direction)
+            ->orderBy($leadPeriodColumn, $direction)
             ->orderBy('vendeai_leads.id', $direction)
             ->orderBy('attempts.received_at', $direction)
             ->orderBy('attempts.id', $direction);

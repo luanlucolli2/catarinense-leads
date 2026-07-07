@@ -3,6 +3,7 @@ import axiosClient from "./axiosClient";
 export type VendeaiAttemptStatus = "all" | "success" | "failed" | "pending";
 export type VendeaiSortDirection = "asc" | "desc";
 export type VendeaiLeadSortField = "first_received_at" | "last_received_at" | "id";
+export type VendeaiLeadPeriodBasis = "updated" | "started";
 export type VendeaiProductFilter = "all" | "clt" | "fgts";
 export type VendeaiNewcorbanStatusFilter = "all" | "not_sent" | "sent" | "success" | "failed";
 export type VendeaiProductValue = Exclude<VendeaiProductFilter, "all">;
@@ -158,6 +159,8 @@ export interface VendeaiLead {
   newcorban_proposta_id: string | null;
   newcorban_error: string | null;
   newcorban_sent_at: string | null;
+  newcorban_attempts_out_of_period_count: number;
+  newcorban_attempts_out_of_period_received_at: string | null;
   newcorban_attempts: VendeaiLeadAttempt[];
 }
 
@@ -218,6 +221,7 @@ export interface VendeaiExportStatusDTO {
 export interface VendeaiFilters {
   from?: string;
   to?: string;
+  leadPeriodBasis?: VendeaiLeadPeriodBasis;
   status?: VendeaiAttemptStatus;
   direction?: VendeaiSortDirection;
   product?: VendeaiProductValue[];
@@ -247,6 +251,7 @@ function buildParams(params: VendeaiFilters): Record<string, string | number | s
 
   if (params.from) query.from = params.from;
   if (params.to) query.to = params.to;
+  if (params.leadPeriodBasis) query.lead_period_basis = params.leadPeriodBasis;
   if (params.status && params.status !== "all") query.status = params.status;
   if (params.direction) query.direction = params.direction;
   if (params.product?.length) query.product = params.product;
@@ -271,7 +276,7 @@ export async function getVendeaiMetrics(params: VendeaiFilters, signal?: AbortSi
 }
 
 export async function getVendeaiFilterOptions(
-  params: Pick<VendeaiFilters, "from" | "to" | "product">,
+  params: Pick<VendeaiFilters, "from" | "to" | "leadPeriodBasis" | "product">,
   signal?: AbortSignal
 ): Promise<VendeaiFilterOptionsResponse> {
   const { data } = await axiosClient.get<VendeaiFilterOptionsResponse>("/vendeai/filter-options", {

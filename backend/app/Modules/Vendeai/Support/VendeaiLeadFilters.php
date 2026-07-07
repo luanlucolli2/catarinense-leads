@@ -16,6 +16,7 @@ final class VendeaiLeadFilters
         $rules = [
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'lead_period_basis' => ['nullable', Rule::in(['updated', 'started'])],
             'product' => ['nullable'],
             'product.*' => [Rule::in(['clt', 'fgts'])],
             'search' => ['nullable', 'string', 'max:255'],
@@ -133,6 +134,13 @@ final class VendeaiLeadFilters
     public static function digitsExpression(string $column): string
     {
         return "REGEXP_REPLACE(COALESCE({$column}, ''), '[^0-9]', '')";
+    }
+
+    public static function leadPeriodColumn(array $filters, string $leadAlias = 'vendeai_leads'): string
+    {
+        return ($filters['lead_period_basis'] ?? 'updated') === 'started'
+            ? "{$leadAlias}.first_received_at"
+            : "{$leadAlias}.last_received_at";
     }
 
     private static function applyDateFilter(EloquentBuilder|QueryBuilder $query, string $column, mixed $from, mixed $to): void

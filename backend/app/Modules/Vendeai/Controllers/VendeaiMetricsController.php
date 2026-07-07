@@ -21,6 +21,8 @@ class VendeaiMetricsController extends Controller
         if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
             $validated['newcorban_status'] = 'sent';
         }
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
+        $attemptLeadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated, 'leads');
 
         $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
 
@@ -40,7 +42,7 @@ class VendeaiMetricsController extends Controller
         VendeaiLeadFilters::applyFilters($leads, $validated, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
-            'date_column' => 'vendeai_leads.last_received_at',
+            'date_column' => $leadPeriodColumn,
             'from' => $from,
             'to' => $to,
         ]);
@@ -58,6 +60,12 @@ class VendeaiMetricsController extends Controller
             'from' => $from,
             'to' => $to,
         ]);
+        if ($from !== null) {
+            $attempts->where($attemptLeadPeriodColumn, '>=', $from);
+        }
+        if ($to !== null) {
+            $attempts->where($attemptLeadPeriodColumn, '<=', $to);
+        }
 
         $attemptsTotal = (int) (clone $attempts)->count();
         $attemptsSuccess = (int) (clone $attempts)->whereNotNull('attempts.newcorban_proposta_id')->count();
