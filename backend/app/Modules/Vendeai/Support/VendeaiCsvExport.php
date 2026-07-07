@@ -99,13 +99,8 @@ final class VendeaiCsvExport
             $filters['newcorban_status'] = 'sent';
         }
 
-        $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
-
         $query = DB::table('vendeai_leads')
-            ->leftJoinSub($latestAttempts, 'latest_attempts', function ($join) {
-                $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
-            })
-            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.id', '=', 'latest_attempts.id')
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', 'attempts.vendeai_lead_id', '=', 'vendeai_leads.id')
             ->select([
                 'vendeai_leads.id',
                 'vendeai_leads.account_id',
@@ -151,6 +146,7 @@ final class VendeaiCsvExport
                 'attempts.newcorban_proposta_id',
                 'attempts.newcorban_error',
                 'attempts.newcorban_sent_at',
+                'attempts.received_at as attempt_received_at',
                 'attempts.raw_payload',
                 'attempts.newcorban_request_payload',
                 'attempts.newcorban_response_body',
@@ -164,11 +160,29 @@ final class VendeaiCsvExport
             'to' => $to,
         ]);
 
-        return $query->orderBy('vendeai_leads.first_received_at', $direction)->orderBy('vendeai_leads.id', $direction);
+        return $query
+            ->orderBy('vendeai_leads.first_received_at', $direction)
+            ->orderBy('vendeai_leads.id', $direction)
+            ->orderBy('attempts.received_at', $direction)
+            ->orderBy('attempts.id', $direction);
     }
 
     private static function mapLead(object $lead): array
     {
+        $attemptProposal = VendeaiAttemptPayload::proposal($lead->raw_payload ?? null);
+        $proposalProduct = $attemptProposal['proposal_product'] ?? $lead->proposal_product ?? null;
+        $proposalBank = $attemptProposal['proposal_bank'] ?? $lead->proposal_bank ?? null;
+        $proposalId = $attemptProposal['proposal_id'] ?? $lead->proposal_id ?? null;
+        $proposalNumber = $attemptProposal['proposal_number'] ?? $lead->proposal_number ?? null;
+        $proposalStatus = $attemptProposal['proposal_status'] ?? $lead->proposal_status ?? null;
+        $proposalLiquidValue = $attemptProposal['proposal_liquid_value'] ?? $lead->proposal_liquid_value ?? null;
+        $proposalGrossValue = $attemptProposal['proposal_gross_value'] ?? $lead->proposal_gross_value ?? null;
+        $proposalNumberOfPayments = $attemptProposal['proposal_number_of_payments'] ?? $lead->proposal_number_of_payments ?? null;
+        $proposalInstallmentValue = $attemptProposal['proposal_installment_value'] ?? $lead->proposal_installment_value ?? null;
+        $proposalTableName = $attemptProposal['proposal_table_name'] ?? $lead->proposal_table_name ?? null;
+        $proposalTableId = $attemptProposal['proposal_table_id'] ?? $lead->proposal_table_id ?? null;
+        $proposalCreatedAt = $lead->attempt_received_at ?? $lead->proposal_created_at ?? null;
+
         return [
             self::sanitizeCsvValue(self::csvCpf($lead->customer_cpf ?? null)),
             self::sanitizeCsvValue($lead->customer_name ?? null),
@@ -189,18 +203,18 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($lead->simulation_table_id ?? null),
             self::sanitizeCsvValue($lead->simulation_best_liquid_value ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->simulation_received_at ?? null)),
-            self::sanitizeCsvValue($lead->proposal_product ?? null),
-            self::sanitizeCsvValue($lead->proposal_bank ?? null),
-            self::sanitizeCsvValue($lead->proposal_id ?? null),
-            self::sanitizeCsvValue($lead->proposal_number ?? null),
-            self::sanitizeCsvValue($lead->proposal_status ?? null),
-            self::sanitizeCsvValue($lead->proposal_liquid_value ?? null),
-            self::sanitizeCsvValue($lead->proposal_gross_value ?? null),
-            self::sanitizeCsvValue($lead->proposal_number_of_payments ?? null),
-            self::sanitizeCsvValue($lead->proposal_installment_value ?? null),
-            self::sanitizeCsvValue($lead->proposal_table_name ?? null),
-            self::sanitizeCsvValue($lead->proposal_table_id ?? null),
-            self::sanitizeCsvValue(self::formatDateTime($lead->proposal_created_at ?? null)),
+            self::sanitizeCsvValue($proposalProduct),
+            self::sanitizeCsvValue($proposalBank),
+            self::sanitizeCsvValue($proposalId),
+            self::sanitizeCsvValue($proposalNumber),
+            self::sanitizeCsvValue($proposalStatus),
+            self::sanitizeCsvValue($proposalLiquidValue),
+            self::sanitizeCsvValue($proposalGrossValue),
+            self::sanitizeCsvValue($proposalNumberOfPayments),
+            self::sanitizeCsvValue($proposalInstallmentValue),
+            self::sanitizeCsvValue($proposalTableName),
+            self::sanitizeCsvValue($proposalTableId),
+            self::sanitizeCsvValue(self::formatDateTime($proposalCreatedAt)),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_status_updated_at ?? null)),
             self::sanitizeCsvValue($lead->newcorban_proposta_id ?? null),
             self::sanitizeCsvValue($lead->newcorban_error ?? null),
