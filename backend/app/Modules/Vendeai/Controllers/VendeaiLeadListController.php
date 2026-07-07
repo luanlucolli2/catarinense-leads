@@ -82,13 +82,18 @@ class VendeaiLeadListController extends Controller
             $validated['newcorban_status'] = 'sent';
         }
 
-        VendeaiLeadFilters::applyFilters($query, $validated, [
+        $leadFilters = $validated;
+        unset($leadFilters['newcorban_status']);
+
+        VendeaiLeadFilters::applyFilters($query, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => 'attempts',
             'date_column' => 'vendeai_leads.first_received_at',
             'from' => $from,
             'to' => $to,
         ]);
+
+        self::applyLeadAttemptStatusFilter($query, $validated['newcorban_status'] ?? null);
 
         $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);
 
@@ -99,10 +104,31 @@ class VendeaiLeadListController extends Controller
             ->map(fn ($id) => (int) $id)
             ->all();
 
-        $attemptsByLead = VendeaiProposalCreatedWebhook::query()
+        $attemptNumberMap = VendeaiProposalCreatedWebhook::query()
             ->whereIn('vendeai_lead_id', $leadIds)
             ->orderByDesc('received_at')
             ->orderByDesc('id')
+            ->get(['id', 'vendeai_lead_id', 'received_at'])
+            ->groupBy('vendeai_lead_id')
+            ->map(fn ($items) => $items
+                ->sortBy([
+                    ['received_at', 'asc'],
+                    ['id', 'asc'],
+                ])
+                ->values()
+                ->mapWithKeys(fn ($attempt, $index) => [(int) $attempt->id => $index + 1])
+                ->all()
+            )
+            ->all();
+
+        $attemptsQuery = VendeaiProposalCreatedWebhook::query()
+            ->whereIn('vendeai_lead_id', $leadIds)
+            ->orderByDesc('received_at')
+            ->orderByDesc('id');
+
+        self::applyAttemptStatusFilter($attemptsQuery, $validated['newcorban_status'] ?? null);
+
+        $attemptsByLead = $attemptsQuery
             ->get([
                 'id',
                 'vendeai_lead_id',
@@ -115,7 +141,7 @@ class VendeaiLeadListController extends Controller
                 'raw_payload',
             ])
             ->groupBy('vendeai_lead_id')
-            ->map(fn ($items) => $items->map(function (VendeaiProposalCreatedWebhook $attempt): array {
+            ->map(fn ($items) => $items->map(function (VendeaiProposalCreatedWebhook $attempt) use ($attemptNumberMap): array {
                 $proposal = VendeaiAttemptPayload::proposal($attempt->raw_payload);
 
                 return [
@@ -126,6 +152,7 @@ class VendeaiLeadListController extends Controller
                     'newcorban_proposta_id' => $attempt->newcorban_proposta_id,
                     'newcorban_cliente_id' => $attempt->newcorban_cliente_id,
                     'newcorban_error' => $attempt->newcorban_error,
+                    'original_number' => $attemptNumberMap[(int) $attempt->vendeai_lead_id][(int) $attempt->id] ?? null,
                     'status' => $attempt->newcorban_proposta_id !== null
                         ? 'success'
                         : ($attempt->newcorban_sent_at === null ? 'pending' : 'failed'),
@@ -145,5 +172,102 @@ class VendeaiLeadListController extends Controller
         });
 
         return response()->json($paginator);
+    }
+
+    private static function applyAttemptStatusFilter($query, mixed $statuses): void
+    {
+        if (is_string($statuses) && $statuses !== '') {
+            $statuses = [$statuses];
+        }
+
+        if (! is_array($statuses) || $statuses === []) {
+            return;
+        }
+
+        $query->where(function ($inner) use ($statuses) {
+            foreach (array_values($statuses) as $index => $status) {
+                match ($status) {
+                    'not_sent' => $index === 0
+                        ? $inner->whereNull('newcorban_sent_at')
+                        : $inner->orWhereNull('newcorban_sent_at'),
+                    'success' => $index === 0
+                        ? $inner->whereNotNull('newcorban_proposta_id')
+                        : $inner->orWhereNotNull('newcorban_proposta_id'),
+                    'failed' => $index === 0
+                        ? $inner->where(function ($failed) {
+                            $failed
+                                ->whereNull('newcorban_proposta_id')
+                                ->whereNotNull('newcorban_sent_at');
+                        })
+                        : $inner->orWhere(function ($failed) {
+                            $failed
+                                ->whereNull('newcorban_proposta_id')
+                                ->whereNotNull('newcorban_sent_at');
+                        }),
+                    'sent' => $index === 0
+                        ? $inner->whereNotNull('newcorban_sent_at')
+                        : $inner->orWhereNotNull('newcorban_sent_at'),
+                    default => null,
+                };
+            }
+        });
+    }
+
+    private static function applyLeadAttemptStatusFilter($query, mixed $statuses): void
+    {
+        if (is_string($statuses) && $statuses !== '') {
+            $statuses = [$statuses];
+        }
+
+        if (! is_array($statuses) || $statuses === []) {
+            return;
+        }
+
+        $query->where(function ($outer) use ($statuses) {
+            foreach (array_values($statuses) as $index => $status) {
+                $method = $index === 0 ? 'where' : 'orWhere';
+
+                match ($status) {
+                    'not_sent' => $outer->{$method}(function ($notSent) {
+                        $notSent->whereNotExists(function ($exists) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from('vendeai_newcorban_proposal_attempts')
+                                ->whereColumn('vendeai_newcorban_proposal_attempts.vendeai_lead_id', 'vendeai_leads.id')
+                                ->whereNotNull('vendeai_newcorban_proposal_attempts.newcorban_sent_at');
+                        });
+                    }),
+                    'success' => $outer->{$method}(function ($success) {
+                        $success->whereExists(function ($exists) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from('vendeai_newcorban_proposal_attempts')
+                                ->whereColumn('vendeai_newcorban_proposal_attempts.vendeai_lead_id', 'vendeai_leads.id')
+                                ->whereNotNull('vendeai_newcorban_proposal_attempts.newcorban_proposta_id');
+                        });
+                    }),
+                    'failed' => $outer->{$method}(function ($failed) {
+                        $failed->whereExists(function ($exists) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from('vendeai_newcorban_proposal_attempts')
+                                ->whereColumn('vendeai_newcorban_proposal_attempts.vendeai_lead_id', 'vendeai_leads.id')
+                                ->whereNull('vendeai_newcorban_proposal_attempts.newcorban_proposta_id')
+                                ->whereNotNull('vendeai_newcorban_proposal_attempts.newcorban_sent_at');
+                        });
+                    }),
+                    'sent' => $outer->{$method}(function ($sent) {
+                        $sent->whereExists(function ($exists) {
+                            $exists
+                                ->selectRaw('1')
+                                ->from('vendeai_newcorban_proposal_attempts')
+                                ->whereColumn('vendeai_newcorban_proposal_attempts.vendeai_lead_id', 'vendeai_leads.id')
+                                ->whereNotNull('vendeai_newcorban_proposal_attempts.newcorban_sent_at');
+                        });
+                    }),
+                    default => null,
+                };
+            }
+        });
     }
 }

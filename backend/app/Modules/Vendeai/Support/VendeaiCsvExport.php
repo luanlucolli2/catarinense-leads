@@ -63,6 +63,9 @@ final class VendeaiCsvExport
         ];
     }
 
+    /**
+     * @param resource $fh
+     */
     public static function writeRows($fh, string $type, array $filters, string $delimiter, string $enclosure, int $flushEvery): int
     {
         $query = self::buildLeadsQuery($filters);
@@ -169,7 +172,7 @@ final class VendeaiCsvExport
 
     private static function mapLead(object $lead): array
     {
-        $attemptProposal = VendeaiAttemptPayload::proposal($lead->raw_payload ?? null);
+        $attemptProposal = \App\Modules\Vendeai\Support\VendeaiAttemptPayload::proposal($lead->raw_payload ?? null);
         $proposalProduct = $attemptProposal['proposal_product'] ?? $lead->proposal_product ?? null;
         $proposalBank = $attemptProposal['proposal_bank'] ?? $lead->proposal_bank ?? null;
         $proposalId = $attemptProposal['proposal_id'] ?? $lead->proposal_id ?? null;

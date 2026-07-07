@@ -578,8 +578,8 @@ function SimulationDetails({
   );
 }
 
-function AttemptLabel({ index }: { index: number }) {
-  return <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta {index + 1}</div>;
+function AttemptLabel({ number }: { number: number }) {
+  return <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Proposta {number}</div>;
 }
 
 function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] }) {
@@ -611,12 +611,12 @@ function sortAttemptsOldestFirst(attempts: VendeaiLeadAttempt[]): VendeaiLeadAtt
   });
 }
 
-function AttemptProposalCard({ attempt, index }: { attempt: VendeaiLeadAttempt; index: number }) {
+function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt; number: number }) {
   return (
     <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <AttemptLabel index={index} />
+          <AttemptLabel number={number} />
           <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1365,6 +1365,10 @@ export default function IntegracoesVendeaiPage() {
                 ) : (
                   leads.map((lead) => {
                     const sortedAttempts = lead.newcorban_attempts?.length ? sortAttemptsOldestFirst(lead.newcorban_attempts) : [];
+                    const numberedAttempts = sortedAttempts.map((attempt, index) => ({
+                      attempt,
+                      originalNumber: attempt.original_number ?? index + 1,
+                    }));
 
                     return (
                         <tr key={lead.id} className="align-top transition-colors duration-150 hover:bg-gray-50">
@@ -1394,8 +1398,8 @@ export default function IntegracoesVendeaiPage() {
                           <td className="px-4 py-3">
                             {sortedAttempts.length ? (
                               <div className="min-w-[280px] max-w-[420px] space-y-3">
-                                {sortedAttempts.map((attempt, index) => (
-                                  <AttemptProposalCard key={attempt.id} attempt={attempt} index={index} />
+                                {numberedAttempts.map(({ attempt, originalNumber }) => (
+                                  <AttemptProposalCard key={attempt.id} attempt={attempt} number={originalNumber} />
                                 ))}
                               </div>
                             ) : (
