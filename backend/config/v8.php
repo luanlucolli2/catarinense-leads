@@ -24,6 +24,13 @@ return [
         'phone_number'  => env('V8_SIGNER_PHONE_NUMBER', '997664631'),
     ],
 
+    'authorize_device' => [
+        'operationalSystem' => env('V8_AUTHORIZE_DEVICE_OS', 'Linux'),
+        'deviceModel' => env('V8_AUTHORIZE_DEVICE_MODEL', 'Servidor API'),
+        'deviceName' => env('V8_AUTHORIZE_DEVICE_NAME', 'integracao-backend'),
+        'deviceType' => env('V8_AUTHORIZE_DEVICE_TYPE', 'desktop'),
+    ],
+
     'simulation' => [
         'disbursed_amount' => (int) env('V8_DISBURSED_AMOUNT', 500),
         'installments'     => (int) env('V8_INSTALLMENTS', 24),
