@@ -661,11 +661,6 @@ function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt;
             <AttemptStatusPill status={attempt.status} />
           </div>
           <div className="text-sm font-medium text-white">{attempt.newcorban_proposta_id || "Não criada"}</div>
-          {attempt.proposal.proposal_number || attempt.proposal.proposal_id ? (
-            <div className="break-words text-xs leading-5 text-slate-200">
-              <span className="font-medium text-white">Proposta VendeAI:</span> {attempt.proposal.proposal_number || attempt.proposal.proposal_id}
-            </div>
-          ) : null}
           {attempt.newcorban_sent_at || attempt.received_at ? (
             <div className="break-words text-xs leading-5 text-slate-200">
               <span className="font-medium text-white">Enviada em:</span> {formatDateTime(attempt.newcorban_sent_at || attempt.received_at)}
