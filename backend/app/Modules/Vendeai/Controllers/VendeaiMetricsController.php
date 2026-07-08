@@ -18,9 +18,6 @@ class VendeaiMetricsController extends Controller
         $validated = $request->validate(VendeaiLeadFilters::rules(includeDirection: false));
 
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
-        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
-            $validated['newcorban_status'] = 'sent';
-        }
         $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
         $leadFilters = $validated;
         unset($leadFilters['newcorban_status']);

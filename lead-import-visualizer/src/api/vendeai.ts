@@ -174,6 +174,8 @@ export interface VendeaiLeadAttempt {
   newcorban_cliente_id: string | null;
   newcorban_error: string | null;
   status: "success" | "failed" | "pending";
+  is_in_filtered_period: boolean;
+  matches_newcorban_scope: boolean;
   proposal: {
     proposal_id: string | null;
     proposal_number: string | null;
@@ -276,7 +278,7 @@ export async function getVendeaiMetrics(params: VendeaiFilters, signal?: AbortSi
 }
 
 export async function getVendeaiFilterOptions(
-  params: Pick<VendeaiFilters, "from" | "to" | "leadPeriodBasis" | "product">,
+  params: VendeaiFilters,
   signal?: AbortSignal
 ): Promise<VendeaiFilterOptionsResponse> {
   const { data } = await axiosClient.get<VendeaiFilterOptionsResponse>("/vendeai/filter-options", {

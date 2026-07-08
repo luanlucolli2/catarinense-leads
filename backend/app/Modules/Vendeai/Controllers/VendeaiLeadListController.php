@@ -42,10 +42,6 @@ class VendeaiLeadListController extends Controller
                 'attempts.newcorban_sent_at',
             ]);
 
-        if (in_array(($validated['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($validated['newcorban_status'])) {
-            $validated['newcorban_status'] = 'sent';
-        }
-
         $leadFilters = $validated;
         unset($leadFilters['newcorban_status']);
 
@@ -97,58 +93,6 @@ class VendeaiLeadListController extends Controller
             ->orderByDesc('received_at')
             ->orderByDesc('id');
 
-        VendeaiLeadFilters::applyAttemptStatusFilter($attemptsQuery, $validated['newcorban_status'] ?? null, 'vendeai_newcorban_proposal_attempts');
-        if ($from !== null) {
-            $attemptsQuery->where('received_at', '>=', $from);
-        }
-        if ($to !== null) {
-            $attemptsQuery->where('received_at', '<=', $to);
-        }
-
-        $matchingAttemptCounts = VendeaiProposalCreatedWebhook::query()
-            ->whereIn('vendeai_lead_id', $leadIds);
-
-        VendeaiLeadFilters::applyAttemptStatusFilter($matchingAttemptCounts, $validated['newcorban_status'] ?? null, 'vendeai_newcorban_proposal_attempts');
-
-        $matchingAttemptCounts = $matchingAttemptCounts
-            ->selectRaw('vendeai_lead_id, COUNT(*) as total')
-            ->groupBy('vendeai_lead_id')
-            ->pluck('total', 'vendeai_lead_id')
-            ->map(fn ($total) => (int) $total)
-            ->all();
-
-        $outOfPeriodAttemptSummary = [];
-
-        if ($from !== null || $to !== null) {
-            $outOfPeriodAttemptQuery = VendeaiProposalCreatedWebhook::query()
-                ->whereIn('vendeai_lead_id', $leadIds);
-
-            VendeaiLeadFilters::applyAttemptStatusFilter($outOfPeriodAttemptQuery, $validated['newcorban_status'] ?? null, 'vendeai_newcorban_proposal_attempts');
-
-            $outOfPeriodAttemptQuery->where(function ($outer) use ($from, $to) {
-                if ($from !== null) {
-                    $outer->where('received_at', '<', $from);
-                }
-
-                if ($to !== null) {
-                    $method = $from !== null ? 'orWhere' : 'where';
-                    $outer->{$method}('received_at', '>', $to);
-                }
-            });
-
-            $outOfPeriodAttemptSummary = $outOfPeriodAttemptQuery
-                ->selectRaw('vendeai_lead_id, COUNT(*) as total, MAX(received_at) as single_received_at')
-                ->groupBy('vendeai_lead_id')
-                ->get()
-                ->mapWithKeys(fn ($row) => [
-                    (int) $row->vendeai_lead_id => [
-                        'total' => (int) $row->total,
-                        'single_received_at' => $row->single_received_at,
-                    ],
-                ])
-                ->all();
-        }
-
         $attemptsByLead = $attemptsQuery
             ->get([
                 'id',
@@ -160,10 +104,22 @@ class VendeaiLeadListController extends Controller
                 'newcorban_cliente_id',
                 'newcorban_error',
                 'raw_payload',
+                'newcorban_request_payload',
+                'newcorban_response_body',
             ])
             ->groupBy('vendeai_lead_id')
-            ->map(fn ($items) => $items->map(function (VendeaiProposalCreatedWebhook $attempt) use ($attemptNumberMap): array {
+            ->map(fn ($items) => $items->map(function (VendeaiProposalCreatedWebhook $attempt) use ($attemptNumberMap, $from, $to, $validated): array {
                 $proposal = VendeaiAttemptPayload::proposal($attempt->raw_payload);
+                $status = VendeaiLeadFilters::attemptStatus($attempt->newcorban_proposta_id, $attempt->newcorban_sent_at);
+                $isInFilteredPeriod = VendeaiLeadFilters::attemptIsInFilteredPeriod($attempt->received_at, $from, $to);
+                $matchesNewcorbanScope = VendeaiLeadFilters::attemptMatchesNewcorbanScope(
+                    $attempt->received_at,
+                    $attempt->newcorban_proposta_id,
+                    $attempt->newcorban_sent_at,
+                    $validated['newcorban_status'] ?? null,
+                    $from,
+                    $to,
+                );
 
                 return [
                     'id' => (int) $attempt->id,
@@ -174,9 +130,9 @@ class VendeaiLeadListController extends Controller
                     'newcorban_cliente_id' => $attempt->newcorban_cliente_id,
                     'newcorban_error' => $attempt->newcorban_error,
                     'original_number' => $attemptNumberMap[(int) $attempt->vendeai_lead_id][(int) $attempt->id] ?? null,
-                    'status' => $attempt->newcorban_proposta_id !== null
-                        ? 'success'
-                        : ($attempt->newcorban_sent_at === null ? 'pending' : 'failed'),
+                    'status' => $status,
+                    'is_in_filtered_period' => $isInFilteredPeriod,
+                    'matches_newcorban_scope' => $matchesNewcorbanScope,
                     'proposal' => [
                         ...$proposal,
                         'proposal_created_at' => $attempt->received_at?->toIso8601String(),
@@ -186,13 +142,18 @@ class VendeaiLeadListController extends Controller
             })->values()->all())
             ->all();
 
-        $paginator->getCollection()->transform(function (object $lead) use ($attemptsByLead, $matchingAttemptCounts, $outOfPeriodAttemptSummary): object {
-            $visibleAttempts = $attemptsByLead[(int) $lead->id] ?? [];
-            $lead->newcorban_attempts = $visibleAttempts;
-            $summary = $outOfPeriodAttemptSummary[(int) $lead->id] ?? ['total' => max(0, ($matchingAttemptCounts[(int) $lead->id] ?? 0) - count($visibleAttempts)), 'single_received_at' => null];
-            $lead->newcorban_attempts_out_of_period_count = (int) ($summary['total'] ?? 0);
-            $lead->newcorban_attempts_out_of_period_received_at = $lead->newcorban_attempts_out_of_period_count === 1 && ! empty($summary['single_received_at'])
-                ? (string) $summary['single_received_at']
+        $paginator->getCollection()->transform(function (object $lead) use ($attemptsByLead): object {
+            $allAttempts = $attemptsByLead[(int) $lead->id] ?? [];
+            $lead->newcorban_attempts = $allAttempts;
+
+            $outsideScopeAttempts = array_values(array_filter(
+                $allAttempts,
+                fn (array $attempt): bool => ! ($attempt['matches_newcorban_scope'] ?? false)
+            ));
+
+            $lead->newcorban_attempts_out_of_period_count = count($outsideScopeAttempts);
+            $lead->newcorban_attempts_out_of_period_received_at = count($outsideScopeAttempts) === 1
+                ? ($outsideScopeAttempts[0]['received_at'] ?? null)
                 : null;
 
             return $lead;
