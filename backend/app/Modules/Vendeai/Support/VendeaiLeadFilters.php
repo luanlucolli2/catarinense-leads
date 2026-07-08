@@ -157,6 +157,59 @@ final class VendeaiLeadFilters
         });
     }
 
+    public static function applyConversationScopedNewcorbanStatusFilter(
+        EloquentBuilder|QueryBuilder|JoinClause $query,
+        mixed $statuses,
+        string $leadAlias = 'vendeai_leads',
+        string $attemptTable = 'vendeai_newcorban_proposal_attempts',
+        mixed $from = null,
+        mixed $to = null,
+    ): void {
+        $statuses = self::newcorbanStatusValues($statuses);
+
+        if ($statuses === []) {
+            return;
+        }
+
+        $attemptStatuses = array_values(array_intersect($statuses, ['success', 'failed', 'sent']));
+        $includeNotSent = in_array('not_sent', $statuses, true);
+
+        $query->where(function ($outer) use ($attemptStatuses, $attemptTable, $leadAlias, $includeNotSent, $from, $to) {
+            if ($attemptStatuses !== []) {
+                $outer->whereExists(function ($exists) use ($attemptStatuses, $attemptTable, $leadAlias, $from, $to) {
+                    $exists
+                        ->selectRaw('1')
+                        ->from($attemptTable)
+                        ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id");
+
+                    self::applyAttemptStatusFilter($exists, $attemptStatuses, $attemptTable);
+
+                    if ($from !== null) {
+                        $exists->where("{$attemptTable}.received_at", '>=', $from);
+                    }
+
+                    if ($to !== null) {
+                        $exists->where("{$attemptTable}.received_at", '<=', $to);
+                    }
+                });
+            }
+
+            if ($includeNotSent) {
+                $method = $attemptStatuses === [] ? 'where' : 'orWhere';
+
+                $outer->{$method}(function ($notSent) use ($attemptTable, $leadAlias) {
+                    $notSent->whereNotExists(function ($exists) use ($attemptTable, $leadAlias) {
+                        $exists
+                            ->selectRaw('1')
+                            ->from($attemptTable)
+                            ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
+                            ->whereNotNull("{$attemptTable}.newcorban_sent_at");
+                    });
+                });
+            }
+        });
+    }
+
     public static function applyAttemptStatusFilter(
         EloquentBuilder|QueryBuilder|JoinClause $query,
         mixed $statuses,
