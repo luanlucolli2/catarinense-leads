@@ -57,7 +57,14 @@ class VendeaiLeadListController extends Controller
             'to' => $to,
         ]);
 
-        VendeaiLeadFilters::applyConversationAttemptStatusFilter($query, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+        VendeaiLeadFilters::applyConversationScopedNewcorbanStatusFilter(
+            $query,
+            $validated['newcorban_status'] ?? null,
+            'vendeai_leads',
+            'vendeai_newcorban_proposal_attempts',
+            $from,
+            $to,
+        );
 
         $query->orderBy("vendeai_leads.{$sort}", $direction)->orderBy('vendeai_leads.id', $direction);
 

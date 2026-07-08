@@ -182,7 +182,14 @@ final class VendeaiCsvExport
             'from' => $from,
             'to' => $to,
         ]);
-        VendeaiLeadFilters::applyConversationAttemptStatusFilter($query, $filters['newcorban_status'] ?? null, 'vendeai_leads');
+        VendeaiLeadFilters::applyConversationScopedNewcorbanStatusFilter(
+            $query,
+            $filters['newcorban_status'] ?? null,
+            'vendeai_leads',
+            'vendeai_newcorban_proposal_attempts',
+            $from,
+            $to,
+        );
 
         return $query
             ->orderBy($leadPeriodColumn, $direction)

@@ -47,7 +47,14 @@ class VendeaiMetricsController extends Controller
             'from' => $from,
             'to' => $to,
         ]);
-        VendeaiLeadFilters::applyConversationAttemptStatusFilter($leads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+        VendeaiLeadFilters::applyConversationScopedNewcorbanStatusFilter(
+            $leads,
+            $validated['newcorban_status'] ?? null,
+            'vendeai_leads',
+            'vendeai_newcorban_proposal_attempts',
+            $from,
+            $to,
+        );
 
         VendeaiLeadFilters::applyFilters($startedLeads, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
@@ -56,7 +63,14 @@ class VendeaiMetricsController extends Controller
             'from' => $from,
             'to' => $to,
         ]);
-        VendeaiLeadFilters::applyConversationAttemptStatusFilter($startedLeads, $validated['newcorban_status'] ?? null, 'vendeai_leads');
+        VendeaiLeadFilters::applyConversationScopedNewcorbanStatusFilter(
+            $startedLeads,
+            $validated['newcorban_status'] ?? null,
+            'vendeai_leads',
+            'vendeai_newcorban_proposal_attempts',
+            $from,
+            $to,
+        );
 
         VendeaiLeadFilters::applyFilters($attempts, $validated, [
             'lead_alias' => 'leads',
