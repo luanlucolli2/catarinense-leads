@@ -615,6 +615,18 @@ function AttemptStatusPill({ status }: { status: VendeaiLeadAttempt["status"] })
   return <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span>;
 }
 
+function AttemptScopePill({ attempt }: { attempt: VendeaiLeadAttempt }) {
+  if (attempt.matches_newcorban_scope) {
+    return <span className="inline-flex rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">Dentro do período filtrado</span>;
+  }
+
+  if (attempt.is_in_filtered_period) {
+    return <span className="inline-flex rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Não bate com o filtro</span>;
+  }
+
+  return <span className="inline-flex rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Criada fora do período</span>;
+}
+
 function sortAttemptsOldestFirst(attempts: VendeaiLeadAttempt[]): VendeaiLeadAttempt[] {
   return [...attempts].sort((left, right) => {
     const leftTime = Date.parse(left.proposal.proposal_created_at || left.received_at || left.newcorban_sent_at || "");
@@ -633,13 +645,18 @@ function sortAttemptsOldestFirst(attempts: VendeaiLeadAttempt[]): VendeaiLeadAtt
 }
 
 function AttemptProposalCard({ attempt, number }: { attempt: VendeaiLeadAttempt; number: number }) {
+  const cardTone = attempt.matches_newcorban_scope
+    ? "border-slate-200 bg-slate-50/40"
+    : "border-slate-200/80 bg-slate-50/20 opacity-90";
+
   return (
-    <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-3">
+    <div className={`w-full min-w-[280px] max-w-[420px] rounded-lg border px-3 py-3 ${cardTone}`}>
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="space-y-1">
           <AttemptLabel number={number} />
           <div className="text-sm font-semibold text-slate-900">{attempt.proposal.proposal_id || "-"}</div>
         </div>
+        <AttemptScopePill attempt={attempt} />
       </div>
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
         <div className="min-w-0 space-y-1 rounded-md border border-slate-200 bg-white/80 px-3 py-2.5">
@@ -759,17 +776,6 @@ function ProposalSummaryDetails({
           <div className="text-sm text-slate-300">Nenhum envio registrado</div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function OutOfPeriodAttemptsNotice({ count, receivedAt }: { count: number; receivedAt: string | null }) {
-  if (count <= 0) return null;
-
-  return (
-    <div className="w-full min-w-[280px] max-w-[420px] rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-      {count} proposta{count > 1 ? "s" : ""} fora do período filtrado
-      {count === 1 && receivedAt ? `, criada em ${formatDateTime(receivedAt)}` : ""}
     </div>
   );
 }
@@ -938,18 +944,38 @@ export default function IntegracoesVendeaiPage() {
     return { from: toUtcIso(fromInput), to: toUtcIso(toInput) };
   }, [periodPresetInput, windowModeInput, fromInput, toInput, fromIso, toIso]);
 
+  const filterOptionsFilters = useMemo(
+    () => ({
+      from: filterOptionsRange.from,
+      to: filterOptionsRange.to,
+      leadPeriodBasis: leadPeriodBasisInput,
+      product: productInput,
+      search: searchInput.trim(),
+      bank: bankInput,
+      stage: stageInput,
+      proposalStatus: proposalStatusInput,
+      newcorbanStatus: newcorbanStatusInput,
+      inboxPhoneNumber: inboxPhoneNumberInput,
+      tags: tagsInput,
+    }),
+    [
+      filterOptionsRange.from,
+      filterOptionsRange.to,
+      leadPeriodBasisInput,
+      productInput,
+      searchInput,
+      bankInput,
+      stageInput,
+      proposalStatusInput,
+      newcorbanStatusInput,
+      inboxPhoneNumberInput,
+      tagsInput,
+    ]
+  );
+
   const filterOptionsQuery = useQuery({
-    queryKey: ["vendeai:filter-options", filterOptionsRange.from, filterOptionsRange.to, leadPeriodBasisInput, productInput],
-    queryFn: ({ signal }) =>
-      getVendeaiFilterOptions(
-        {
-          from: filterOptionsRange.from,
-          to: filterOptionsRange.to,
-          leadPeriodBasis: leadPeriodBasisInput,
-          product: productInput,
-        },
-        signal
-      ),
+    queryKey: ["vendeai:filter-options", filterOptionsFilters],
+    queryFn: ({ signal }) => getVendeaiFilterOptions(filterOptionsFilters, signal),
     enabled: isFiltersModalOpen,
     staleTime: 30_000,
     gcTime: 120_000,
@@ -1217,7 +1243,7 @@ export default function IntegracoesVendeaiPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="mb-1 text-xl font-bold text-gray-900 lg:text-2xl">Integração VendeAI</h1>
-          <p className="text-sm text-gray-600 lg:text-base">Métricas de conversas, propostas e integrações com a NewCorban.</p>
+          <p className="text-sm text-gray-600 lg:text-base">Métricas de conversas, propostas no período filtrado e integrações com a NewCorban.</p>
         </div>
       </div>
 
@@ -1352,7 +1378,7 @@ export default function IntegracoesVendeaiPage() {
 
               <Card className="flex flex-col justify-between p-5 shadow-sm">
                 <div>
-                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Criação de Propostas (NewCorban)</h3>
+                  <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Criação de Propostas no Período (NewCorban)</h3>
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="flex flex-col">
                       <span className="text-2xl font-bold leading-none text-gray-700">{formatNumber(metrics.attempts.total)}</span>
@@ -1472,16 +1498,7 @@ export default function IntegracoesVendeaiPage() {
                                 {numberedAttempts.map(({ attempt, originalNumber }) => (
                                   <AttemptProposalCard key={attempt.id} attempt={attempt} number={originalNumber} />
                                 ))}
-                                <OutOfPeriodAttemptsNotice
-                                  count={lead.newcorban_attempts_out_of_period_count ?? 0}
-                                  receivedAt={lead.newcorban_attempts_out_of_period_received_at ?? null}
-                                />
                               </div>
-                            ) : (lead.newcorban_attempts_out_of_period_count ?? 0) > 0 ? (
-                              <OutOfPeriodAttemptsNotice
-                                count={lead.newcorban_attempts_out_of_period_count ?? 0}
-                                receivedAt={lead.newcorban_attempts_out_of_period_received_at ?? null}
-                              />
                             ) : (
                               <ProposalSummaryDetails
                                 data={{

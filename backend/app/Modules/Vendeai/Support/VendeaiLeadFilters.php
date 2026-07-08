@@ -29,7 +29,6 @@ final class VendeaiLeadFilters
             'proposal_status.*' => ['string', 'max:120'],
             'newcorban_status' => ['nullable'],
             'newcorban_status.*' => [Rule::in(['not_sent', 'success', 'failed', 'sent'])],
-            'newcorban_filter' => ['nullable', Rule::in(['all', 'sent', 'created'])],
             'inbox_phone_number' => ['nullable'],
             'inbox_phone_number.*' => ['string', 'max:30'],
             'tags' => ['nullable', 'array'],
@@ -57,10 +56,6 @@ final class VendeaiLeadFilters
 
     public static function applyFilters(EloquentBuilder|QueryBuilder $query, array $filters, array $config = []): void
     {
-        if (! isset($filters['newcorban_status']) && in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true)) {
-            $filters['newcorban_status'] = 'sent';
-        }
-
         $leadAlias = $config['lead_alias'] ?? 'vendeai_leads';
         $attemptAlias = $config['attempt_alias'] ?? 'attempts';
         $dateColumn = $config['date_column'] ?? null;
@@ -95,66 +90,6 @@ final class VendeaiLeadFilters
             self::stringList($value),
             ['not_sent', 'success', 'failed', 'sent']
         ));
-    }
-
-    public static function applyConversationAttemptStatusFilter(
-        EloquentBuilder|QueryBuilder|JoinClause $query,
-        mixed $statuses,
-        string $leadAlias = 'vendeai_leads',
-        string $attemptTable = 'vendeai_newcorban_proposal_attempts',
-    ): void {
-        $statuses = self::newcorbanStatusValues($statuses);
-
-        if ($statuses === []) {
-            return;
-        }
-
-        $query->where(function ($outer) use ($attemptTable, $leadAlias, $statuses) {
-            foreach (array_values($statuses) as $index => $status) {
-                $method = $index === 0 ? 'where' : 'orWhere';
-
-                match ($status) {
-                    'not_sent' => $outer->{$method}(function ($notSent) use ($attemptTable, $leadAlias) {
-                        $notSent->whereNotExists(function ($exists) use ($attemptTable, $leadAlias) {
-                            $exists
-                                ->selectRaw('1')
-                                ->from($attemptTable)
-                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
-                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
-                        });
-                    }),
-                    'success' => $outer->{$method}(function ($success) use ($attemptTable, $leadAlias) {
-                        $success->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
-                            $exists
-                                ->selectRaw('1')
-                                ->from($attemptTable)
-                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
-                                ->whereNotNull("{$attemptTable}.newcorban_proposta_id");
-                        });
-                    }),
-                    'failed' => $outer->{$method}(function ($failed) use ($attemptTable, $leadAlias) {
-                        $failed->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
-                            $exists
-                                ->selectRaw('1')
-                                ->from($attemptTable)
-                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
-                                ->whereNull("{$attemptTable}.newcorban_proposta_id")
-                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
-                        });
-                    }),
-                    'sent' => $outer->{$method}(function ($sent) use ($attemptTable, $leadAlias) {
-                        $sent->whereExists(function ($exists) use ($attemptTable, $leadAlias) {
-                            $exists
-                                ->selectRaw('1')
-                                ->from($attemptTable)
-                                ->whereColumn("{$attemptTable}.vendeai_lead_id", "{$leadAlias}.id")
-                                ->whereNotNull("{$attemptTable}.newcorban_sent_at");
-                        });
-                    }),
-                    default => null,
-                };
-            }
-        });
     }
 
     public static function applyConversationScopedNewcorbanStatusFilter(
@@ -216,6 +151,88 @@ final class VendeaiLeadFilters
         string $attemptAlias = 'attempts',
     ): void {
         self::applyNewcorbanStatusFilter($query, self::newcorbanStatusValues($statuses), $attemptAlias);
+    }
+
+    public static function attemptStatus(?string $newcorbanPropostaId, mixed $newcorbanSentAt): string
+    {
+        if ($newcorbanPropostaId !== null && $newcorbanPropostaId !== '') {
+            return 'success';
+        }
+
+        return $newcorbanSentAt === null || $newcorbanSentAt === ''
+            ? 'pending'
+            : 'failed';
+    }
+
+    public static function attemptIsInFilteredPeriod(mixed $receivedAt, mixed $from = null, mixed $to = null): bool
+    {
+        if ($receivedAt === null || $receivedAt === '') {
+            return $from === null && $to === null;
+        }
+
+        $received = strtotime((string) $receivedAt);
+        if ($received === false) {
+            return false;
+        }
+
+        if ($from !== null) {
+            $fromTime = strtotime((string) $from);
+            if ($fromTime !== false && $received < $fromTime) {
+                return false;
+            }
+        }
+
+        if ($to !== null) {
+            $toTime = strtotime((string) $to);
+            if ($toTime !== false && $received > $toTime) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static function attemptMatchesStatusScope(string $attemptStatus, mixed $statuses): bool
+    {
+        $statuses = self::newcorbanStatusValues($statuses);
+
+        if ($statuses === []) {
+            return true;
+        }
+
+        $attemptStatuses = array_values(array_intersect($statuses, ['success', 'failed', 'sent']));
+
+        if ($attemptStatuses === []) {
+            return false;
+        }
+
+        if ($attemptStatus === 'success') {
+            return in_array('success', $attemptStatuses, true) || in_array('sent', $attemptStatuses, true);
+        }
+
+        if ($attemptStatus === 'failed') {
+            return in_array('failed', $attemptStatuses, true) || in_array('sent', $attemptStatuses, true);
+        }
+
+        return false;
+    }
+
+    public static function attemptMatchesNewcorbanScope(
+        mixed $receivedAt,
+        ?string $newcorbanPropostaId,
+        mixed $newcorbanSentAt,
+        mixed $statuses,
+        mixed $from = null,
+        mixed $to = null,
+    ): bool {
+        if (! self::attemptIsInFilteredPeriod($receivedAt, $from, $to)) {
+            return false;
+        }
+
+        return self::attemptMatchesStatusScope(
+            self::attemptStatus($newcorbanPropostaId, $newcorbanSentAt),
+            $statuses,
+        );
     }
 
     public static function normalizeBankValue(?string $value): ?string
@@ -320,6 +337,14 @@ final class VendeaiLeadFilters
                 $inner->orWhere("{$attemptAlias}.newcorban_proposta_id", 'like', $like);
             }
 
+            $inner->orWhereExists(function ($attempts) use ($leadAlias, $like) {
+                $attempts
+                    ->selectRaw('1')
+                    ->from('vendeai_newcorban_proposal_attempts as search_attempts')
+                    ->whereColumn('search_attempts.vendeai_lead_id', "{$leadAlias}.id")
+                    ->where('search_attempts.newcorban_proposta_id', 'like', $like);
+            });
+
             if ($digits !== null) {
                 $digitsLike = '%' . $digits . '%';
 
@@ -335,6 +360,14 @@ final class VendeaiLeadFilters
                 if ($attemptAlias !== null) {
                     $inner->orWhere("{$attemptAlias}.newcorban_proposta_id", 'like', $digitsLike);
                 }
+
+                $inner->orWhereExists(function ($attempts) use ($leadAlias, $digitsLike) {
+                    $attempts
+                        ->selectRaw('1')
+                        ->from('vendeai_newcorban_proposal_attempts as search_attempts')
+                        ->whereColumn('search_attempts.vendeai_lead_id', "{$leadAlias}.id")
+                        ->where('search_attempts.newcorban_proposta_id', 'like', $digitsLike);
+                });
             }
         });
     }

@@ -15,10 +15,25 @@ class VendeaiFilterOptionsController extends Controller
     {
         $validated = $request->validate(VendeaiLeadFilters::rules(includeDirection: false));
         [$from, $to] = VendeaiDateRange::fromValidated($validated);
-        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($validated);
 
+        return response()->json([
+            'banks' => $this->banks($this->baseQuery($validated, $from, $to, ['bank'])),
+            'stages' => $this->simpleDistinct($this->baseQuery($validated, $from, $to, ['stage']), 'vendeai_leads.stage'),
+            'proposal_statuses' => $this->proposalStatuses($this->baseQuery($validated, $from, $to, ['proposal_status'])),
+            'inbox_phone_numbers' => $this->simpleDistinct($this->baseQuery($validated, $from, $to, ['inbox_phone_number']), 'vendeai_leads.inbox_phone_number'),
+            'tags' => $this->tags($this->baseQuery($validated, $from, $to, ['tags'])),
+        ]);
+    }
+
+    private function baseQuery(array $filters, mixed $from, mixed $to, array $excludedKeys = [])
+    {
         $baseQuery = DB::table('vendeai_leads');
-        VendeaiLeadFilters::applyFilters($baseQuery, $validated, [
+        $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($filters);
+        $appliedFilters = $this->filtersWithout($filters, $excludedKeys);
+        $leadFilters = $appliedFilters;
+        unset($leadFilters['newcorban_status']);
+
+        VendeaiLeadFilters::applyFilters($baseQuery, $leadFilters, [
             'lead_alias' => 'vendeai_leads',
             'attempt_alias' => null,
             'date_column' => $leadPeriodColumn,
@@ -27,20 +42,23 @@ class VendeaiFilterOptionsController extends Controller
         ]);
         VendeaiLeadFilters::applyConversationScopedNewcorbanStatusFilter(
             $baseQuery,
-            $validated['newcorban_status'] ?? null,
+            $appliedFilters['newcorban_status'] ?? null,
             'vendeai_leads',
             'vendeai_newcorban_proposal_attempts',
             $from,
             $to,
         );
 
-        return response()->json([
-            'banks' => $this->banks($baseQuery),
-            'stages' => $this->simpleDistinct($baseQuery, 'vendeai_leads.stage'),
-            'proposal_statuses' => $this->proposalStatuses($baseQuery),
-            'inbox_phone_numbers' => $this->simpleDistinct($baseQuery, 'vendeai_leads.inbox_phone_number'),
-            'tags' => $this->tags($baseQuery),
-        ]);
+        return $baseQuery;
+    }
+
+    private function filtersWithout(array $filters, array $excludedKeys): array
+    {
+        foreach ($excludedKeys as $key) {
+            unset($filters[$key]);
+        }
+
+        return $filters;
     }
 
     private function banks($baseQuery): array

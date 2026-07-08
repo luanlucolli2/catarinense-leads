@@ -52,6 +52,9 @@ final class VendeaiCsvExport
             'ID tabela proposta',
             'Data criacao proposta',
             'Data atualizacao status proposta',
+            'Data da tentativa NewCorban',
+            'Tentativa dentro do período filtrado',
+            'Tentativa compatível com filtro NewCorban',
             'Proposta NewCorban',
             'Erro NewCorban',
             'Enviado NewCorban em',
@@ -75,7 +78,7 @@ final class VendeaiCsvExport
         foreach ($query->cursor() as $row) {
             fputcsv(
                 $fh,
-                self::mapLead($row),
+                self::mapLead($row, $filters),
                 $delimiter,
                 $enclosure,
                 '\\'
@@ -99,10 +102,6 @@ final class VendeaiCsvExport
         $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
         $leadPeriodColumn = VendeaiLeadFilters::leadPeriodColumn($filters);
         $leadFilters = $filters;
-
-        if (in_array(($filters['newcorban_filter'] ?? 'all'), ['sent', 'created'], true) && ! isset($filters['newcorban_status'])) {
-            $filters['newcorban_status'] = 'sent';
-        }
         unset($leadFilters['newcorban_status']);
 
         $latestAttempts = VendeaiLeadFilters::latestAttemptsSubquery();
@@ -112,17 +111,8 @@ final class VendeaiCsvExport
                 $join->on('latest_attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
             })
             ->leftJoin('vendeai_newcorban_proposal_attempts as filter_attempts', 'filter_attempts.id', '=', 'latest_attempts.id')
-            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', function ($join) use ($filters, $from, $to) {
+            ->leftJoin('vendeai_newcorban_proposal_attempts as attempts', function ($join) {
                 $join->on('attempts.vendeai_lead_id', '=', 'vendeai_leads.id');
-                VendeaiLeadFilters::applyAttemptStatusFilter($join, $filters['newcorban_status'] ?? null, 'attempts');
-
-                if ($from !== null) {
-                    $join->where('attempts.received_at', '>=', $from);
-                }
-
-                if ($to !== null) {
-                    $join->where('attempts.received_at', '<=', $to);
-                }
             })
             ->select([
                 'vendeai_leads.id',
@@ -198,7 +188,7 @@ final class VendeaiCsvExport
             ->orderBy('attempts.id', $direction);
     }
 
-    private static function mapLead(object $lead): array
+    private static function mapLead(object $lead, array $filters): array
     {
         $attemptProposal = \App\Modules\Vendeai\Support\VendeaiAttemptPayload::proposal($lead->raw_payload ?? null);
         $proposalProduct = $attemptProposal['proposal_product'] ?? $lead->proposal_product ?? null;
@@ -213,6 +203,16 @@ final class VendeaiCsvExport
         $proposalTableName = $attemptProposal['proposal_table_name'] ?? $lead->proposal_table_name ?? null;
         $proposalTableId = $attemptProposal['proposal_table_id'] ?? $lead->proposal_table_id ?? null;
         $proposalCreatedAt = $lead->attempt_received_at ?? $lead->proposal_created_at ?? null;
+        [$from, $to] = VendeaiDateRange::fromValidated($filters);
+        $isInFilteredPeriod = VendeaiLeadFilters::attemptIsInFilteredPeriod($lead->attempt_received_at ?? null, $from, $to);
+        $matchesNewcorbanScope = VendeaiLeadFilters::attemptMatchesNewcorbanScope(
+            $lead->attempt_received_at ?? null,
+            $lead->newcorban_proposta_id ?? null,
+            $lead->newcorban_sent_at ?? null,
+            $filters['newcorban_status'] ?? null,
+            $from,
+            $to,
+        );
 
         return [
             self::sanitizeCsvValue(self::csvCpf($lead->customer_cpf ?? null)),
@@ -247,6 +247,9 @@ final class VendeaiCsvExport
             self::sanitizeCsvValue($proposalTableId),
             self::sanitizeCsvValue(self::formatDateTime($proposalCreatedAt)),
             self::sanitizeCsvValue(self::formatDateTime($lead->proposal_status_updated_at ?? null)),
+            self::sanitizeCsvValue(self::formatDateTime($lead->attempt_received_at ?? null)),
+            self::sanitizeCsvValue($lead->attempt_received_at ? ($isInFilteredPeriod ? 'Sim' : 'Não') : null),
+            self::sanitizeCsvValue($lead->attempt_received_at ? ($matchesNewcorbanScope ? 'Sim' : 'Não') : null),
             self::sanitizeCsvValue($lead->newcorban_proposta_id ?? null),
             self::sanitizeCsvValue($lead->newcorban_error ?? null),
             self::sanitizeCsvValue(self::formatDateTime($lead->newcorban_sent_at ?? null)),
