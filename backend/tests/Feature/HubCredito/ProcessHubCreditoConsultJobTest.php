@@ -3,13 +3,17 @@
 namespace Tests\Feature\HubCredito;
 
 use App\Models\User;
+use App\Modules\HubCredito\Jobs\FinalizeHubCreditoConsultReportJob;
 use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
+use App\Modules\HubCredito\Services\HubCreditoApiService;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ProcessHubCreditoConsultJobTest extends TestCase
@@ -26,15 +30,16 @@ class ProcessHubCreditoConsultJobTest extends TestCase
             'hubcredito.auth.username' => 'user@test',
             'hubcredito.auth.password' => 'secret',
             'hubcredito.storage.reports_disk' => 'hubcredito-test',
+            'hubcredito.job.phase1_request_interval_ms' => 0,
+            'hubcredito.job.phase2_timeout_seconds' => 60,
+            'hubcredito.job.phase2_start_delay_seconds' => 0,
             'hubcredito.job.poll_delay_seconds' => 0,
             'hubcredito.http.min_interval_ms' => 0,
             'hubcredito.http.retry' => 0,
         ]);
     }
 
-    /**
-     * @dataProvider readyStatusProvider
-     */
+    #[DataProvider('readyStatusProvider')]
     public function test_it_processes_ready_presimulacao_and_chooses_offer_with_highest_release(int $statusId): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
@@ -108,17 +113,14 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertNotNull($job->file_path);
         $this->assertTrue(Storage::disk('hubcredito-test')->exists($job->file_path));
         $content = Storage::disk('hubcredito-test')->get($job->file_path);
-        $this->assertStringContainsString('aprovado', $content);
-        $this->assertStringContainsString('SIM-HIGH', $content);
+        $this->assertStringContainsString('Aprovado', $content);
         $this->assertStringContainsString('4200', $content);
 
         Carbon::setTestNow();
     }
 
-    /**
-     * @dataProvider vinculoStatusProvider
-     */
-    public function test_it_marks_vinculo_statuses_as_pendencia(int $statusId): void
+    #[DataProvider('vinculoStatusProvider')]
+    public function test_it_marks_vinculo_statuses_as_nao_aprovado(int $statusId): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
 
@@ -153,16 +155,14 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $job->refresh();
 
         $this->assertSame('concluido', $job->status);
-        $this->assertSame(1, $job->pendencia_count);
+        $this->assertSame(1, $job->nao_aprovado_count);
         $content = Storage::disk('hubcredito-test')->get($job->file_path);
-        $this->assertStringContainsString('pendencia', $content);
+        $this->assertStringContainsString('Não Aprovado', $content);
 
         Carbon::setTestNow();
     }
 
-    /**
-     * @dataProvider naoAprovadoStatusProvider
-     */
+    #[DataProvider('naoAprovadoStatusProvider')]
     public function test_it_marks_terminal_presimulacao_statuses_as_nao_aprovado(int $statusId): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
@@ -200,13 +200,13 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertSame('concluido', $job->status);
         $this->assertSame(1, $job->nao_aprovado_count);
         $content = Storage::disk('hubcredito-test')->get($job->file_path);
-        $this->assertStringContainsString('nao_aprovado', $content);
+        $this->assertStringContainsString('Não Aprovado', $content);
         $this->assertStringContainsString('Erro de negócio', $content);
 
         Carbon::setTestNow();
     }
 
-    public function test_it_times_out_pending_statuses_as_pendencia(): void
+    public function test_it_times_out_pending_statuses_as_nao_aprovado(): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
 
@@ -241,8 +241,9 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $job->refresh();
 
         $this->assertSame('concluido', $job->status);
-        $this->assertSame(1, $job->pendencia_count);
+        $this->assertSame(1, $job->nao_aprovado_count);
         $content = Storage::disk('hubcredito-test')->get($job->file_path);
+        $this->assertStringContainsString('Não Aprovado', $content);
         $this->assertStringContainsString('Timeout aguardando processamento da pré-simulação.', $content);
 
         Carbon::setTestNow();
@@ -291,8 +292,78 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertSame('concluido', $job->status);
         $this->assertSame(1, $job->nao_aprovado_count);
         $content = Storage::disk('hubcredito-test')->get($job->file_path);
-        $this->assertStringContainsString('nao_aprovado', $content);
+        $this->assertStringContainsString('Não Aprovado', $content);
         $this->assertStringContainsString('Não foram encontraradas simulações CPF, tente novamente.', $content);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_it_dispatches_report_finalization_asynchronously(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+        Queue::fake();
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => Http::response([
+                'value' => ['id' => 101, 'idStatus' => 0],
+            ], 200),
+            'https://api.hubcredito.test/api/PreSimulacao*' => Http::response([
+                'itens' => [[
+                    'id' => 101,
+                    'cpf' => '12345678909',
+                    'lojaId' => 15895,
+                    'numeroParcelas' => 12,
+                    'valor' => 5000,
+                    'idStatus' => 2,
+                    'status' => '2',
+                    'statusDescricao' => 'Sem opção',
+                    'mensagemErro' => 'Erro de negócio',
+                ]],
+                'numeroPagina' => 1,
+                'tamanhoPagina' => 100,
+                'totalPaginas' => 1,
+                'temProximaPagina' => false,
+            ], 200),
+        ]);
+
+        $job = $this->makePendingJob(['12345678909 Fulano da Silva 01/02/1990']);
+
+        (new ProcessHubCreditoConsultJob($job->id))->handle(app(HubCreditoApiService::class));
+
+        Queue::assertPushed(FinalizeHubCreditoConsultReportJob::class);
+        Carbon::setTestNow();
+    }
+
+    public function test_it_processes_large_batches_without_loading_all_entries_in_memory(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => static fn () => Http::response([
+                'hasSuccess' => false,
+                'hasError' => true,
+                'errors' => ['Cliente sem margem disponível para o produto.'],
+                'httpStatusCode' => 'BadRequest',
+            ], 400),
+        ]);
+
+        $lines = [];
+        for ($i = 0; $i < 150; $i++) {
+            $lines[] = sprintf('%011d Fulano da Silva 01/02/1990', $i + 10000000000);
+        }
+
+        $job = $this->makePendingJob($lines);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+
+        $this->assertSame('concluido', $job->status);
+        $this->assertSame(150, $job->total_cpfs);
+        $this->assertSame(150, $job->nao_aprovado_count);
+        $this->assertTrue(Storage::disk('hubcredito-test')->exists((string) $job->file_path));
 
         Carbon::setTestNow();
     }

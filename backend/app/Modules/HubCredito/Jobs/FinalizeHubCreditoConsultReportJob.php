@@ -46,6 +46,7 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
 
         $spoolPath = $job->spool_path ?? null;
         if (!$spoolPath || !$disk->exists($spoolPath)) {
+            Log::warning("[HUBCREDITO] Finalização sem spool (job {$job->id}).");
             $this->finishWithoutFinal($job, $this->targetStatus);
             return;
         }
@@ -123,7 +124,10 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
                 'file_path' => $path,
                 'file_name' => $fileName,
             ]);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error("[HUBCREDITO] Finalização falhou (job {$job->id}): {$e->getMessage()}", [
+                'exception' => $e,
+            ]);
             $this->finishWithoutFinal($job, 'falhou');
             return;
         }

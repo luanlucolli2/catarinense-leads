@@ -60,5 +60,7 @@ return [
     'logging' => [
         'enabled' => (bool) env('HUBCREDITO_LOG_ENABLED', false),
         'api_responses' => (bool) env('HUBCREDITO_LOG_API_RESPONSES', false),
+        'api_response_body' => (bool) env('HUBCREDITO_LOG_API_RESPONSE_BODY', false),
+        'api_response_body_max_chars' => (int) env('HUBCREDITO_LOG_API_RESPONSE_BODY_MAX_CHARS', 4000),
     ],
 ];

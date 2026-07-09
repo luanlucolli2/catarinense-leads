@@ -23,6 +23,10 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    private const PENDING_SHARD_COUNT = 64;
+    private const ROW_BUFFER_SIZE = 100;
+    private const CANCEL_CHECK_INTERVAL = 25;
+
     public int $uniqueFor = 21600;
     public int $timeout;
     public int $tries = 1;
@@ -36,6 +40,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase1RequestIntervalMs;
     private int $pollDelaySeconds;
     private int $pageSize;
+    private array $genderCache = [];
 
     public function __construct(int $jobId)
     {
@@ -108,11 +113,11 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
         try {
             $api->setRateLimitMs($this->phase1RequestIntervalMs);
-            [$totalCount, $pendingPath] = $this->runPhaseOne($api, $job);
+            [$totalCount, $pendingCount] = $this->runPhaseOne($api, $job);
             $api->setRateLimitMs(null);
             $this->logWarning('Fase 1 concluida.', [
                 'total_cpfs' => $totalCount,
-                'has_pending_phase2' => $pendingPath !== null,
+                'pending_count' => $pendingCount,
             ]);
 
             if ($this->isCancelled()) {
@@ -125,7 +130,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            if ($pendingPath !== null) {
+            if ($pendingCount > 0) {
                 DB::table('hubcredito_consult_jobs')
                     ->where('id', $job->id)
                     ->update([
@@ -142,48 +147,41 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $this->logWarning('Fase 2 iniciada.');
 
-                $phase2Status = $this->runPhaseTwo($api, $job, $pendingPath);
+                $phase2Status = $this->runPhaseTwo($api, $job, $pendingCount);
                 $this->finalizeJob($phase2Status);
                 return;
             }
 
             $this->finalizeJob('concluido');
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error("[HUBCREDITO] Processamento falhou (job {$this->jobId}): {$e->getMessage()}", [
+                'exception' => $e,
+            ]);
+            $api->setRateLimitMs(null);
             $this->finalizeJob('falhou');
         }
     }
 
     private function runPhaseOne(HubCreditoApiService $api, HubCreditoConsultJob $job): array
     {
-        $disk = Storage::disk($this->disk);
-        $uniqPath = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.inputs.uniq.csv";
-        $pendingPath = "{$this->dirSpool}/{$this->finalPrefix}_{$this->jobId}.phase2.pending.csv";
-
-        $uniqHandle = @fopen($disk->path($uniqPath), 'wb');
-        $pendingHandle = @fopen($disk->path($pendingPath), 'wb');
-        if (!is_resource($uniqHandle) || !is_resource($pendingHandle)) {
-            if (is_resource($uniqHandle)) {
-                fclose($uniqHandle);
-            }
-            if (is_resource($pendingHandle)) {
-                fclose($pendingHandle);
-            }
-            throw new \RuntimeException('Falha ao criar arquivos auxiliares da fase 1.');
-        }
-
         $seenCpfs = [];
-        $uniqueEntries = [];
-        $invalidCount = 0;
+        $rowBuffer = [];
+        $pendingHandles = [];
+        $totalCount = 0;
+        $pendingCount = 0;
+        $cancelChecks = 0;
+        $disk = Storage::disk($this->disk);
 
         try {
             foreach ($this->tokenizeInputFile($disk->path($job->spool_inputs_path)) as $line) {
                 $parsed = $this->parseRawLine($line);
                 if ($parsed['error']) {
-                    $invalidCount++;
+                    $totalCount++;
                     $row = $this->baseRow((string) ($parsed['cpf'] ?? ''), $parsed['nome'] ?? null, $parsed['nasc'] ?? null);
                     $row['situacao'] = $this->notApprovedStatus();
                     $row['mensagem'] = (string) $parsed['error'];
-                    $this->appendTerminalRows($job, [$row]);
+                    $rowBuffer[] = $row;
+                    $this->flushRowBuffer($job, $rowBuffer);
                     continue;
                 }
 
@@ -193,42 +191,19 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 $seenCpfs[$cpf] = true;
+                $totalCount++;
                 $entry = [
                     'cpf' => $cpf,
                     'nome' => $parsed['nome'],
                     'nasc' => $parsed['nasc'],
                 ];
-                $uniqueEntries[] = $entry;
-                fputcsv($uniqHandle, [$entry['cpf'], $entry['nome'], $entry['nasc']], ';');
-            }
-        } finally {
-            fclose($uniqHandle);
-        }
 
-        $totalCount = count($uniqueEntries) + $invalidCount;
-        DB::table('hubcredito_consult_jobs')
-            ->where('id', $job->id)
-            ->update([
-                'total_cpfs' => $totalCount,
-                'spool_bytes' => $this->fileSizeSafe($disk, $job->spool_path),
-                'updated_at' => Carbon::now(),
-            ]);
-
-        if ($uniqueEntries === []) {
-            fclose($pendingHandle);
-            if ($disk->exists($pendingPath)) {
-                $disk->delete($pendingPath);
-            }
-
-            return [$totalCount, null];
-        }
-
-        $pendingCount = 0;
-
-        try {
-            foreach ($uniqueEntries as $entry) {
-                if ($this->isCancelled()) {
-                    break;
+                $cancelChecks++;
+                if ($cancelChecks >= self::CANCEL_CHECK_INTERVAL) {
+                    $cancelChecks = 0;
+                    if ($this->isCancelled()) {
+                        break;
+                    }
                 }
 
                 $response = $api->createPreSimulacao($this->buildPreSimulacaoPayload($entry));
@@ -239,32 +214,33 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                     $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
                     $row['situacao'] = $this->notApprovedStatus();
                     $row['mensagem'] = $this->formatApiMessage($response) ?: 'Falha ao criar pré-simulação.';
-                    $this->appendTerminalRows($job, [$row]);
+                    $rowBuffer[] = $row;
+                    $this->flushRowBuffer($job, $rowBuffer);
                     continue;
                 }
 
                 $pendingCount++;
-                fputcsv($pendingHandle, [(int) $preSimId, $entry['cpf'], $entry['nome'], $entry['nasc']], ';');
+                $this->writePendingShardEntry($disk, $pendingHandles, (string) $preSimId, $entry);
             }
         } finally {
-            fclose($pendingHandle);
+            $this->flushRowBuffer($job, $rowBuffer, true);
+            $this->closeHandles($pendingHandles);
         }
 
-        if ($pendingCount === 0) {
-            if ($disk->exists($pendingPath)) {
-                $disk->delete($pendingPath);
-            }
+        DB::table('hubcredito_consult_jobs')
+            ->where('id', $job->id)
+            ->update([
+                'total_cpfs' => $totalCount,
+                'spool_bytes' => $this->fileSizeSafe($disk, $job->spool_path),
+                'updated_at' => Carbon::now(),
+            ]);
 
-            return [$totalCount, null];
-        }
-
-        return [$totalCount, $pendingPath];
+        return [$totalCount, $pendingCount];
     }
 
-    private function runPhaseTwo(HubCreditoApiService $api, HubCreditoConsultJob $job, string $pendingPath): string
+    private function runPhaseTwo(HubCreditoApiService $api, HubCreditoConsultJob $job, int $pendingCount): string
     {
-        $pendingEntries = $this->loadPendingEntries($pendingPath);
-        if ($pendingEntries === []) {
+        if ($pendingCount <= 0) {
             return 'concluido';
         }
 
@@ -273,7 +249,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             : Carbon::parse((string) $job->started_at);
         $deadline = $startedAt->copy()->addSeconds($this->phase2TimeoutSeconds);
 
-        while ($pendingEntries !== []) {
+        while ($pendingCount > 0) {
             if ($this->isCancelled()) {
                 return 'falhou';
             }
@@ -298,26 +274,12 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 $items = $this->extractPreSimulacaoItems((array) ($response['body'] ?? []));
-                $terminalRows = [];
-
-                foreach ($items as $item) {
-                    $preSimId = isset($item['id']) ? (string) $item['id'] : '';
-                    if ($preSimId === '' || !isset($pendingEntries[$preSimId])) {
-                        continue;
+                if ($items !== []) {
+                    [$terminalRows, $processedCount] = $this->processPageAgainstShards($api, $items);
+                    if ($terminalRows !== []) {
+                        $this->appendTerminalRows($job, $terminalRows);
                     }
-
-                    $outcome = $this->processPreSimulacaoItem($api, $item, $pendingEntries[$preSimId]);
-                    if (!$outcome['terminal']) {
-                        continue;
-                    }
-
-                    $terminalRows[] = $outcome['row'];
-                    unset($pendingEntries[$preSimId]);
-                }
-
-                if ($terminalRows !== []) {
-                    $this->appendTerminalRows($job, $terminalRows);
-                    $this->rewritePendingEntries($pendingPath, $pendingEntries);
+                    $pendingCount -= $processedCount;
                 }
 
                 $hasNext = $this->resolveHasNextPage((array) ($response['body'] ?? []), $items, $page);
@@ -325,7 +287,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 $page++;
             } while ($hasNext);
 
-            if ($pendingEntries === []) {
+            if ($pendingCount <= 0) {
                 break;
             }
 
@@ -335,28 +297,18 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
             if ($this->pollDelaySeconds > 0) {
                 $this->logWarning('Aguardando nova varredura da fase 2.', [
-                    'pending_count' => count($pendingEntries),
+                    'pending_count' => $pendingCount,
                     'sleep_seconds' => $this->pollDelaySeconds,
                 ]);
                 sleep($this->pollDelaySeconds);
             }
         }
 
-        if ($pendingEntries !== []) {
+        if ($pendingCount > 0) {
             $this->logWarning('Timeout na fase 2.', [
-                'pending_count' => count($pendingEntries),
+                'pending_count' => $pendingCount,
             ]);
-            $timeoutRows = [];
-            foreach ($pendingEntries as $entry) {
-                $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
-                $row['situacao'] = $this->notApprovedStatus();
-                $row['pre_simulacao_id'] = $entry['pre_simulacao_id'];
-                $row['mensagem'] = 'Timeout aguardando processamento da pré-simulação.';
-                $timeoutRows[] = $row;
-            }
-
-            $this->appendTerminalRows($job, $timeoutRows);
-            $this->rewritePendingEntries($pendingPath, []);
+            $this->flushPendingShardsAsTimeout($job);
         }
 
         return 'concluido';
@@ -368,7 +320,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
         $row['pre_simulacao_id'] = (string) ($item['id'] ?? $entry['pre_simulacao_id']);
         $row['pre_simulacao_status'] = (string) ($item['status'] ?? '');
-        $row['status_descricao'] = trim((string) ($item['statusDescricao'] ?? ''));
         $row['mensagem'] = trim((string) ($item['mensagemErro'] ?? ''));
         $row['valor_solicitado'] = $this->stringifyDecimal($item['valor'] ?? null);
         $row['parcelas_solicitadas'] = (string) ($item['numeroParcelas'] ?? '');
@@ -503,6 +454,20 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
     }
 
+    private function flushRowBuffer(HubCreditoConsultJob $job, array &$rows, bool $force = false): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        if (!$force && count($rows) < self::ROW_BUFFER_SIZE) {
+            return;
+        }
+
+        $this->appendTerminalRows($job, $rows);
+        $rows = [];
+    }
+
     private function loadPendingEntries(string $pendingPath): array
     {
         $disk = Storage::disk($this->disk);
@@ -547,6 +512,13 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     private function rewritePendingEntries(string $pendingPath, array $entries): void
     {
         $disk = Storage::disk($this->disk);
+        if ($entries === []) {
+            if ($disk->exists($pendingPath)) {
+                $disk->delete($pendingPath);
+            }
+            return;
+        }
+
         $handle = @fopen($disk->path($pendingPath), 'wb');
         if (!is_resource($handle)) {
             throw new \RuntimeException('Falha ao regravar arquivo de pendências.');
@@ -567,6 +539,144 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         } finally {
             fclose($handle);
         }
+    }
+
+    private function processPageAgainstShards(HubCreditoApiService $api, array $items): array
+    {
+        $itemsByShard = [];
+        foreach ($items as $item) {
+            $preSimId = isset($item['id']) ? (string) $item['id'] : '';
+            if ($preSimId === '') {
+                continue;
+            }
+
+            $itemsByShard[$this->pendingShardIndex($preSimId)][$preSimId] = $item;
+        }
+
+        $rows = [];
+        $processedCount = 0;
+
+        foreach ($itemsByShard as $shard => $itemsById) {
+            [$shardRows, $shardProcessedCount] = $this->processPendingShardItems($api, (int) $shard, $itemsById);
+            if ($shardRows !== []) {
+                $rows = array_merge($rows, $shardRows);
+            }
+            $processedCount += $shardProcessedCount;
+        }
+
+        return [$rows, $processedCount];
+    }
+
+    private function processPendingShardItems(HubCreditoApiService $api, int $shard, array $itemsById): array
+    {
+        $path = $this->pendingShardPath($shard);
+        $entries = $this->loadPendingEntries($path);
+        if ($entries === []) {
+            return [[], 0];
+        }
+
+        $rows = [];
+        $processedCount = 0;
+
+        foreach ($itemsById as $preSimId => $item) {
+            if (!isset($entries[$preSimId])) {
+                continue;
+            }
+
+            $outcome = $this->processPreSimulacaoItem($api, $item, $entries[$preSimId]);
+            if (!$outcome['terminal']) {
+                continue;
+            }
+
+            $rows[] = $outcome['row'];
+            unset($entries[$preSimId]);
+            $processedCount++;
+        }
+
+        if ($processedCount > 0) {
+            $this->rewritePendingEntries($path, $entries);
+        }
+
+        return [$rows, $processedCount];
+    }
+
+    private function flushPendingShardsAsTimeout(HubCreditoConsultJob $job): void
+    {
+        $rowBuffer = [];
+        $disk = Storage::disk($this->disk);
+
+        foreach ($this->pendingShardIndexes() as $shard) {
+            $path = $this->pendingShardPath($shard);
+            if (!$disk->exists($path)) {
+                continue;
+            }
+
+            $entries = $this->loadPendingEntries($path);
+            foreach ($entries as $entry) {
+                $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
+                $row['situacao'] = $this->notApprovedStatus();
+                $row['pre_simulacao_id'] = $entry['pre_simulacao_id'];
+                $row['mensagem'] = 'Timeout aguardando processamento da pré-simulação.';
+                $rowBuffer[] = $row;
+                $this->flushRowBuffer($job, $rowBuffer);
+            }
+
+            $disk->delete($path);
+        }
+
+        $this->flushRowBuffer($job, $rowBuffer, true);
+    }
+
+    private function writePendingShardEntry($disk, array &$handles, string $preSimId, array $entry): void
+    {
+        $shard = $this->pendingShardIndex($preSimId);
+        if (!isset($handles[$shard])) {
+            $path = $this->pendingShardPath($shard);
+            $handle = @fopen($disk->path($path), 'ab');
+            if (!is_resource($handle)) {
+                throw new \RuntimeException("Falha ao abrir shard de pendências: {$path}");
+            }
+            $handles[$shard] = $handle;
+        }
+
+        fputcsv($handles[$shard], [
+            $preSimId,
+            $entry['cpf'],
+            $entry['nome'],
+            $entry['nasc'],
+        ], ';');
+    }
+
+    private function closeHandles(array &$handles): void
+    {
+        foreach ($handles as $handle) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
+
+        $handles = [];
+    }
+
+    private function pendingShardIndexes(): array
+    {
+        return range(0, self::PENDING_SHARD_COUNT - 1);
+    }
+
+    private function pendingShardIndex(string $preSimId): int
+    {
+        return abs(crc32($preSimId)) % self::PENDING_SHARD_COUNT;
+    }
+
+    private function pendingShardPath(int $shard): string
+    {
+        return sprintf(
+            '%s/%s_%d.phase2.pending.%02d.csv',
+            $this->dirSpool,
+            $this->finalPrefix,
+            $this->jobId,
+            $shard
+        );
     }
 
     private function buildPreSimulacaoPayload(array $entry): array
@@ -609,14 +719,19 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     {
         $first = $this->extractFirstName($nome);
         if ($first !== null) {
-            $gender = IbgeName::query()->where('name', $this->upper($first))->value('gender');
+            $cacheKey = $this->upper($first);
+            if (array_key_exists($cacheKey, $this->genderCache)) {
+                return $this->genderCache[$cacheKey];
+            }
+
+            $gender = IbgeName::query()->where('name', $cacheKey)->value('gender');
             if (is_string($gender)) {
                 $gender = strtoupper($gender);
                 if ($gender === 'M') {
-                    return 'Masculino';
+                    return $this->genderCache[$cacheKey] = 'Masculino';
                 }
                 if ($gender === 'F') {
-                    return 'Feminino';
+                    return $this->genderCache[$cacheKey] = 'Feminino';
                 }
             }
         }
@@ -924,7 +1039,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $this->logWarning('Finalizando job.', [
             'target_status' => $targetStatus,
         ]);
-        FinalizeHubCreditoConsultReportJob::dispatchSync($this->jobId, $targetStatus);
+        FinalizeHubCreditoConsultReportJob::dispatch($this->jobId, $targetStatus);
     }
 
     private function logWarning(string $message, array $context = []): void

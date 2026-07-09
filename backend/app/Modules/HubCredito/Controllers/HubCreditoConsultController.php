@@ -3,8 +3,8 @@
 namespace App\Modules\HubCredito\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\HubCredito\Jobs\DispatchHubCreditoConsultJob;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
+use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use App\Modules\HubCredito\Support\HubCreditoSpool;
 use Illuminate\Http\Request;
@@ -111,7 +111,7 @@ class HubCreditoConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ]);
 
-        DispatchHubCreditoConsultJob::dispatch($job->id)
+        ProcessHubCreditoConsultJob::dispatch($job->id)
             ->onQueue((string) config('hubcredito.job.queue', 'hubcredito-clt'));
 
         return response()->json([

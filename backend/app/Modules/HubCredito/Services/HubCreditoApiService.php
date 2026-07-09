@@ -18,6 +18,8 @@ class HubCreditoApiService
     private int $httpRateLimitSleepSeconds;
     private bool $logEnabled;
     private bool $logApiResponses;
+    private bool $logApiResponseBody;
+    private int $logApiResponseBodyMaxChars;
     private ?int $jobId = null;
     private ?int $rateLimitOverrideMs = null;
     private HubCreditoSharedAuthService $sharedAuth;
@@ -37,6 +39,8 @@ class HubCreditoApiService
         $this->httpRateLimitSleepSeconds = (int) ($http['rate_limit_sleep_seconds'] ?? 15);
         $this->logEnabled = (bool) ($logging['enabled'] ?? false);
         $this->logApiResponses = (bool) ($logging['api_responses'] ?? false);
+        $this->logApiResponseBody = (bool) ($logging['api_response_body'] ?? false);
+        $this->logApiResponseBodyMaxChars = max(256, (int) ($logging['api_response_body_max_chars'] ?? 4000));
         $this->sharedAuth = new HubCreditoSharedAuthService($auth, $http);
     }
 
@@ -191,13 +195,22 @@ class HubCreditoApiService
         }
 
         try {
-            Log::warning('[HUBCREDITO] API response', [
+            $context = [
                 'job_id' => $this->jobId,
                 'method' => strtoupper($method),
                 'path' => $path,
                 'status' => $response->status(),
-                'body' => $response->json(),
-            ]);
+            ];
+
+            if ($this->logApiResponseBody) {
+                $body = (string) $response->body();
+                $truncated = strlen($body) > $this->logApiResponseBodyMaxChars;
+                $context['body'] = $truncated
+                    ? substr($body, 0, $this->logApiResponseBodyMaxChars) . '...[truncated]'
+                    : $body;
+            }
+
+            Log::warning('[HUBCREDITO] API response', $context);
         } catch (\Throwable) {
         }
     }

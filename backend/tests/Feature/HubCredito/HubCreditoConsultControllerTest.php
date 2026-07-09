@@ -3,8 +3,8 @@
 namespace Tests\Feature\HubCredito;
 
 use App\Models\User;
-use App\Modules\HubCredito\Jobs\DispatchHubCreditoConsultJob;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
+use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -45,7 +45,7 @@ class HubCreditoConsultControllerTest extends TestCase
         $this->assertTrue(Storage::disk('hubcredito-test')->exists((string) $job->spool_path));
         $this->assertTrue(Storage::disk('hubcredito-test')->exists((string) $job->spool_inputs_path));
 
-        Queue::assertPushed(DispatchHubCreditoConsultJob::class);
+        Queue::assertPushed(ProcessHubCreditoConsultJob::class);
     }
 
     public function test_store_rejects_invalid_payload(): void
@@ -94,6 +94,6 @@ class HubCreditoConsultControllerTest extends TestCase
 
         $response->assertAccepted();
         $this->assertDatabaseCount('hubcredito_consult_jobs', 1);
-        Queue::assertPushed(DispatchHubCreditoConsultJob::class);
+        Queue::assertPushed(ProcessHubCreditoConsultJob::class);
     }
 }
