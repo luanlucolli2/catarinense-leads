@@ -4,6 +4,7 @@ namespace App\Modules\HubCredito\Jobs;
 
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Services\HubCreditoApiService;
+use App\Modules\HubCredito\Support\HubCreditoFiles;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use App\Modules\V8\Models\IbgeName;
 use App\Support\Cpf;
@@ -23,7 +24,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    private const PENDING_SHARD_COUNT = 64;
+    private const PENDING_SHARD_COUNT = HubCreditoFiles::PENDING_SHARD_COUNT;
     private const ROW_BUFFER_SIZE = 100;
     private const CANCEL_CHECK_INTERVAL = 25;
 
@@ -256,6 +257,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
             $page = 1;
             $hasNext = false;
+            $resolvedIdsByShard = [];
 
             do {
                 if ($this->isCancelled()) {
@@ -266,7 +268,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                     'numeroPagina' => $page,
                     'tamanhoPagina' => $this->pageSize,
                     'lojaId' => (int) config('hubcredito.integration.loja_id', 15895),
-                    'dataCriacaoInicio' => $this->formatPreSimulacaoStart($startedAt),
+                    'dataCriacaoInicio' => $this->formatPreSimulacaoTime($startedAt),
                 ]);
 
                 if (!$response['ok']) {
@@ -275,7 +277,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $items = $this->extractPreSimulacaoItems((array) ($response['body'] ?? []));
                 if ($items !== []) {
-                    [$terminalRows, $processedCount] = $this->processPageAgainstShards($api, $items);
+                    [$terminalRows, $processedCount] = $this->processPageAgainstShards($api, $items, $resolvedIdsByShard);
                     if ($terminalRows !== []) {
                         $this->appendTerminalRows($job, $terminalRows);
                     }
@@ -286,6 +288,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
                 $page++;
             } while ($hasNext);
+
+            $this->compactResolvedPendingShards($resolvedIdsByShard);
 
             if ($pendingCount <= 0) {
                 break;
@@ -468,80 +472,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $rows = [];
     }
 
-    private function loadPendingEntries(string $pendingPath): array
-    {
-        $disk = Storage::disk($this->disk);
-        if (!$disk->exists($pendingPath)) {
-            return [];
-        }
-
-        $handle = @fopen($disk->path($pendingPath), 'rb');
-        if (!is_resource($handle)) {
-            return [];
-        }
-
-        $entries = [];
-
-        try {
-            flock($handle, LOCK_SH);
-            while (($parts = fgetcsv($handle, 0, ';')) !== false) {
-                if (!is_array($parts) || count($parts) < 4) {
-                    continue;
-                }
-
-                $preSimId = trim((string) ($parts[0] ?? ''));
-                if ($preSimId === '') {
-                    continue;
-                }
-
-                $entries[$preSimId] = [
-                    'pre_simulacao_id' => $preSimId,
-                    'cpf' => trim((string) ($parts[1] ?? '')),
-                    'nome' => trim((string) ($parts[2] ?? '')),
-                    'nasc' => trim((string) ($parts[3] ?? '')),
-                ];
-            }
-        } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
-        }
-
-        return $entries;
-    }
-
-    private function rewritePendingEntries(string $pendingPath, array $entries): void
-    {
-        $disk = Storage::disk($this->disk);
-        if ($entries === []) {
-            if ($disk->exists($pendingPath)) {
-                $disk->delete($pendingPath);
-            }
-            return;
-        }
-
-        $handle = @fopen($disk->path($pendingPath), 'wb');
-        if (!is_resource($handle)) {
-            throw new \RuntimeException('Falha ao regravar arquivo de pendências.');
-        }
-
-        try {
-            flock($handle, LOCK_EX);
-            foreach ($entries as $entry) {
-                fputcsv($handle, [
-                    $entry['pre_simulacao_id'],
-                    $entry['cpf'],
-                    $entry['nome'],
-                    $entry['nasc'],
-                ], ';');
-            }
-            fflush($handle);
-            flock($handle, LOCK_UN);
-        } finally {
-            fclose($handle);
-        }
-    }
-
-    private function processPageAgainstShards(HubCreditoApiService $api, array $items): array
+    private function processPageAgainstShards(HubCreditoApiService $api, array $items, array &$resolvedIdsByShard): array
     {
         $itemsByShard = [];
         foreach ($items as $item) {
@@ -557,7 +488,13 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $processedCount = 0;
 
         foreach ($itemsByShard as $shard => $itemsById) {
-            [$shardRows, $shardProcessedCount] = $this->processPendingShardItems($api, (int) $shard, $itemsById);
+            $resolvedIdsByShard[$shard] ??= [];
+            [$shardRows, $shardProcessedCount] = $this->processPendingShardItems(
+                $api,
+                (int) $shard,
+                $itemsById,
+                $resolvedIdsByShard[$shard]
+            );
             if ($shardRows !== []) {
                 $rows = array_merge($rows, $shardRows);
             }
@@ -567,34 +504,47 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         return [$rows, $processedCount];
     }
 
-    private function processPendingShardItems(HubCreditoApiService $api, int $shard, array $itemsById): array
+    private function processPendingShardItems(HubCreditoApiService $api, int $shard, array $itemsById, array &$resolvedIds): array
     {
+        $disk = Storage::disk($this->disk);
         $path = $this->pendingShardPath($shard);
-        $entries = $this->loadPendingEntries($path);
-        if ($entries === []) {
+        if (!$disk->exists($path)) {
+            return [[], 0];
+        }
+
+        $handle = @fopen($disk->path($path), 'rb');
+        if (!is_resource($handle)) {
             return [[], 0];
         }
 
         $rows = [];
         $processedCount = 0;
 
-        foreach ($itemsById as $preSimId => $item) {
-            if (!isset($entries[$preSimId])) {
-                continue;
+        try {
+            flock($handle, LOCK_SH);
+            while (($parts = fgetcsv($handle, 0, ';')) !== false) {
+                $entry = $this->pendingEntryFromParts($parts);
+                if ($entry === null) {
+                    continue;
+                }
+
+                $preSimId = $entry['pre_simulacao_id'];
+                if (isset($resolvedIds[$preSimId]) || !isset($itemsById[$preSimId])) {
+                    continue;
+                }
+
+                $outcome = $this->processPreSimulacaoItem($api, $itemsById[$preSimId], $entry);
+                if (!$outcome['terminal']) {
+                    continue;
+                }
+
+                $rows[] = $outcome['row'];
+                $resolvedIds[$preSimId] = true;
+                $processedCount++;
             }
-
-            $outcome = $this->processPreSimulacaoItem($api, $item, $entries[$preSimId]);
-            if (!$outcome['terminal']) {
-                continue;
-            }
-
-            $rows[] = $outcome['row'];
-            unset($entries[$preSimId]);
-            $processedCount++;
-        }
-
-        if ($processedCount > 0) {
-            $this->rewritePendingEntries($path, $entries);
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
 
         return [$rows, $processedCount];
@@ -611,8 +561,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 continue;
             }
 
-            $entries = $this->loadPendingEntries($path);
-            foreach ($entries as $entry) {
+            foreach ($this->readPendingEntries($path) as $entry) {
                 $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
                 $row['situacao'] = $this->notApprovedStatus();
                 $row['pre_simulacao_id'] = $entry['pre_simulacao_id'];
@@ -670,13 +619,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function pendingShardPath(int $shard): string
     {
-        return sprintf(
-            '%s/%s_%d.phase2.pending.%02d.csv',
-            $this->dirSpool,
-            $this->finalPrefix,
-            $this->jobId,
-            $shard
-        );
+        return HubCreditoFiles::pendingShardPath($this->dirSpool, $this->finalPrefix, $this->jobId, $shard);
     }
 
     private function buildPreSimulacaoPayload(array $entry): array
@@ -867,9 +810,9 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         return $items !== [] && count($items) >= $this->pageSize;
     }
 
-    private function formatPreSimulacaoStart(Carbon $startedAt): string
+    private function formatPreSimulacaoTime(Carbon $value): string
     {
-        return $startedAt->copy()->setTimezone('America/Sao_Paulo')->format('Y-m-d\TH:i:s');
+        return $value->copy()->setTimezone('America/Sao_Paulo')->format('Y-m-d\TH:i:s');
     }
 
     private function baseRow(string $cpf, ?string $nome, ?string $nasc): array
@@ -1081,5 +1024,120 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         } catch (Throwable) {
             return 0;
         }
+    }
+
+    private function compactResolvedPendingShards(array $resolvedIdsByShard): void
+    {
+        foreach ($resolvedIdsByShard as $shard => $resolvedIds) {
+            if ($resolvedIds === []) {
+                continue;
+            }
+
+            $this->compactResolvedPendingShard((int) $shard, $resolvedIds);
+        }
+    }
+
+    private function compactResolvedPendingShard(int $shard, array $resolvedIds): void
+    {
+        $disk = Storage::disk($this->disk);
+        $path = $this->pendingShardPath($shard);
+        if (!$disk->exists($path)) {
+            return;
+        }
+
+        $source = @fopen($disk->path($path), 'rb');
+        $tmpPath = $path . '.tmp';
+        $target = @fopen($disk->path($tmpPath), 'wb');
+        if (!is_resource($source) || !is_resource($target)) {
+            if (is_resource($source)) {
+                fclose($source);
+            }
+            if (is_resource($target)) {
+                fclose($target);
+            }
+            throw new \RuntimeException('Falha ao compactar shard de pendências.');
+        }
+
+        $resolvedMap = array_fill_keys(array_keys($resolvedIds), true);
+        $remaining = 0;
+
+        try {
+            flock($source, LOCK_SH);
+            while (($parts = fgetcsv($source, 0, ';')) !== false) {
+                $entry = $this->pendingEntryFromParts($parts);
+                if ($entry === null || isset($resolvedMap[$entry['pre_simulacao_id']])) {
+                    continue;
+                }
+
+                fputcsv($target, [
+                    $entry['pre_simulacao_id'],
+                    $entry['cpf'],
+                    $entry['nome'],
+                    $entry['nasc'],
+                ], ';');
+                $remaining++;
+            }
+        } finally {
+            flock($source, LOCK_UN);
+            fclose($source);
+            fflush($target);
+            fclose($target);
+        }
+
+        if ($remaining === 0) {
+            $disk->delete($path);
+            $disk->delete($tmpPath);
+            return;
+        }
+
+        if (!@rename($disk->path($tmpPath), $disk->path($path))) {
+            $disk->delete($tmpPath);
+            throw new \RuntimeException('Falha ao promover shard compactada.');
+        }
+    }
+
+    private function readPendingEntries(string $path): \Generator
+    {
+        $disk = Storage::disk($this->disk);
+        if (!$disk->exists($path)) {
+            return;
+        }
+
+        $handle = @fopen($disk->path($path), 'rb');
+        if (!is_resource($handle)) {
+            return;
+        }
+
+        try {
+            flock($handle, LOCK_SH);
+            while (($parts = fgetcsv($handle, 0, ';')) !== false) {
+                $entry = $this->pendingEntryFromParts($parts);
+                if ($entry !== null) {
+                    yield $entry;
+                }
+            }
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    private function pendingEntryFromParts($parts): ?array
+    {
+        if (!is_array($parts) || count($parts) < 4) {
+            return null;
+        }
+
+        $preSimId = trim((string) ($parts[0] ?? ''));
+        if ($preSimId === '') {
+            return null;
+        }
+
+        return [
+            'pre_simulacao_id' => $preSimId,
+            'cpf' => trim((string) ($parts[1] ?? '')),
+            'nome' => trim((string) ($parts[2] ?? '')),
+            'nasc' => trim((string) ($parts[3] ?? '')),
+        ];
     }
 }

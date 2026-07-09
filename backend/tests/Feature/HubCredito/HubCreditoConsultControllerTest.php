@@ -5,6 +5,7 @@ namespace Tests\Feature\HubCredito;
 use App\Models\User;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
+use App\Modules\HubCredito\Support\HubCreditoPreviewSnapshot;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -95,5 +96,22 @@ class HubCreditoConsultControllerTest extends TestCase
         $response->assertAccepted();
         $this->assertDatabaseCount('hubcredito_consult_jobs', 1);
         Queue::assertPushed(ProcessHubCreditoConsultJob::class);
+    }
+
+    public function test_preview_snapshot_is_isolated_from_later_spool_writes(): void
+    {
+        $spoolPath = 'hubcredito-spool/teste-preview.spool.csv';
+        Storage::disk('hubcredito-test')->put($spoolPath, "CPF;Nome\n111;Fulano\n");
+
+        $snapshot = HubCreditoPreviewSnapshot::create(Storage::disk('hubcredito-test'), $spoolPath);
+
+        Storage::disk('hubcredito-test')->append($spoolPath, '222;Beltrano');
+
+        $this->assertIsResource($snapshot);
+        $content = stream_get_contents($snapshot);
+        fclose($snapshot);
+
+        $this->assertStringContainsString('111;Fulano', $content);
+        $this->assertStringNotContainsString('222;Beltrano', $content);
     }
 }

@@ -5,6 +5,8 @@ namespace App\Modules\HubCredito\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
+use App\Modules\HubCredito\Support\HubCreditoFiles;
+use App\Modules\HubCredito\Support\HubCreditoPreviewSnapshot;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use App\Modules\HubCredito\Support\HubCreditoSpool;
 use Illuminate\Http\Request;
@@ -149,9 +151,9 @@ class HubCreditoConsultController extends Controller
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
         }
 
-        $fh = @fopen($disk->path($job->spool_path), 'rb');
-        if ($fh === false) {
-            return response()->json(['message' => 'Falha ao abrir arquivo.'], 500);
+        $snapshot = HubCreditoPreviewSnapshot::create($disk, $job->spool_path);
+        if (!is_resource($snapshot)) {
+            return response()->json(['message' => 'Falha ao abrir snapshot do arquivo.'], 500);
         }
 
         $filename = "{$this->finalPrefix()}_{$job->id}_preview.csv";
@@ -163,30 +165,27 @@ class HubCreditoConsultController extends Controller
         $withBom = (bool) config('hubcredito.csv.embed_bom', true);
         $finalEol = strtoupper((string) config('hubcredito.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
-        return response()->streamDownload(function () use ($fh, $withBom, $finalEol) {
+        return response()->streamDownload(function () use ($snapshot, $withBom, $finalEol) {
             try {
-                flock($fh, LOCK_SH);
-
                 if ($withBom) {
                     echo "\xEF\xBB\xBF";
                 }
 
-                $peek = fread($fh, 3);
+                $peek = fread($snapshot, 3);
                 if ($peek !== "\xEF\xBB\xBF") {
-                    fseek($fh, 0);
+                    rewind($snapshot);
                 }
 
-                $headerLine = fgets($fh);
+                $headerLine = fgets($snapshot);
                 if ($headerLine === false) {
                     $headerLine = HubCreditoSchema::headerCsvLine(';');
                 }
 
                 echo rtrim((string) $headerLine, "\r\n") . $finalEol;
-                fpassthru($fh);
+                fpassthru($snapshot);
             } finally {
-                flock($fh, LOCK_UN);
-                if (is_resource($fh)) {
-                    fclose($fh);
+                if (is_resource($snapshot)) {
+                    fclose($snapshot);
                 }
             }
         }, $filename, $headers);
@@ -297,22 +296,14 @@ class HubCreditoConsultController extends Controller
 
         try {
             $disk = Storage::disk((string) config('hubcredito.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_inputs_path'] as $field) {
-                $path = $job->{$field};
-                if ($path && $disk->exists($path)) {
-                    $disk->delete($path);
-                }
-            }
-
             $dirSpool = (string) config('hubcredito.storage.dir_spool', 'hubcredito-spool');
-            $prefix = $this->finalPrefix() . '_' . $job->id;
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    if (str_starts_with(basename($rel), $prefix)) {
-                        $disk->delete($rel);
-                    }
-                }
-            }
+            HubCreditoFiles::deleteTransientFiles(
+                $disk,
+                $dirSpool,
+                $this->finalPrefix(),
+                $job->id,
+                [$job->spool_path, $job->spool_inputs_path]
+            );
         } catch (\Throwable $e) {
             Log::warning("[HUBCREDITO] Erro ao apagar spool (job {$job->id}): {$e->getMessage()}");
         }
@@ -334,26 +325,17 @@ class HubCreditoConsultController extends Controller
         $hasDataRows = HubCreditoSpool::hasDataRows($disk, $spoolPath);
 
         try {
-            $inputsPath = $job->spool_inputs_path ?? null;
-            if ($inputsPath && $disk->exists($inputsPath)) {
-                $disk->delete($inputsPath);
-            }
-
             $dirSpool = (string) config('hubcredito.storage.dir_spool', 'hubcredito-spool');
-            $prefix = $this->finalPrefix() . '_' . $job->id;
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    if ($rel === $spoolPath) {
-                        continue;
-                    }
-                    if (str_starts_with(basename($rel), $prefix)) {
-                        try {
-                            $disk->delete($rel);
-                        } catch (\Throwable) {
-                        }
-                    }
-                }
-            }
+            $keepPaths = $hasDataRows && is_string($spoolPath) ? [$spoolPath] : [];
+            $extraPaths = array_filter([$job->spool_path, $job->spool_inputs_path]);
+            HubCreditoFiles::deleteTransientFiles(
+                $disk,
+                $dirSpool,
+                $this->finalPrefix(),
+                $job->id,
+                $extraPaths,
+                $keepPaths
+            );
 
             if (!$hasDataRows && $spoolPath && $disk->exists($spoolPath)) {
                 $disk->delete($spoolPath);

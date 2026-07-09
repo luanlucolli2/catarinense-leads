@@ -7,6 +7,7 @@ use App\Modules\HubCredito\Jobs\FinalizeHubCreditoConsultReportJob;
 use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Services\HubCreditoApiService;
+use App\Modules\HubCredito\Support\HubCreditoFiles;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -335,6 +336,111 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_it_preserves_unresolved_pending_entries_between_rounds(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+        config(['hubcredito.job.phase2_timeout_seconds' => 600]);
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => static function () {
+                static $id = 100;
+                $id++;
+
+                return Http::response([
+                    'value' => ['id' => $id, 'idStatus' => 0],
+                ], 200);
+            },
+            'https://api.hubcredito.test/api/PreSimulacao*' => static function () {
+                static $call = 0;
+                $call++;
+
+                return match ($call) {
+                    1 => Http::response([
+                        'itens' => [[
+                            'id' => 101,
+                            'cpf' => '12345678909',
+                            'lojaId' => 15895,
+                            'numeroParcelas' => 12,
+                            'valor' => 5000,
+                            'idStatus' => 2,
+                            'status' => '2',
+                            'mensagemErro' => 'Sem opção',
+                        ]],
+                        'numeroPagina' => 1,
+                        'tamanhoPagina' => 100,
+                        'totalPaginas' => 2,
+                        'temProximaPagina' => true,
+                    ], 200),
+                    2 => Http::response([
+                        'itens' => [[
+                            'id' => 102,
+                            'cpf' => '98765432100',
+                            'lojaId' => 15895,
+                            'numeroParcelas' => 12,
+                            'valor' => 5000,
+                            'idStatus' => 13,
+                            'status' => '13',
+                            'mensagemErro' => null,
+                        ]],
+                        'numeroPagina' => 2,
+                        'tamanhoPagina' => 100,
+                        'totalPaginas' => 2,
+                        'temProximaPagina' => false,
+                    ], 200),
+                    default => Http::response([
+                        'itens' => [[
+                            'id' => 102,
+                            'cpf' => '98765432100',
+                            'lojaId' => 15895,
+                            'numeroParcelas' => 12,
+                            'valor' => 5000,
+                            'idStatus' => 6,
+                            'status' => '6',
+                            'mensagemErro' => null,
+                        ]],
+                        'numeroPagina' => 1,
+                        'tamanhoPagina' => 100,
+                        'totalPaginas' => 1,
+                        'temProximaPagina' => false,
+                    ], 200),
+                };
+            },
+            'https://api.hubcredito.test/api/Clt/simular' => Http::response([
+                'value' => [[
+                    'opcaoProposta' => [
+                        'valorDesembolsoTrabalhador' => 4200,
+                        'valorDesembolsoTotal' => 4300,
+                        'valorParcela' => 320,
+                        'numeroParcelas' => 12,
+                        'taxaJuros' => 1.9,
+                        'valorSeguro' => 20,
+                        'comSeguro' => true,
+                    ],
+                ]],
+                'errors' => [],
+            ], 200),
+        ]);
+
+        $job = $this->makePendingJob([
+            '12345678909 Fulano da Silva 01/02/1990',
+            '98765432100 Beltrano da Silva 01/02/1990',
+        ]);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+        $content = Storage::disk('hubcredito-test')->get($job->file_path);
+
+        $this->assertSame('concluido', $job->status);
+        $this->assertSame(1, $job->aprovado_count);
+        $this->assertSame(1, $job->nao_aprovado_count);
+        $this->assertStringContainsString('Aprovado', $content);
+        $this->assertStringContainsString('Não Aprovado', $content);
+
+        Carbon::setTestNow();
+    }
+
     public function test_it_processes_large_batches_without_loading_all_entries_in_memory(): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
@@ -364,6 +470,50 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertSame(150, $job->total_cpfs);
         $this->assertSame(150, $job->nao_aprovado_count);
         $this->assertTrue(Storage::disk('hubcredito-test')->exists((string) $job->file_path));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_it_cleans_only_deterministic_job_files_after_finalization(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+
+        Storage::disk('hubcredito-test')->put('hubcredito-spool/unrelated.csv', 'keep');
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => Http::response([
+                'value' => ['id' => 101, 'idStatus' => 0],
+            ], 200),
+            'https://api.hubcredito.test/api/PreSimulacao*' => Http::response([
+                'itens' => [[
+                    'id' => 101,
+                    'cpf' => '12345678909',
+                    'lojaId' => 15895,
+                    'numeroParcelas' => 12,
+                    'valor' => 5000,
+                    'idStatus' => 2,
+                    'status' => '2',
+                    'mensagemErro' => 'Sem opção',
+                ]],
+                'numeroPagina' => 1,
+                'tamanhoPagina' => 100,
+                'totalPaginas' => 1,
+                'temProximaPagina' => false,
+            ], 200),
+        ]);
+
+        $job = $this->makePendingJob(['12345678909 Fulano da Silva 01/02/1990']);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+        $shardPath = HubCreditoFiles::pendingShardPath('hubcredito-spool', 'hubcredito-consulta', $job->id, abs(crc32('101')) % HubCreditoFiles::PENDING_SHARD_COUNT);
+
+        $this->assertTrue(Storage::disk('hubcredito-test')->exists('hubcredito-spool/unrelated.csv'));
+        $this->assertFalse(Storage::disk('hubcredito-test')->exists($shardPath));
+        $this->assertNull($job->spool_path);
+        $this->assertNull($job->spool_inputs_path);
 
         Carbon::setTestNow();
     }

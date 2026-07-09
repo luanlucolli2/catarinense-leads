@@ -3,6 +3,7 @@
 namespace App\Modules\HubCredito\Jobs;
 
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
+use App\Modules\HubCredito\Support\HubCreditoFiles;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
 use App\Modules\HubCredito\Support\HubCreditoSpool;
 use Illuminate\Bus\Queueable;
@@ -62,12 +63,14 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
             $ts = Carbon::now()->format('Ymd_His');
             $fileName = "{$finalPrefix}_{$job->id}_{$ts}.csv";
             $path = "{$dirReports}/{$fileName}";
+            $finalReal = $disk->path($path);
 
             $embedBom = (bool) config('hubcredito.csv.embed_bom', true);
             $finalEol = strtoupper((string) config('hubcredito.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
             $srcReal = $disk->path($spoolPath);
-            $tmpReal = $disk->path("{$dirReports}/.{$fileName}.tmp");
+            $tmpPath = "{$dirReports}/.{$fileName}.tmp";
+            $tmpReal = $disk->path($tmpPath);
 
             $in = @fopen($srcReal, 'rb');
             $out = @fopen($tmpReal, 'wb');
@@ -111,8 +114,10 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
                 fclose($out);
             }
 
-            $disk->put($path, fopen($tmpReal, 'rb'));
-            @unlink($tmpReal);
+            if (!@rename($tmpReal, $finalReal)) {
+                @unlink($tmpReal);
+                throw new \RuntimeException('Falha ao promover CSV final.');
+            }
             $this->normalizeLocalPermissions($disk, $path, false);
 
             if (!$disk->exists($path)) {
@@ -174,26 +179,16 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
         }
 
         try {
-            $inputsPath = $job->spool_inputs_path ?? null;
-            if ($inputsPath && $disk->exists($inputsPath)) {
-                $disk->delete($inputsPath);
-            }
-
             $dirSpool = (string) config('hubcredito.storage.dir_spool', 'hubcredito-spool');
-            $prefix = (string) config('hubcredito.storage.final_prefix', 'hubcredito-consulta') . '_' . $job->id;
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    if ($rel === $spoolPath) {
-                        continue;
-                    }
-                    if (str_starts_with(basename($rel), $prefix)) {
-                        try {
-                            $disk->delete($rel);
-                        } catch (Throwable) {
-                        }
-                    }
-                }
-            }
+            $finalPrefix = (string) config('hubcredito.storage.final_prefix', 'hubcredito-consulta');
+            HubCreditoFiles::deleteTransientFiles(
+                $disk,
+                $dirSpool,
+                $finalPrefix,
+                $job->id,
+                [$job->spool_path, $job->spool_inputs_path],
+                [$spoolPath]
+            );
         } catch (Throwable) {
         }
 
@@ -233,28 +228,15 @@ class FinalizeHubCreditoConsultReportJob implements ShouldQueue
     {
         try {
             $disk = Storage::disk((string) config('hubcredito.storage.reports_disk', 'local'));
-            foreach (['spool_path', 'spool_inputs_path'] as $field) {
-                $path = $job->{$field} ?? null;
-                if ($path && $disk->exists($path)) {
-                    try {
-                        $disk->delete($path);
-                    } catch (Throwable) {
-                    }
-                }
-            }
-
             $dirSpool = (string) config('hubcredito.storage.dir_spool', 'hubcredito-spool');
-            $prefix = (string) config('hubcredito.storage.final_prefix', 'hubcredito-consulta') . '_' . $job->id;
-            if ($disk->exists($dirSpool)) {
-                foreach ($disk->files($dirSpool) as $rel) {
-                    if (str_starts_with(basename($rel), $prefix)) {
-                        try {
-                            $disk->delete($rel);
-                        } catch (Throwable) {
-                        }
-                    }
-                }
-            }
+            $finalPrefix = (string) config('hubcredito.storage.final_prefix', 'hubcredito-consulta');
+            HubCreditoFiles::deleteTransientFiles(
+                $disk,
+                $dirSpool,
+                $finalPrefix,
+                $job->id,
+                [$job->spool_path, $job->spool_inputs_path]
+            );
         } finally {
             $job->updateQuietly([
                 'spool_path' => null,
