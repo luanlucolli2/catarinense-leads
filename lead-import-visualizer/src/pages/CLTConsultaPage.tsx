@@ -188,7 +188,7 @@ const CLTConsultaPage = () => {
     queryFn: () => listCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
-    refetchInterval: 30000,
+    refetchInterval: activeTab === "facta" ? 30000 : false,
   });
 
   const items = jobsPage?.data ?? [];
