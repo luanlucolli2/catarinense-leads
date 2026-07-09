@@ -323,10 +323,10 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
             <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase1EligiblePct}%` }} />
           )}
           {phase1IneligiblePct > 0 && (
-            <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${phase1EligiblePct}%`, width: `${phase1IneligiblePct}%` }} />
+            <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase1EligiblePct}%`, width: `${phase1IneligiblePct}%` }} />
           )}
           {phase1NotFoundPct > 0 && (
-            <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase1EligiblePct + phase1IneligiblePct}%`, width: `${phase1NotFoundPct}%` }} />
+            <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${phase1EligiblePct + phase1IneligiblePct}%`, width: `${phase1NotFoundPct}%` }} />
           )}
           {phase1FailPct > 0 && (
             <div className="absolute top-0 h-full bg-destructive transition-all duration-500" style={{ left: `${phase1EligiblePct + phase1IneligiblePct + phase1NotFoundPct}%`, width: `${phase1FailPct}%` }} />
@@ -343,12 +343,12 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
             <span className="font-semibold text-foreground">{phase1Eligible.toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-slate-400" />
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="text-muted-foreground">Inelegíveis</span>
             <span className="font-semibold text-foreground">{phase1Ineligible.toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <div className="w-2 h-2 rounded-full bg-slate-400" />
             <span className="text-muted-foreground">Não encontrados</span>
             <span className="font-semibold text-foreground">{phase1NotFound.toLocaleString()}</span>
           </div>
@@ -388,7 +388,7 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
             <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase2ApprovedPct}%` }} />
           )}
           {phase2NotApprovedPct > 0 && (
-            <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${phase2ApprovedPct}%`, width: `${phase2NotApprovedPct}%` }} />
+            <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase2ApprovedPct}%`, width: `${phase2NotApprovedPct}%` }} />
           )}
           {statuses.phase2 === "Em andamento" && phase2TotalPct < 100 && (
             <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase2TotalPct}%`, width: `${Math.min(8, 100 - phase2TotalPct)}%` }} />
@@ -402,7 +402,7 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
             <span className="font-semibold text-foreground">{phase2Approved.toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-slate-400" />
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="text-muted-foreground">Não aprovados</span>
             <span className="font-semibold text-foreground">{phase2NotApproved.toLocaleString()}</span>
           </div>
@@ -466,7 +466,7 @@ function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
           <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${approvedPct}%` }} />
         )}
         {notApprovedPct > 0 && (
-          <div className="absolute top-0 h-full bg-slate-400 transition-all duration-500" style={{ left: `${approvedPct}%`, width: `${notApprovedPct}%` }} />
+          <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${approvedPct}%`, width: `${notApprovedPct}%` }} />
         )}
         {discardedPct > 0 && (
           <div className="absolute top-0 h-full bg-orange-500 transition-all duration-500" style={{ left: `${approvedPct + notApprovedPct}%`, width: `${discardedPct}%` }} />
@@ -483,7 +483,7 @@ function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
           <span className="font-semibold text-foreground">{approved.toLocaleString()}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-slate-400" />
+          <div className="w-2 h-2 rounded-full bg-amber-500" />
           <span className="text-muted-foreground">Não aprovados</span>
           <span className="font-semibold text-foreground">{notApproved.toLocaleString()}</span>
         </div>
@@ -563,13 +563,13 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
         )}
         {s.ineligiblePct > 0 && (
           <div
-            className="absolute top-0 h-full bg-slate-400 dark:bg-slate-500"
+            className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400"
             style={{ left: `${s.eligiblePct}%`, width: `${s.ineligiblePct}%` }}
           />
         )}
         {s.notFoundPct > 0 && (
           <div
-            className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400"
+            className="absolute top-0 h-full bg-slate-400 dark:bg-slate-500"
             style={{ left: `${s.eligiblePct + s.ineligiblePct}%`, width: `${s.notFoundPct}%` }}
           />
         )}
@@ -1127,7 +1127,7 @@ export const CLTHistoryTable = ({
                         <div className="text-[11px] sm:text-xs text-muted-foreground">Elegíveis</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-base sm:text-lg font-semibold text-slate-600 dark:text-slate-300">
+                        <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">
                           {(i.inelegivel_count ?? 0).toLocaleString()}
                         </div>
                         <div className="text-[11px] sm:text-xs text-muted-foreground">
@@ -1135,7 +1135,7 @@ export const CLTHistoryTable = ({
                         </div>
                       </div>
                       <div className="text-center">
-                        <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">
+                        <div className="text-base sm:text-lg font-semibold text-slate-600 dark:text-slate-300">
                           {(i.not_found_count ?? 0).toLocaleString()}
                         </div>
                         <div className="text-[11px] sm:text-xs text-muted-foreground">
