@@ -18,10 +18,21 @@ use Symfony\Component\HttpFoundation\Response;
 
 class HubCreditoConsultController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $jobs = HubCreditoConsultJob::query()
-            ->where('user_id', Auth::id())
+        $data = Validator::make($request->query(), [
+            'status' => ['nullable', 'in:pendente,em_progresso,concluido,falhou,cancelado,todos'],
+        ])->validate();
+
+        $jobsQuery = HubCreditoConsultJob::query()
+            ->where('user_id', Auth::id());
+
+        $status = $data['status'] ?? null;
+        if (is_string($status) && $status !== '' && $status !== 'todos') {
+            $jobsQuery->where('status', $status);
+        }
+
+        $jobs = $jobsQuery
             ->orderByDesc('created_at')
             ->paginate(15);
 

@@ -98,6 +98,35 @@ class HubCreditoConsultControllerTest extends TestCase
         Queue::assertPushed(ProcessHubCreditoConsultJob::class);
     }
 
+    public function test_index_filters_jobs_by_status(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        HubCreditoConsultJob::create([
+            'user_id' => $user->id,
+            'title' => 'Job concluido',
+            'status' => 'concluido',
+        ]);
+        HubCreditoConsultJob::create([
+            'user_id' => $user->id,
+            'title' => 'Job pendente',
+            'status' => 'pendente',
+        ]);
+        HubCreditoConsultJob::create([
+            'user_id' => $otherUser->id,
+            'title' => 'Job outro usuario',
+            'status' => 'concluido',
+        ]);
+
+        $response = $this->getJson('/api/hubcredito-clt/consult-jobs?status=concluido');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.title', 'Job concluido');
+    }
+
     public function test_preview_snapshot_is_isolated_from_later_spool_writes(): void
     {
         $spoolPath = 'hubcredito-spool/teste-preview.spool.csv';
