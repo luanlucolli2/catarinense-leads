@@ -92,9 +92,7 @@ class HubCreditoApiService
                     : $client->asJson()->post($this->baseUrl . $path, $data);
             } catch (ConnectionException) {
                 if ($attempt < $attempts - 1) {
-                    if ($this->httpRetryDelayMs > 0) {
-                        usleep($this->httpRetryDelayMs * 1000);
-                    }
+                    $this->pauseBeforeRetry();
                     continue;
                 }
 
@@ -109,18 +107,17 @@ class HubCreditoApiService
 
             if ($response->status() === 401 && $attempt < $attempts - 1) {
                 $this->sharedAuth->forgetToken();
+                $this->pauseBeforeRetry();
                 continue;
             }
 
             if ($response->status() === 429 && $attempt < $attempts - 1) {
-                $this->sharedAuth->pauseOnRateLimit($this->httpRateLimitSleepSeconds, $this->effectiveMinIntervalMs());
+                $this->pauseBeforeRetry();
                 continue;
             }
 
             if ($response->serverError() && $attempt < $attempts - 1) {
-                if ($this->httpRetryDelayMs > 0) {
-                    usleep($this->httpRetryDelayMs * 1000);
-                }
+                $this->pauseBeforeRetry();
                 continue;
             }
 
@@ -218,5 +215,10 @@ class HubCreditoApiService
     private function effectiveMinIntervalMs(): int
     {
         return $this->rateLimitOverrideMs ?? $this->httpMinIntervalMs;
+    }
+
+    private function pauseBeforeRetry(): void
+    {
+        $this->sharedAuth->throttleRequests($this->effectiveMinIntervalMs());
     }
 }

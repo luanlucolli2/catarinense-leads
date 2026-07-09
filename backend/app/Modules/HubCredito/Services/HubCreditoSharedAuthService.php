@@ -143,6 +143,11 @@ class HubCreditoSharedAuthService
         }
     }
 
+    private function pauseBeforeRetry(): void
+    {
+        $this->throttleRequests();
+    }
+
     private function login(?callable $responseLogger = null): array
     {
         if (!$this->username || !$this->password) {
@@ -181,9 +186,7 @@ class HubCreditoSharedAuthService
                     ->post($this->baseUrl . '/api/Login', $payload);
             } catch (ConnectionException $e) {
                 if ($attempt < $attempts - 1) {
-                    if ($this->httpRetryDelayMs > 0) {
-                        usleep($this->httpRetryDelayMs * 1000);
-                    }
+                    $this->pauseBeforeRetry();
                     continue;
                 }
 
@@ -196,14 +199,12 @@ class HubCreditoSharedAuthService
             }
 
             if ($response->status() === 429 && $attempt < $attempts - 1) {
-                $this->pauseOnRateLimit();
+                $this->pauseBeforeRetry();
                 continue;
             }
 
             if ($response->serverError() && $attempt < $attempts - 1) {
-                if ($this->httpRetryDelayMs > 0) {
-                    usleep($this->httpRetryDelayMs * 1000);
-                }
+                $this->pauseBeforeRetry();
                 continue;
             }
 
