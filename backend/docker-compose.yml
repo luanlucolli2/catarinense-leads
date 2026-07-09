@@ -15,6 +15,7 @@ x-app-environment: &app-environment
   FGTS_OFF_JOB_QUEUE: 'fgts'
   CLT_PREVIEW_QUEUE: 'reports'
   V8_JOB_QUEUE: 'v8'
+  HUBCREDITO_JOB_QUEUE: 'hubcredito-clt'
   URA_JOB_QUEUE: 'ura'
   C6_JOB_QUEUE: 'c6-auth'
   PRESENCA_JOB_QUEUE: 'presenca'
@@ -23,6 +24,7 @@ x-app-environment: &app-environment
   CLT_OFF_JOB_TIMEOUT: '18000'
   FGTS_OFF_JOB_TIMEOUT: '18000'
   V8_JOB_TIMEOUT: '18000'
+  HUBCREDITO_JOB_TIMEOUT: '18000'
   PRESENCA_JOB_TIMEOUT: '115200'
 
 services:

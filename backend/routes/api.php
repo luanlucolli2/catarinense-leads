@@ -9,6 +9,7 @@ use App\Modules\Leads\Controllers\ImportController;
 use App\Modules\Leads\Controllers\LeadExportController;
 use App\Modules\Leads\Controllers\RollbackController;
 use App\Modules\CLT\Controllers\CltConsultController;
+use App\Modules\HubCredito\Controllers\HubCreditoConsultController;
 use App\Modules\V8\Controllers\V8ConsultController;
 use App\Modules\V8Fgts\Controllers\V8FgtsConsultController;
 use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
@@ -161,6 +162,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/v8/consult-jobs/{id}/resume', [V8ConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/v8/consult-jobs/{id}/cancel', [V8ConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/v8/consult-jobs/{id}', [V8ConsultController::class, 'destroy'])->whereNumber('id');
+
+    /* HubCredito CLT */
+    Route::get('/hubcredito-clt/consult-jobs', [HubCreditoConsultController::class, 'index']);
+    Route::post('/hubcredito-clt/consult-jobs', [HubCreditoConsultController::class, 'store']);
+    Route::get('/hubcredito-clt/consult-jobs/{id}', [HubCreditoConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/hubcredito-clt/consult-jobs/{id}/download', [HubCreditoConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/hubcredito-clt/consult-jobs/{id}/preview/generate', [HubCreditoConsultController::class, 'requestPreview'])->whereNumber('id');
+    Route::get('/hubcredito-clt/consult-jobs/{id}/preview', [HubCreditoConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/hubcredito-clt/consult-jobs/{id}/cancel', [HubCreditoConsultController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/hubcredito-clt/consult-jobs/{id}', [HubCreditoConsultController::class, 'destroy'])->whereNumber('id');
 
     /* V8 FGTS */
     Route::get('/v8-fgts/consult-jobs', [V8FgtsConsultController::class, 'index']);
