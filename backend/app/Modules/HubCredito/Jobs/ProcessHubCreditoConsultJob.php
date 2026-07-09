@@ -181,7 +181,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($parsed['error']) {
                     $invalidCount++;
                     $row = $this->baseRow((string) ($parsed['cpf'] ?? ''), $parsed['nome'] ?? null, $parsed['nasc'] ?? null);
-                    $row['situacao'] = 'nao_aprovado';
+                    $row['situacao'] = $this->notApprovedStatus();
                     $row['mensagem'] = (string) $parsed['error'];
                     $this->appendTerminalRows($job, [$row]);
                     continue;
@@ -237,7 +237,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
                 if (!is_numeric($preSimId)) {
                     $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
-                    $row['situacao'] = 'nao_aprovado';
+                    $row['situacao'] = $this->notApprovedStatus();
                     $row['mensagem'] = $this->formatApiMessage($response) ?: 'Falha ao criar pré-simulação.';
                     $this->appendTerminalRows($job, [$row]);
                     continue;
@@ -349,7 +349,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             $timeoutRows = [];
             foreach ($pendingEntries as $entry) {
                 $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
-                $row['situacao'] = 'pendencia';
+                $row['situacao'] = $this->notApprovedStatus();
                 $row['pre_simulacao_id'] = $entry['pre_simulacao_id'];
                 $row['mensagem'] = 'Timeout aguardando processamento da pré-simulação.';
                 $timeoutRows[] = $row;
@@ -367,7 +367,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $statusId = $this->resolveStatusId($item);
         $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
         $row['pre_simulacao_id'] = (string) ($item['id'] ?? $entry['pre_simulacao_id']);
-        $row['pre_simulacao_status_id'] = $statusId !== null ? (string) $statusId : '';
         $row['pre_simulacao_status'] = (string) ($item['status'] ?? '');
         $row['status_descricao'] = trim((string) ($item['statusDescricao'] ?? ''));
         $row['mensagem'] = trim((string) ($item['mensagemErro'] ?? ''));
@@ -379,7 +378,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if (in_array($statusId, [3, 4], true)) {
-            $row['situacao'] = 'pendencia';
+            $row['situacao'] = $this->notApprovedStatus();
             $row['mensagem'] = $row['mensagem'] !== '' ? $row['mensagem'] : 'Vínculo requer ação manual.';
             $row['finalizado_em'] = Carbon::now()->toDateTimeString();
 
@@ -394,13 +393,13 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if (in_array($statusId, [2, 5, 7, 8, 9, 10, 11, 14, 15], true)) {
-            $row['situacao'] = 'nao_aprovado';
+            $row['situacao'] = $this->notApprovedStatus();
             $row['finalizado_em'] = Carbon::now()->toDateTimeString();
 
             return ['terminal' => true, 'row' => $row];
         }
 
-        $row['situacao'] = 'nao_aprovado';
+        $row['situacao'] = $this->notApprovedStatus();
         if ($row['mensagem'] === '') {
             $row['mensagem'] = 'Status de pré-simulação não tratado.';
         }
@@ -420,7 +419,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         if ($this->responseRequiresVinculo($response)) {
-            $row['situacao'] = 'pendencia';
+            $row['situacao'] = $this->notApprovedStatus();
             $row['mensagem'] = $this->formatApiMessage($response) ?: 'Vínculo requer ação manual.';
             $row['finalizado_em'] = Carbon::now()->toDateTimeString();
 
@@ -432,10 +431,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($bestOffer !== null) {
             $proposal = is_array($bestOffer['opcaoProposta'] ?? null) ? $bestOffer['opcaoProposta'] : [];
-            $row['situacao'] = 'aprovado';
-            $row['simulacao_id'] = (string) ($bestOffer['simulacaoId'] ?? '');
-            $row['id_proposta'] = (string) ($proposal['idProposta'] ?? '');
-            $row['id_cotacao'] = (string) ($bestOffer['idCotacao'] ?? '');
+            $row['situacao'] = $this->approvedStatus();
             $row['valor_liberado'] = $this->stringifyDecimal($proposal['valorDesembolsoTrabalhador'] ?? null);
             $row['valor_desembolso_total'] = $this->stringifyDecimal($proposal['valorDesembolsoTotal'] ?? null);
             $row['valor_parcela'] = $this->stringifyDecimal($proposal['valorParcela'] ?? null);
@@ -451,7 +447,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             return $row;
         }
 
-        $row['situacao'] = 'nao_aprovado';
+        $row['situacao'] = $this->notApprovedStatus();
         $row['mensagem'] = $this->formatApiMessage($response) ?: 'Simulação sem ofertas.';
         $row['finalizado_em'] = Carbon::now()->toDateTimeString();
 
@@ -473,7 +469,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
         $aprovado = 0;
         $naoAprovado = 0;
-        $pendencia = 0;
 
         try {
             flock($handle, LOCK_EX);
@@ -485,10 +480,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 fputcsv($handle, $csvRow, ';');
 
                 $situacao = $row['situacao'] ?? '';
-                if ($situacao === 'aprovado') {
+                if ($situacao === $this->approvedStatus()) {
                     $aprovado++;
-                } elseif ($situacao === 'pendencia') {
-                    $pendencia++;
                 } else {
                     $naoAprovado++;
                 }
@@ -504,7 +497,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             ->update([
                 'aprovado_count' => DB::raw("aprovado_count + {$aprovado}"),
                 'nao_aprovado_count' => DB::raw("nao_aprovado_count + {$naoAprovado}"),
-                'pendencia_count' => DB::raw("pendencia_count + {$pendencia}"),
+                'pendencia_count' => 0,
                 'spool_bytes' => $this->fileSizeSafe($disk, $job->spool_path),
                 'updated_at' => Carbon::now(),
             ]);
@@ -914,6 +907,16 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
         $formatted = number_format((float) $value, 2, '.', '');
         return rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    private function approvedStatus(): string
+    {
+        return 'Aprovado';
+    }
+
+    private function notApprovedStatus(): string
+    {
+        return 'Não Aprovado';
     }
 
     private function finalizeJob(string $targetStatus): void
