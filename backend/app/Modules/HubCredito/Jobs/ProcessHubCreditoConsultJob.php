@@ -452,7 +452,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             ->update([
                 'aprovado_count' => DB::raw("aprovado_count + {$aprovado}"),
                 'nao_aprovado_count' => DB::raw("nao_aprovado_count + {$naoAprovado}"),
-                'pendencia_count' => 0,
                 'spool_bytes' => $this->fileSizeSafe($disk, $job->spool_path),
                 'updated_at' => Carbon::now(),
             ]);
