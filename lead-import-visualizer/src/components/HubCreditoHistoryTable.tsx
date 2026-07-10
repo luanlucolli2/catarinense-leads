@@ -83,6 +83,24 @@ function getStatusInfo(status: HubCreditoJobStatus) {
   }
 }
 
+function getPhaseInfo(phase: HubCreditoConsultJobListItem["phase"]) {
+  if (phase === "fase_1") {
+    return {
+      className:
+        "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
+      label: "Fase 1",
+    };
+  }
+  if (phase === "fase_2") {
+    return {
+      className:
+        "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800",
+      label: "Fase 2",
+    };
+  }
+  return null;
+}
+
 function calcSegments(i: HubCreditoConsultJobListItem) {
   const total = i.total_cpfs || 0;
   if (!total) return { ok: 0, not: 0, fail: 0, sum: 0 };
@@ -225,6 +243,9 @@ export const HubCreditoHistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as HubCreditoJobStatus);
+          const phaseInfo = i.phase && (i.status === "pendente" || i.status === "em_progresso")
+            ? getPhaseInfo(i.phase)
+            : null;
           const finalReady = canDownloadFinal(i);
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
@@ -278,6 +299,16 @@ export const HubCreditoHistoryTable = ({
                     </div>
 
                     <div className="hidden sm:flex flex-wrap items-center justify-end gap-2 sm:gap-3 ml-4">
+                      {phaseInfo && (
+                        <Badge
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 text-xs border",
+                            phaseInfo.className
+                          )}
+                        >
+                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
+                        </Badge>
+                      )}
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
@@ -325,6 +356,16 @@ export const HubCreditoHistoryTable = ({
 
                   <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
+                      {phaseInfo && (
+                        <Badge
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 text-xs border",
+                            phaseInfo.className
+                          )}
+                        >
+                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
+                        </Badge>
+                      )}
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
