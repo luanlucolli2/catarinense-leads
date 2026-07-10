@@ -25,6 +25,7 @@ interface V8ControlsProps {
   onSearchChange: (value: string) => void;
   statusFilter?: JobStatusFilterValue;
   onStatusFilterChange?: (value: JobStatusFilterValue) => void;
+  statusOptions?: Array<{ value: JobStatusFilterValue; label: string }>;
 }
 
 export const V8Controls = ({
@@ -33,7 +34,19 @@ export const V8Controls = ({
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
+  statusOptions,
 }: V8ControlsProps) => {
+  const resolvedStatusOptions = statusOptions ?? [
+    { value: "todos", label: "Todos os status" },
+    { value: "agendado", label: "Agendado" },
+    { value: "pendente", label: "Pendente" },
+    { value: "em_progresso", label: "Em andamento" },
+    { value: "pausado", label: "Pausado" },
+    { value: "concluido", label: "Concluído" },
+    { value: "falhou", label: "Falhou" },
+    { value: "cancelado", label: "Cancelado" },
+  ];
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
       <div className="px-4 py-4">
@@ -59,14 +72,11 @@ export const V8Controls = ({
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todos">Todos os status</SelectItem>
-                  <SelectItem value="agendado">Agendado</SelectItem>
-                  <SelectItem value="pendente">Pendente</SelectItem>
-                  <SelectItem value="em_progresso">Em andamento</SelectItem>
-                  <SelectItem value="pausado">Pausado</SelectItem>
-                  <SelectItem value="concluido">Concluído</SelectItem>
-                  <SelectItem value="falhou">Falhou</SelectItem>
-                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                  {resolvedStatusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             ) : null}

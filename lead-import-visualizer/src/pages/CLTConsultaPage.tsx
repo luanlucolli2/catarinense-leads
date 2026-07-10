@@ -3,14 +3,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { CLTControls } from "@/components/CLTControls";
-import { CLTHistoryTable } from "@/components/CLTHistoryTable";
-import { NewCLTConsultModal } from "@/components/NewCLTConsultModal";
+import { FactaControls } from "@/components/FactaControls";
+import { FactaHistoryTable } from "@/components/FactaHistoryTable";
+import { NewFactaConsultModal } from "@/components/NewFactaConsultModal";
 import { V8Controls } from "@/components/V8Controls";
 import { V8HistoryTable } from "@/components/V8HistoryTable";
 import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
 import { PresencaHistoryTable } from "@/components/PresencaHistoryTable";
 import { NewPresencaConsultModal } from "@/components/NewPresencaConsultModal";
+import { HubCreditoHistoryTable } from "@/components/HubCreditoHistoryTable";
+import { NewHubCreditoConsultModal } from "@/components/NewHubCreditoConsultModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,26 +20,27 @@ import { usePersistedState } from "@/hooks/usePersistedState";
 import factaLogo from "@/assets/factalogo.png";
 import v8Logo from "@/assets/v8logo.png";
 import pbankLogo from "@/assets/pbanklogo.png";
+import hubCreditoLogo from "@/assets/hubcredito-logo.png";
 
 import {
-  listCltConsultJobs,
-  createCltConsultJob,
-  downloadCltReport,
-  downloadCltPreview,
-  cancelCltConsultJob,
-  pauseCltConsultJob,
-  resumeCltConsultJob,
-  rerunCltConsultJobPhase2,
-  deleteCltConsultJob,
-  CltConsultJobListItem,
-  CltConsultJobShow,
-  getCltConsultJob,
-  getCltJobHttpCounters,
-  CltJobHttpCountersResponse,
-  CltJobStatusFilter,
-  CltJobVariantFilter,
-  requestCltPreview,
-} from "@/api/clt";
+  listFactaCltConsultJobs,
+  createFactaCltConsultJob,
+  downloadFactaCltReport,
+  downloadFactaCltPreview,
+  cancelFactaCltConsultJob,
+  pauseFactaCltConsultJob,
+  resumeFactaCltConsultJob,
+  rerunFactaCltConsultJobPhase2,
+  deleteFactaCltConsultJob,
+  FactaCltConsultJobListItem,
+  FactaCltConsultJobShow,
+  getFactaCltConsultJob,
+  getFactaCltJobHttpCounters,
+  FactaCltJobHttpCountersResponse,
+  FactaCltJobStatusFilter,
+  FactaCltJobVariantFilter,
+  requestFactaCltPreview,
+} from "@/api/facta";
 import {
   listV8ConsultJobs,
   createV8ConsultJob,
@@ -65,6 +68,18 @@ import {
   PresencaJobStatusFilter,
   getPresencaConsultJob,
 } from "@/api/presenca";
+import {
+  listHubCreditoConsultJobs,
+  createHubCreditoConsultJob,
+  downloadHubCreditoReport,
+  downloadHubCreditoPreview,
+  cancelHubCreditoConsultJob,
+  deleteHubCreditoConsultJob,
+  HubCreditoConsultJobListItem,
+  HubCreditoConsultJobShow,
+  HubCreditoJobStatusFilter,
+  getHubCreditoConsultJob,
+} from "@/api/hubcredito";
 
 function formatDateTimeBR(iso: string | null | undefined) {
   if (!iso) return "-";
@@ -97,19 +112,19 @@ function deleteJobErrorMessage(error: any) {
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "presenca">(
-    "clt:activeTab",
+  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "hubcredito" | "presenca">(
+    "facta:activeTab",
     "facta"
   );
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-  const [statusFilter, setStatusFilter] = usePersistedState<CltJobStatusFilter>(
-    "clt:statusFilter",
+  const [statusFilter, setStatusFilter] = usePersistedState<FactaCltJobStatusFilter>(
+    "facta:statusFilter",
     "todos"
   );
-  const [variantFilter, setVariantFilter] = usePersistedState<CltJobVariantFilter>(
-    "clt:variantFilter",
+  const [variantFilter, setVariantFilter] = usePersistedState<FactaCltJobVariantFilter>(
+    "facta:variantFilter",
     "todos"
   );
   const [page, setPage] = useState(1);
@@ -117,6 +132,13 @@ const CLTConsultaPage = () => {
   const [isNewV8ModalOpen, setIsNewV8ModalOpen] = useState(false);
   const [searchValueV8, setSearchValueV8] = useState("");
   const [pageV8, setPageV8] = useState(1);
+  const [isNewHubCreditoModalOpen, setIsNewHubCreditoModalOpen] = useState(false);
+  const [searchValueHubCredito, setSearchValueHubCredito] = useState("");
+  const [statusFilterHubCredito, setStatusFilterHubCredito] = usePersistedState<HubCreditoJobStatusFilter>(
+    "hubcredito:statusFilter",
+    "todos"
+  );
+  const [pageHubCredito, setPageHubCredito] = useState(1);
   const [isNewPresencaModalOpen, setIsNewPresencaModalOpen] = useState(false);
   const [searchValuePresenca, setSearchValuePresenca] = useState("");
   const [statusFilterPresenca, setStatusFilterPresenca] = usePersistedState<PresencaJobStatusFilter>(
@@ -126,11 +148,15 @@ const CLTConsultaPage = () => {
   const [pagePresenca, setPagePresenca] = useState(1);
 
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
-    "clt:watchJobId",
+    "facta:watchJobId",
     null
   );
   const [watchingV8JobId, setWatchingV8JobId] = usePersistedState<number | null>(
     "v8:watchJobId",
+    null
+  );
+  const [watchingHubCreditoJobId, setWatchingHubCreditoJobId] = usePersistedState<number | null>(
+    "hubcredito:watchJobId",
     null
   );
   const [watchingPresencaJobId, setWatchingPresencaJobId] = usePersistedState<number | null>(
@@ -148,6 +174,8 @@ const CLTConsultaPage = () => {
 
   const v8InFlight = useRef<Set<number>>(new Set());
   const lastV8Snapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
+  const hubCreditoInFlight = useRef<Set<number>>(new Set());
+  const lastHubCreditoSnapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
   const presencaInFlight = useRef<Set<number>>(new Set());
   const lastPresencaSnapshot = useRef<{ id: number; status?: string | null; finishedAt?: string | null } | null>(null);
 
@@ -156,11 +184,11 @@ const CLTConsultaPage = () => {
     isLoading: listLoading,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ["clt:list", page, statusFilter, variantFilter],
-    queryFn: () => listCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
+    queryKey: ["facta:list", page, statusFilter, variantFilter],
+    queryFn: () => listFactaCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
-    refetchInterval: 30000,
+    refetchInterval: activeTab === "facta" ? 30000 : false,
   });
 
   const items = jobsPage?.data ?? [];
@@ -188,6 +216,24 @@ const CLTConsultaPage = () => {
     (v8JobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
   const {
+    data: hubCreditoJobsPage,
+    isLoading: hubCreditoListLoading,
+    refetch: refetchHubCreditoList,
+  } = useQuery({
+    queryKey: ["hubcredito:list", pageHubCredito, statusFilterHubCredito],
+    queryFn: () => listHubCreditoConsultJobs(pageHubCredito, { status: statusFilterHubCredito }),
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
+    refetchInterval: activeTab === "hubcredito" ? 30000 : false,
+  });
+
+  const hubCreditoItems = hubCreditoJobsPage?.data ?? [];
+  const hubCreditoLastPage = hubCreditoJobsPage?.last_page ?? 1;
+
+  const hubCreditoTitleOf = (id: number) =>
+    (hubCreditoJobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
+
+  const {
     data: presencaJobsPage,
     isLoading: presencaListLoading,
     refetch: refetchPresencaList,
@@ -205,15 +251,15 @@ const CLTConsultaPage = () => {
   const presencaTitleOf = (id: number) =>
     (presencaJobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
-  const { data: watchedJob } = useQuery<CltConsultJobShow>({
-    queryKey: ["clt:job", watchingJobId],
-    queryFn: () => getCltConsultJob(watchingJobId as number),
+  const { data: watchedJob } = useQuery<FactaCltConsultJobShow>({
+    queryKey: ["facta:job", watchingJobId],
+    queryFn: () => getFactaCltConsultJob(watchingJobId as number),
     enabled: !!watchingJobId,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchOnMount: "always",
     refetchInterval: (query) => {
-      const job = query.state.data as CltConsultJobShow | undefined;
+      const job = query.state.data as FactaCltConsultJobShow | undefined;
       if (!job) return false;
       if (job.status === "agendado") return 15000;
       const open =
@@ -243,6 +289,24 @@ const CLTConsultaPage = () => {
     },
   });
 
+  const { data: watchedHubCreditoJob } = useQuery<HubCreditoConsultJobShow>({
+    queryKey: ["hubcredito:job", watchingHubCreditoJobId],
+    queryFn: () => getHubCreditoConsultJob(watchingHubCreditoJobId as number),
+    enabled: !!watchingHubCreditoJobId,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: "always",
+    refetchInterval: (query) => {
+      const job = query.state.data as HubCreditoConsultJobShow | undefined;
+      if (!job) return false;
+      const open =
+        job.status === "pendente" ||
+        job.status === "em_progresso" ||
+        (job.status === "cancelado" && !job.finished_at);
+      return open ? 5000 : false;
+    },
+  });
+
   const { data: watchedPresencaJob } = useQuery<PresencaConsultJobShow>({
     queryKey: ["presenca:job", watchingPresencaJobId],
     queryFn: () => getPresencaConsultJob(watchingPresencaJobId as number),
@@ -263,13 +327,13 @@ const CLTConsultaPage = () => {
   });
 
   const { data: httpCountersData, isLoading: httpCountersLoading, isFetching: httpCountersFetching, error: httpCountersError, refetch: refetchHttpCounters } =
-    useQuery<CltJobHttpCountersResponse>({
-      queryKey: ["clt:http-counters", httpCountersModalJob?.id ?? null],
-      queryFn: () => getCltJobHttpCounters(httpCountersModalJob!.id),
+    useQuery<FactaCltJobHttpCountersResponse>({
+      queryKey: ["facta:http-counters", httpCountersModalJob?.id ?? null],
+      queryFn: () => getFactaCltJobHttpCounters(httpCountersModalJob!.id),
       enabled: !!httpCountersModalJob?.id,
       refetchOnWindowFocus: true,
       refetchInterval: (query) => {
-        const data = query.state.data as CltJobHttpCountersResponse | undefined;
+        const data = query.state.data as FactaCltJobHttpCountersResponse | undefined;
         if (!httpCountersModalJob?.id) return false;
         if (!data) return 15000;
         return data.status === "pendente" || data.status === "em_progresso" ? 15000 : false;
@@ -288,7 +352,7 @@ const CLTConsultaPage = () => {
     };
   }, [httpCountersRefreshCooldownUntil]);
 
-  const itemsWithOverlay: CltConsultJobListItem[] = useMemo(() => {
+  const itemsWithOverlay: FactaCltConsultJobListItem[] = useMemo(() => {
     if (!watchedJob) return items;
     return items.map((i) => {
       if (i.id !== watchedJob.id) return i;
@@ -346,6 +410,31 @@ const CLTConsultaPage = () => {
     return v8ItemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
   }, [v8ItemsWithOverlay, searchValueV8]);
 
+  const hubCreditoItemsWithOverlay: HubCreditoConsultJobListItem[] = useMemo(() => {
+    if (!watchedHubCreditoJob) return hubCreditoItems;
+    return hubCreditoItems.map((i) => {
+      if (i.id !== watchedHubCreditoJob.id) return i;
+      return {
+        ...i,
+        status: watchedHubCreditoJob.status,
+        phase: watchedHubCreditoJob.phase,
+        total_cpfs: watchedHubCreditoJob.total_cpfs,
+        aprovado_count: watchedHubCreditoJob.aprovado_count,
+        nao_aprovado_count: watchedHubCreditoJob.nao_aprovado_count,
+        fail_count: watchedHubCreditoJob.fail_count,
+        spool_bytes: watchedHubCreditoJob.spool_bytes ?? i.spool_bytes,
+        spool_path: watchedHubCreditoJob.spool_path ?? i.spool_path,
+        spool_inputs_path: watchedHubCreditoJob.spool_inputs_path ?? i.spool_inputs_path,
+      };
+    });
+  }, [hubCreditoItems, watchedHubCreditoJob]);
+
+  const filteredHubCreditoItems = useMemo(() => {
+    const q = searchValueHubCredito.trim().toLowerCase();
+    if (!q) return hubCreditoItemsWithOverlay;
+    return hubCreditoItemsWithOverlay.filter((i) => i.title.toLowerCase().includes(q));
+  }, [hubCreditoItemsWithOverlay, searchValueHubCredito]);
+
   const presencaItemsWithOverlay: PresencaConsultJobListItem[] = useMemo(() => {
     if (!watchedPresencaJob) return presencaItems;
     return presencaItems.map((i) => {
@@ -401,14 +490,14 @@ const CLTConsultaPage = () => {
       if (watchedJob.has_file) {
         const tid = previewToastById.current.get(watchedJob.id);
         if (tid) toast.dismiss(tid);
-        void downloadCltReport(watchedJob.id);
+        void downloadFactaCltReport(watchedJob.id);
         waitingPreview.current.delete(watchedJob.id);
         previewToastById.current.delete(watchedJob.id);
         inFlight.current.delete(watchedJob.id);
       } else if (watchedJob.preview_status === "ready") {
         const tid = previewToastById.current.get(watchedJob.id);
         if (tid) toast.success("Prévia pronta! Baixando planilha…", { id: tid });
-        void downloadCltPreview(watchedJob.id);
+        void downloadFactaCltPreview(watchedJob.id);
         waitingPreview.current.delete(watchedJob.id);
         previewToastById.current.delete(watchedJob.id);
         inFlight.current.delete(watchedJob.id);
@@ -417,7 +506,8 @@ const CLTConsultaPage = () => {
         const msg = watchedJob.preview_error
           ? `Falha ao gerar prévia: ${watchedJob.preview_error}`
           : "Falha ao gerar prévia.";
-        tid ? toast.error(msg, { id: tid }) : toast.error(msg);
+        if (tid) toast.error(msg, { id: tid });
+        else toast.error(msg);
         waitingPreview.current.delete(watchedJob.id);
         previewToastById.current.delete(watchedJob.id);
         inFlight.current.delete(watchedJob.id);
@@ -427,7 +517,7 @@ const CLTConsultaPage = () => {
     if (watchedJob.status === "pausado") {
       toast.info(`Consulta "${niceTitle}" pausada.`);
       setWatchingJobId(null);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
       return;
     }
 
@@ -436,7 +526,7 @@ const CLTConsultaPage = () => {
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
 
       setWatchingJobId(null);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
     }
   }, [watchedJob, qc, setWatchingJobId]);
 
@@ -486,6 +576,44 @@ const CLTConsultaPage = () => {
   }, [watchedV8Job, qc, setWatchingV8JobId]);
 
   useEffect(() => {
+    if (!watchedHubCreditoJob) return;
+
+    const niceTitle = watchedHubCreditoJob.title ?? `#${watchedHubCreditoJob.id}`;
+    const cancelStopPending = watchedHubCreditoJob.status === "cancelado" && !watchedHubCreditoJob.finished_at;
+    const isTerminal =
+      ["concluido", "falhou"].includes(watchedHubCreditoJob.status) ||
+      (watchedHubCreditoJob.status === "cancelado" && !cancelStopPending);
+
+    const prev = lastHubCreditoSnapshot.current;
+    const changed =
+      !prev ||
+      prev.id !== watchedHubCreditoJob.id ||
+      prev.status !== watchedHubCreditoJob.status ||
+      prev.finishedAt !== watchedHubCreditoJob.finished_at;
+
+    if (!changed) return;
+    lastHubCreditoSnapshot.current = {
+      id: watchedHubCreditoJob.id,
+      status: watchedHubCreditoJob.status,
+      finishedAt: watchedHubCreditoJob.finished_at,
+    };
+
+    if (cancelStopPending) {
+      void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
+      return;
+    }
+
+    if (isTerminal) {
+      if (watchedHubCreditoJob.status === "concluido") toast.success(`Consulta "${niceTitle}" concluída.`);
+      else if (watchedHubCreditoJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
+      else if (watchedHubCreditoJob.status === "cancelado") toast.info(`Consulta "${niceTitle}" cancelada.`);
+
+      setWatchingHubCreditoJobId(null);
+      void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
+    }
+  }, [watchedHubCreditoJob, qc, setWatchingHubCreditoJobId]);
+
+  useEffect(() => {
     if (!watchedPresencaJob) return;
 
     const niceTitle = watchedPresencaJob.title ?? `#${watchedPresencaJob.id}`;
@@ -532,20 +660,20 @@ const CLTConsultaPage = () => {
 
   // Aceita payload estendido
   const createMutation = useMutation<any, any, any>({
-    mutationFn: (vars: any) => createCltConsultJob(vars),
+    mutationFn: (vars: any) => createFactaCltConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
       const t = (vars as any).title;
       toast.success(data.status === "agendado" ? `Consulta "${t}" agendada.` : `Consulta "${t}" criada.`);
       setPage(1);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
   });
 
   const cancelMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
-      cancelCltConsultJob(id, reason),
+      cancelFactaCltConsultJob(id, reason),
     onSuccess: (data, { id }) => {
       setWatchingJobId(id);
       if (data.finished_at) {
@@ -553,58 +681,58 @@ const CLTConsultaPage = () => {
       } else {
         toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
       }
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
   });
 
   const pauseMutation = useMutation({
-    mutationFn: (id: number) => pauseCltConsultJob(id),
+    mutationFn: (id: number) => pauseFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.info(`Pausa solicitada para "${titleOf(id)}".`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar"),
   });
 
   const resumeMutation = useMutation({
-    mutationFn: (id: number) => resumeCltConsultJob(id),
+    mutationFn: (id: number) => resumeFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.success(`Consulta "${titleOf(id)}" retomada.`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar"),
   });
 
   const rerunPhase2Mutation = useMutation({
-    mutationFn: (id: number) => rerunCltConsultJobPhase2(id),
+    mutationFn: (id: number) => rerunFactaCltConsultJobPhase2(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.success(`Reprocessamento da fase 2 iniciado para "${titleOf(id)}".`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível reprocessar a fase 2"),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteCltConsultJob(id),
+    mutationFn: (id: number) => deleteFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       if (id === watchingJobId) setWatchingJobId(null);
       toast.success(`Consulta "${titleOf(id)}" excluída.`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.removeQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.removeQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
 
   const requestPreviewMutation = useMutation({
-    mutationFn: (id: number) => requestCltPreview(id),
+    mutationFn: (id: number) => requestFactaCltPreview(id),
   });
 
   const createV8Mutation = useMutation<any, any, {
@@ -672,6 +800,44 @@ const CLTConsultaPage = () => {
       void qc.removeQueries({ queryKey: ["v8:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
+  });
+
+  const createHubCreditoMutation = useMutation<any, any, { title: string; lines: string }>({
+    mutationFn: (vars) => createHubCreditoConsultJob(vars),
+    onSuccess: (data, vars) => {
+      setWatchingHubCreditoJobId(data.id);
+      toast.success(`Consulta "${vars.title}" criada.`);
+      setPageHubCredito(1);
+      void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
+  });
+
+  const cancelHubCreditoMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      cancelHubCreditoConsultJob(id, reason),
+    onSuccess: (data, { id }) => {
+      setWatchingHubCreditoJobId(id);
+      if (data.finished_at) {
+        toast.info(`Consulta "${hubCreditoTitleOf(id)}" cancelada.`);
+      } else {
+        toast.info(`Cancelamento solicitado para "${hubCreditoTitleOf(id)}". A prévia seguirá disponível enquanto houver spool.`);
+      }
+      void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
+      void qc.invalidateQueries({ queryKey: ["hubcredito:job", id] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
+  });
+
+  const deleteHubCreditoMutation = useMutation({
+    mutationFn: (id: number) => deleteHubCreditoConsultJob(id),
+    onSuccess: (_data, id) => {
+      if (id === watchingHubCreditoJobId) setWatchingHubCreditoJobId(null);
+      toast.success(`Consulta "${hubCreditoTitleOf(id)}" excluída.`);
+      void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
+      void qc.removeQueries({ queryKey: ["hubcredito:job", id] });
+    },
+    onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
 
   const createPresencaMutation = useMutation<any, any, { title: string; lines: string; run_at?: string; timezone?: string }>({
@@ -787,10 +953,14 @@ const CLTConsultaPage = () => {
     });
   };
 
+  const handleNewHubCreditoConsult = async (title: string, lines: string) => {
+    await createHubCreditoMutation.mutateAsync({ title, lines });
+  };
+
   const getOrCreatePreviewToast = (id: number) => {
     const existing = previewToastById.current.get(id);
     if (existing) return existing;
-    const stableId = `clt-prev-${id}`;
+    const stableId = `facta-prev-${id}`;
     toast.info("Gerando prévia…", {
       id: stableId,
       description: "Aguarde enquanto preparamos o XLSX.",
@@ -812,13 +982,13 @@ const CLTConsultaPage = () => {
     inFlight.current.add(id);
 
     try {
-      const j = await qc.ensureQueryData<CltConsultJobShow>({
-        queryKey: ["clt:job", id],
-        queryFn: () => getCltConsultJob(id),
+      const j = await qc.ensureQueryData<FactaCltConsultJobShow>({
+        queryKey: ["facta:job", id],
+        queryFn: () => getFactaCltConsultJob(id),
       });
 
       if (!opts?.preview && j.has_file) {
-        await downloadCltReport(id);
+        await downloadFactaCltReport(id);
         inFlight.current.delete(id);
         return;
       }
@@ -835,13 +1005,13 @@ const CLTConsultaPage = () => {
           previewToastById.current.delete(id);
           waitingPreview.current.delete(id);
 
-          await downloadCltPreview(id);
+          await downloadFactaCltPreview(id);
           inFlight.current.delete(id);
-          void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+          void qc.invalidateQueries({ queryKey: ["facta:job", id] });
           return;
         }
 
-        void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+        void qc.invalidateQueries({ queryKey: ["facta:job", id] });
         return;
       }
 
@@ -855,12 +1025,12 @@ const CLTConsultaPage = () => {
         previewToastById.current.delete(id);
         waitingPreview.current.delete(id);
 
-        await downloadCltPreview(id);
+        await downloadFactaCltPreview(id);
         inFlight.current.delete(id);
-        void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+        void qc.invalidateQueries({ queryKey: ["facta:job", id] });
         return;
       }
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     } catch (e: any) {
       const apiMsg = e?.response?.data?.message || e?.message;
       toast.error(apiMsg ?? "Falha no download");
@@ -983,6 +1153,53 @@ const CLTConsultaPage = () => {
     await deleteV8Mutation.mutateAsync(id);
   };
 
+  const handleDownloadHubCredito = async (id: number, opts?: { preview?: boolean }) => {
+    if (hubCreditoInFlight.current.has(id)) {
+      toast.warning("Já estamos gerando/baixando para este job.");
+      return;
+    }
+    hubCreditoInFlight.current.add(id);
+
+    try {
+      const j = await qc.ensureQueryData<HubCreditoConsultJobShow>({
+        queryKey: ["hubcredito:job", id],
+        queryFn: () => getHubCreditoConsultJob(id),
+      });
+
+      if (!opts?.preview && j.has_file) {
+        await downloadHubCreditoReport(id);
+        hubCreditoInFlight.current.delete(id);
+        return;
+      }
+
+      try {
+        await downloadHubCreditoPreview(id);
+      } catch (e: any) {
+        if (e?.status === 409) {
+          toast.info("Prévia indisponível ainda. Aguarde o início do processamento.");
+        } else {
+          const apiMsg = e?.response?.data?.message || e?.message;
+          toast.error(apiMsg ?? "Falha ao baixar a prévia");
+        }
+      } finally {
+        hubCreditoInFlight.current.delete(id);
+        void qc.invalidateQueries({ queryKey: ["hubcredito:job", id] });
+      }
+    } catch (e: any) {
+      const apiMsg = e?.response?.data?.message || e?.message;
+      toast.error(apiMsg ?? "Falha no download");
+      hubCreditoInFlight.current.delete(id);
+    }
+  };
+
+  const handleCancelHubCredito = async (id: number, reason?: string) => {
+    await cancelHubCreditoMutation.mutateAsync({ id, reason });
+  };
+
+  const handleDeleteHubCredito = async (id: number) => {
+    await deleteHubCreditoMutation.mutateAsync(id);
+  };
+
   const handleDownloadPresenca = async (id: number, opts?: { preview?: boolean }) => {
     if (presencaInFlight.current.has(id)) {
       toast.warning("Já estamos gerando/baixando para este job.");
@@ -1039,14 +1256,19 @@ const CLTConsultaPage = () => {
   };
 
   const isV8Tab = activeTab === "v8";
+  const isHubCreditoTab = activeTab === "hubcredito";
   const isPresencaTab = activeTab === "presenca";
   const headerTitle = isV8Tab
     ? "Consulta CLT (V8)"
+    : isHubCreditoTab
+      ? "Consulta CLT (HubCredito)"
     : isPresencaTab
       ? "Consulta CLT (Presença)"
       : "Consulta CLT (FACTA)";
   const headerDescription = isV8Tab
     ? "Envie CPF, nome e data de nascimento em massa e baixe o resultado em CSV."
+    : isHubCreditoTab
+      ? "Envie CPF, nome e data de nascimento em massa para consulta HubCredito e baixe o resultado em CSV."
     : isPresencaTab
       ? "Envie CPF e nome em massa para consulta Presença e baixe o resultado em CSV."
       : "Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.";
@@ -1064,7 +1286,7 @@ const CLTConsultaPage = () => {
 
       <Tabs
         value={activeTab}
-        onValueChange={(val) => setActiveTab(val as "facta" | "v8" | "presenca")}
+        onValueChange={(val) => setActiveTab(val as "facta" | "v8" | "hubcredito" | "presenca")}
         className="space-y-6"
       >
         <TabsList className="flex w-fit h-auto p-1 bg-muted/50 rounded-lg justify-start">
@@ -1095,6 +1317,19 @@ const CLTConsultaPage = () => {
             </span>
           </TabsTrigger>
           <TabsTrigger
+            value="hubcredito"
+            className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <img
+                src={hubCreditoLogo}
+                alt="HubCredito"
+                className="h-4 w-4 object-contain"
+              />
+              HubCredito
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
             value="presenca"
             className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
           >
@@ -1110,7 +1345,7 @@ const CLTConsultaPage = () => {
         </TabsList>
 
         <TabsContent value="facta" className="space-y-6">
-          <CLTControls
+          <FactaControls
             onNewConsultClick={() => setIsNewConsultModalOpen(true)}
             searchValue={searchValue}
             onSearchChange={setSearchValue}
@@ -1126,7 +1361,7 @@ const CLTConsultaPage = () => {
             }}
           />
 
-          <CLTHistoryTable
+          <FactaHistoryTable
             items={filteredItems}
             loading={!!(listLoading && !jobsPage)}
             onDownload={handleDownload}
@@ -1167,6 +1402,40 @@ const CLTConsultaPage = () => {
           />
         </TabsContent>
 
+        <TabsContent value="hubcredito" className="space-y-6">
+          <V8Controls
+            onNewConsultClick={() => setIsNewHubCreditoModalOpen(true)}
+            searchValue={searchValueHubCredito}
+            onSearchChange={setSearchValueHubCredito}
+            statusFilter={statusFilterHubCredito}
+            onStatusFilterChange={(value) => {
+              setStatusFilterHubCredito(value as HubCreditoJobStatusFilter);
+              setPageHubCredito(1);
+            }}
+            statusOptions={[
+              { value: "todos", label: "Todos os status" },
+              { value: "pendente", label: "Pendente" },
+              { value: "em_progresso", label: "Em andamento" },
+              { value: "concluido", label: "Concluído" },
+              { value: "falhou", label: "Falhou" },
+              { value: "cancelado", label: "Cancelado" },
+            ]}
+          />
+
+          <HubCreditoHistoryTable
+            items={filteredHubCreditoItems}
+            loading={!!(hubCreditoListLoading && !hubCreditoJobsPage)}
+            onDownload={handleDownloadHubCredito}
+            onCancel={handleCancelHubCredito}
+            onDelete={handleDeleteHubCredito}
+            onRefresh={() => refetchHubCreditoList()}
+            page={pageHubCredito}
+            lastPage={hubCreditoLastPage}
+            onPageChange={(p) => setPageHubCredito(p)}
+            formatDateTimeBR={formatDateTimeBR}
+          />
+        </TabsContent>
+
         <TabsContent value="presenca" className="space-y-6">
           <V8Controls
             onNewConsultClick={() => setIsNewPresencaModalOpen(true)}
@@ -1196,7 +1465,7 @@ const CLTConsultaPage = () => {
         </TabsContent>
       </Tabs>
 
-      <NewCLTConsultModal
+      <NewFactaConsultModal
         isOpen={isNewConsultModalOpen}
         onClose={() => setIsNewConsultModalOpen(false)}
         onSubmit={handleNewConsult}
@@ -1342,6 +1611,12 @@ const CLTConsultaPage = () => {
         isOpen={isNewV8ModalOpen}
         onClose={() => setIsNewV8ModalOpen(false)}
         onSubmit={handleNewV8Consult}
+      />
+
+      <NewHubCreditoConsultModal
+        isOpen={isNewHubCreditoModalOpen}
+        onClose={() => setIsNewHubCreditoModalOpen(false)}
+        onSubmit={handleNewHubCreditoConsult}
       />
 
       <NewPresencaConsultModal

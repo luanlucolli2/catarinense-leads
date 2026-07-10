@@ -4,8 +4,8 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
-use App\Modules\CLT\Services\DispatchScheduledCltConsultJobs;
-use App\Modules\CLT\Services\ResumeActiveCltConsultJobsService;
+use App\Modules\FactaCLT\Services\DispatchScheduledFactaCltConsultJobs;
+use App\Modules\FactaCLT\Services\ResumeActiveCltConsultJobsService;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
 use App\Modules\Presenca\Services\ResumeActivePresencaConsultJobsService;
 use App\Modules\Vendeai\Services\NewCorbanCatalogValidationService;
@@ -27,20 +27,20 @@ Artisan::command('inspire', function () {
 | Estratégia leve para 1 vCPU / 2GB RAM: um único UPDATE set-based.
 | Usa a data de hoje em America/Sao_Paulo e mantém updated_at intocado.
 */
-Artisan::command('clt:refresh-admission-months', function () {
+Artisan::command('facta:refresh-admission-months', function () {
     $today = Carbon::now('America/Sao_Paulo')->toDateString();
 
-    $affected = DB::table('clt_snapshots')
+    $affected = DB::table('facta_clt_snapshots')
         ->whereNotNull('data_admissao')
         ->update([
             'meses_admissao' => DB::raw("GREATEST(TIMESTAMPDIFF(MONTH, data_admissao, DATE '{$today}'), 0)")
         ]);
 
-    $this->info("clt_snapshots: meses_admissao atualizados em {$affected} registro(s).");
+    $this->info("facta_clt_snapshots: meses_admissao atualizados em {$affected} registro(s).");
 })->purpose('Recalcula meses_admissao com base em data_admissao (daily, set-based, sem tocar updated_at)');
 
-Artisan::command('clt:dispatch-scheduled-consult-jobs', function () {
-    $result = app(DispatchScheduledCltConsultJobs::class)->handle();
+Artisan::command('facta:dispatch-scheduled-consult-jobs', function () {
+    $result = app(DispatchScheduledFactaCltConsultJobs::class)->handle();
 
     if (($result['scanned'] ?? 0) === 0) {
         return;

@@ -15,8 +15,8 @@ class LeadFilter
     {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
-        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'clt' | 'mercantil' | 'uy3' | '360'
-        if (!in_array($mode, ['base', 'fgts', 'clt', 'mercantil', 'uy3', '360'], true)) {
+        $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'facta' | 'mercantil' | 'uy3' | '360'
+        if (!in_array($mode, ['base', 'fgts', 'facta', 'mercantil', 'uy3', '360'], true)) {
             $mode = 'fgts';
         }
         $sort = self::normalizeSort((string) $r->input('sort', ''), $mode);
@@ -87,8 +87,8 @@ class LeadFilter
             : ($mode === 'fgts');
 
         $needAnyClt = $exportMode
-            ? (bool) array_intersect($columnsForExport, array_merge($cltFields, ['clt_consultado_em', 'clt_dados_atualizados_em']))
-            : ($mode === 'clt');
+            ? (bool) array_intersect($columnsForExport, array_merge($cltFields, ['facta_consultado_em', 'facta_dados_atualizados_em']))
+            : ($mode === 'facta');
 
         $needAnyMercantil = $exportMode
             ? (bool) array_intersect($columnsForExport, $mercantilFields)
@@ -99,35 +99,35 @@ class LeadFilter
             : ($mode === 'uy3');
 
         $hasCltScopedFilters =
-            $r->filled('clt_situacao')
-            || $r->filled('clt_elegivel')
-            || $r->filled('clt_not_found')
-            || $r->filled('clt_consulta_from')
-            || $r->filled('clt_consulta_to')
-            || $r->filled('clt_admissao_from')
-            || $r->filled('clt_admissao_to')
-            || $r->filled('clt_meses_min')
-            || $r->filled('clt_meses_max')
-            || $r->filled('clt_inicio_empregador_from')
-            || $r->filled('clt_inicio_empregador_to')
-            || $r->filled('clt_categoria_codigos')
-            || $r->filled('clt_idade_min')
-            || $r->filled('clt_idade_max')
-            || $r->filled('clt_sexo')
-            || $r->filled('clt_renda_min')
-            || $r->filled('clt_renda_max')
-            || $r->filled('clt_base_min')
-            || $r->filled('clt_base_max')
-            || $r->filled('clt_margem_min')
-            || $r->filled('clt_margem_max')
-            || $r->filled('clt_numero_parcelas_min')
-            || $r->filled('clt_numero_parcelas_max')
-            || $r->filled('clt_prestacao_min')
-            || $r->filled('clt_prestacao_max')
-            || $r->filled('clt_ativos_min')
-            || $r->filled('clt_ativos_max')
-            || $r->filled('clt_tem_ativos')
-            || $r->filled('clt_tem_legados');
+            $r->filled('facta_situacao')
+            || $r->filled('facta_elegivel')
+            || $r->filled('facta_not_found')
+            || $r->filled('facta_consulta_from')
+            || $r->filled('facta_consulta_to')
+            || $r->filled('facta_admissao_from')
+            || $r->filled('facta_admissao_to')
+            || $r->filled('facta_meses_min')
+            || $r->filled('facta_meses_max')
+            || $r->filled('facta_inicio_empregador_from')
+            || $r->filled('facta_inicio_empregador_to')
+            || $r->filled('facta_categoria_codigos')
+            || $r->filled('facta_idade_min')
+            || $r->filled('facta_idade_max')
+            || $r->filled('facta_sexo')
+            || $r->filled('facta_renda_min')
+            || $r->filled('facta_renda_max')
+            || $r->filled('facta_base_min')
+            || $r->filled('facta_base_max')
+            || $r->filled('facta_margem_min')
+            || $r->filled('facta_margem_max')
+            || $r->filled('facta_numero_parcelas_min')
+            || $r->filled('facta_numero_parcelas_max')
+            || $r->filled('facta_prestacao_min')
+            || $r->filled('facta_prestacao_max')
+            || $r->filled('facta_ativos_min')
+            || $r->filled('facta_ativos_max')
+            || $r->filled('facta_tem_ativos')
+            || $r->filled('facta_tem_legados');
 
         $hasMercantilScopedFilters =
             $r->filled('mercantil_situacao')
@@ -169,7 +169,7 @@ class LeadFilter
             || $r->filled('fgts_consulta_from')
             || $r->filled('fgts_consulta_to');
 
-        $needCltJoin = $mode === 'clt' || $mode === '360' || $needAnyClt || $hasCltScopedFilters;
+        $needCltJoin = $mode === 'facta' || $mode === '360' || $needAnyClt || $hasCltScopedFilters;
         $needMercantilJoin = (!$exportMode && $mode === 'mercantil')
             || $mode === '360'
             || $needAnyMercantil
@@ -214,7 +214,7 @@ class LeadFilter
             $query = Lead::query()->select($select);
 
             if ($needCltJoin) {
-                $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
+                $query->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
@@ -286,11 +286,11 @@ class LeadFilter
                         $query->addSelect(DB::raw("cs.{$f} as {$f}"));
                     }
                 }
-                if (in_array('clt_consultado_em', $columnsForExport, true)) {
-                    $query->addSelect(DB::raw('cs.consulted_at as clt_consultado_em'));
+                if (in_array('facta_consultado_em', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('cs.consulted_at as facta_consultado_em'));
                 }
-                if (in_array('clt_dados_atualizados_em', $columnsForExport, true)) {
-                    $query->addSelect(DB::raw('cs.updated_at as clt_dados_atualizados_em'));
+                if (in_array('facta_dados_atualizados_em', $columnsForExport, true)) {
+                    $query->addSelect(DB::raw('cs.updated_at as facta_dados_atualizados_em'));
                 }
             }
 
@@ -380,7 +380,7 @@ class LeadFilter
             $query = Lead::query()->select($idsOnly ? ['leads.id'] : ['leads.*']);
 
             if ($needCltJoin) {
-                $query->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
+                $query->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf');
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
@@ -442,7 +442,7 @@ class LeadFilter
                 if ($needFgtsConsultadoCol) {
                     $query->addSelect(DB::raw('fos.updated_at as fgts_off_consultado_em'));
                 }
-            } elseif ($mode === 'clt') {
+            } elseif ($mode === 'facta') {
                 // ===== MODO CLT
                 $query->addSelect([
                     DB::raw('cs.matricula as matricula'),
@@ -466,8 +466,8 @@ class LeadFilter
                     DB::raw('cs.politica_credito_prazo_maximo_disponivel as politica_credito_prazo_maximo_disponivel'),
                     DB::raw('cs.politica_credito_data_consulta as politica_credito_data_consulta'),
                     DB::raw('cs.politica_credito_tabela_aprovada as politica_credito_tabela_aprovada'),
-                    DB::raw('cs.consulted_at as clt_consultado_em'),
-                    DB::raw('cs.updated_at as clt_dados_atualizados_em'),
+                    DB::raw('cs.consulted_at as facta_consultado_em'),
+                    DB::raw('cs.updated_at as facta_dados_atualizados_em'),
 
                     'ultima_origem_cadastral' => self::latestOriginSubquery('cadastral'),
                 ]);
@@ -543,8 +543,8 @@ class LeadFilter
                     DB::raw('cs.margem_disponivel as margem_disponivel'),
                     DB::raw('cs.politica_credito_aprovado as politica_credito_aprovado'),
                     DB::raw('cs.politica_credito_valor_maximo_disponivel as politica_credito_valor_maximo_disponivel'),
-                    DB::raw('cs.consulted_at as clt_consultado_em'),
-                    DB::raw('cs.updated_at as clt_dados_atualizados_em'),
+                    DB::raw('cs.consulted_at as facta_consultado_em'),
+                    DB::raw('cs.updated_at as facta_dados_atualizados_em'),
                     DB::raw('ms.status as mercantil_status'),
                     DB::raw('ms.mensagem_erro as mercantil_mensagem_erro'),
                     DB::raw('ms.data_hora_origem as mercantil_data_hora_origem'),
@@ -663,7 +663,7 @@ class LeadFilter
             self::applyFgtsScopedFilters($query, $r);
         }
 
-        if ($mode === 'clt') {
+        if ($mode === 'facta') {
             self::applyCltPresence($query);
             self::applyCltScopedFilters($query, $r);
         }
@@ -696,9 +696,9 @@ class LeadFilter
             'base' => in_array($sort, ['lead_updated_at', 'lead_created_at'], true)
                 ? $sort
                 : 'lead_updated_at',
-            'clt' => match ($sort) {
-                'clt_updated_at', 'clt_consulted_at', 'lead_updated_at' => $sort,
-                default => 'clt_consulted_at',
+            'facta' => match ($sort) {
+                'facta_updated_at', 'facta_consulted_at', 'lead_updated_at' => $sort,
+                default => 'facta_consulted_at',
             },
             'mercantil' => match ($sort) {
                 'mercantil_consulted_at', 'lead_updated_at' => $sort,
@@ -722,9 +722,9 @@ class LeadFilter
                 : $query->orderByDesc('leads.updated_at')->orderByDesc('leads.id');
         }
 
-        if ($mode === 'clt') {
+        if ($mode === 'facta') {
             return match ($sort) {
-                'clt_consulted_at' => $query
+                'facta_consulted_at' => $query
                     ->orderByDesc('cs.consulted_at')
                     ->orderByDesc('cs.updated_at')
                     ->orderByDesc('leads.updated_at')
@@ -1016,7 +1016,7 @@ class LeadFilter
                         return;
                     }
 
-                    if ($bank === 'clt') {
+                    if ($bank === 'facta') {
                         if (self::hasCltScopedFilters($r)) {
                             self::applyCltScopedFilters($scopedQuery, $r);
                         } else {
@@ -1113,24 +1113,24 @@ class LeadFilter
 
     private static function applyCltScopedFilters(Builder $query, Request $r): void
     {
-        $situacao = self::normalizeCltSituacao($r->input('clt_situacao', null));
+        $situacao = self::normalizeCltSituacao($r->input('facta_situacao', null));
 
         $hasSpecificFilters =
             ($situacao !== null)
-            || $r->filled('clt_elegivel') || $r->filled('clt_not_found')
-            || $r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')
-            || $r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')
-            || $r->filled('clt_meses_min') || $r->filled('clt_meses_max')
-            || $r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to')
-            || $r->filled('clt_categoria_codigos')
-            || $r->filled('clt_idade_min') || $r->filled('clt_idade_max')
-            || $r->filled('clt_sexo')
-            || $r->filled('clt_renda_min') || $r->filled('clt_renda_max')
-            || $r->filled('clt_base_min') || $r->filled('clt_base_max')
-            || $r->filled('clt_margem_min') || $r->filled('clt_margem_max')
-            || $r->filled('clt_prestacao_min') || $r->filled('clt_prestacao_max')
-            || $r->filled('clt_ativos_min') || $r->filled('clt_ativos_max') || $r->filled('clt_tem_ativos')
-            || $r->filled('clt_tem_legados');
+            || $r->filled('facta_elegivel') || $r->filled('facta_not_found')
+            || $r->filled('facta_consulta_from') || $r->filled('facta_consulta_to')
+            || $r->filled('facta_admissao_from') || $r->filled('facta_admissao_to')
+            || $r->filled('facta_meses_min') || $r->filled('facta_meses_max')
+            || $r->filled('facta_inicio_empregador_from') || $r->filled('facta_inicio_empregador_to')
+            || $r->filled('facta_categoria_codigos')
+            || $r->filled('facta_idade_min') || $r->filled('facta_idade_max')
+            || $r->filled('facta_sexo')
+            || $r->filled('facta_renda_min') || $r->filled('facta_renda_max')
+            || $r->filled('facta_base_min') || $r->filled('facta_base_max')
+            || $r->filled('facta_margem_min') || $r->filled('facta_margem_max')
+            || $r->filled('facta_prestacao_min') || $r->filled('facta_prestacao_max')
+            || $r->filled('facta_ativos_min') || $r->filled('facta_ativos_max') || $r->filled('facta_tem_ativos')
+            || $r->filled('facta_tem_legados');
 
         if ($hasSpecificFilters) {
             $query->whereNotNull('cs.cpf');
@@ -1157,56 +1157,56 @@ class LeadFilter
                     $query->where('cs.not_found', 1);
                 }
             } else {
-                if (($value = self::yn($r->input('clt_elegivel'))) !== null) {
+                if (($value = self::yn($r->input('facta_elegivel'))) !== null) {
                     $query->where('cs.elegivel', $value === 'sim' ? 1 : 0);
                 }
-                if (($value = self::yn($r->input('clt_not_found'))) !== null) {
+                if (($value = self::yn($r->input('facta_not_found'))) !== null) {
                     $query->where('cs.not_found', $value === 'sim' ? 1 : 0);
                 }
             }
 
-            if ($r->filled('clt_consulta_from') || $r->filled('clt_consulta_to')) {
-                $from = $r->input('clt_consulta_from', '1900-01-01');
-                $to = $r->input('clt_consulta_to', now()->toDateString());
+            if ($r->filled('facta_consulta_from') || $r->filled('facta_consulta_to')) {
+                $from = $r->input('facta_consulta_from', '1900-01-01');
+                $to = $r->input('facta_consulta_to', now()->toDateString());
                 $query->whereBetween('cs.consulted_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
             }
 
-            if ($r->filled('clt_admissao_from') || $r->filled('clt_admissao_to')) {
-                $from = $r->input('clt_admissao_from', '1900-01-01');
-                $to = $r->input('clt_admissao_to', now()->toDateString());
+            if ($r->filled('facta_admissao_from') || $r->filled('facta_admissao_to')) {
+                $from = $r->input('facta_admissao_from', '1900-01-01');
+                $to = $r->input('facta_admissao_to', now()->toDateString());
                 $query->whereBetween('cs.data_admissao', [$from, $to]);
             }
 
-            if ($r->filled('clt_meses_min') || $r->filled('clt_meses_max')) {
-                $min = (int) $r->input('clt_meses_min', 0);
-                $max = (int) $r->input('clt_meses_max', PHP_INT_MAX);
+            if ($r->filled('facta_meses_min') || $r->filled('facta_meses_max')) {
+                $min = (int) $r->input('facta_meses_min', 0);
+                $max = (int) $r->input('facta_meses_max', PHP_INT_MAX);
                 $query->whereBetween('cs.meses_admissao', [$min, $max]);
             }
 
-            if ($r->filled('clt_inicio_empregador_from') || $r->filled('clt_inicio_empregador_to')) {
-                $from = $r->input('clt_inicio_empregador_from', '1900-01-01');
-                $to = $r->input('clt_inicio_empregador_to', now()->toDateString());
+            if ($r->filled('facta_inicio_empregador_from') || $r->filled('facta_inicio_empregador_to')) {
+                $from = $r->input('facta_inicio_empregador_from', '1900-01-01');
+                $to = $r->input('facta_inicio_empregador_to', now()->toDateString());
                 $query->whereBetween('cs.inicio_atividade_empregador', [$from, $to]);
             }
 
-            if ($r->filled('clt_categoria_codigos')) {
-                $raw = is_array($r->clt_categoria_codigos)
-                    ? $r->clt_categoria_codigos
-                    : preg_split('/[\s,;]+/', (string) $r->clt_categoria_codigos);
+            if ($r->filled('facta_categoria_codigos')) {
+                $raw = is_array($r->facta_categoria_codigos)
+                    ? $r->facta_categoria_codigos
+                    : preg_split('/[\s,;]+/', (string) $r->facta_categoria_codigos);
                 $codes = array_values(array_filter(array_unique(array_map('trim', $raw)), fn($value) => $value !== ''));
                 if ($codes) {
                     $query->whereIn('cs.categoria_trabalhador_codigo', $codes);
                 }
             }
 
-            if ($r->filled('clt_idade_min') || $r->filled('clt_idade_max')) {
-                $min = (int) $r->input('clt_idade_min', 0);
-                $max = (int) $r->input('clt_idade_max', 200);
+            if ($r->filled('facta_idade_min') || $r->filled('facta_idade_max')) {
+                $min = (int) $r->input('facta_idade_min', 0);
+                $max = (int) $r->input('facta_idade_max', 200);
                 $query->whereBetween('cs.idade', [$min, $max]);
             }
 
-            if ($r->filled('clt_sexo')) {
-                $raw = is_array($r->clt_sexo) ? $r->clt_sexo : [$r->clt_sexo];
+            if ($r->filled('facta_sexo')) {
+                $raw = is_array($r->facta_sexo) ? $r->facta_sexo : [$r->facta_sexo];
                 $vals = array_map(fn($value) => mb_strtoupper(trim((string) $value)), $raw);
                 $map = [];
                 foreach ($vals as $value) {
@@ -1223,23 +1223,23 @@ class LeadFilter
                 }
             }
 
-            self::range($query, $r, 'clt_renda_min', 'clt_renda_max', 'cs.valor_renda');
-            self::range($query, $r, 'clt_base_min', 'clt_base_max', 'cs.valor_base_margem');
-            self::range($query, $r, 'clt_margem_min', 'clt_margem_max', 'cs.margem_disponivel');
-            if ($r->filled('clt_numero_parcelas_min') || $r->filled('clt_numero_parcelas_max')) {
-                $min = (int) $r->input('clt_numero_parcelas_min', 0);
-                $max = (int) $r->input('clt_numero_parcelas_max', PHP_INT_MAX);
+            self::range($query, $r, 'facta_renda_min', 'facta_renda_max', 'cs.valor_renda');
+            self::range($query, $r, 'facta_base_min', 'facta_base_max', 'cs.valor_base_margem');
+            self::range($query, $r, 'facta_margem_min', 'facta_margem_max', 'cs.margem_disponivel');
+            if ($r->filled('facta_numero_parcelas_min') || $r->filled('facta_numero_parcelas_max')) {
+                $min = (int) $r->input('facta_numero_parcelas_min', 0);
+                $max = (int) $r->input('facta_numero_parcelas_max', PHP_INT_MAX);
                 $query->whereBetween('cs.politica_credito_prazo_maximo_disponivel', [$min, $max]);
             }
-            self::range($query, $r, 'clt_prestacao_min', 'clt_prestacao_max', 'cs.valor_max_prestacao');
+            self::range($query, $r, 'facta_prestacao_min', 'facta_prestacao_max', 'cs.valor_max_prestacao');
 
-            if ($r->filled('clt_ativos_min') || $r->filled('clt_ativos_max')) {
-                $min = (int) $r->input('clt_ativos_min', 0);
-                $max = (int) $r->input('clt_ativos_max', PHP_INT_MAX);
+            if ($r->filled('facta_ativos_min') || $r->filled('facta_ativos_max')) {
+                $min = (int) $r->input('facta_ativos_min', 0);
+                $max = (int) $r->input('facta_ativos_max', PHP_INT_MAX);
                 $query->whereBetween('cs.qtd_emprestimos_ativos_suspensos', [$min, $max]);
             }
 
-            if (($value = self::yn($r->input('clt_tem_ativos'))) !== null) {
+            if (($value = self::yn($r->input('facta_tem_ativos'))) !== null) {
                 if ($value === 'sim') {
                     $query->where('cs.qtd_emprestimos_ativos_suspensos', '>', 0);
                 } else {
@@ -1250,7 +1250,7 @@ class LeadFilter
                 }
             }
 
-            if (($value = self::yn($r->input('clt_tem_legados'))) !== null) {
+            if (($value = self::yn($r->input('facta_tem_legados'))) !== null) {
                 if ($value === 'sim') {
                     $query->where('cs.emprestimos_legados', '=', 1);
                 } else {
@@ -1401,35 +1401,35 @@ class LeadFilter
 
     private static function hasCltScopedFilters(Request $r): bool
     {
-        return $r->filled('clt_situacao')
-            || $r->filled('clt_elegivel')
-            || $r->filled('clt_not_found')
-            || $r->filled('clt_consulta_from')
-            || $r->filled('clt_consulta_to')
-            || $r->filled('clt_admissao_from')
-            || $r->filled('clt_admissao_to')
-            || $r->filled('clt_meses_min')
-            || $r->filled('clt_meses_max')
-            || $r->filled('clt_inicio_empregador_from')
-            || $r->filled('clt_inicio_empregador_to')
-            || $r->filled('clt_categoria_codigos')
-            || $r->filled('clt_idade_min')
-            || $r->filled('clt_idade_max')
-            || $r->filled('clt_sexo')
-            || $r->filled('clt_renda_min')
-            || $r->filled('clt_renda_max')
-            || $r->filled('clt_base_min')
-            || $r->filled('clt_base_max')
-            || $r->filled('clt_margem_min')
-            || $r->filled('clt_margem_max')
-            || $r->filled('clt_numero_parcelas_min')
-            || $r->filled('clt_numero_parcelas_max')
-            || $r->filled('clt_prestacao_min')
-            || $r->filled('clt_prestacao_max')
-            || $r->filled('clt_ativos_min')
-            || $r->filled('clt_ativos_max')
-            || $r->filled('clt_tem_ativos')
-            || $r->filled('clt_tem_legados');
+        return $r->filled('facta_situacao')
+            || $r->filled('facta_elegivel')
+            || $r->filled('facta_not_found')
+            || $r->filled('facta_consulta_from')
+            || $r->filled('facta_consulta_to')
+            || $r->filled('facta_admissao_from')
+            || $r->filled('facta_admissao_to')
+            || $r->filled('facta_meses_min')
+            || $r->filled('facta_meses_max')
+            || $r->filled('facta_inicio_empregador_from')
+            || $r->filled('facta_inicio_empregador_to')
+            || $r->filled('facta_categoria_codigos')
+            || $r->filled('facta_idade_min')
+            || $r->filled('facta_idade_max')
+            || $r->filled('facta_sexo')
+            || $r->filled('facta_renda_min')
+            || $r->filled('facta_renda_max')
+            || $r->filled('facta_base_min')
+            || $r->filled('facta_base_max')
+            || $r->filled('facta_margem_min')
+            || $r->filled('facta_margem_max')
+            || $r->filled('facta_numero_parcelas_min')
+            || $r->filled('facta_numero_parcelas_max')
+            || $r->filled('facta_prestacao_min')
+            || $r->filled('facta_prestacao_max')
+            || $r->filled('facta_ativos_min')
+            || $r->filled('facta_ativos_max')
+            || $r->filled('facta_tem_ativos')
+            || $r->filled('facta_tem_legados');
     }
 
     private static function hasMercantilScopedFilters(Request $r): bool
@@ -1466,7 +1466,7 @@ class LeadFilter
 
     private static function normalizeSelectedBanks(array $banks): array
     {
-        $allowed = ['fgts', 'clt', 'mercantil', 'uy3'];
+        $allowed = ['fgts', 'facta', 'mercantil', 'uy3'];
 
         return array_values(array_filter(array_unique(array_map(
             fn($bank) => strtolower(trim((string) $bank)),

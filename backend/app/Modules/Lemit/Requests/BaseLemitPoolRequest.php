@@ -23,21 +23,21 @@ abstract class BaseLemitPoolRequest extends FormRequest
     {
         return [
             'selected_banks' => ['nullable', 'array'],
-            'selected_banks.*' => ['required', 'string', 'distinct', Rule::in(['clt', 'mercantil', 'uy3'])],
+            'selected_banks.*' => ['required', 'string', 'distinct', Rule::in(['facta', 'mercantil', 'uy3'])],
             'bank_combination_mode' => ['required', 'string', Rule::in(['all', 'any'])],
             'with_phones' => ['nullable', 'boolean'],
             'without_phones' => ['nullable', 'boolean'],
 
-            'clt' => ['nullable', 'array'],
-            'clt.clt_situacao' => ['nullable', 'string', Rule::in(['aprovado', 'nao_aprovado'])],
-            'clt.clt_consulta_from' => ['nullable', 'date_format:Y-m-d'],
-            'clt.clt_consulta_to' => ['nullable', 'date_format:Y-m-d'],
-            'clt.clt_meses_admissao_min' => ['nullable', 'integer', 'min:0'],
-            'clt.clt_meses_admissao_max' => ['nullable', 'integer', 'min:0'],
-            'clt.clt_margem_min' => ['nullable', 'numeric', 'min:0'],
-            'clt.clt_margem_max' => ['nullable', 'numeric', 'min:0'],
-            'clt.clt_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
-            'clt.clt_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
+            'facta' => ['nullable', 'array'],
+            'facta.facta_situacao' => ['nullable', 'string', Rule::in(['aprovado', 'nao_aprovado'])],
+            'facta.facta_consulta_from' => ['nullable', 'date_format:Y-m-d'],
+            'facta.facta_consulta_to' => ['nullable', 'date_format:Y-m-d'],
+            'facta.facta_meses_admissao_min' => ['nullable', 'integer', 'min:0'],
+            'facta.facta_meses_admissao_max' => ['nullable', 'integer', 'min:0'],
+            'facta.facta_margem_min' => ['nullable', 'numeric', 'min:0'],
+            'facta.facta_margem_max' => ['nullable', 'numeric', 'min:0'],
+            'facta.facta_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'facta.facta_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
 
             'mercantil' => ['nullable', 'array'],
             'mercantil.mercantil_situacao' => ['nullable', 'string', Rule::in(['aprovado', 'nao_aprovado'])],
@@ -75,8 +75,8 @@ abstract class BaseLemitPoolRequest extends FormRequest
         )));
 
         foreach ([
-            'clt.clt_margem_min',
-            'clt.clt_margem_max',
+            'facta.facta_margem_min',
+            'facta.facta_margem_max',
             'mercantil.mercantil_valor_parcela_min',
             'mercantil.mercantil_valor_parcela_max',
             'uy3.uy3_margem_min',
@@ -91,7 +91,7 @@ abstract class BaseLemitPoolRequest extends FormRequest
         }
 
         foreach ([
-            'clt.clt_situacao',
+            'facta.facta_situacao',
             'mercantil.mercantil_situacao',
             'uy3.uy3_situacao',
         ] as $path) {
@@ -134,7 +134,7 @@ abstract class BaseLemitPoolRequest extends FormRequest
             'bank_combination_mode' => (string) ($validated['bank_combination_mode'] ?? 'all'),
             'with_phones' => $this->boolean('with_phones'),
             'without_phones' => $this->boolean('without_phones'),
-            'clt' => (array) ($validated['clt'] ?? []),
+            'facta' => (array) ($validated['facta'] ?? []),
             'mercantil' => (array) ($validated['mercantil'] ?? []),
             'uy3' => (array) ($validated['uy3'] ?? []),
         ];
@@ -156,16 +156,16 @@ abstract class BaseLemitPoolRequest extends FormRequest
     protected function bankHasOwnFilter(string $bank): bool
     {
         return match ($bank) {
-            'clt' => $this->hasAnyFilledField('clt', [
-                'clt_situacao',
-                'clt_consulta_from',
-                'clt_consulta_to',
-                'clt_meses_admissao_min',
-                'clt_meses_admissao_max',
-                'clt_margem_min',
-                'clt_margem_max',
-                'clt_numero_parcelas_min',
-                'clt_numero_parcelas_max',
+            'facta' => $this->hasAnyFilledField('facta', [
+                'facta_situacao',
+                'facta_consulta_from',
+                'facta_consulta_to',
+                'facta_meses_admissao_min',
+                'facta_meses_admissao_max',
+                'facta_margem_min',
+                'facta_margem_max',
+                'facta_numero_parcelas_min',
+                'facta_numero_parcelas_max',
             ]),
             'mercantil' => $this->hasAnyFilledField('mercantil', [
                 'mercantil_situacao',
@@ -210,7 +210,7 @@ abstract class BaseLemitPoolRequest extends FormRequest
     protected function bankLabel(string $bank): string
     {
         return match ($bank) {
-            'clt' => 'CLT Facta',
+            'facta' => 'Facta CLT',
             'mercantil' => 'CLT Mercantil',
             'uy3' => 'CLT UY3',
             default => strtoupper($bank),

@@ -241,8 +241,8 @@ export const LeadDetailsModal = ({
                   {/* Situação da consulta */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Info label="Situação" value={cltStatus} />
-                    <Info label="Já consultado?" value={clt.clt_consultado_em ? "Sim" : "Ainda não"} />
-                    <Info label="Data da última consulta" value={clt.clt_consultado_em ? formatDateOnly(clt.clt_consultado_em) : "—"} />
+                    <Info label="Já consultado?" value={clt.facta_consultado_em ? "Sim" : "Ainda não"} />
+                    <Info label="Data da última consulta" value={clt.facta_consultado_em ? formatDateOnly(clt.facta_consultado_em) : "—"} />
                   </div>
 
                   {/* Vínculo de trabalho */}

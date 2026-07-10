@@ -65,7 +65,7 @@ services:
     mem_limit: 512m
 
   # ===== WORKER UNIFICADO (SUPERVISOR) =====
-  # Substitui: queue, clt-on, clt-off, fgts, reports, scheduler
+  # Substitui: queue, facta-clt-on, facta-clt-off, fgts, reports, scheduler
   leads-workers:
     image: leads-backend # Usa a mesma imagem do laravel, pois o código é o mesmo
     container_name: leads-workers

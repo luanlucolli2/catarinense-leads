@@ -1,7 +1,197 @@
 <?php
 
 return [
-    'base_url'    => env('FACTA_BASE_URL', 'https://webservice.facta.com.br'),
-    'basic_auth'  => env('FACTA_BASIC_AUTH'),
-    'token_ttl'   => (int) env('FACTA_TOKEN_TTL_SECONDS', 3300),
+
+    // ===== FACTA ONLINE =====
+    'api' => [
+        'base_url'        => env('FACTA_BASE_URL', 'https://webservice.facta.com.br'),
+        'basic_auth'      => env('FACTA_BASIC_AUTH'),
+        'token_ttl'       => (int) env('FACTA_TOKEN_TTL_SECONDS', 3300),
+        'token_lock_ttl'  => (int) env('FACTA_TOKEN_LOCK_TTL', 10),
+        'token_lock_wait' => (int) env('FACTA_TOKEN_LOCK_WAIT', 5),
+        'token_ttl_skew'  => (int) env('FACTA_TOKEN_TTL_SKEW', 30),
+        'token_retry_base_delay_ms' => (int) env('FACTA_TOKEN_RETRY_BASE_DELAY_MS', 1000),
+        'token_retry_max_delay_ms' => (int) env('FACTA_TOKEN_RETRY_MAX_DELAY_MS', 30000),
+        'pre_auth_averbador' => env('FACTA_PRE_AUTH_AVERBADOR', '10010'),
+        'pre_auth_nome' => env('FACTA_PRE_AUTH_NOME', 'slkjhdsjkha asdkjhd iou'),
+        'pre_auth_tipo_envio' => env('FACTA_PRE_AUTH_TIPO_ENVIO', 'WHATSAPP'),
+        // cache da pré-autorização por CPF para reduzir chamadas repetidas entre tentativas
+        'pre_auth_cache_ttl' => (int) env('FACTA_PRE_AUTH_CACHE_TTL_SECONDS', 1800),
+        // validade persistente no banco para evitar nova autorização em consultas futuras
+        'pre_auth_persist_ttl_days' => (int) env('FACTA_PRE_AUTH_PERSIST_TTL_DAYS', 30),
+        // flush de persistência em lote para reduzir roundtrips no banco
+        'pre_auth_persist_batch_size' => (int) env('FACTA_PRE_AUTH_PERSIST_BATCH_SIZE', 100),
+        // cooldown único entre a última pré-autorização do lote e o início das consultas
+        'pre_auth_post_cooldown_ms' => (int) env('FACTA_PRE_AUTH_POST_COOLDOWN_MS', 15000),
+        // Tentativas extras com novo celular quando a FACTA devolver
+        // "telefone já informado para outro cpf".
+        'pre_auth_phone_retry_attempts' => (int) env('FACTA_PRE_AUTH_PHONE_RETRY_ATTEMPTS', 3),
+    ],
+
+    'http' => [
+        'timeout'                 => (int) env('FACTA_CLT_HTTP_TIMEOUT', 30),
+        'connect_timeout'         => (int) env('FACTA_CLT_HTTP_CONNECT_TIMEOUT', 10),
+        'transient_pause_seconds' => (int) env('FACTA_CLT_HTTP_TRANSIENT_PAUSE_SECONDS', 3),
+        'rate_limit_default_pause_seconds' => (int) env('FACTA_CLT_HTTP_RATE_LIMIT_DEFAULT_PAUSE_SECONDS', 3),
+        'rate_limit_pause_cap_seconds' => (int) env('FACTA_CLT_HTTP_RATE_LIMIT_PAUSE_CAP_SECONDS', 30),
+        // Limite global para toda a base FACTA (200 rpm informado pelo provedor).
+        'global_rate_limit_enabled' => (bool) env('FACTA_CLT_HTTP_GLOBAL_RATE_LIMIT_ENABLED', true),
+        'global_rate_limit_rps' => (int) env('FACTA_CLT_HTTP_GLOBAL_RATE_LIMIT_RPS', 4),
+        'global_rate_limit_rpm' => (int) env('FACTA_CLT_HTTP_GLOBAL_RATE_LIMIT_RPM', 180),
+        'global_rate_limit_sleep_ms' => (int) env('FACTA_CLT_HTTP_GLOBAL_RATE_LIMIT_SLEEP_MS', 80),
+        // Retry imediato técnico do /autoriza-consulta antes de cair para a próxima rodada do job.
+        'autoriza_transient_retry_attempts' => (int) env('FACTA_CLT_HTTP_AUTORIZA_TRANSIENT_RETRY_ATTEMPTS', 1),
+        // Janela máxima por pool para evitar burst acima do permitido.
+        'autoriza_pool_window' => (int) env('FACTA_CLT_HTTP_AUTORIZA_POOL_WINDOW', 4),
+        'policy_pool_window' => (int) env('FACTA_CLT_HTTP_POLICY_POOL_WINDOW', 4),
+    ],
+
+    // ===== CRÉDITO TRABALHADOR (continuação online) =====
+    'credit_worker' => [
+        // ETAPA 4: /proposta/operacoes-disponiveis
+        'produto'       => env('FACTA_CLT_CREDITO_PRODUTO', 'D'),
+        'tipo_operacao' => env('FACTA_CLT_CREDITO_TIPO_OPERACAO', '13'),
+        'averbador'     => env('FACTA_CLT_CREDITO_AVERBADOR', '10010'),
+        'convenio'      => env('FACTA_CLT_CREDITO_CONVENIO', '3'),
+        'opcao_valor'   => env('FACTA_CLT_CREDITO_OPCAO_VALOR', '2'),
+        // Quantas tabelas da política de crédito processar em paralelo por CPF elegível.
+        'policy_batch_size' => (int) env('FACTA_CLT_CREDITO_POLICY_BATCH_SIZE', 4),
+        // Fonte de candidatos para a análise de política:
+        // - operacoes: fluxo legado via /proposta/operacoes-disponiveis
+        // - experimental: chama direto /analise-politica-credito com valor/prazos fixos
+        //   Alias legado aceito: fixed.
+        'policy_source_mode' => env('FACTA_CLT_CREDITO_POLICY_SOURCE_MODE', 'operacoes'),
+        // Usado quando policy_source_mode=experimental
+        'policy_fixed_valor_emprestimo' => env('FACTA_CLT_CREDITO_POLICY_FIXED_VALOR_EMPRESTIMO', '500'),
+        // Aceita CSV: "6,8,10,12,14,15,18,20,24,30,36,42,48"
+        'policy_fixed_prazos' => env('FACTA_CLT_CREDITO_POLICY_FIXED_PRAZOS', '6,8,10,12,14,15,18,20,24,30,36,42,48'),
+        // Rodadas máximas da fase 2 (varredura do CSV para política de crédito).
+        'phase2_max_attempts' => (int) env('FACTA_CLT_CREDIT_PHASE2_MAX_ATTEMPTS', 3),
+        // Intervalo entre rodadas da fase 2 quando ainda há pendências retriables.
+        'phase2_retry_delay_seconds' => (int) env('FACTA_CLT_CREDIT_PHASE2_RETRY_DELAY_SECONDS', 30),
+        // Checkpoint de progresso da fase 2 (máx. frequência de update no banco).
+        'phase2_progress_flush_interval_ms' => (int) env('FACTA_CLT_CREDIT_PHASE2_PROGRESS_FLUSH_INTERVAL_MS', 20000),
+        'phase2_progress_flush_every_rows' => (int) env('FACTA_CLT_CREDIT_PHASE2_PROGRESS_FLUSH_EVERY_ROWS', 200),
+        // Persistência incremental da fase 2 para prévia (arquivo delta, sem reescrever spool completo).
+        'phase2_delta_flush_interval_ms' => (int) env('FACTA_CLT_CREDIT_PHASE2_DELTA_FLUSH_INTERVAL_MS', 2000),
+        'phase2_delta_flush_every_rows' => (int) env('FACTA_CLT_CREDIT_PHASE2_DELTA_FLUSH_EVERY_ROWS', 20),
+        // Flush do arquivo intermediário de pendências da fase 2 (tentativas > 1).
+        'phase2_pending_flush_every_rows' => (int) env('FACTA_CLT_CREDIT_PHASE2_PENDING_FLUSH_EVERY_ROWS', 50),
+    ],
+
+    // ===== OFFLINE (CLT-OFF) =====
+    'clt_off' => [
+        'api' => [
+            'base_url'        => env('FACTA_CLT_OFF_BASE_URL', ''),
+            'basic_auth'      => env('FACTA_CLT_OFF_BASIC_AUTH'),
+            'token_ttl'       => (int) env('FACTA_CLT_OFF_TOKEN_TTL_SECONDS', 3600),
+            'token_lock_ttl'  => (int) env('FACTA_CLT_OFF_TOKEN_LOCK_TTL', 10),
+            'token_lock_wait' => (int) env('FACTA_CLT_OFF_TOKEN_LOCK_WAIT', 5),
+            'token_ttl_skew'  => (int) env('FACTA_CLT_OFF_TOKEN_TTL_SKEW', 30),
+        ],
+        'http' => [
+            'timeout'         => (int) env('FACTA_CLT_OFF_HTTP_TIMEOUT', 10),
+            'connect_timeout' => (int) env('FACTA_CLT_OFF_HTTP_CONNECT_TIMEOUT', 5),
+            'retry'           => (int) env('FACTA_CLT_OFF_HTTP_RETRY', 1),
+            'retry_delay_ms'  => (int) env('FACTA_CLT_OFF_HTTP_RETRY_DELAY_MS', 200),
+            'min_interval_ms' => (int) env('FACTA_CLT_OFF_MIN_INTERVAL_MS', 3200),
+        ],
+        'rate_limit' => [
+            'enabled'              => (bool) env('FACTA_CLT_OFF_RATE_LIMIT_ENABLED', true),
+            'min_interval_ms'      => (int) env('FACTA_CLT_OFF_MIN_INTERVAL_MS', 3200),
+            'lock_ttl'             => (int) env('FACTA_CLT_OFF_RATE_LOCK_TTL', 10),
+            'lock_wait'            => (int) env('FACTA_CLT_OFF_RATE_LOCK_WAIT', 5),
+            'retry_later_attempts' => (int) env('FACTA_CLT_OFF_RETRY_LATER_ATTEMPTS', 2),
+        ],
+    ],
+
+    // ===== JOB =====
+    'job' => [
+        // novas filas distintas
+        'queue_online'        => env('FACTA_CLT_ON_JOB_QUEUE', 'facta-clt-consulta-online'),
+        'queue_offline'       => env('FACTA_CLT_OFF_JOB_QUEUE', 'facta-clt-off'),
+        'queue_hybrid'        => env('FACTA_CLT_HYBRID_JOB_QUEUE', env('FACTA_CLT_ON_JOB_QUEUE', 'facta-clt-consulta-online')),
+        'queue_phase2'        => env('FACTA_CLT_PHASE2_JOB_QUEUE', 'facta-clt-valida-politica-cred'),
+
+        'timeout_seconds'     => (int) env('FACTA_CLT_JOB_TIMEOUT', 115200),
+        'max_attempts'        => (int) env('FACTA_CLT_CONSULT_MAX_ATTEMPTS', 5),
+        'retry_delay_seconds' => (int) env('FACTA_CLT_CONSULT_RETRY_DELAY_SECONDS', 60),
+        'chunk'               => (int) env('FACTA_CLT_HTTP_CHUNK', 24),
+        'min_chunk'           => (int) env('FACTA_CLT_HTTP_MIN_CHUNK', 8),
+        'retry_after_max'     => (int) env('FACTA_CLT_HTTP_RETRY_AFTER_MAX', 120),
+        // Degradação imediata por chunk quando sem resposta ficar alto (fase 1).
+        'sem_response_chunk_threshold' => (float) env('FACTA_CLT_JOB_SEM_RESPONSE_CHUNK_THRESHOLD', 0.50),
+        'sem_response_chunk_cooldown_seconds' => (int) env('FACTA_CLT_JOB_SEM_RESPONSE_CHUNK_COOLDOWN_SECONDS', 10),
+        'chunk_delay_ms'      => (int) env('FACTA_CLT_JOB_CHUNK_DELAY_MS', 80),
+        'subchunk'            => (int) env('FACTA_CLT_JOB_SUBCHUNK', 24),
+        'subchunk_delay_ms'   => (int) env('FACTA_CLT_JOB_SUBCHUNK_DELAY_MS', 0),
+        // intervalo mínimo para reconsultar status do job no banco (reduz polling excessivo)
+        'status_check_interval_ms' => (int) env('FACTA_CLT_JOB_STATUS_CHECK_INTERVAL_MS', 1000),
+        // Coordenação leve da fase 1: hybrid roda sozinho; online/offline podem coexistir entre si.
+        'phase1_coord_lock_ttl' => (int) env('FACTA_CLT_PHASE1_COORD_LOCK_TTL', 10),
+        'phase1_coord_lock_wait' => (int) env('FACTA_CLT_PHASE1_COORD_LOCK_WAIT', 5),
+        'phase1_coord_retry_delay_seconds' => (int) env('FACTA_CLT_PHASE1_COORD_RETRY_DELAY_SECONDS', 15),
+        // Checkpoint de progresso (fase 1) no banco; fase 2 respeita no mínimo este intervalo.
+        'progress_flush_interval_seconds' => (int) env('FACTA_CLT_JOB_PROGRESS_FLUSH_INTERVAL_SECONDS', 20),
+        // Flush incremental dos buffers internos do job para reduzir pico de RAM.
+        'rows_buffer_flush'   => (int) env('FACTA_CLT_JOB_ROWS_BUFFER_FLUSH', 300),
+        'snap_buffer_flush'   => (int) env('FACTA_CLT_JOB_SNAP_BUFFER_FLUSH', 300),
+        // Limite "soft" opcional para spill de memória (MB). 0 = desabilitado.
+        'memory_soft_limit_mb' => (int) env('FACTA_CLT_JOB_MEMORY_SOFT_LIMIT_MB', 0),
+        // Percentual do limite efetivo de memória para iniciar spill do dedup.
+        'memory_spill_threshold_percent' => (int) env('FACTA_CLT_JOB_MEMORY_SPILL_THRESHOLD_PERCENT', 70),
+    ],
+
+    'hybrid' => [
+        'offline_max_age_days' => (int) env('FACTA_CLT_HYBRID_OFFLINE_MAX_AGE_DAYS', 7),
+    ],
+
+    // ===== QUEUE DE FINALIZAÇÃO/PREVIEW =====
+    'preview' => [
+        'queue' => env('FACTA_CLT_PREVIEW_QUEUE', 'reports'),
+        // Evita depender de outro worker para promover o CSV final quando o spool está em disco local.
+        'inline' => (bool) env('FACTA_CLT_PREVIEW_INLINE', true),
+        // Proteção de memória/CPU na prévia da fase 2 (overlay delta em memória).
+        'phase2_delta_preview_max_bytes' => (int) env('FACTA_CLT_PREVIEW_PHASE2_DELTA_MAX_BYTES', 8388608),
+        'phase2_delta_preview_max_rows' => (int) env('FACTA_CLT_PREVIEW_PHASE2_DELTA_MAX_ROWS', 60000),
+    ],
+
+    // ===== STORAGE =====
+    'storage' => [
+        'reports_disk' => env('FACTA_CLT_REPORTS_DISK', 'local'),
+        'dir_reports'  => env('FACTA_CLT_REPORTS_DIR', 'facta-clt-reports'),
+        'dir_spool'    => env('FACTA_CLT_SPOOL_DIR', 'facta-clt-spool'),
+        'final_prefix' => env('FACTA_CLT_FINAL_PREFIX', 'facta-clt-consulta'),
+    ],
+
+    // ===== CSV (BOM/EOL) =====
+    'csv' => [
+        'embed_bom' => (bool) env('FACTA_CLT_CSV_EMBED_BOM', true),
+        'final_eol' => env('FACTA_CLT_CSV_FINAL_EOL', 'LF'), // 'LF' ou 'CRLF'
+    ],
+
+    // ===== LOG =====
+    'logging' => [
+        // Chave mestre de logs do módulo CLT (online + offline)
+        'enabled' => (bool) env('FACTA_CLT_LOG_ENABLED', false),
+        // Logs detalhados de resposta FACTA (/solicita e /autoriza)
+        'facta_log_responses' => (bool) env('FACTA_CLT_FACTA_LOG_RESPONSES', false),
+        // Em produção pequena (1vCPU), logs de sucesso geram I/O desnecessário.
+        // Mantemos por padrão apenas respostas com erro (>=400).
+        'facta_log_success_responses' => (bool) env('FACTA_CLT_FACTA_LOG_SUCCESS_RESPONSES', false),
+        // Contadores HTTP por job (auditoria por endpoint sem depender de parse de logs).
+        'facta_job_http_counters_enabled' => (bool) env('FACTA_CLT_FACTA_JOB_HTTP_COUNTERS_ENABLED', false),
+        'facta_job_http_counters_flush_every' => (int) env('FACTA_CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_EVERY', 120),
+        'facta_job_http_counters_flush_interval_ms' => (int) env('FACTA_CLT_FACTA_JOB_HTTP_COUNTERS_FLUSH_INTERVAL_MS', 10000),
+        // Auditoria opcional da fase 2 (1 linha por CPF validado com total de requests usadas).
+        'phase2_cpf_validation_audit_log_enabled' => (bool) env('FACTA_CLT_PHASE2_CPF_VALIDATION_AUDIT_LOG_ENABLED', false),
+        // Auditoria opcional de requests da fase 2 em /proposta/operacoes-disponiveis (inclui params enviados).
+        'phase2_operacoes_request_log_enabled' => (bool) env('FACTA_CLT_PHASE2_OPERACOES_REQUEST_LOG_ENABLED', false),
+        // Log de performance por chunk do job (verbose).
+        'chunk_perf_debug' => (bool) env('FACTA_CLT_CHUNK_PERF_DEBUG', false),
+        // Log periódico de flush de spool (verbose).
+        'flush_progress_log' => (bool) env('FACTA_CLT_FLUSH_PROGRESS_LOG', false),
+        // Log do ciclo de backoff cooperativo do job.
+        'backoff_log' => (bool) env('FACTA_CLT_BACKOFF_LOG', false),
+    ],
 ];

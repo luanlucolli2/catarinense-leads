@@ -1,66 +1,70 @@
 <?php
 
-/*
-|--------------------------------------------------------------------------
-| Inovachat Config
-|--------------------------------------------------------------------------
-|
-| Lógica de parsing isolada em closure para evitar erro de redeclaração
-| durante php artisan config:cache
-|
-*/
+/**
+ * Fonte única:
+ * - INOVACHAT_CONNECTIONS_MAP="TOKEN1:basic,TOKEN2:official,..."
+ *
+ * Fallback (legado):
+ * - INOVACHAT_CONNECTION_TOKENS / INOVACHAT_QUEUE_WEBHOOK_TOKEN_ORIGINS / INOVACHAT_CONNECTION_TOKEN
+ */
+if (!function_exists('inovachat_parse_connections_map')) {
+    function inovachat_parse_connections_map(): array
+    {
+        $raw = trim((string) env('INOVACHAT_CONNECTIONS_MAP', ''));
 
-$connectionsMap = call_user_func(function () {
-    $raw = trim((string) env('INOVACHAT_CONNECTIONS_MAP', ''));
+        $map = [];
 
-    $map = [];
+        if ($raw !== '') {
+            $pairs = array_filter(array_map('trim', explode(',', $raw)));
 
-    if ($raw !== '') {
-        $pairs = array_filter(array_map('trim', explode(',', $raw)));
+            foreach ($pairs as $pair) {
+                $parts = array_map('trim', explode(':', $pair, 2));
+                if (count($parts) !== 2) {
+                    continue;
+                }
 
-        foreach ($pairs as $pair) {
-            // TOKEN:mode
-            $parts = array_map('trim', explode(':', $pair, 2));
-            if (count($parts) !== 2) continue;
+                [$token, $mode] = $parts;
 
-            [$token, $mode] = $parts;
+                $token = (string) $token;
+                $mode = strtolower((string) $mode);
 
-            $token = (string) $token;
-            $mode  = strtolower((string) $mode);
+                if ($token === '') {
+                    continue;
+                }
+                if (!in_array($mode, ['basic', 'official'], true)) {
+                    continue;
+                }
 
-            if ($token === '') continue;
-            if (! in_array($mode, ['basic', 'official'], true)) continue;
+                $map[$token] = $mode;
+            }
 
-            $map[$token] = $mode;
+            return $map;
+        }
+
+        $defaultMode = strtolower((string) env('INOVACHAT_MESSAGE_API_MODE', 'basic'));
+        $defaultMode = in_array($defaultMode, ['basic', 'official'], true) ? $defaultMode : 'basic';
+
+        $legacyTokens = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('INOVACHAT_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKEN', '')))
+        )));
+
+        foreach ($legacyTokens as $t) {
+            if ($t !== '') {
+                $map[$t] = $defaultMode;
+            }
+        }
+
+        $fallbackToken = trim((string) env('INOVACHAT_CONNECTION_TOKEN', ''));
+        if ($fallbackToken !== '' && !isset($map[$fallbackToken])) {
+            $map[$fallbackToken] = $defaultMode;
         }
 
         return $map;
     }
+}
 
-    // Fallback legado: todos tokens seguem o modo global
-    $defaultMode = strtolower((string) env('INOVACHAT_MESSAGE_API_MODE', 'basic'));
-    $defaultMode = in_array($defaultMode, ['basic', 'official'], true) ? $defaultMode : 'basic';
-
-    $legacyTokens = array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string) env('INOVACHAT_CONNECTION_TOKENS', (string) env('INOVACHAT_CONNECTION_TOKEN', '')))
-    )));
-
-    foreach ($legacyTokens as $t) {
-        if ($t !== '') {
-            $map[$t] = $defaultMode;
-        }
-    }
-
-    // Se ainda vazio, ao menos inclui o token default (se existir)
-    $fallbackToken = trim((string) env('INOVACHAT_CONNECTION_TOKEN', ''));
-    if ($fallbackToken !== '' && ! isset($map[$fallbackToken])) {
-        $map[$fallbackToken] = $defaultMode;
-    }
-
-    return $map;
-});
-
+$connectionsMap = inovachat_parse_connections_map();
 $connectionTokens = array_keys($connectionsMap);
 
 // URA tokens (mantido separado se você usa isso em outras partes)

@@ -54,10 +54,10 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
     { id: "vendedor", label: "Vendedor", group: "FGTS" },
     { id: "politica_credito_aprovado", label: "Situação", group: "Facta" },
     { id: "politica_credito_valor_maximo_disponivel", label: "Valor liberado", group: "Facta" },
-    { id: "clt_consultado_em", label: "Consulta", group: "Facta" },
+    { id: "facta_consultado_em", label: "Consulta", group: "Facta" },
     { id: "elegivel", label: "Elegível", group: "Facta" },
     { id: "not_found", label: "Não encontrado", group: "Facta" },
-    { id: "clt_dados_atualizados_em", label: "Dados Facta", group: "Facta" },
+    { id: "facta_dados_atualizados_em", label: "Dados Facta", group: "Facta" },
     { id: "mercantil_status", label: "Situação", group: "Mercantil" },
     { id: "mercantil_valor_liberado", label: "Valor liberado", group: "Mercantil" },
     { id: "mercantil_data_hora_origem", label: "Consulta", group: "Mercantil" },
@@ -160,8 +160,8 @@ const CATALOG: Record<Mode, CatalogItem[]> = {
 
     // Produto (CLT)
     { id: "elegivel", label: "Elegível", group: "Produto" },
-    { id: "clt_consultado_em", label: "Data consulta", group: "Produto" },
-    { id: "clt_dados_atualizados_em", label: "Data dados", group: "Produto" }, // 🆕
+    { id: "facta_consultado_em", label: "Data consulta", group: "Produto" },
+    { id: "facta_dados_atualizados_em", label: "Data dados", group: "Produto" }, // 🆕
     { id: "idade", label: "Idade", group: "Produto" },
     { id: "sexo", label: "Sexo", group: "Produto" },
     { id: "data_admissao", label: "Data admissão", group: "Produto" },

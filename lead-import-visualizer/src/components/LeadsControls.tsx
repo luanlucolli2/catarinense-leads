@@ -221,8 +221,8 @@ const SORT_OPTIONS: Record<"360" | "BASE" | "CLT" | "MERCANTIL" | "UY3", { value
     { value: "lead_created_at", label: "Criado recentemente" },
   ],
   CLT: [
-    { value: "clt_consulted_at", label: "Consulta recente (CLT)" },
-    { value: "clt_updated_at", label: "Atualizado recentemente (CLT)" },
+    { value: "facta_consulted_at", label: "Consulta recente (Facta)" },
+    { value: "facta_updated_at", label: "Atualizado recentemente (Facta)" },
     { value: "lead_updated_at", label: "Cadastro atualizado" },
   ],
   MERCANTIL: [
@@ -471,8 +471,8 @@ export const LeadsControls = ({
   const sortLabels: Partial<Record<LeadSort, string>> = {
     lead_updated_at: "Atualizado recentemente",
     lead_created_at: "Criado recentemente",
-    clt_updated_at: "Atualizado recentemente (CLT)",
-    clt_consulted_at: "Consulta recente (CLT)",
+    facta_updated_at: "Atualizado recentemente (Facta)",
+    facta_consulted_at: "Consulta recente (Facta)",
     mercantil_updated_at: "Atualizado recentemente (Mercantil)",
     mercantil_consulted_at: "Consulta recente (Mercantil)",
     uy3_consulted_at: "Atualizado recentemente (UY3)",
@@ -505,7 +505,7 @@ export const LeadsControls = ({
 
     const bankLabels: Record<LeadBankKey, string> = {
       fgts: "FGTS",
-      clt: "Facta",
+      facta: "Facta",
       mercantil: "Mercantil",
       uy3: "UY3",
     };

@@ -606,7 +606,7 @@ export const LeadsTableFGTS = ({
 /* =========================================================
  * CLT TABLE
  * =======================================================*/
-export interface ProcessedLeadCLT {
+export interface ProcessedLeadFacta {
   id: number;
   cpf: string;
   nome: string;
@@ -624,8 +624,8 @@ export interface ProcessedLeadCLT {
   politica_credito_prazo_maximo_disponivel: number | string | null;
   politica_credito_data_consulta: string;
   politica_credito_tabela_aprovada: string;
-  clt_consultado_em: string;
-  clt_dados_atualizados_em: string; 
+  facta_consultado_em: string;
+  facta_dados_atualizados_em: string; 
   idade: number | null;
   sexo: string | null;
   data_admissao: string;
@@ -646,13 +646,13 @@ type SortFieldCLT =
   | "politica_credito_aprovado" | "politica_credito_mensagem"
   | "politica_credito_valor_maximo_disponivel" | "politica_credito_prazo_maximo_disponivel"
   | "politica_credito_data_consulta" | "politica_credito_tabela_aprovada"
-  | "clt_consultado_em" | "clt_dados_atualizados_em"
+  | "facta_consultado_em" | "facta_dados_atualizados_em"
   | "data_admissao" | "meses_admissao" | "categoria_trabalhador_codigo"
   | "valor_renda" | "valor_base_margem" | "margem_disponivel" | "valor_max_prestacao"
   | "qtd_emprestimos_ativos_suspensos" | "emprestimos_legados";
 
 interface LeadsTableCLTProps {
-  leads: ProcessedLeadCLT[];
+  leads: ProcessedLeadFacta[];
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
@@ -669,7 +669,7 @@ export const LeadsTableCLT = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const { isVisible, hasAnyVisible } = useColVisibility(visibleColumns);
 
-  const handleViewLead = (lead: ProcessedLeadCLT) => { setSelectedLeadId(lead.id); setIsModalOpen(true); };
+  const handleViewLead = (lead: ProcessedLeadFacta) => { setSelectedLeadId(lead.id); setIsModalOpen(true); };
   const handleCloseModal = () => { setIsModalOpen(false); setSelectedLeadId(null); };
 
   const handleSort = (field: SortFieldCLT) => {
@@ -679,9 +679,9 @@ export const LeadsTableCLT = ({
 
   const sortedLeads = useMemo(() => {
     if (!sortField) return leads;
-    const valueForSort = (x: ProcessedLeadCLT, field: SortFieldCLT) => {
+    const valueForSort = (x: ProcessedLeadFacta, field: SortFieldCLT) => {
       switch (field) {
-        case "clt_consultado_em": case "clt_dados_atualizados_em": case "politica_credito_data_consulta":
+        case "facta_consultado_em": case "facta_dados_atualizados_em": case "politica_credito_data_consulta":
         case "created_at": case "updated_at": case "data_admissao": case "data_nascimento":
           return (x as any)[field] ? new Date((x as any)[field]).getTime() : Number.POSITIVE_INFINITY;
         case "elegivel": return x.elegivel === true ? 0 : x.elegivel === false ? 1 : 2;
@@ -716,42 +716,42 @@ export const LeadsTableCLT = ({
   );
 
   const phonePairCols = (idx: 1 | 2 | 3 | 4) => [
-    { id: `telefone_${idx}`, header: <Th>Fone {idx}</Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">{lead.telefones[idx - 1]?.fone ? <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span> : EMPTY}</td>) },
-    { id: `classe_${idx}`, header: <Th align="center">Classe {idx}</Th>, cell: (lead: ProcessedLeadCLT) => { const c = getClasseBadge(lead.telefones[idx - 1]?.classe); return <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]"><span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", c.cls)}>{c.label}</span></td> } }
+    { id: `telefone_${idx}`, header: <Th>Fone {idx}</Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-left min-w-[110px]">{lead.telefones[idx - 1]?.fone ? <span className="font-mono">{display(lead.telefones[idx - 1]?.fone)}</span> : EMPTY}</td>) },
+    { id: `classe_${idx}`, header: <Th align="center">Classe {idx}</Th>, cell: (lead: ProcessedLeadFacta) => { const c = getClasseBadge(lead.telefones[idx - 1]?.classe); return <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[84px]"><span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", c.cls)}>{c.label}</span></td> } }
   ] as const;
 
   const cols = [
-    { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
-    { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
-    { id: "created_at", header: <Th align="center"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.created_at)}</td>) },
-    { id: "updated_at", header: <Th align="center"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
-    { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
+    { id: "cpf", header: <Th><SortButton field="cpf">CPF</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left min-w-[96px]">{display(lead.cpf)}</td>) },
+    { id: "nome", header: <Th><SortButton field="nome">Nome</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-left max-w-[220px] truncate">{display(lead.nome)}</td>) },
+    { id: "created_at", header: <Th align="center"><SortButton field="created_at" align="center">Criado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.created_at)}</td>) },
+    { id: "updated_at", header: <Th align="center"><SortButton field="updated_at" align="center">Atualizado em (Lead)</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{display(lead.updated_at)}</td>) },
+    { id: "data_nascimento", header: <Th align="center"><SortButton field="data_nascimento" align="center">Data nasc.</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{display(lead.data_nascimento)}</td>) },
 
     ...phonePairCols(1), ...phonePairCols(2), ...phonePairCols(3), ...phonePairCols(4),
 
-    { id: "elegivel", header: <Th align="center"><SortButton field="elegivel" align="center">Situação</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{lead.not_found ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Não encontrado</span> : lead.elegivel === true ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Elegível</span> : lead.elegivel === false ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">Não elegível</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>}</td>) },
-    { id: "clt_consultado_em", header: <Th align="center"><SortButton field="clt_consultado_em" align="center">Data consulta</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.clt_consultado_em ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{lead.clt_consultado_em}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Ainda não consultado</span>}</td>) },
-    { id: "clt_dados_atualizados_em", header: <Th align="center"><SortButton field="clt_dados_atualizados_em" align="center">Data dados</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.clt_dados_atualizados_em ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">{lead.clt_dados_atualizados_em}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">--</span>}</td>) },
-    { id: "idade", header: <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[72px]">{display(lead.idade)}</td>) },
-    { id: "sexo", header: <Th align="center"><SortButton field="sexo" align="center">Sexo</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">{display(lead.sexo)}</td>) },
-    { id: "data_admissao", header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.data_admissao)}</td>) },
-    { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Meses de admissão</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
-    { id: "categoria_trabalhador_codigo", header: <Th align="center"><SortButton field="categoria_trabalhador_codigo" align="center">Categoria trab. (cód.)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.categoria_trabalhador_codigo)}</td>) },
-    { id: "matricula", header: <Th><SortButton field="matricula">Matrícula</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-left min-w-[120px]">{display(lead.matricula)}</td>) },
-    { id: "inicio_atividade_empregador", header: <Th align="center">Início atividade (empregador)</Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.inicio_atividade_empregador)}</td>) },
-    { id: "valor_renda", header: <Th align="right"><SortButton field="valor_renda" align="right">Renda</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_renda)}</td>) },
-    { id: "valor_base_margem", header: <Th align="right"><SortButton field="valor_base_margem" align="right">Base margem</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_base_margem)}</td>) },
-    { id: "margem_disponivel", header: <Th align="right"><SortButton field="margem_disponivel" align="right">Margem disp.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.margem_disponivel)}</td>) },
-    { id: "valor_max_prestacao", header: <Th align="right"><SortButton field="valor_max_prestacao" align="right">Prestação máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_max_prestacao)}</td>) },
-    { id: "politica_credito_aprovado", header: <Th align="center"><SortButton field="politica_credito_aprovado" align="center">Política aprovada</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{lead.politica_credito_aprovado === true ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Aprovada</span> : lead.politica_credito_aprovado === false ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">Reprovada</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>}</td>) },
-    { id: "politica_credito_mensagem", header: <Th><SortButton field="politica_credito_mensagem">Política mensagem</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 text-left min-w-[220px] max-w-[320px]"><span className="inline-block max-w-[320px] truncate text-sm text-gray-900">{display(lead.politica_credito_mensagem)}</span></td>) },
-    { id: "politica_credito_valor_maximo_disponivel", header: <Th align="right"><SortButton field="politica_credito_valor_maximo_disponivel" align="right">Política valor máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[130px]">{display(lead.politica_credito_valor_maximo_disponivel)}</td>) },
-    { id: "politica_credito_prazo_maximo_disponivel", header: <Th align="center"><SortButton field="politica_credito_prazo_maximo_disponivel" align="center">Política prazo máx.</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_prazo_maximo_disponivel)}</td>) },
-    { id: "politica_credito_data_consulta", header: <Th align="center"><SortButton field="politica_credito_data_consulta" align="center">Política data</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.politica_credito_data_consulta ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{lead.politica_credito_data_consulta}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">--</span>}</td>) },
-    { id: "politica_credito_tabela_aprovada", header: <Th align="center"><SortButton field="politica_credito_tabela_aprovada" align="center">Política tabela</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_tabela_aprovada)}</td>) },
-    { id: "qtd_emprestimos_ativos_suspensos", header: <Th align="center"><SortButton field="qtd_emprestimos_ativos_suspensos" align="center">Empréstimos ativos</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.qtd_emprestimos_ativos_suspensos)}</td>) },
-    { id: "emprestimos_legados", header: <Th align="center"><SortButton field="emprestimos_legados" align="center">Legados</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => { const v = lead.emprestimos_legados; return <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{v === 1 ? "Sim" : v === 0 ? "Não" : (v ?? EMPTY)}</td>; } },
-    { id: "ultima_origem_cadastral", header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>, cell: (lead: ProcessedLeadCLT) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{lead.ultima_origem_cadastral ? <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">{lead.ultima_origem_cadastral}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
+    { id: "elegivel", header: <Th align="center"><SortButton field="elegivel" align="center">Situação</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{lead.not_found ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Não encontrado</span> : lead.elegivel === true ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Elegível</span> : lead.elegivel === false ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">Não elegível</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>}</td>) },
+    { id: "facta_consultado_em", header: <Th align="center"><SortButton field="facta_consultado_em" align="center">Data consulta</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.facta_consultado_em ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{lead.facta_consultado_em}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Ainda não consultado</span>}</td>) },
+    { id: "facta_dados_atualizados_em", header: <Th align="center"><SortButton field="facta_dados_atualizados_em" align="center">Data dados</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.facta_dados_atualizados_em ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">{lead.facta_dados_atualizados_em}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">--</span>}</td>) },
+    { id: "idade", header: <Th align="center"><SortButton field="idade" align="center">Idade</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[72px]">{display(lead.idade)}</td>) },
+    { id: "sexo", header: <Th align="center"><SortButton field="sexo" align="center">Sexo</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[60px]">{display(lead.sexo)}</td>) },
+    { id: "data_admissao", header: <Th align="center"><SortButton field="data_admissao" align="center">Admissão</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[120px]">{display(lead.data_admissao)}</td>) },
+    { id: "meses_admissao", header: <Th align="center"><SortButton field="meses_admissao" align="center">Meses de admissão</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[100px]">{display(lead.meses_admissao)}</td>) },
+    { id: "categoria_trabalhador_codigo", header: <Th align="center"><SortButton field="categoria_trabalhador_codigo" align="center">Categoria trab. (cód.)</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.categoria_trabalhador_codigo)}</td>) },
+    { id: "matricula", header: <Th><SortButton field="matricula">Matrícula</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-left min-w-[120px]">{display(lead.matricula)}</td>) },
+    { id: "inicio_atividade_empregador", header: <Th align="center">Início atividade (empregador)</Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{display(lead.inicio_atividade_empregador)}</td>) },
+    { id: "valor_renda", header: <Th align="right"><SortButton field="valor_renda" align="right">Renda</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_renda)}</td>) },
+    { id: "valor_base_margem", header: <Th align="right"><SortButton field="valor_base_margem" align="right">Base margem</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_base_margem)}</td>) },
+    { id: "margem_disponivel", header: <Th align="right"><SortButton field="margem_disponivel" align="right">Margem disp.</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.margem_disponivel)}</td>) },
+    { id: "valor_max_prestacao", header: <Th align="right"><SortButton field="valor_max_prestacao" align="right">Prestação máx.</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[110px]">{display(lead.valor_max_prestacao)}</td>) },
+    { id: "politica_credito_aprovado", header: <Th align="center"><SortButton field="politica_credito_aprovado" align="center">Política aprovada</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[140px]">{lead.politica_credito_aprovado === true ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-500 text-white">Aprovada</span> : lead.politica_credito_aprovado === false ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-500 text-white">Reprovada</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">Sem dados</span>}</td>) },
+    { id: "politica_credito_mensagem", header: <Th><SortButton field="politica_credito_mensagem">Política mensagem</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 text-left min-w-[220px] max-w-[320px]"><span className="inline-block max-w-[320px] truncate text-sm text-gray-900">{display(lead.politica_credito_mensagem)}</span></td>) },
+    { id: "politica_credito_valor_maximo_disponivel", header: <Th align="right"><SortButton field="politica_credito_valor_maximo_disponivel" align="right">Política valor máx.</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-right min-w-[130px]">{display(lead.politica_credito_valor_maximo_disponivel)}</td>) },
+    { id: "politica_credito_prazo_maximo_disponivel", header: <Th align="center"><SortButton field="politica_credito_prazo_maximo_disponivel" align="center">Política prazo máx.</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_prazo_maximo_disponivel)}</td>) },
+    { id: "politica_credito_data_consulta", header: <Th align="center"><SortButton field="politica_credito_data_consulta" align="center">Política data</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[150px]">{lead.politica_credito_data_consulta ? <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{lead.politica_credito_data_consulta}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">--</span>}</td>) },
+    { id: "politica_credito_tabela_aprovada", header: <Th align="center"><SortButton field="politica_credito_tabela_aprovada" align="center">Política tabela</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.politica_credito_tabela_aprovada)}</td>) },
+    { id: "qtd_emprestimos_ativos_suspensos", header: <Th align="center"><SortButton field="qtd_emprestimos_ativos_suspensos" align="center">Empréstimos ativos</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{display(lead.qtd_emprestimos_ativos_suspensos)}</td>) },
+    { id: "emprestimos_legados", header: <Th align="center"><SortButton field="emprestimos_legados" align="center">Legados</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => { const v = lead.emprestimos_legados; return <td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[110px]">{v === 1 ? "Sim" : v === 0 ? "Não" : (v ?? EMPTY)}</td>; } },
+    { id: "ultima_origem_cadastral", header: <Th align="center"><SortButton field="ultima_origem_cadastral" align="center">Última origem (cad.)</SortButton></Th>, cell: (lead: ProcessedLeadFacta) => (<td className="px-3 xl:px-6 py-4 whitespace-nowrap text-center min-w-[130px]">{lead.ultima_origem_cadastral ? <span className="inline-flex px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full max-w-[160px] truncate mx-auto">{lead.ultima_origem_cadastral}</span> : <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{EMPTY}</span>}</td>) },
   ] as const;
 
   const visibleCols = cols.filter((c) => isVisible(c.id));
@@ -772,7 +772,7 @@ export const LeadsTableCLT = ({
         {visibleCols.map((c, i) => {
           if (c.id === "cpf") return <SkeletonCell key={i} w="w-24" align="left" />;
           if (c.id === "nome") return <SkeletonCell key={i} w={nameWidths[idx % 5]} align="left" />;
-          if (["created_at", "updated_at", "data_nascimento", "data_admissao", "clt_consultado_em", "clt_dados_atualizados_em", "politica_credito_data_consulta"].includes(c.id))
+          if (["created_at", "updated_at", "data_nascimento", "data_admissao", "facta_consultado_em", "facta_dados_atualizados_em", "politica_credito_data_consulta"].includes(c.id))
             return <SkeletonCell key={i} w="w-24" align="center" />;
           
           if ([ "classe_1", "classe_2", "classe_3", "classe_4", "elegivel", "politica_credito_aprovado", "ultima_origem_cadastral", "categoria_trabalhador_codigo"].includes(c.id))
@@ -826,12 +826,12 @@ export const LeadsTableCLT = ({
     ));
   };
 
-  const CLTCard = ({ lead }: { lead: ProcessedLeadCLT }) => {
+  const CLTCard = ({ lead }: { lead: ProcessedLeadFacta }) => {
     const classeInfo = getClasseBadge(lead.telefones[0]?.classe);
     const ShowIf: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => isVisible(id) ? <>{children}</> : null;
 
     const sectionTelefonesVisible = hasAnyVisible(["telefone_1", "telefone_2", "telefone_3", "telefone_4", "classe_1", "classe_2", "classe_3", "classe_4"]);
-    const sectionSituacaoVisible = hasAnyVisible(["elegivel", "clt_consultado_em", "clt_dados_atualizados_em"]);
+    const sectionSituacaoVisible = hasAnyVisible(["elegivel", "facta_consultado_em", "facta_dados_atualizados_em"]);
     const sectionPerfilVisible = hasAnyVisible(["idade", "sexo"]);
     const sectionVinculoVisible = hasAnyVisible(["data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "matricula", "inicio_atividade_empregador"]);
     const sectionFinanceiroVisible = hasAnyVisible(["valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao"]);
@@ -882,8 +882,8 @@ export const LeadsTableCLT = ({
           <div className="h-px bg-gray-200" />
           <Section title="Situação CLT" icon={AlertCircle}>
             {isVisible("elegivel") && <div className="flex flex-wrap gap-2"><SituacaoBadge /></div>}
-            {isVisible("clt_consultado_em") && <DataRow label="Data consulta" value={lead.clt_consultado_em ? lead.clt_consultado_em : "Ainda não consultado"} />}
-            {isVisible("clt_dados_atualizados_em") && <DataRow label="Dados atualizados em" value={lead.clt_dados_atualizados_em || EMPTY} />}
+            {isVisible("facta_consultado_em") && <DataRow label="Data consulta" value={lead.facta_consultado_em ? lead.facta_consultado_em : "Ainda não consultado"} />}
+            {isVisible("facta_dados_atualizados_em") && <DataRow label="Dados atualizados em" value={lead.facta_dados_atualizados_em || EMPTY} />}
           </Section>
         </>}
 
