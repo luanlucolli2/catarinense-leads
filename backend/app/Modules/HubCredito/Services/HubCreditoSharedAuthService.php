@@ -199,7 +199,7 @@ class HubCreditoSharedAuthService
             }
 
             if ($response->status() === 429 && $attempt < $attempts - 1) {
-                $this->pauseBeforeRetry();
+                $this->pauseOnRateLimit();
                 continue;
             }
 
