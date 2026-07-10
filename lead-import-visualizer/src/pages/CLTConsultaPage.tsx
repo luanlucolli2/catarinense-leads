@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { CLTControls } from "@/components/CLTControls";
-import { CLTHistoryTable } from "@/components/CLTHistoryTable";
-import { NewCLTConsultModal } from "@/components/NewCLTConsultModal";
+import { FactaControls } from "@/components/FactaControls";
+import { FactaHistoryTable } from "@/components/FactaHistoryTable";
+import { NewFactaConsultModal } from "@/components/NewFactaConsultModal";
 import { V8Controls } from "@/components/V8Controls";
 import { V8HistoryTable } from "@/components/V8HistoryTable";
 import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
@@ -23,24 +23,24 @@ import pbankLogo from "@/assets/pbanklogo.png";
 import hubCreditoLogo from "@/assets/hubcredito-logo.png";
 
 import {
-  listCltConsultJobs,
-  createCltConsultJob,
-  downloadCltReport,
-  downloadCltPreview,
-  cancelCltConsultJob,
-  pauseCltConsultJob,
-  resumeCltConsultJob,
-  rerunCltConsultJobPhase2,
-  deleteCltConsultJob,
-  CltConsultJobListItem,
-  CltConsultJobShow,
-  getCltConsultJob,
-  getCltJobHttpCounters,
-  CltJobHttpCountersResponse,
-  CltJobStatusFilter,
-  CltJobVariantFilter,
-  requestCltPreview,
-} from "@/api/clt";
+  listFactaCltConsultJobs,
+  createFactaCltConsultJob,
+  downloadFactaCltReport,
+  downloadFactaCltPreview,
+  cancelFactaCltConsultJob,
+  pauseFactaCltConsultJob,
+  resumeFactaCltConsultJob,
+  rerunFactaCltConsultJobPhase2,
+  deleteFactaCltConsultJob,
+  FactaCltConsultJobListItem,
+  FactaCltConsultJobShow,
+  getFactaCltConsultJob,
+  getFactaCltJobHttpCounters,
+  FactaCltJobHttpCountersResponse,
+  FactaCltJobStatusFilter,
+  FactaCltJobVariantFilter,
+  requestFactaCltPreview,
+} from "@/api/facta";
 import {
   listV8ConsultJobs,
   createV8ConsultJob,
@@ -113,18 +113,18 @@ const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
   const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "hubcredito" | "presenca">(
-    "clt:activeTab",
+    "facta:activeTab",
     "facta"
   );
 
   const [isNewConsultModalOpen, setIsNewConsultModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-  const [statusFilter, setStatusFilter] = usePersistedState<CltJobStatusFilter>(
-    "clt:statusFilter",
+  const [statusFilter, setStatusFilter] = usePersistedState<FactaCltJobStatusFilter>(
+    "facta:statusFilter",
     "todos"
   );
-  const [variantFilter, setVariantFilter] = usePersistedState<CltJobVariantFilter>(
-    "clt:variantFilter",
+  const [variantFilter, setVariantFilter] = usePersistedState<FactaCltJobVariantFilter>(
+    "facta:variantFilter",
     "todos"
   );
   const [page, setPage] = useState(1);
@@ -148,7 +148,7 @@ const CLTConsultaPage = () => {
   const [pagePresenca, setPagePresenca] = useState(1);
 
   const [watchingJobId, setWatchingJobId] = usePersistedState<number | null>(
-    "clt:watchJobId",
+    "facta:watchJobId",
     null
   );
   const [watchingV8JobId, setWatchingV8JobId] = usePersistedState<number | null>(
@@ -184,8 +184,8 @@ const CLTConsultaPage = () => {
     isLoading: listLoading,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ["clt:list", page, statusFilter, variantFilter],
-    queryFn: () => listCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
+    queryKey: ["facta:list", page, statusFilter, variantFilter],
+    queryFn: () => listFactaCltConsultJobs(page, { status: statusFilter, variant: variantFilter }),
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     refetchInterval: activeTab === "facta" ? 30000 : false,
@@ -251,15 +251,15 @@ const CLTConsultaPage = () => {
   const presencaTitleOf = (id: number) =>
     (presencaJobsPage?.data ?? []).find((i) => i.id === id)?.title ?? `#${id}`;
 
-  const { data: watchedJob } = useQuery<CltConsultJobShow>({
-    queryKey: ["clt:job", watchingJobId],
-    queryFn: () => getCltConsultJob(watchingJobId as number),
+  const { data: watchedJob } = useQuery<FactaCltConsultJobShow>({
+    queryKey: ["facta:job", watchingJobId],
+    queryFn: () => getFactaCltConsultJob(watchingJobId as number),
     enabled: !!watchingJobId,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchOnMount: "always",
     refetchInterval: (query) => {
-      const job = query.state.data as CltConsultJobShow | undefined;
+      const job = query.state.data as FactaCltConsultJobShow | undefined;
       if (!job) return false;
       if (job.status === "agendado") return 15000;
       const open =
@@ -327,13 +327,13 @@ const CLTConsultaPage = () => {
   });
 
   const { data: httpCountersData, isLoading: httpCountersLoading, isFetching: httpCountersFetching, error: httpCountersError, refetch: refetchHttpCounters } =
-    useQuery<CltJobHttpCountersResponse>({
-      queryKey: ["clt:http-counters", httpCountersModalJob?.id ?? null],
-      queryFn: () => getCltJobHttpCounters(httpCountersModalJob!.id),
+    useQuery<FactaCltJobHttpCountersResponse>({
+      queryKey: ["facta:http-counters", httpCountersModalJob?.id ?? null],
+      queryFn: () => getFactaCltJobHttpCounters(httpCountersModalJob!.id),
       enabled: !!httpCountersModalJob?.id,
       refetchOnWindowFocus: true,
       refetchInterval: (query) => {
-        const data = query.state.data as CltJobHttpCountersResponse | undefined;
+        const data = query.state.data as FactaCltJobHttpCountersResponse | undefined;
         if (!httpCountersModalJob?.id) return false;
         if (!data) return 15000;
         return data.status === "pendente" || data.status === "em_progresso" ? 15000 : false;
@@ -352,7 +352,7 @@ const CLTConsultaPage = () => {
     };
   }, [httpCountersRefreshCooldownUntil]);
 
-  const itemsWithOverlay: CltConsultJobListItem[] = useMemo(() => {
+  const itemsWithOverlay: FactaCltConsultJobListItem[] = useMemo(() => {
     if (!watchedJob) return items;
     return items.map((i) => {
       if (i.id !== watchedJob.id) return i;
@@ -490,14 +490,14 @@ const CLTConsultaPage = () => {
       if (watchedJob.has_file) {
         const tid = previewToastById.current.get(watchedJob.id);
         if (tid) toast.dismiss(tid);
-        void downloadCltReport(watchedJob.id);
+        void downloadFactaCltReport(watchedJob.id);
         waitingPreview.current.delete(watchedJob.id);
         previewToastById.current.delete(watchedJob.id);
         inFlight.current.delete(watchedJob.id);
       } else if (watchedJob.preview_status === "ready") {
         const tid = previewToastById.current.get(watchedJob.id);
         if (tid) toast.success("Prévia pronta! Baixando planilha…", { id: tid });
-        void downloadCltPreview(watchedJob.id);
+        void downloadFactaCltPreview(watchedJob.id);
         waitingPreview.current.delete(watchedJob.id);
         previewToastById.current.delete(watchedJob.id);
         inFlight.current.delete(watchedJob.id);
@@ -517,7 +517,7 @@ const CLTConsultaPage = () => {
     if (watchedJob.status === "pausado") {
       toast.info(`Consulta "${niceTitle}" pausada.`);
       setWatchingJobId(null);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
       return;
     }
 
@@ -526,7 +526,7 @@ const CLTConsultaPage = () => {
       else if (watchedJob.status === "falhou") toast.error(`Consulta "${niceTitle}" falhou.`);
 
       setWatchingJobId(null);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
     }
   }, [watchedJob, qc, setWatchingJobId]);
 
@@ -660,20 +660,20 @@ const CLTConsultaPage = () => {
 
   // Aceita payload estendido
   const createMutation = useMutation<any, any, any>({
-    mutationFn: (vars: any) => createCltConsultJob(vars),
+    mutationFn: (vars: any) => createFactaCltConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingJobId(data.id);
       const t = (vars as any).title;
       toast.success(data.status === "agendado" ? `Consulta "${t}" agendada.` : `Consulta "${t}" criada.`);
       setPage(1);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Falha ao criar consulta"),
   });
 
   const cancelMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
-      cancelCltConsultJob(id, reason),
+      cancelFactaCltConsultJob(id, reason),
     onSuccess: (data, { id }) => {
       setWatchingJobId(id);
       if (data.finished_at) {
@@ -681,58 +681,58 @@ const CLTConsultaPage = () => {
       } else {
         toast.info(`Cancelamento solicitado para "${titleOf(id)}". A exclusão será liberada após finalizar a limpeza.`);
       }
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível cancelar"),
   });
 
   const pauseMutation = useMutation({
-    mutationFn: (id: number) => pauseCltConsultJob(id),
+    mutationFn: (id: number) => pauseFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.info(`Pausa solicitada para "${titleOf(id)}".`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar"),
   });
 
   const resumeMutation = useMutation({
-    mutationFn: (id: number) => resumeCltConsultJob(id),
+    mutationFn: (id: number) => resumeFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.success(`Consulta "${titleOf(id)}" retomada.`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar"),
   });
 
   const rerunPhase2Mutation = useMutation({
-    mutationFn: (id: number) => rerunCltConsultJobPhase2(id),
+    mutationFn: (id: number) => rerunFactaCltConsultJobPhase2(id),
     onSuccess: (_data, id) => {
       setWatchingJobId(id);
       toast.success(`Reprocessamento da fase 2 iniciado para "${titleOf(id)}".`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível reprocessar a fase 2"),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteCltConsultJob(id),
+    mutationFn: (id: number) => deleteFactaCltConsultJob(id),
     onSuccess: (_data, id) => {
       if (id === watchingJobId) setWatchingJobId(null);
       toast.success(`Consulta "${titleOf(id)}" excluída.`);
-      void qc.invalidateQueries({ queryKey: ["clt:list"] });
-      void qc.removeQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:list"] });
+      void qc.removeQueries({ queryKey: ["facta:job", id] });
     },
     onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
 
   const requestPreviewMutation = useMutation({
-    mutationFn: (id: number) => requestCltPreview(id),
+    mutationFn: (id: number) => requestFactaCltPreview(id),
   });
 
   const createV8Mutation = useMutation<any, any, {
@@ -960,7 +960,7 @@ const CLTConsultaPage = () => {
   const getOrCreatePreviewToast = (id: number) => {
     const existing = previewToastById.current.get(id);
     if (existing) return existing;
-    const stableId = `clt-prev-${id}`;
+    const stableId = `facta-prev-${id}`;
     toast.info("Gerando prévia…", {
       id: stableId,
       description: "Aguarde enquanto preparamos o XLSX.",
@@ -982,13 +982,13 @@ const CLTConsultaPage = () => {
     inFlight.current.add(id);
 
     try {
-      const j = await qc.ensureQueryData<CltConsultJobShow>({
-        queryKey: ["clt:job", id],
-        queryFn: () => getCltConsultJob(id),
+      const j = await qc.ensureQueryData<FactaCltConsultJobShow>({
+        queryKey: ["facta:job", id],
+        queryFn: () => getFactaCltConsultJob(id),
       });
 
       if (!opts?.preview && j.has_file) {
-        await downloadCltReport(id);
+        await downloadFactaCltReport(id);
         inFlight.current.delete(id);
         return;
       }
@@ -1005,13 +1005,13 @@ const CLTConsultaPage = () => {
           previewToastById.current.delete(id);
           waitingPreview.current.delete(id);
 
-          await downloadCltPreview(id);
+          await downloadFactaCltPreview(id);
           inFlight.current.delete(id);
-          void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+          void qc.invalidateQueries({ queryKey: ["facta:job", id] });
           return;
         }
 
-        void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+        void qc.invalidateQueries({ queryKey: ["facta:job", id] });
         return;
       }
 
@@ -1025,12 +1025,12 @@ const CLTConsultaPage = () => {
         previewToastById.current.delete(id);
         waitingPreview.current.delete(id);
 
-        await downloadCltPreview(id);
+        await downloadFactaCltPreview(id);
         inFlight.current.delete(id);
-        void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+        void qc.invalidateQueries({ queryKey: ["facta:job", id] });
         return;
       }
-      void qc.invalidateQueries({ queryKey: ["clt:job", id] });
+      void qc.invalidateQueries({ queryKey: ["facta:job", id] });
     } catch (e: any) {
       const apiMsg = e?.response?.data?.message || e?.message;
       toast.error(apiMsg ?? "Falha no download");
@@ -1345,7 +1345,7 @@ const CLTConsultaPage = () => {
         </TabsList>
 
         <TabsContent value="facta" className="space-y-6">
-          <CLTControls
+          <FactaControls
             onNewConsultClick={() => setIsNewConsultModalOpen(true)}
             searchValue={searchValue}
             onSearchChange={setSearchValue}
@@ -1361,7 +1361,7 @@ const CLTConsultaPage = () => {
             }}
           />
 
-          <CLTHistoryTable
+          <FactaHistoryTable
             items={filteredItems}
             loading={!!(listLoading && !jobsPage)}
             onDownload={handleDownload}
@@ -1465,7 +1465,7 @@ const CLTConsultaPage = () => {
         </TabsContent>
       </Tabs>
 
-      <NewCLTConsultModal
+      <NewFactaConsultModal
         isOpen={isNewConsultModalOpen}
         onClose={() => setIsNewConsultModalOpen(false)}
         onSubmit={handleNewConsult}

@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Modules\CLT\Jobs;
+namespace App\Modules\Facta\Jobs;
 
-use App\Modules\CLT\Models\CltConsultJob;
-use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
-use App\Modules\CLT\Support\CltLog;
-use App\Modules\CLT\Support\CltSchema;
-use App\Modules\CLT\Support\CltSpool;
-use App\Modules\CLT\Support\CltVariant;
+use App\Modules\Facta\Models\FactaCltConsultJob;
+use App\Modules\Facta\Services\Exceptions\FactaFatalAuthException;
+use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\Facta\Support\FactaCltSchema;
+use App\Modules\Facta\Support\FactaCltSpool;
+use App\Modules\Facta\Support\FactaCltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
+class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -121,68 +121,68 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             : self::STAGE_PHASE1;
 
         // Nota: a fila é definida no dispatch (controller) por variante.
-        $this->timeout = (int) config('cltfacta.job.timeout_seconds', 115200);
+        $this->timeout = (int) config('facta.job.timeout_seconds', 115200);
         $this->uniqueFor = max(3600, $this->timeout + 3600);
-        $this->disk = (string) config('cltfacta.storage.reports_disk', 'local');
-        $this->dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
-        $this->finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        $this->disk = (string) config('facta.storage.reports_disk', 'local');
+        $this->dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
+        $this->finalPrefix = (string) config('facta.storage.final_prefix', 'facta-clt-consulta');
 
         // pacing (configurável por env)
-        $this->chunkDelayMs = (int) config('cltfacta.job.chunk_delay_ms', 200);
-        $this->subchunkSize = max(1, (int) config('cltfacta.job.subchunk', 5));
-        $this->subchunkDelayMs = (int) config('cltfacta.job.subchunk_delay_ms', 120);
-        $this->rowsBufferFlush = max(1, (int) config('cltfacta.job.rows_buffer_flush', 300));
-        $this->snapBufferFlush = max(1, (int) config('cltfacta.job.snap_buffer_flush', 300));
-        $this->memorySpillThresholdPercent = max(40, min(90, (int) config('cltfacta.job.memory_spill_threshold_percent', 70)));
+        $this->chunkDelayMs = (int) config('facta.job.chunk_delay_ms', 200);
+        $this->subchunkSize = max(1, (int) config('facta.job.subchunk', 5));
+        $this->subchunkDelayMs = (int) config('facta.job.subchunk_delay_ms', 120);
+        $this->rowsBufferFlush = max(1, (int) config('facta.job.rows_buffer_flush', 300));
+        $this->snapBufferFlush = max(1, (int) config('facta.job.snap_buffer_flush', 300));
+        $this->memorySpillThresholdPercent = max(40, min(90, (int) config('facta.job.memory_spill_threshold_percent', 70)));
         $this->runtimeWorkerMemoryLimitBytes = $this->detectRuntimeWorkerMemoryLimitBytes();
-        $this->statusCheckIntervalMs = max(100, (int) config('cltfacta.job.status_check_interval_ms', 1000));
-        $this->flushEverySecs = max(1, (int) config('cltfacta.job.progress_flush_interval_seconds', 20));
-        $this->backoffLog = (bool) config('cltfacta.logging.backoff_log', false);
-        $this->chunkPerfDebug = (bool) config('cltfacta.logging.chunk_perf_debug', false);
-        $this->flushProgressLog = (bool) config('cltfacta.logging.flush_progress_log', false);
-        $this->semResponseChunkThreshold = max(0.05, min(1.0, (float) config('cltfacta.job.sem_response_chunk_threshold', 0.5)));
-        $this->semResponseChunkCooldownSeconds = max(0, (int) config('cltfacta.job.sem_response_chunk_cooldown_seconds', 10));
-        $this->phaseOneCoordLockTtl = max(1, (int) config('cltfacta.job.phase1_coord_lock_ttl', 10));
-        $this->phaseOneCoordLockWait = max(1, (int) config('cltfacta.job.phase1_coord_lock_wait', 5));
-        $this->phaseOneCoordRetryDelaySeconds = max(1, (int) config('cltfacta.job.phase1_coord_retry_delay_seconds', 15));
-        $this->baseRowTemplate = array_fill_keys(CltSchema::COLS, null);
-        $this->phase2MaxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
-        $this->phase2RetryDelaySeconds = max(1, (int) config('cltfacta.credit_worker.phase2_retry_delay_seconds', 30));
-        $phase2ConfiguredIntervalMs = (int) config('cltfacta.credit_worker.phase2_progress_flush_interval_ms', 20000);
+        $this->statusCheckIntervalMs = max(100, (int) config('facta.job.status_check_interval_ms', 1000));
+        $this->flushEverySecs = max(1, (int) config('facta.job.progress_flush_interval_seconds', 20));
+        $this->backoffLog = (bool) config('facta.logging.backoff_log', false);
+        $this->chunkPerfDebug = (bool) config('facta.logging.chunk_perf_debug', false);
+        $this->flushProgressLog = (bool) config('facta.logging.flush_progress_log', false);
+        $this->semResponseChunkThreshold = max(0.05, min(1.0, (float) config('facta.job.sem_response_chunk_threshold', 0.5)));
+        $this->semResponseChunkCooldownSeconds = max(0, (int) config('facta.job.sem_response_chunk_cooldown_seconds', 10));
+        $this->phaseOneCoordLockTtl = max(1, (int) config('facta.job.phase1_coord_lock_ttl', 10));
+        $this->phaseOneCoordLockWait = max(1, (int) config('facta.job.phase1_coord_lock_wait', 5));
+        $this->phaseOneCoordRetryDelaySeconds = max(1, (int) config('facta.job.phase1_coord_retry_delay_seconds', 15));
+        $this->baseRowTemplate = array_fill_keys(FactaCltSchema::COLS, null);
+        $this->phase2MaxAttempts = max(1, (int) config('facta.credit_worker.phase2_max_attempts', 3));
+        $this->phase2RetryDelaySeconds = max(1, (int) config('facta.credit_worker.phase2_retry_delay_seconds', 30));
+        $phase2ConfiguredIntervalMs = (int) config('facta.credit_worker.phase2_progress_flush_interval_ms', 20000);
         $this->phase2ProgressFlushIntervalMs = max(
             $this->flushEverySecs * 1000,
             max(200, $phase2ConfiguredIntervalMs)
         );
-        $this->phase2ProgressFlushEveryRows = max(20, (int) config('cltfacta.credit_worker.phase2_progress_flush_every_rows', 200));
-        $this->phase2DeltaFlushIntervalMs = max(500, (int) config('cltfacta.credit_worker.phase2_delta_flush_interval_ms', 2000));
-        $this->phase2DeltaFlushEveryRows = max(10, (int) config('cltfacta.credit_worker.phase2_delta_flush_every_rows', 20));
-        $this->phase2PendingFlushEveryRows = max(10, (int) config('cltfacta.credit_worker.phase2_pending_flush_every_rows', 50));
-        $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
+        $this->phase2ProgressFlushEveryRows = max(20, (int) config('facta.credit_worker.phase2_progress_flush_every_rows', 200));
+        $this->phase2DeltaFlushIntervalMs = max(500, (int) config('facta.credit_worker.phase2_delta_flush_interval_ms', 2000));
+        $this->phase2DeltaFlushEveryRows = max(10, (int) config('facta.credit_worker.phase2_delta_flush_every_rows', 20));
+        $this->phase2PendingFlushEveryRows = max(10, (int) config('facta.credit_worker.phase2_pending_flush_every_rows', 50));
+        $this->phase2CpfValidationAuditLogEnabled = (bool) config('facta.logging.phase2_cpf_validation_audit_log_enabled', false);
     }
 
     public function handle(): void
     {
-        /** @var CltConsultJob|null $job */
-        $job = CltConsultJob::query()->whereKey($this->jobId)->first();
+        /** @var FactaCltConsultJob|null $job */
+        $job = FactaCltConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job) {
             $this->deletePendFiles();
             return;
         }
 
         // variante para snapshots
-        $this->variant = CltVariant::normalizeStored($job->variant);
+        $this->variant = FactaCltVariant::normalizeStored($job->variant);
         $this->cachedStatus = $job->status;
         $this->cachedRunToken = (int) ($job->run_token ?? 1);
         $this->runToken = (int) ($job->run_token ?? 1);
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $this->variant === 'offline'
-            ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
-            : app(\App\Modules\CLT\Services\FactaApiService::class);
+            ? app(\App\Modules\Facta\Services\FactaCltOfflineApiService::class)
+            : app(\App\Modules\Facta\Services\FactaApiService::class);
         $hybridOfflineApi = $this->variant === 'hybrid'
-            ? app(\App\Modules\CLT\Services\CltOfflineApiService::class)
+            ? app(\App\Modules\Facta\Services\FactaCltOfflineApiService::class)
             : null;
-        if ($api instanceof \App\Modules\CLT\Services\FactaApiService) {
+        if ($api instanceof \App\Modules\Facta\Services\FactaApiService) {
             $api->setRuntimeJobId($this->jobId);
         }
 
@@ -201,7 +201,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $hasSpool = !empty($job->spool_path) && $disk->exists($job->spool_path);
         $hasCpfsSpool = !empty($job->spool_cpfs_path) && $disk->exists($job->spool_cpfs_path);
         if (!$hasSpool || ($this->stage === self::STAGE_PHASE1 && !$hasCpfsSpool)) {
-            CltLog::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
+            FactaCltLog::error("[CLT] Job {$this->jobId} sem spool pré-criado.");
             $this->dispatchFinalize('falhou');
             $this->deletePendFiles();
             return;
@@ -213,8 +213,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2PendingNextReal = $this->phase2PendingReal . '.next';
 
         if ($this->stage === self::STAGE_PHASE2) {
-            if (!$this->supportsCreditPhaseTwo() || !$api instanceof \App\Modules\CLT\Services\FactaApiService) {
-                CltLog::warning('[CLT] Job recebido na fila da fase 2 com variante não suportada.', [
+            if (!$this->supportsCreditPhaseTwo() || !$api instanceof \App\Modules\Facta\Services\FactaApiService) {
+                FactaCltLog::warning('[CLT] Job recebido na fila da fase 2 com variante não suportada.', [
                     'job_id' => $this->jobId,
                     'variant' => $this->variant,
                     'stage' => $this->stage,
@@ -224,7 +224,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if (!in_array($job->status, ['pendente', 'em_progresso'], true)) {
-                CltLog::info('[CLT] Job da fase 2 ignorado por estado final.', [
+                FactaCltLog::info('[CLT] Job da fase 2 ignorado por estado final.', [
                     'job_id' => $this->jobId,
                     'status' => $job->status,
                 ]);
@@ -238,7 +238,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
             ]);
 
-            if (CltVariant::isCreditPolicyOnly($this->variant) && !$this->prepareCreditPolicySpoolIfNeeded($job)) {
+            if (FactaCltVariant::isCreditPolicyOnly($this->variant) && !$this->prepareCreditPolicySpoolIfNeeded($job)) {
                 if ($this->stoppedByRunTokenHandoff) {
                     return;
                 }
@@ -274,7 +274,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        CltLog::warning($this->variant === 'online'
+        FactaCltLog::warning($this->variant === 'online'
             ? '[CLT] Fase 1 iniciada (consulta de trabalhadores)'
             : ($this->variant === 'hybrid'
                 ? '[CLT-HYB] Fase 1 iniciada (triagem offline + fallback online)'
@@ -382,11 +382,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             // 2) Teimosinha
-            $maxAttempts = (int) config('cltfacta.job.max_attempts', 5);
-            $retryDelay = (int) config('cltfacta.job.retry_delay_seconds', 60);
-            $baseChunkSize = max(1, (int) config('cltfacta.job.chunk', 24));
-            $minChunk = max(1, (int) config('cltfacta.job.min_chunk', 8));
-            $retryAfterCap = (int) config('cltfacta.job.retry_after_max', 120);
+            $maxAttempts = (int) config('facta.job.max_attempts', 5);
+            $retryDelay = (int) config('facta.job.retry_delay_seconds', 60);
+            $baseChunkSize = max(1, (int) config('facta.job.chunk', 24));
+            $minChunk = max(1, (int) config('facta.job.min_chunk', 8));
+            $retryAfterCap = (int) config('facta.job.retry_after_max', 120);
             $adaptiveChunkSize = $baseChunkSize;
 
             $currPendRel = $pend1Rel;
@@ -465,7 +465,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                 $previousChunkSize = $chunkSize;
                                 $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
                                 $healthyChunkStreak = 0;
-                                CltLog::warning("[CLT] Job {$this->jobId} – chunk problemático por sem_resposta.", [
+                                FactaCltLog::warning("[CLT] Job {$this->jobId} – chunk problemático por sem_resposta.", [
                                     'attempt' => $attempt,
                                     'chunk_size_before' => $previousChunkSize,
                                     'chunk_size_after' => $chunkSize,
@@ -491,7 +491,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                     $chunkSize = min($baseChunkSize, $chunkSize + $chunkRecoveryStep);
                                     $healthyChunkStreak = 0;
 
-                                    CltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk.", [
+                                    FactaCltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk.", [
                                         'attempt' => $attempt,
                                         'chunk_size_before' => $previousChunkSize,
                                         'chunk_size_after' => $chunkSize,
@@ -530,7 +530,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                             $previousChunkSize = $chunkSize;
                             $chunkSize = max($minChunk, (int) floor($chunkSize / 2));
                             $healthyChunkStreak = 0;
-                            CltLog::warning("[CLT] Job {$this->jobId} – chunk final problemático por sem_resposta.", [
+                            FactaCltLog::warning("[CLT] Job {$this->jobId} – chunk final problemático por sem_resposta.", [
                                 'attempt' => $attempt,
                                 'chunk_size_before' => $previousChunkSize,
                                 'chunk_size_after' => $chunkSize,
@@ -550,7 +550,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                                 $chunkSize = min($baseChunkSize, $chunkSize + $chunkRecoveryStep);
                                 $healthyChunkStreak = 0;
 
-                                CltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk (final).", [
+                                FactaCltLog::info("[CLT] Job {$this->jobId} – recuperação gradual de chunk (final).", [
                                     'attempt' => $attempt,
                                     'chunk_size_before' => $previousChunkSize,
                                     'chunk_size_after' => $chunkSize,
@@ -664,14 +664,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\CLT\Services\FactaApiService) {
+            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\Facta\Services\FactaApiService) {
                 $this->dispatchPhaseTwo($job);
                 return;
             }
 
             $this->dispatchFinalize('concluido');
         } catch (Throwable $e) {
-            CltLog::error("[CLT] Job {$this->jobId} finalizado por exceção não tratada: " . $e->getMessage(), [
+            FactaCltLog::error("[CLT] Job {$this->jobId} finalizado por exceção não tratada: " . $e->getMessage(), [
                 'exception' => $e,
             ]);
             try {
@@ -679,11 +679,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             } catch (Throwable) {
             }
         } finally {
-            if ($api instanceof \App\Modules\CLT\Services\FactaApiService) {
+            if ($api instanceof \App\Modules\Facta\Services\FactaApiService) {
                 try {
                     $api->flushRuntimeHttpCounters();
                 } catch (Throwable $e) {
-                    CltLog::warning('[CLT] Falha ao flush final dos contadores HTTP FACTA por job.', [
+                    FactaCltLog::warning('[CLT] Falha ao flush final dos contadores HTTP FACTA por job.', [
                         'job_id' => $this->jobId,
                         'error' => $e->getMessage(),
                     ]);
@@ -712,7 +712,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @param resource|null $nextPendHandle
      */
     private function abortPhaseOneDueToFatalTokenAuth(
-        CltConsultJob $job,
+        FactaCltConsultJob $job,
         array $chunkPendingCpfs,
         string $abortMessage,
         $currentPendReader,
@@ -724,7 +724,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $abortedCount = 0;
         $nowBr = date('d/m/Y H:i:s');
 
-        CltLog::warning('[FACTA] /gera-token aborto de processamento; finalizando job e pendências.', [
+        FactaCltLog::warning('[FACTA] /gera-token aborto de processamento; finalizando job e pendências.', [
             'job_id' => $this->jobId,
             'stage' => 'token_abort',
             'mensagem' => $abortMessage,
@@ -789,7 +789,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
         $this->updateTotalsThrottled($job, [], true);
 
-        CltLog::error('[CLT] Job encerrado com abort no /gera-token (status concluido).', [
+        FactaCltLog::error('[CLT] Job encerrado com abort no /gera-token (status concluido).', [
             'job_id' => $this->jobId,
             'remaining_failed_count' => $abortedCount,
             'abort_message' => $abortMessage,
@@ -800,7 +800,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function processChunk(
         $api,
-        CltConsultJob $job,
+        FactaCltConsultJob $job,
         array $chunkCpfs,
         $nextPendHandle,
         int &$retryAfterMaxSeen,
@@ -808,7 +808,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         int &$totalInAttempt,
         int &$semRespInChunkOut,
         int &$chunkProcessedOut,
-        ?\App\Modules\CLT\Services\CltOfflineApiService $hybridOfflineApi = null,
+        ?\App\Modules\Facta\Services\FactaCltOfflineApiService $hybridOfflineApi = null,
         bool $allowHybridOfflineReuse = false
     ): void {
         $t0 = microtime(true);
@@ -839,8 +839,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $onlineSlice = $slice;
             if (
                 $allowHybridOfflineReuse
-                && $api instanceof \App\Modules\CLT\Services\FactaApiService
-                && $hybridOfflineApi instanceof \App\Modules\CLT\Services\CltOfflineApiService
+                && $api instanceof \App\Modules\Facta\Services\FactaApiService
+                && $hybridOfflineApi instanceof \App\Modules\Facta\Services\FactaCltOfflineApiService
             ) {
                 $onlineSlice = $this->precheckHybridSlice(
                     $hybridOfflineApi,
@@ -863,7 +863,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             $onlineAttemptsInChunk += count($onlineSlice);
-            $consultaSource = $api instanceof \App\Modules\CLT\Services\CltOfflineApiService
+            $consultaSource = $api instanceof \App\Modules\Facta\Services\FactaCltOfflineApiService
                 ? 'offline'
                 : 'online';
 
@@ -893,7 +893,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $e->abortCsvMessage()
                 );
             } catch (\Throwable $e) {
-                CltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
+                FactaCltLog::error("[CLT] Job {$this->jobId} erro no autorizaConsultaLote: " . $e->getMessage(), ['exception' => $e]);
                 foreach ($onlineSlice as $cpf) {
                     $this->appendPhaseOnePendingEntryOrFail($nextPendHandle, $cpf, 'Exceção: ' . $e->getMessage());
                 }
@@ -980,7 +980,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         if ($this->chunkPerfDebug) {
             $elapsed = microtime(true) - $t0;
             $rps = $elapsed > 0 ? number_format($chunkCount / $elapsed, 1, ',', '.') : 'inf';
-            CltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
+            FactaCltLog::debug("[CLT] job={$this->jobId} chunk=OK size={$chunkCount} sub={$micro} time=" . number_format($elapsed, 3, ',', '.') . "s rate={$rps} cps");
         }
     }
 
@@ -1069,7 +1069,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $base . ' (' . $normalized . ')';
     }
 
-    private function flushPhaseOneBuffers(CltConsultJob $job, array &$rows, array &$snapRows): void
+    private function flushPhaseOneBuffers(FactaCltConsultJob $job, array &$rows, array &$snapRows): void
     {
         if (count($rows) >= $this->rowsBufferFlush) {
             $this->spoolAppendManyPersist($job, $rows);
@@ -1238,7 +1238,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     private function precheckHybridSlice(
-        \App\Modules\CLT\Services\CltOfflineApiService $offlineApi,
+        \App\Modules\Facta\Services\FactaCltOfflineApiService $offlineApi,
         array $slice,
         string $nowStr,
         array &$rows,
@@ -1466,7 +1466,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $row;
     }
 
-    private function spoolAppendManyPersist(CltConsultJob $job, array $rows): void
+    private function spoolAppendManyPersist(FactaCltConsultJob $job, array $rows): void
     {
         if (!is_resource($this->spoolFp))
             throw new \RuntimeException("Writer do spool não inicializado.");
@@ -1477,9 +1477,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         try {
             foreach ($rows as $row) {
-                $row = CltSchema::normalizeAssocRowForCsv($row);
+                $row = FactaCltSchema::normalizeAssocRowForCsv($row);
                 $ordered = [];
-                foreach (CltSchema::COLS as $key) {
+                foreach (FactaCltSchema::COLS as $key) {
                     $ordered[] = $row[$key] ?? null;
                 }
                 $this->writeCsvRowOrFail($this->spoolFp, $ordered, 'spool principal');
@@ -1496,7 +1496,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->updateTotalsThrottled($job);
     }
 
-    private function updateTotalsThrottled(CltConsultJob $job, array $extra = [], bool $force = false): void
+    private function updateTotalsThrottled(FactaCltConsultJob $job, array $extra = [], bool $force = false): void
     {
         $now = microtime(true);
 
@@ -1529,7 +1529,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         if ($this->flushProgressLog) {
             try {
-                CltLog::info('[CLT][FLUSH]', [
+                FactaCltLog::info('[CLT][FLUSH]', [
                     'job' => $this->jobId,
                     'force' => $force,
                     'bytes_now' => $bytes,
@@ -1538,7 +1538,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        DB::table('clt_consult_jobs')->where('id', $job->id)->update($updates);
+        DB::table('facta_clt_consult_jobs')->where('id', $job->id)->update($updates);
 
         $job->spool_bytes = $bytes;
         $this->lastFlushAt = $now;
@@ -1847,7 +1847,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $existing = collect();
             if ($needsExistingLookup) {
-                $existing = DB::table('clt_snapshots')
+                $existing = DB::table('facta_clt_snapshots')
                     ->whereIn('cpf', $uniqueCpfs)
                     ->select('cpf', 'updated_at', 'not_found')
                     ->get()
@@ -1910,7 +1910,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if (!empty($toUpsert)) {
-                DB::table('clt_snapshots')->upsert(
+                DB::table('facta_clt_snapshots')->upsert(
                     $toUpsert,
                     ['cpf'],
                     [
@@ -1941,18 +1941,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 );
             }
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
+            FactaCltLog::warning("[CLT] Upsert snapshots falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
         }
     }
 
-    private function cooperativeSleep(int $seconds, CltConsultJob $job): bool
+    private function cooperativeSleep(int $seconds, FactaCltConsultJob $job): bool
     {
         $total = max(0, $seconds);
         if ($total <= 0)
             return $this->finishIfStopped($job);
 
         if ($this->backoffLog) {
-            CltLog::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
+            FactaCltLog::info("[CLT] job={$this->jobId} backoff:start sleep={$total}s");
         }
         $remaining = $total;
         $start = microtime(true);
@@ -1961,7 +1961,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             if ($this->finishIfStopped($job)) {
                 $slept = (int) floor($total - $remaining);
                 if ($this->backoffLog) {
-                    CltLog::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
+                    FactaCltLog::info("[CLT] job={$this->jobId} backoff:aborted slept={$slept}s");
                 }
                 return true;
             }
@@ -1971,12 +1971,12 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $elapsed = (int) floor(microtime(true) - $start);
         if ($this->backoffLog) {
-            CltLog::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
+            FactaCltLog::info("[CLT] job={$this->jobId} backoff:done slept={$elapsed}s");
         }
         return $this->finishIfStopped($job);
     }
 
-    private function microSleepCoop(int $ms, CltConsultJob $job): bool
+    private function microSleepCoop(int $ms, FactaCltConsultJob $job): bool
     {
         $remain = max(0, $ms) * 1000;
         if ($remain <= 0)
@@ -2004,11 +2004,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolFp = null;
     }
 
-    private function prepareCreditPolicySpoolIfNeeded(CltConsultJob $job): bool
+    private function prepareCreditPolicySpoolIfNeeded(FactaCltConsultJob $job): bool
     {
         $preparedRows = max(0, (int) ($job->phase2_total ?? 0)) + max(0, (int) ($job->descartado_count ?? 0));
         $expectedRows = max(0, (int) ($job->total_cpfs ?? 0));
-        $spoolHasDataRows = CltSpool::hasDataRows(Storage::disk($this->disk), $job->spool_path ?? null);
+        $spoolHasDataRows = FactaCltSpool::hasDataRows(Storage::disk($this->disk), $job->spool_path ?? null);
 
         if ($spoolHasDataRows && $expectedRows > 0 && $preparedRows >= $expectedRows) {
             return true;
@@ -2017,14 +2017,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $this->rebuildCreditPolicySpoolFromSnapshots($job);
     }
 
-    private function rebuildCreditPolicySpoolFromSnapshots(CltConsultJob $job): bool
+    private function rebuildCreditPolicySpoolFromSnapshots(FactaCltConsultJob $job): bool
     {
         $disk = Storage::disk($this->disk);
         $spoolPath = (string) ($job->spool_path ?? '');
         $cpfsPath = (string) ($job->spool_cpfs_path ?? '');
 
         if ($spoolPath === '' || $cpfsPath === '' || !$disk->exists($cpfsPath)) {
-            CltLog::error("[CLT] Job {$this->jobId} sem arquivo de CPFs para preparar a fase 2.");
+            FactaCltLog::error("[CLT] Job {$this->jobId} sem arquivo de CPFs para preparar a fase 2.");
             return false;
         }
 
@@ -2051,7 +2051,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             try {
-                $this->writeCsvRowOrFail($writer, CltSchema::TITLES, 'spool temporário da política de crédito');
+                $this->writeCsvRowOrFail($writer, FactaCltSchema::TITLES, 'spool temporário da política de crédito');
 
                 $chunk = [];
                 while (($line = fgets($reader)) !== false) {
@@ -2100,7 +2100,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             clearstatcache(true, $this->spoolReal);
             $spoolBytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
 
-            DB::table('clt_consult_jobs')->where('id', $job->id)->update([
+            DB::table('facta_clt_consult_jobs')->where('id', $job->id)->update([
                 'spool_bytes' => $spoolBytes,
                 'total_cpfs' => $inputCount,
                 'elegivel_count' => $processableCount,
@@ -2136,7 +2136,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function appendCreditPolicySnapshotChunkRows($writer, array $cpfs, bool $requiresOperationValues): array
     {
         $rows = DB::table('leads')
-            ->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
+            ->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
             ->whereIn('leads.cpf', $cpfs)
             ->select([
                 'leads.cpf',
@@ -2185,7 +2185,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return [$processableCount, $discardedCount];
     }
 
-    private function runCreditPhaseTwo(\App\Modules\CLT\Services\FactaApiService $api, CltConsultJob $job): bool
+    private function runCreditPhaseTwo(\App\Modules\Facta\Services\FactaApiService $api, FactaCltConsultJob $job): bool
     {
         if ($this->finishIfStopped($job)) {
             return false;
@@ -2205,7 +2205,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $phase2NotApprovedCount = (int) $phase2State['not_approved'];
         $phase2PendingCount = (int) $phase2State['pending'];
 
-        DB::table('clt_consult_jobs')->where('id', $job->id)->update([
+        DB::table('facta_clt_consult_jobs')->where('id', $job->id)->update([
             'phase' => 'fase_2',
             'phase2_total' => $phase2Total,
             'phase2_attempt' => 0,
@@ -2223,7 +2223,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2LastAttemptProcessed = 0;
         $this->phase2CpfValidationAuditReqByLine = [];
 
-        CltLog::warning('[CLT] Fase 2 iniciada (validação de política de crédito)', [
+        FactaCltLog::warning('[CLT] Fase 2 iniciada (validação de política de crédito)', [
             'job_id' => $this->jobId,
             'phase2_total' => $phase2Total,
             'phase2_pending' => $phase2PendingCount,
@@ -2268,7 +2268,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $abortMessage = 'Processamento abortado: Não foi possível concluir a validação da política de crédito.';
                 }
 
-                CltLog::warning('[CLT] Fase 2 abortada por falha de token; consolidando parcial e encerrando.', [
+                FactaCltLog::warning('[CLT] Fase 2 abortada por falha de token; consolidando parcial e encerrando.', [
                     'job_id' => $this->jobId,
                     'attempt' => $attempt,
                     'phase2_total' => $phase2Total,
@@ -2358,8 +2358,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @return array{aborted:bool,token_abort:bool,token_abort_message:?string,pending_count:int,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
      */
     private function processCreditPhaseTwoAttempt(
-        \App\Modules\CLT\Services\FactaApiService $api,
-        CltConsultJob $job,
+        \App\Modules\Facta\Services\FactaApiService $api,
+        FactaCltConsultJob $job,
         int $attempt,
         bool $usePendingSource,
         int $phase2Total,
@@ -2608,7 +2608,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /**
      * Consolida os patches incrementais da fase 2 no spool final.
      */
-    private function applyPhase2DeltaToSpool(CltConsultJob $job, bool $allowStopCheck = true): bool
+    private function applyPhase2DeltaToSpool(FactaCltConsultJob $job, bool $allowStopCheck = true): bool
     {
         $this->flushPhase2DeltaBuffer(true);
         $hasGlobalDelta = $this->phase2DeltaReal !== '' && is_file($this->phase2DeltaReal);
@@ -2630,7 +2630,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /**
      * Consolidação em streaming com arquivos de delta por tentativa.
      */
-    private function applyPhase2DeltaToSpoolByAttemptStreams(CltConsultJob $job, bool $allowStopCheck = true): bool
+    private function applyPhase2DeltaToSpoolByAttemptStreams(FactaCltConsultJob $job, bool $allowStopCheck = true): bool
     {
         $attemptFiles = $this->phase2AttemptDeltaFilesExpected();
         if (empty($attemptFiles)) {
@@ -2685,7 +2685,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             fgetcsv($in, 0, ';');
-            $this->writeCsvRowOrFail($out, CltSchema::TITLES, 'spool consolidado da fase 2');
+            $this->writeCsvRowOrFail($out, FactaCltSchema::TITLES, 'spool consolidado da fase 2');
 
             $lineNo = 0;
             while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
@@ -2847,7 +2847,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      *
      * @return int quantidade de linhas marcadas; -1 se job foi interrompido/cancelado.
      */
-    private function markRemainingPhaseTwoRowsAsAbortedInSpool(CltConsultJob $job, string $abortMessage): int
+    private function markRemainingPhaseTwoRowsAsAbortedInSpool(FactaCltConsultJob $job, string $abortMessage): int
     {
         $sourceReal = $this->spoolReal;
         $tmpReal = $sourceReal . '.phase2.abort.tmp';
@@ -2869,7 +2869,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             try {
                 fgetcsv($in, 0, ';');
-                $this->writeCsvRowOrFail($out, CltSchema::TITLES, 'spool abortado da fase 2');
+                $this->writeCsvRowOrFail($out, FactaCltSchema::TITLES, 'spool abortado da fase 2');
 
                 while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
                     if ($this->finishIfStopped($job)) {
@@ -2918,7 +2918,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $approved === null;
     }
 
-    private function consolidateExistingPhaseTwoDeltaIfPresent(CltConsultJob $job): bool
+    private function consolidateExistingPhaseTwoDeltaIfPresent(FactaCltConsultJob $job): bool
     {
         $highestAttempt = 0;
         for ($attempt = 1; $attempt <= $this->phase2MaxAttempts; $attempt++) {
@@ -2941,7 +2941,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->removePhaseTwoPendingFiles();
             return true;
         } catch (Throwable $e) {
-            CltLog::error("[CLT] Falha ao consolidar delta existente da fase 2 (job {$this->jobId}): " . $e->getMessage(), [
+            FactaCltLog::error("[CLT] Falha ao consolidar delta existente da fase 2 (job {$this->jobId}): " . $e->getMessage(), [
                 'exception' => $e,
             ]);
             return false;
@@ -2951,7 +2951,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     /**
      * @return array{total:int,pending:int,approved:int,not_approved:int}|null
      */
-    private function countPhaseTwoRowsState(CltConsultJob $job, bool $allowStopCheck = true): ?array
+    private function countPhaseTwoRowsState(FactaCltConsultJob $job, bool $allowStopCheck = true): ?array
     {
         $in = @fopen($this->spoolReal, 'rb');
         if (!is_resource($in)) {
@@ -2997,7 +2997,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     private function flushPhaseTwoProgress(
-        CltConsultJob $job,
+        FactaCltConsultJob $job,
         int $attempt,
         int $total,
         int $approvedCount,
@@ -3017,7 +3017,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        DB::table('clt_consult_jobs')->where('id', $job->id)->update([
+        DB::table('facta_clt_consult_jobs')->where('id', $job->id)->update([
             'phase2_total' => $totalSafe,
             'phase2_attempt' => $attemptSafe,
             'phase2_aprovado_count' => $approvedSafe,
@@ -3091,7 +3091,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $written = @file_put_contents($this->phase2DeltaReal, $data, FILE_APPEND | LOCK_EX);
             if ($written === false) {
                 $globalWritten = false;
-                CltLog::warning("[CLT] Job {$this->jobId} falha ao persistir delta incremental da fase 2.");
+                FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao persistir delta incremental da fase 2.");
             } else {
                 $this->phase2DeltaBuffer = [];
             }
@@ -3101,7 +3101,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $attemptData = implode("\n", $this->phase2DeltaAttemptBuffer) . "\n";
             $attemptWritten = @file_put_contents($this->phase2DeltaAttemptReal, $attemptData, FILE_APPEND | LOCK_EX);
             if ($attemptWritten === false) {
-                CltLog::warning("[CLT] Job {$this->jobId} falha ao persistir delta da fase 2 por tentativa.", [
+                FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao persistir delta da fase 2 por tentativa.", [
                     'attempt' => $this->phase2DeltaCurrentAttempt,
                 ]);
             } else {
@@ -3230,7 +3230,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $data = implode("\n", $this->phase2PendingBuffer) . "\n";
         $written = @file_put_contents($this->phase2PendingNextReal, $data, FILE_APPEND | LOCK_EX);
         if ($written === false) {
-            CltLog::warning("[CLT] Job {$this->jobId} falha ao persistir pendências da fase 2.");
+            FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao persistir pendências da fase 2.");
             return;
         }
 
@@ -3274,7 +3274,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             return true;
         }
 
-        CltLog::warning("[CLT] Job {$this->jobId} falha ao promover pendências da fase 2.");
+        FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao promover pendências da fase 2.");
         return false;
     }
 
@@ -3359,7 +3359,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
             unset($row);
 
-            DB::table('clt_snapshots')->upsert(
+            DB::table('facta_clt_snapshots')->upsert(
                 $rows,
                 ['cpf'],
                 [
@@ -3375,7 +3375,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
             $this->phase2SnapshotBuffer = [];
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Upsert snapshots da fase 2 falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
+            FactaCltLog::warning("[CLT] Upsert snapshots da fase 2 falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
         }
     }
 
@@ -3454,8 +3454,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @return array{row:array<string,mixed>,pending:bool,aborted:bool,phase2_request_count:int,phase2_operacoes_request_count:int,phase2_politica_request_count:int,phase2_approved_table:?array,phase2_approved_table_name:?string}
      */
     private function applyCreditPhaseToRow(
-        \App\Modules\CLT\Services\FactaApiService $api,
-        CltConsultJob $job,
+        \App\Modules\Facta\Services\FactaApiService $api,
+        FactaCltConsultJob $job,
         array $row,
         int $lineNo,
         int $attempt
@@ -3619,7 +3619,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function requiresOperationCreditPolicyValues(): bool
     {
-        $mode = strtolower(trim((string) config('cltfacta.credit_worker.policy_source_mode', 'operacoes')));
+        $mode = strtolower(trim((string) config('facta.credit_worker.policy_source_mode', 'operacoes')));
 
         return !in_array($mode, ['experimental', 'fixed'], true);
     }
@@ -3697,7 +3697,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        CltLog::warning('[CLT] Fase 2 CPF validado', $context);
+        FactaCltLog::warning('[CLT] Fase 2 CPF validado', $context);
     }
 
     /**
@@ -3736,7 +3736,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function csvToAssocRow(array $csvRow): array
     {
         $row = $this->baseRowTemplate;
-        foreach (CltSchema::COLS as $idx => $key) {
+        foreach (FactaCltSchema::COLS as $idx => $key) {
             $row[$key] = $csvRow[$idx] ?? null;
         }
         return $row;
@@ -3748,20 +3748,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
      */
     private function assocToCsvRow(array $row): array
     {
-        $row = CltSchema::normalizeAssocRowForCsv($row);
+        $row = FactaCltSchema::normalizeAssocRowForCsv($row);
         $ordered = [];
-        foreach (CltSchema::COLS as $key) {
+        foreach (FactaCltSchema::COLS as $key) {
             $ordered[] = $row[$key] ?? null;
         }
         return $ordered;
     }
 
-    private function finishIfStopped(CltConsultJob $job): bool
+    private function finishIfStopped(FactaCltConsultJob $job): bool
     {
         $status = $this->currentStatusCached($job->id);
         if ($status === null) {
             $this->cleanupSpool($job);
-            CltLog::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
+            FactaCltLog::info("[CLT] Job {$this->jobId} removido durante execução. Encerrando.");
             return true;
         }
 
@@ -3776,13 +3776,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->flushPhase2PendingBuffer(true);
             $this->closeSpoolWriter();
             $this->finalizeCancelledJob($job);
-            CltLog::info("[CLT] Job {$this->jobId} cancelado.");
+            FactaCltLog::info("[CLT] Job {$this->jobId} cancelado.");
             return true;
         }
 
         if ($status === 'pausado') {
             $this->pauseCurrentJob($job);
-            CltLog::info("[CLT] Job {$this->jobId} pausado.");
+            FactaCltLog::info("[CLT] Job {$this->jobId} pausado.");
             return true;
         }
 
@@ -3791,7 +3791,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function currentControl(int $id): ?object
     {
-        return DB::table('clt_consult_jobs')
+        return DB::table('facta_clt_consult_jobs')
             ->where('id', $id)
             ->select('status', 'run_token')
             ->first();
@@ -3813,7 +3813,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $this->cachedStatus;
     }
 
-    private function handleRunTokenChanged(CltConsultJob $job, ?string $status): void
+    private function handleRunTokenChanged(FactaCltConsultJob $job, ?string $status): void
     {
         if (in_array($status, ['pendente', 'em_progresso'], true)) {
             $this->stopSupersededExecution($job, $status);
@@ -3822,7 +3822,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
 
         $this->pauseCurrentJob($job);
 
-        CltLog::info("[CLT] Job {$this->jobId} interrompido por troca de token.", [
+        FactaCltLog::info("[CLT] Job {$this->jobId} interrompido por troca de token.", [
             'stage' => $this->stage,
             'status' => $status,
             'from_token' => $this->runToken,
@@ -3830,7 +3830,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
     }
 
-    private function stopSupersededExecution(CltConsultJob $job, ?string $status): void
+    private function stopSupersededExecution(FactaCltConsultJob $job, ?string $status): void
     {
         $this->stoppedByRunTokenHandoff = true;
         $this->flushPhase2SnapshotBuffer(true);
@@ -3839,14 +3839,14 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->closeSpoolWriter();
 
         if ($status === 'pendente') {
-            DispatchCltConsultJob::dispatch($job->id, $this->stage)
+            DispatchFactaCltConsultJob::dispatch($job->id, $this->stage)
                 ->delay(now()->addSeconds(2))
                 ->onQueue($this->stage === self::STAGE_PHASE2
-                    ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
+                    ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
                     : $this->resolvePhaseOneQueue());
         }
 
-        CltLog::info("[CLT] Job {$this->jobId} interrompido por execução mais nova.", [
+        FactaCltLog::info("[CLT] Job {$this->jobId} interrompido por execução mais nova.", [
             'stage' => $this->stage,
             'status' => $status,
             'from_token' => $this->runToken,
@@ -3855,20 +3855,20 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
     }
 
-    private function isCancelled(CltConsultJob $job): bool
+    private function isCancelled(FactaCltConsultJob $job): bool
     {
         $s = $this->currentStatusCached($job->id, true);
         return ($s === 'cancelado') || ($s === null);
     }
 
-    private function isPaused(CltConsultJob $job): bool
+    private function isPaused(FactaCltConsultJob $job): bool
     {
         return $this->currentStatusCached($job->id, true) === 'pausado';
     }
 
     private function supportsCreditPhaseTwo(): bool
     {
-        return CltVariant::supportsCreditPhaseTwo($this->variant);
+        return FactaCltVariant::supportsCreditPhaseTwo($this->variant);
     }
 
     private function normalizeConsultaMensagemForCsv($mensagem): ?string
@@ -3894,13 +3894,13 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         return $this->variant === 'offline' ? 'offline' : 'online';
     }
 
-    private function cleanupSpool(CltConsultJob $job): void
+    private function cleanupSpool(FactaCltConsultJob $job): void
     {
         try {
             $disk = Storage::disk($this->disk);
-            CltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null, $this->phase2MaxAttempts);
+            FactaCltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null, $this->phase2MaxAttempts);
         } finally {
-            if (DB::table('clt_consult_jobs')->where('id', $job->id)->exists()) {
+            if (DB::table('facta_clt_consult_jobs')->where('id', $job->id)->exists()) {
                 try {
                     $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0, 'phase' => null]);
                 } catch (Throwable) {
@@ -3909,7 +3909,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function pauseCurrentJob(CltConsultJob $job): void
+    private function pauseCurrentJob(FactaCltConsultJob $job): void
     {
         $this->flushPhase2SnapshotBuffer(true);
         $this->flushPhase2DeltaBuffer(true);
@@ -3935,7 +3935,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     );
                 }
             } catch (Throwable $e) {
-                CltLog::error("[CLT] Falha ao consolidar fase 2 ao pausar job {$this->jobId}: " . $e->getMessage(), [
+                FactaCltLog::error("[CLT] Falha ao consolidar fase 2 ao pausar job {$this->jobId}: " . $e->getMessage(), [
                     'exception' => $e,
                 ]);
             }
@@ -3948,7 +3948,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ? $this->fileSizeSafe($this->disk, $job->spool_path)
                 : 0;
 
-            DB::table('clt_consult_jobs')
+            DB::table('facta_clt_consult_jobs')
                 ->where('id', $job->id)
                 ->where('status', 'pausado')
                 ->update([
@@ -3960,18 +3960,18 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function shouldPreserveCancelledSpool(CltConsultJob $job): bool
+    private function shouldPreserveCancelledSpool(FactaCltConsultJob $job): bool
     {
         $disk = Storage::disk($this->disk);
-        return CltSpool::hasDataRows($disk, $job->spool_path ?? null);
+        return FactaCltSpool::hasDataRows($disk, $job->spool_path ?? null);
     }
 
-    private function preserveCancelledSpool(CltConsultJob $job): void
+    private function preserveCancelledSpool(FactaCltConsultJob $job): void
     {
         $this->flushPhase2SnapshotBuffer(true);
         $disk = Storage::disk($this->disk);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
+        $spoolExists = FactaCltSpool::hasDataRows($disk, $spoolPath);
 
         if ($this->stage === self::STAGE_PHASE2 && $this->supportsCreditPhaseTwo()) {
             try {
@@ -3980,24 +3980,24 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $this->removePhaseTwoPendingFiles();
                 }
             } catch (Throwable $e) {
-                CltLog::error("[CLT] Falha ao consolidar fase 2 ao cancelar job {$this->jobId}: " . $e->getMessage(), [
+                FactaCltLog::error("[CLT] Falha ao consolidar fase 2 ao cancelar job {$this->jobId}: " . $e->getMessage(), [
                     'exception' => $e,
                 ]);
             }
 
-            $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
+            $spoolExists = FactaCltSpool::hasDataRows($disk, $spoolPath);
         }
 
         $spoolBytes = $spoolExists ? $this->fileSizeSafe($this->disk, $spoolPath) : 0;
 
-        CltSpool::deletePhaseTwoAuxiliaryArtifacts(
+        FactaCltSpool::deletePhaseTwoAuxiliaryArtifacts(
             $disk,
             $spoolPath,
             $job->spool_cpfs_path ?? null,
             $this->phase2MaxAttempts
         );
 
-        if (DB::table('clt_consult_jobs')->where('id', $job->id)->exists()) {
+        if (DB::table('facta_clt_consult_jobs')->where('id', $job->id)->exists()) {
             try {
                 $job->updateQuietly([
                     'spool_path' => $spoolExists ? $spoolPath : null,
@@ -4010,7 +4010,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function finalizeCancelledJob(CltConsultJob $job): void
+    private function finalizeCancelledJob(FactaCltConsultJob $job): void
     {
         if ($this->shouldPreserveCancelledSpool($job)) {
             $this->preserveCancelledSpool($job);
@@ -4018,7 +4018,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->cleanupSpool($job);
         }
 
-        DB::table('clt_consult_jobs')
+        DB::table('facta_clt_consult_jobs')
             ->where('id', $job->id)
             ->whereNull('finished_at')
             ->update([
@@ -4321,7 +4321,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $limits[] = $this->runtimeWorkerMemoryLimitBytes;
         }
 
-        $softMb = (int) config('cltfacta.job.memory_soft_limit_mb', 0);
+        $softMb = (int) config('facta.job.memory_soft_limit_mb', 0);
         if ($softMb > 0) {
             $limits[] = $softMb * 1024 * 1024;
         }
@@ -4389,7 +4389,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
     public function failed(Throwable $e): void
     {
         try {
-            $job = CltConsultJob::query()->whereKey($this->jobId)->first();
+            $job = FactaCltConsultJob::query()->whereKey($this->jobId)->first();
             if ($job === null) {
                 $this->deletePendFiles();
                 return;
@@ -4402,7 +4402,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 $this->closeSpoolWriter();
                 $this->deletePendFiles();
 
-                CltLog::info("[CLT] Failed ignorado em execução substituída por token mais novo.", [
+                FactaCltLog::info("[CLT] Failed ignorado em execução substituída por token mais novo.", [
                     'job_id' => $this->jobId,
                     'stage' => $this->stage,
                     'from_token' => $this->runToken,
@@ -4412,7 +4412,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            CltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
+            FactaCltLog::error("[CLT] Job {$this->jobId} marcado como failed pelo worker: " . $e->getMessage(), [
                 'exception' => $e,
             ]);
 
@@ -4453,7 +4453,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->deletePendFiles();
     }
 
-    private function beginPhaseOneIfAllowed(CltConsultJob $job): bool
+    private function beginPhaseOneIfAllowed(FactaCltConsultJob $job): bool
     {
         $lock = Cache::lock('clt_phase1_coordination_lock', $this->phaseOneCoordLockTtl);
 
@@ -4500,9 +4500,9 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function hasPhaseOneConcurrencyConflict(CltConsultJob $job): bool
+    private function hasPhaseOneConcurrencyConflict(FactaCltConsultJob $job): bool
     {
-        $query = CltConsultJob::query()
+        $query = FactaCltConsultJob::query()
             ->whereKeyNot($job->id)
             ->where('status', 'em_progresso');
 
@@ -4526,7 +4526,7 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             ->exists();
     }
 
-    private function requeuePhaseOneForCoordination(CltConsultJob $job): void
+    private function requeuePhaseOneForCoordination(FactaCltConsultJob $job): void
     {
         if (!in_array($job->status, ['pausado', 'concluido', 'falhou', 'cancelado'], true)) {
             $job->updateQuietly([
@@ -4536,23 +4536,23 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->cachedStatus = 'pendente';
         }
 
-        DispatchCltConsultJob::dispatch($job->id, self::STAGE_PHASE1)
+        DispatchFactaCltConsultJob::dispatch($job->id, self::STAGE_PHASE1)
             ->delay(now()->addSeconds($this->phaseOneCoordRetryDelaySeconds))
             ->onQueue($this->resolvePhaseOneQueue());
     }
 
     private function resolvePhaseOneQueue(): string
     {
-        return CltVariant::resolvePhaseOneQueue($this->variant);
+        return FactaCltVariant::resolvePhaseOneQueue($this->variant);
     }
 
-    private function dispatchPhaseTwo(CltConsultJob $job): void
+    private function dispatchPhaseTwo(FactaCltConsultJob $job): void
     {
         if ($this->finishIfStopped($job)) {
             return;
         }
 
-        DB::table('clt_consult_jobs')
+        DB::table('facta_clt_consult_jobs')
             ->where('id', $job->id)
             ->whereIn('status', ['pendente', 'em_progresso'])
             ->update([
@@ -4565,10 +4565,10 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'updated_at' => Carbon::now(),
             ]);
 
-        $queue = (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred');
+        $queue = (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred');
         self::dispatch($this->jobId, self::STAGE_PHASE2)->onQueue($queue);
 
-        CltLog::warning('[CLT] Fase 2 enfileirada em worker dedicado.', [
+        FactaCltLog::warning('[CLT] Fase 2 enfileirada em worker dedicado.', [
             'job_id' => $this->jobId,
             'queue' => $queue,
         ]);
@@ -4580,8 +4580,8 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
         // Garante persistir deltas pendentes antes da limpeza final e evita recriação no finally.
         $this->flushPhase2DeltaBuffer(true);
 
-        $queue = (string) config('cltfacta.preview.queue', 'reports');
-        $inline = (bool) config('cltfacta.preview.inline', true);
+        $queue = (string) config('facta.preview.queue', 'reports');
+        $inline = (bool) config('facta.preview.inline', true);
 
         if ($inline) {
             if (is_resource($this->spoolFp)) {
@@ -4589,11 +4589,11 @@ class ProcessCltConsultJob implements ShouldQueue, ShouldBeUnique
                 @fclose($this->spoolFp);
                 $this->spoolFp = null;
             }
-            FinalizeCltConsultReportJob::dispatchSync($this->jobId, $targetStatus);
+            FinalizeFactaCltConsultReportJob::dispatchSync($this->jobId, $targetStatus);
             return;
         }
 
-        FinalizeCltConsultReportJob::dispatch($this->jobId, $targetStatus)->onQueue($queue);
+        FinalizeFactaCltConsultReportJob::dispatch($this->jobId, $targetStatus)->onQueue($queue);
     }
 
     /** Detecta caminho absoluto em Linux/Windows */

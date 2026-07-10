@@ -24,12 +24,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/login');
     })
     ->withSchedule(function (Schedule $schedule) {
-        $schedule->command('clt:refresh-admission-months')
+        $schedule->command('facta:refresh-admission-months')
             ->dailyAt('03:10')
             ->timezone('America/Sao_Paulo')
             ->runInBackground();
 
-        $schedule->command('clt:dispatch-scheduled-consult-jobs')
+        $schedule->command('facta:dispatch-scheduled-consult-jobs')
             ->name('clt-dispatch-scheduled-consult-jobs')
             ->everyTenSeconds()
             ->withoutOverlapping(1);

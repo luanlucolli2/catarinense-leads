@@ -1,17 +1,17 @@
 <?php
 
-namespace App\Modules\CLT\Services;
+namespace App\Modules\Facta\Services;
 
-use App\Modules\CLT\Jobs\DispatchCltConsultJob;
-use App\Modules\CLT\Models\CltConsultJob;
-use App\Modules\CLT\Support\CltLog;
-use App\Modules\CLT\Support\CltSpool;
-use App\Modules\CLT\Support\CltVariant;
+use App\Modules\Facta\Jobs\DispatchFactaCltConsultJob;
+use App\Modules\Facta\Models\FactaCltConsultJob;
+use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\Facta\Support\FactaCltSpool;
+use App\Modules\Facta\Support\FactaCltVariant;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-class DispatchScheduledCltConsultJobs
+class DispatchScheduledFactaCltConsultJobs
 {
     private const BATCH_SIZE = 25;
 
@@ -21,7 +21,7 @@ class DispatchScheduledCltConsultJobs
     public function handle(): array
     {
         $nowUtc = Carbon::now('UTC');
-        $candidateIds = CltConsultJob::query()
+        $candidateIds = FactaCltConsultJob::query()
             ->where('status', 'agendado')
             ->whereNotNull('scheduled_for')
             ->where('scheduled_for', '<=', $nowUtc)
@@ -38,10 +38,10 @@ class DispatchScheduledCltConsultJobs
             return compact('scanned', 'dispatched', 'failed');
         }
 
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
 
         foreach ($candidateIds as $jobId) {
-            $job = CltConsultJob::query()->whereKey($jobId)->first();
+            $job = FactaCltConsultJob::query()->whereKey($jobId)->first();
             if ($job === null || $job->status !== 'agendado') {
                 continue;
             }
@@ -50,7 +50,7 @@ class DispatchScheduledCltConsultJobs
             $hasCpfFile = !empty($job->spool_cpfs_path) && $disk->exists($job->spool_cpfs_path);
 
             if (!$hasSpool || !$hasCpfFile) {
-                CltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null);
+                FactaCltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null);
                 $job->update([
                     'status' => 'falhou',
                     'phase' => null,
@@ -59,12 +59,12 @@ class DispatchScheduledCltConsultJobs
                     'spool_cpfs_path' => null,
                     'spool_bytes' => 0,
                 ]);
-                CltLog::error("[CLT] Job agendado {$job->id} sem spool/arquivo de CPFs ao iniciar.");
+                FactaCltLog::error("[CLT] Job agendado {$job->id} sem spool/arquivo de CPFs ao iniciar.");
                 $failed++;
                 continue;
             }
 
-            $claimed = CltConsultJob::query()
+            $claimed = FactaCltConsultJob::query()
                 ->whereKey($job->id)
                 ->where('status', 'agendado')
                 ->whereNotNull('scheduled_for')
@@ -83,15 +83,15 @@ class DispatchScheduledCltConsultJobs
             }
 
             try {
-                $stage = CltVariant::isCreditPolicyOnly($job->variant) ? 'phase2' : 'phase1';
+                $stage = FactaCltVariant::isCreditPolicyOnly($job->variant) ? 'phase2' : 'phase1';
                 $queue = $stage === 'phase2'
-                    ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
-                    : CltVariant::resolvePhaseOneQueue($job->variant);
+                    ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
+                    : FactaCltVariant::resolvePhaseOneQueue($job->variant);
 
-                DispatchCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
+                DispatchFactaCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
                 $dispatched++;
             } catch (Throwable $e) {
-                CltConsultJob::query()
+                FactaCltConsultJob::query()
                     ->whereKey($job->id)
                     ->where('status', 'pendente')
                     ->whereNull('started_at')
@@ -100,7 +100,7 @@ class DispatchScheduledCltConsultJobs
                         'updated_at' => Carbon::now(),
                     ]);
 
-                CltLog::error("[CLT] Falha ao despachar job agendado {$job->id}: " . $e->getMessage(), [
+                FactaCltLog::error("[CLT] Falha ao despachar job agendado {$job->id}: " . $e->getMessage(), [
                     'exception' => $e,
                 ]);
                 $failed++;

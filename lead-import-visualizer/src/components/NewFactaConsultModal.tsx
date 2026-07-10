@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-interface NewCLTConsultModalProps {
+interface NewFactaConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (
@@ -52,7 +52,7 @@ const MODE_OPTIONS = [
   },
 ];
 
-export const NewCLTConsultModal = ({ isOpen, onClose, onSubmit }: NewCLTConsultModalProps) => {
+export const NewFactaConsultModal = ({ isOpen, onClose, onSubmit }: NewFactaConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
   const [cpfs, setCpfs] = useState("");
   const [cpfCount, setCpfCount] = useState(0);

@@ -77,8 +77,8 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
             'qtd_emprestimos_ativos_suspensos'  => 'CLT Qtde Empréstimos Ativos/Suspensos',
             'emprestimos_legados'               => 'CLT Empréstimos Legados',
             'not_found'                         => 'CLT Não Encontrado',
-            'clt_consultado_em'                 => 'CLT Data consulta',
-            'clt_dados_atualizados_em'          => 'CLT Data dados',
+            'facta_consultado_em'                 => 'CLT Data consulta',
+            'facta_dados_atualizados_em'          => 'CLT Data dados',
             'matricula'                         => 'CLT Matrícula',
         ];
 
@@ -131,8 +131,8 @@ class LeadsExport implements FromQuery, WithHeadings, WithMapping
 
                 case 'data_admissao':
                 case 'inicio_atividade_empregador':
-                case 'clt_consultado_em':
-                case 'clt_dados_atualizados_em':
+                case 'facta_consultado_em':
+                case 'facta_dados_atualizados_em':
                     $row[] = $this->formatDate($lead->{$col}, true);
                     break;
 

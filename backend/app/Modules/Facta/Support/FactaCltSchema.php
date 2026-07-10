@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Modules\CLT\Support;
+namespace App\Modules\Facta\Support;
 
-final class CltSchema
+final class FactaCltSchema
 {
     private const DECIMAL_FORMATTED_COLS = [
         'valorTotalVencimentos',

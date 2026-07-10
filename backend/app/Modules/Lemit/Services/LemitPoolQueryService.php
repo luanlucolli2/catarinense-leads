@@ -194,7 +194,7 @@ class LemitPoolQueryService
     private function buildSingleBankCandidateQuery(string $bank, array $bankFilters): Builder
     {
         return match ($bank) {
-            'clt' => $this->buildCltCandidateQuery($bankFilters),
+            'facta' => $this->buildFactaCandidateQuery($bankFilters),
             'mercantil' => $this->buildMercantilCandidateQuery($bankFilters),
             'uy3' => $this->buildUy3CandidateQuery($bankFilters),
             default => DB::query()->fromSub(
@@ -207,11 +207,11 @@ class LemitPoolQueryService
     /**
      * @param array<string, mixed> $filters
      */
-    private function buildCltCandidateQuery(array $filters): Builder
+    private function buildFactaCandidateQuery(array $filters): Builder
     {
-        $query = DB::table('clt_snapshots as cs')->select('cs.cpf');
+        $query = DB::table('facta_clt_snapshots as cs')->select('cs.cpf');
 
-        $situacao = $filters['clt_situacao'] ?? null;
+        $situacao = $filters['facta_situacao'] ?? null;
         if ($situacao === 'aprovado') {
             $query->where('cs.not_found', 0)->where('cs.politica_credito_aprovado', 1);
         } elseif ($situacao === 'nao_aprovado') {
@@ -227,29 +227,29 @@ class LemitPoolQueryService
         $this->applyDateTimeRange(
             $query,
             'cs.consulted_at',
-            $filters['clt_consulta_from'] ?? null,
-            $filters['clt_consulta_to'] ?? null
+            $filters['facta_consulta_from'] ?? null,
+            $filters['facta_consulta_to'] ?? null
         );
 
         $this->applyIntegerRange(
             $query,
             'cs.meses_admissao',
-            $filters['clt_meses_admissao_min'] ?? null,
-            $filters['clt_meses_admissao_max'] ?? null
+            $filters['facta_meses_admissao_min'] ?? null,
+            $filters['facta_meses_admissao_max'] ?? null
         );
 
         $this->applyNumericRange(
             $query,
             'cs.margem_disponivel',
-            $filters['clt_margem_min'] ?? null,
-            $filters['clt_margem_max'] ?? null
+            $filters['facta_margem_min'] ?? null,
+            $filters['facta_margem_max'] ?? null
         );
 
         $this->applyIntegerRange(
             $query,
             'cs.politica_credito_prazo_maximo_disponivel',
-            $filters['clt_numero_parcelas_min'] ?? null,
-            $filters['clt_numero_parcelas_max'] ?? null
+            $filters['facta_numero_parcelas_min'] ?? null,
+            $filters['facta_numero_parcelas_max'] ?? null
         );
 
         return $query;

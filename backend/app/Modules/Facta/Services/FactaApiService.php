@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Modules\CLT\Services;
+namespace App\Modules\Facta\Services;
 
-use App\Modules\CLT\Services\Exceptions\FactaFatalAuthException;
-use App\Modules\CLT\Support\CltLog;
+use App\Modules\Facta\Services\Exceptions\FactaFatalAuthException;
+use App\Modules\Facta\Support\FactaCltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -80,7 +80,7 @@ class FactaApiService
     /** @var array<string,array<string,int>> */
     private array $jobHttpCounters = [];
 
-    private const JOB_HTTP_COUNTER_TABLE = 'clt_job_http_counters';
+    private const JOB_HTTP_COUNTER_TABLE = 'facta_clt_job_http_counters';
     /** @var array<int,string> */
     private const JOB_HTTP_COUNTER_FIELDS = [
         'request_count',
@@ -133,18 +133,18 @@ class FactaApiService
             ];
             $context = array_merge($context, $this->compactResponseLogContext($body, null, $status, 700));
 
-            CltLog::warning('[FACTA] 403 Forbidden', $context);
+            FactaCltLog::warning('[FACTA] 403 Forbidden', $context);
         } catch (\Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar 403: ' . $e->getMessage());
+            FactaCltLog::warning('[FACTA] Falha ao logar 403: ' . $e->getMessage());
         }
     }
 
 
     public function __construct()
     {
-        $api = (array) config('cltfacta.api', []);
-        $http = (array) config('cltfacta.http', []);
-        $credit = (array) config('cltfacta.credit_worker', []);
+        $api = (array) config('facta.api', []);
+        $http = (array) config('facta.http', []);
+        $credit = (array) config('facta.credit_worker', []);
 
         // API
         $this->baseUrl = rtrim((string) ($api['base_url'] ?? ''), '/');
@@ -160,8 +160,8 @@ class FactaApiService
         $this->httpTimeout = (int) ($http['timeout'] ?? 30);
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
 
-        $this->logFactaResponses = (bool) config('cltfacta.logging.facta_log_responses', true);
-        $this->logFactaSuccessResponses = (bool) config('cltfacta.logging.facta_log_success_responses', false);
+        $this->logFactaResponses = (bool) config('facta.logging.facta_log_responses', true);
+        $this->logFactaSuccessResponses = (bool) config('facta.logging.facta_log_success_responses', false);
         $this->httpGlobalRateLimitRps = max(0, (int) ($http['global_rate_limit_rps'] ?? 4));
         $this->httpGlobalRateLimitRpm = max(0, (int) ($http['global_rate_limit_rpm'] ?? 180));
         $this->httpGlobalRateLimitSleepMs = max(50, (int) ($http['global_rate_limit_sleep_ms'] ?? 120));
@@ -198,11 +198,11 @@ class FactaApiService
         if (empty($this->creditPolicyFixedPrazos)) {
             $this->creditPolicyFixedPrazos = self::CREDIT_POLICY_FIXED_PRAZOS_DEFAULT;
         }
-        $this->phase2CpfValidationAuditLogEnabled = (bool) config('cltfacta.logging.phase2_cpf_validation_audit_log_enabled', false);
-        $this->phase2OperacoesRequestLogEnabled = (bool) config('cltfacta.logging.phase2_operacoes_request_log_enabled', false);
-        $this->jobHttpCountersEnabled = (bool) config('cltfacta.logging.facta_job_http_counters_enabled', true);
-        $this->jobHttpCountersFlushEvery = max(1, (int) config('cltfacta.logging.facta_job_http_counters_flush_every', 120));
-        $this->jobHttpCountersFlushIntervalMs = max(500, (int) config('cltfacta.logging.facta_job_http_counters_flush_interval_ms', 10000));
+        $this->phase2CpfValidationAuditLogEnabled = (bool) config('facta.logging.phase2_cpf_validation_audit_log_enabled', false);
+        $this->phase2OperacoesRequestLogEnabled = (bool) config('facta.logging.phase2_operacoes_request_log_enabled', false);
+        $this->jobHttpCountersEnabled = (bool) config('facta.logging.facta_job_http_counters_enabled', true);
+        $this->jobHttpCountersFlushEvery = max(1, (int) config('facta.logging.facta_job_http_counters_flush_every', 120));
+        $this->jobHttpCountersFlushIntervalMs = max(500, (int) config('facta.logging.facta_job_http_counters_flush_interval_ms', 10000));
         $this->jobHttpCountersLastFlushMs = (int) round(microtime(true) * 1000);
     }
 
@@ -357,13 +357,13 @@ class FactaApiService
         try {
             $this->jobHttpCountersSchemaAvailable = Schema::hasTable(self::JOB_HTTP_COUNTER_TABLE);
             if (!$this->jobHttpCountersSchemaAvailable) {
-                CltLog::warning('[FACTA] Tabela de contadores HTTP por job não encontrada; contadores desabilitados nesta execução.', [
+                FactaCltLog::warning('[FACTA] Tabela de contadores HTTP por job não encontrada; contadores desabilitados nesta execução.', [
                     'table' => self::JOB_HTTP_COUNTER_TABLE,
                 ]);
             }
         } catch (Throwable $e) {
             $this->jobHttpCountersSchemaAvailable = false;
-            CltLog::warning('[FACTA] Falha ao verificar tabela de contadores HTTP por job.', [
+            FactaCltLog::warning('[FACTA] Falha ao verificar tabela de contadores HTTP por job.', [
                 'table' => self::JOB_HTTP_COUNTER_TABLE,
                 'error' => $e->getMessage(),
             ]);
@@ -469,7 +469,7 @@ class FactaApiService
 
                 unset($this->jobHttpCounters[$endpoint]);
             } catch (Throwable $e) {
-                CltLog::warning('[FACTA] Falha ao persistir contador HTTP por job.', [
+                FactaCltLog::warning('[FACTA] Falha ao persistir contador HTTP por job.', [
                     'job_id' => $jobId,
                     'endpoint' => $endpoint,
                     'error' => $e->getMessage(),
@@ -681,13 +681,13 @@ class FactaApiService
                 ];
 
                 if ($attempt >= $attempts) {
-                    CltLog::warning('[FACTA] Falha ao obter token; tentativas esgotadas.', $contextData);
+                    FactaCltLog::warning('[FACTA] Falha ao obter token; tentativas esgotadas.', $contextData);
                     break;
                 }
 
                 $sleepMs = $this->tokenRetrySleepMs($attempt);
                 $contextData['sleep_ms'] = $sleepMs;
-                CltLog::warning('[FACTA] Falha ao obter token; aguardando retry.', $contextData);
+                FactaCltLog::warning('[FACTA] Falha ao obter token; aguardando retry.', $contextData);
 
                 if ($sleepMs > 0) {
                     usleep($sleepMs * 1000);
@@ -1885,7 +1885,7 @@ class FactaApiService
             || str_contains($normalized, 'analise-politica-credito');
     }
 
-    // App\Modules\CLT\Services\FactaApiService.php
+    // App\Modules\Facta\Services\FactaApiService.php
 
     private function errorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
     {
@@ -2059,7 +2059,7 @@ class FactaApiService
 
         try {
             $nowUtc = now('UTC')->format('Y-m-d H:i:s');
-            $row = DB::table('clt_pre_authorizations')
+            $row = DB::table('facta_clt_pre_authorizations')
                 ->where('cpf', $cpf)
                 ->where('expires_at', '>', $nowUtc)
                 ->select('expires_at')
@@ -2081,7 +2081,7 @@ class FactaApiService
             return true;
         } catch (Throwable $e) {
             $this->preAuthLookupCheckedLocal[$cpf] = false;
-            CltLog::warning('[FACTA] Falha ao consultar cache persistente de pré-autorização.', [
+            FactaCltLog::warning('[FACTA] Falha ao consultar cache persistente de pré-autorização.', [
                 'cpf' => $cpf,
                 'error' => $e->getMessage(),
             ]);
@@ -2153,13 +2153,13 @@ class FactaApiService
                 ];
             }
 
-            DB::table('clt_pre_authorizations')->upsert(
+            DB::table('facta_clt_pre_authorizations')->upsert(
                 $rows,
                 ['cpf'],
                 ['authorized_at', 'expires_at', 'updated_at']
             );
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao persistir cache em lote de pré-autorização.', [
+            FactaCltLog::warning('[FACTA] Falha ao persistir cache em lote de pré-autorização.', [
                 'batch_size' => count($cpfs),
                 'error' => $e->getMessage(),
             ]);
@@ -2192,7 +2192,7 @@ class FactaApiService
 
         try {
             $nowUtc = now('UTC')->format('Y-m-d H:i:s');
-            $rows = DB::table('clt_pre_authorizations')
+            $rows = DB::table('facta_clt_pre_authorizations')
                 ->whereIn('cpf', $normalized)
                 ->where('expires_at', '>', $nowUtc)
                 ->select('cpf', 'expires_at')
@@ -2217,7 +2217,7 @@ class FactaApiService
 
             if (!empty($reusedCpfs)) {
                 $sample = array_slice($reusedCpfs, 0, 8);
-                CltLog::warning('[FACTA] pré-autorização reaproveitada do banco (sem /solicita-autorizacao-consulta)', [
+                FactaCltLog::warning('[FACTA] pré-autorização reaproveitada do banco (sem /solicita-autorizacao-consulta)', [
                     'job_id' => $this->runtimeJobId,
                     'reused_count' => count($reusedCpfs),
                     'sample_cpfs' => $sample,
@@ -2225,7 +2225,7 @@ class FactaApiService
                 ]);
             }
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao carregar cache persistente de pré-autorização em lote.', [
+            FactaCltLog::warning('[FACTA] Falha ao carregar cache persistente de pré-autorização em lote.', [
                 'batch_size' => count($normalized),
                 'error' => $e->getMessage(),
             ]);
@@ -2437,10 +2437,10 @@ class FactaApiService
 
             $shouldLog = ($status >= 400 || $erro === true) || $this->shouldLogFactaResponse($resp);
             if ($shouldLog) {
-                CltLog::warning('[FACTA] /solicita-autorizacao-consulta response', $context);
+                FactaCltLog::warning('[FACTA] /solicita-autorizacao-consulta response', $context);
             }
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar /solicita-autorizacao-consulta: ' . $e->getMessage());
+            FactaCltLog::warning('[FACTA] Falha ao logar /solicita-autorizacao-consulta: ' . $e->getMessage());
         }
     }
 
@@ -2501,10 +2501,10 @@ class FactaApiService
 
             $shouldLog = ($outcome !== 'success') || $this->shouldLogFactaResponse($resp);
             if ($shouldLog) {
-                CltLog::warning('[FACTA] /gera-token response', $context);
+                FactaCltLog::warning('[FACTA] /gera-token response', $context);
             }
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar /gera-token: ' . $e->getMessage());
+            FactaCltLog::warning('[FACTA] Falha ao logar /gera-token: ' . $e->getMessage());
         }
     }
 
@@ -2516,13 +2516,13 @@ class FactaApiService
         }
 
         try {
-            CltLog::warning('[FACTA] /proposta/operacoes-disponiveis request', [
+            FactaCltLog::warning('[FACTA] /proposta/operacoes-disponiveis request', [
                 'job_id' => $this->runtimeJobId,
                 'cpf' => $cpf,
                 'params' => $params,
             ]);
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar request /proposta/operacoes-disponiveis: ' . $e->getMessage());
+            FactaCltLog::warning('[FACTA] Falha ao logar request /proposta/operacoes-disponiveis: ' . $e->getMessage());
         }
     }
 
@@ -2616,10 +2616,10 @@ class FactaApiService
 
             $shouldLog = ($outcome !== 'success') || $this->shouldLogFactaResponse($resp);
             if ($shouldLog) {
-                CltLog::warning('[FACTA] /autoriza-consulta response', $context);
+                FactaCltLog::warning('[FACTA] /autoriza-consulta response', $context);
             }
         } catch (Throwable $e) {
-            CltLog::warning('[FACTA] Falha ao logar /autoriza-consulta: ' . $e->getMessage());
+            FactaCltLog::warning('[FACTA] Falha ao logar /autoriza-consulta: ' . $e->getMessage());
         }
     }
 
@@ -2744,7 +2744,7 @@ class FactaApiService
 
         $preAuth = $this->solicitaAutorizacaoConsulta($cpf, $token);
 
-        CltLog::warning('[FACTA] token expirado em /autoriza-consulta; /solicita-autorizacao-consulta disparado para próxima rodada', [
+        FactaCltLog::warning('[FACTA] token expirado em /autoriza-consulta; /solicita-autorizacao-consulta disparado para próxima rodada', [
             'job_id' => $this->runtimeJobId,
             'cpf' => $cpf,
             'origin' => $origin,
@@ -3062,7 +3062,7 @@ class FactaApiService
             return;
         }
 
-        CltLog::warning("[FACTA] {$endpoint} request exception", array_merge([
+        FactaCltLog::warning("[FACTA] {$endpoint} request exception", array_merge([
             'job_id' => $this->runtimeJobId,
             'logged_at_ms' => (int) round(microtime(true) * 1000),
             'is_timeout' => $this->isTimeoutException($e),

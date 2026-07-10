@@ -50,7 +50,7 @@ const BANK_OPTIONS: Array<{
   imageSrc: string
   alt: string
 }> = [
-  { value: "clt", label: "CLT Facta", imageSrc: factaLogo, alt: "Facta" },
+  { value: "facta", label: "Facta CLT", imageSrc: factaLogo, alt: "Facta" },
   { value: "mercantil", label: "CLT Mercantil", imageSrc: mercantilLogo, alt: "Mercantil" },
   { value: "uy3", label: "CLT UY3", imageSrc: uy3Logo, alt: "UY3" },
 ]
@@ -116,17 +116,17 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 function bankFilterIsFilled(filters: LemitPoolFiltersDraft, bank: LemitBankKey) {
   switch (bank) {
-    case "clt":
+    case "facta":
       return Boolean(
-        filters.clt.clt_situacao ||
-        filters.clt.clt_consulta_from ||
-        filters.clt.clt_consulta_to ||
-        filters.clt.clt_meses_admissao_min.trim() ||
-        filters.clt.clt_meses_admissao_max.trim() ||
-        filters.clt.clt_margem_min.trim() ||
-        filters.clt.clt_margem_max.trim() ||
-        filters.clt.clt_numero_parcelas_min.trim() ||
-        filters.clt.clt_numero_parcelas_max.trim()
+        filters.facta.facta_situacao ||
+        filters.facta.facta_consulta_from ||
+        filters.facta.facta_consulta_to ||
+        filters.facta.facta_meses_admissao_min.trim() ||
+        filters.facta.facta_meses_admissao_max.trim() ||
+        filters.facta.facta_margem_min.trim() ||
+        filters.facta.facta_margem_max.trim() ||
+        filters.facta.facta_numero_parcelas_min.trim() ||
+        filters.facta.facta_numero_parcelas_max.trim()
       )
     case "mercantil":
       return Boolean(
@@ -204,7 +204,7 @@ function filterFieldClassName(active: boolean) {
 
 function buildAppliedFilterGroups(filters: LemitPoolFiltersDraft): AppliedFilterGroup[] {
   const general: string[] = []
-  const clt: string[] = []
+  const facta: string[] = []
   const mercantil: string[] = []
   const uy3: string[] = []
 
@@ -219,15 +219,15 @@ function buildAppliedFilterGroups(filters: LemitPoolFiltersDraft): AppliedFilter
     general.push(`Combinação: ${combinationLabel(filters.bank_combination_mode)}`)
   }
 
-  if (filters.clt.clt_situacao) clt.push(`Situação: ${filters.clt.clt_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
-  if (filters.clt.clt_consulta_from) clt.push(`Consulta de: ${formatDateLabel(filters.clt.clt_consulta_from)}`)
-  if (filters.clt.clt_consulta_to) clt.push(`Consulta até: ${formatDateLabel(filters.clt.clt_consulta_to)}`)
-  if (filters.clt.clt_meses_admissao_min.trim()) clt.push(`Meses admissão mín.: ${filters.clt.clt_meses_admissao_min.trim()}`)
-  if (filters.clt.clt_meses_admissao_max.trim()) clt.push(`Meses admissão máx.: ${filters.clt.clt_meses_admissao_max.trim()}`)
-  if (filters.clt.clt_margem_min.trim()) clt.push(`Margem mín.: ${filters.clt.clt_margem_min.trim()}`)
-  if (filters.clt.clt_margem_max.trim()) clt.push(`Margem máx.: ${filters.clt.clt_margem_max.trim()}`)
-  if (filters.clt.clt_numero_parcelas_min.trim()) clt.push(`Parcelas mín.: ${filters.clt.clt_numero_parcelas_min.trim()}`)
-  if (filters.clt.clt_numero_parcelas_max.trim()) clt.push(`Parcelas máx.: ${filters.clt.clt_numero_parcelas_max.trim()}`)
+  if (filters.facta.facta_situacao) facta.push(`Situação: ${filters.facta.facta_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
+  if (filters.facta.facta_consulta_from) facta.push(`Consulta de: ${formatDateLabel(filters.facta.facta_consulta_from)}`)
+  if (filters.facta.facta_consulta_to) facta.push(`Consulta até: ${formatDateLabel(filters.facta.facta_consulta_to)}`)
+  if (filters.facta.facta_meses_admissao_min.trim()) facta.push(`Meses admissão mín.: ${filters.facta.facta_meses_admissao_min.trim()}`)
+  if (filters.facta.facta_meses_admissao_max.trim()) facta.push(`Meses admissão máx.: ${filters.facta.facta_meses_admissao_max.trim()}`)
+  if (filters.facta.facta_margem_min.trim()) facta.push(`Margem mín.: ${filters.facta.facta_margem_min.trim()}`)
+  if (filters.facta.facta_margem_max.trim()) facta.push(`Margem máx.: ${filters.facta.facta_margem_max.trim()}`)
+  if (filters.facta.facta_numero_parcelas_min.trim()) facta.push(`Parcelas mín.: ${filters.facta.facta_numero_parcelas_min.trim()}`)
+  if (filters.facta.facta_numero_parcelas_max.trim()) facta.push(`Parcelas máx.: ${filters.facta.facta_numero_parcelas_max.trim()}`)
 
   if (filters.mercantil.mercantil_situacao) mercantil.push(`Situação: ${filters.mercantil.mercantil_situacao === "aprovado" ? "Aprovado" : "Não aprovado"}`)
   if (filters.mercantil.mercantil_consulta_from) mercantil.push(`Consulta de: ${formatDateLabel(filters.mercantil.mercantil_consulta_from)}`)
@@ -251,7 +251,7 @@ function buildAppliedFilterGroups(filters: LemitPoolFiltersDraft): AppliedFilter
 
   return [
     { title: "Gerais", labels: general },
-    { title: "CLT Facta", labels: clt },
+    { title: "Facta CLT", labels: facta },
     { title: "CLT Mercantil", labels: mercantil },
     { title: "CLT UY3", labels: uy3 },
   ].filter((group) => group.labels.length > 0)
@@ -603,23 +603,23 @@ export default function LemitPoolPage() {
               </div>
 
               {draftFilters.selected_banks.length > 0 && (
-                <Accordion type="multiple" defaultValue={["clt", "mercantil", "uy3"]} className="space-y-4 mt-6">
-                  {draftFilters.selected_banks.includes("clt") ? (
-                    <Section value="clt" title="Filtros CLT Facta" imageSrc={factaLogo} imageAlt="Facta">
+                <Accordion type="multiple" defaultValue={["facta", "mercantil", "uy3"]} className="space-y-4 mt-6">
+                  {draftFilters.selected_banks.includes("facta") ? (
+                    <Section value="facta" title="Filtros Facta CLT" imageSrc={factaLogo} imageAlt="Facta">
                       <Field label="Situação">
                         <Select
-                          value={draftFilters.clt.clt_situacao || "__empty__"}
+                          value={draftFilters.facta.facta_situacao || "__empty__"}
                           onValueChange={(value) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: {
-                                ...current.clt,
-                                clt_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
+                              facta: {
+                                ...current.facta,
+                                facta_situacao: value === "__empty__" ? "" : value as LemitLoanSituation,
                               },
                             }))
                           }}
                         >
-                          <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.clt.clt_situacao))}>
+                          <SelectTrigger className={filterFieldClassName(Boolean(draftFilters.facta.facta_situacao))}>
                             <SelectValue placeholder="Ex.: Aprovado" />
                           </SelectTrigger>
                           <SelectContent>
@@ -632,12 +632,12 @@ export default function LemitPoolPage() {
                       <Field label="Consulta de">
                         <Input
                           type="date"
-                          value={draftFilters.clt.clt_consulta_from}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_from))}
+                          value={draftFilters.facta.facta_consulta_from}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_consulta_from))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_consulta_from: event.target.value },
+                              facta: { ...current.facta, facta_consulta_from: event.target.value },
                             }))
                           }}
                         />
@@ -645,12 +645,12 @@ export default function LemitPoolPage() {
                       <Field label="Consulta até">
                         <Input
                           type="date"
-                          value={draftFilters.clt.clt_consulta_to}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_consulta_to))}
+                          value={draftFilters.facta.facta_consulta_to}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_consulta_to))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_consulta_to: event.target.value },
+                              facta: { ...current.facta, facta_consulta_to: event.target.value },
                             }))
                           }}
                         />
@@ -658,12 +658,12 @@ export default function LemitPoolPage() {
                       <Field label="Meses admissão mín.">
                         <Input
                           type="number"
-                          value={draftFilters.clt.clt_meses_admissao_min}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_min.trim()))}
+                          value={draftFilters.facta.facta_meses_admissao_min}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_meses_admissao_min.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_meses_admissao_min: event.target.value },
+                              facta: { ...current.facta, facta_meses_admissao_min: event.target.value },
                             }))
                           }}
                           placeholder="Ex.: 1"
@@ -672,12 +672,12 @@ export default function LemitPoolPage() {
                       <Field label="Meses admissão máx.">
                         <Input
                           type="number"
-                          value={draftFilters.clt.clt_meses_admissao_max}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_meses_admissao_max.trim()))}
+                          value={draftFilters.facta.facta_meses_admissao_max}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_meses_admissao_max.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_meses_admissao_max: event.target.value },
+                              facta: { ...current.facta, facta_meses_admissao_max: event.target.value },
                             }))
                           }}
                           placeholder="Ex.: 240"
@@ -686,12 +686,12 @@ export default function LemitPoolPage() {
                       <Field label="Margem mínima">
                         <Input
                           inputMode="decimal"
-                          value={draftFilters.clt.clt_margem_min}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_min.trim()))}
+                          value={draftFilters.facta.facta_margem_min}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_margem_min.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_margem_min: event.target.value },
+                              facta: { ...current.facta, facta_margem_min: event.target.value },
                             }))
                           }}
                           placeholder="R$ 0,00"
@@ -700,12 +700,12 @@ export default function LemitPoolPage() {
                       <Field label="Margem máxima">
                         <Input
                           inputMode="decimal"
-                          value={draftFilters.clt.clt_margem_max}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_margem_max.trim()))}
+                          value={draftFilters.facta.facta_margem_max}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_margem_max.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_margem_max: event.target.value },
+                              facta: { ...current.facta, facta_margem_max: event.target.value },
                             }))
                           }}
                           placeholder="R$ 2000,00"
@@ -714,12 +714,12 @@ export default function LemitPoolPage() {
                       <Field label="Qtd. parcelas mín.">
                         <Input
                           type="number"
-                          value={draftFilters.clt.clt_numero_parcelas_min}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_min.trim()))}
+                          value={draftFilters.facta.facta_numero_parcelas_min}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_numero_parcelas_min.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_numero_parcelas_min: event.target.value },
+                              facta: { ...current.facta, facta_numero_parcelas_min: event.target.value },
                             }))
                           }}
                           placeholder="Ex.: 1"
@@ -728,12 +728,12 @@ export default function LemitPoolPage() {
                       <Field label="Qtd. parcelas máx.">
                         <Input
                           type="number"
-                          value={draftFilters.clt.clt_numero_parcelas_max}
-                          className={filterFieldClassName(Boolean(draftFilters.clt.clt_numero_parcelas_max.trim()))}
+                          value={draftFilters.facta.facta_numero_parcelas_max}
+                          className={filterFieldClassName(Boolean(draftFilters.facta.facta_numero_parcelas_max.trim()))}
                           onChange={(event) => {
                             updateFilters((current) => ({
                               ...current,
-                              clt: { ...current.clt, clt_numero_parcelas_max: event.target.value },
+                              facta: { ...current.facta, facta_numero_parcelas_max: event.target.value },
                             }))
                           }}
                           placeholder="Ex.: 120"

@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Modules\CLT\Jobs;
+namespace App\Modules\Facta\Jobs;
 
-use App\Modules\CLT\Models\CltConsultJob;
-use App\Modules\CLT\Support\CltLog;
-use App\Modules\CLT\Support\CltSchema;
-use App\Modules\CLT\Support\CltSpool;
+use App\Modules\Facta\Models\FactaCltConsultJob;
+use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\Facta\Support\FactaCltSchema;
+use App\Modules\Facta\Support\FactaCltSpool;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -16,7 +16,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-class FinalizeCltConsultReportJob implements ShouldQueue
+class FinalizeFactaCltConsultReportJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -26,13 +26,13 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
     public function __construct(public int $jobId, string $targetStatus)
     {
-        $this->onQueue((string) config('cltfacta.preview.queue', 'reports'));
+        $this->onQueue((string) config('facta.preview.queue', 'reports'));
         $this->targetStatus = in_array($targetStatus, ['concluido', 'falhou'], true) ? $targetStatus : 'falhou';
     }
 
     public function handle(): void
     {
-        $job = CltConsultJob::query()->whereKey($this->jobId)->first();
+        $job = FactaCltConsultJob::query()->whereKey($this->jobId)->first();
         if (!$job)
             return;
         if ($job->status === 'pausado') {
@@ -48,14 +48,14 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             return;
         }
 
-        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $diskName = (string) config('facta.storage.reports_disk', 'local');
         /** @var FilesystemAdapter $disk */
         $disk = Storage::disk($diskName);
 
         $spoolPath = $job->spool_path ?? null;
         if (!$spoolPath || !$disk->exists($spoolPath)) {
             $effectiveStatus = $this->targetStatus === 'concluido' ? 'falhou' : $this->targetStatus;
-            CltLog::warning("[CLT] FINAL (job {$job->id}) spool ausente.", [
+            FactaCltLog::warning("[CLT] FINAL (job {$job->id}) spool ausente.", [
                 'target_status' => $this->targetStatus,
                 'effective_status' => $effectiveStatus,
                 'spool_path' => $spoolPath,
@@ -71,8 +71,8 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         $finalReal = null;
 
         try {
-            $finalPrefix = (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
-            $dirReports = (string) config('cltfacta.storage.dir_reports', 'clt-reports');
+            $finalPrefix = (string) config('facta.storage.final_prefix', 'facta-clt-consulta');
+            $dirReports = (string) config('facta.storage.dir_reports', 'facta-clt-reports');
             if (!$disk->exists($dirReports))
                 $disk->makeDirectory($dirReports);
 
@@ -81,8 +81,8 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             $path = "{$dirReports}/{$fileName}";
 
             // Normalização (BOM/EOL) + cabeçalho normalizado
-            $embedBom = (bool) config('cltfacta.csv.embed_bom', true);
-            $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+            $embedBom = (bool) config('facta.csv.embed_bom', true);
+            $finalEol = strtoupper((string) config('facta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
 
             $srcReal = $disk->path($spoolPath);
             $finalReal = $disk->path($path);
@@ -111,7 +111,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                 }
 
                 // Escreve cabeçalho normalizado
-                $this->writeAllOrFail($out, CltSchema::headerCsvLine(';') . $finalEol, 'arquivo final CLT');
+                $this->writeAllOrFail($out, FactaCltSchema::headerCsvLine(';') . $finalEol, 'arquivo final CLT');
 
                 // Pula a 1ª linha do arquivo de origem (cabeçalho antigo, embora já seja TITLES)
                 fgets($in);
@@ -158,7 +158,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                 'file_name' => $fileName,
             ], $reconciledCounts));
         } catch (Throwable $e) {
-            CltLog::error("[CLT] FINAL (job {$job->id}) falhou: " . $e->getMessage());
+            FactaCltLog::error("[CLT] FINAL (job {$job->id}) falhou: " . $e->getMessage());
             if (is_string($path) && $path !== '' && $disk->exists($path)) {
                 try {
                     $disk->delete($path);
@@ -189,13 +189,13 @@ class FinalizeCltConsultReportJob implements ShouldQueue
                     $previousDisk->delete($previousFilePath);
                 }
             } catch (Throwable $e) {
-                CltLog::warning("[CLT] FINAL (job {$job->id}) falha ao remover CSV final anterior: " . $e->getMessage());
+                FactaCltLog::warning("[CLT] FINAL (job {$job->id}) falha ao remover CSV final anterior: " . $e->getMessage());
             }
         }
-        CltLog::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
+        FactaCltLog::info("[CLT] FINAL (job {$job->id}) status={$this->targetStatus} concluído.");
     }
 
-    private function finishWithoutFinal(CltConsultJob $job, string $status, bool $cleanupSpool = true): void
+    private function finishWithoutFinal(FactaCltConsultJob $job, string $status, bool $cleanupSpool = true): void
     {
         if ($cleanupSpool) {
             $this->cleanupSpool($job);
@@ -203,28 +203,28 @@ class FinalizeCltConsultReportJob implements ShouldQueue
         $job->update(['status' => $status, 'phase' => null, 'finished_at' => Carbon::now()]);
     }
 
-    private function cleanupSpool(CltConsultJob $job): void
+    private function cleanupSpool(FactaCltConsultJob $job): void
     {
         try {
-            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-            CltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null);
+            $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
+            FactaCltSpool::deleteArtifacts($disk, $job->spool_path ?? null, $job->spool_cpfs_path ?? null);
         } finally {
             $job->updateQuietly(['spool_path' => null, 'spool_cpfs_path' => null, 'spool_bytes' => 0, 'phase' => null]);
         }
     }
 
-    private function shouldPreserveCancelledSpool(CltConsultJob $job): bool
+    private function shouldPreserveCancelledSpool(FactaCltConsultJob $job): bool
     {
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-        return CltSpool::hasDataRows($disk, $job->spool_path ?? null);
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
+        return FactaCltSpool::hasDataRows($disk, $job->spool_path ?? null);
     }
 
-    private function preserveCancelledSpool(CltConsultJob $job): void
+    private function preserveCancelledSpool(FactaCltConsultJob $job): void
     {
-        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $diskName = (string) config('facta.storage.reports_disk', 'local');
         $disk = Storage::disk($diskName);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $spoolExists = CltSpool::hasDataRows($disk, $spoolPath);
+        $spoolExists = FactaCltSpool::hasDataRows($disk, $spoolPath);
         $spoolBytes = 0;
         if ($spoolExists) {
             try {
@@ -234,7 +234,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
             }
         }
 
-        CltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path ?? null);
+        FactaCltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path ?? null);
 
         $job->updateQuietly([
             'spool_path' => $spoolExists ? $spoolPath : null,
@@ -281,7 +281,7 @@ class FinalizeCltConsultReportJob implements ShouldQueue
 
             while (($csvRow = fgetcsv($fh, 0, ';')) !== false) {
                 $assoc = [];
-                foreach (CltSchema::COLS as $idx => $key) {
+                foreach (FactaCltSchema::COLS as $idx => $key) {
                     $assoc[$key] = $csvRow[$idx] ?? null;
                 }
 

@@ -16,7 +16,7 @@ class ExportLeadsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mode' => ['nullable', Rule::in(['base', 'fgts', 'clt', 'mercantil', 'uy3', '360'])],
+            'mode' => ['nullable', Rule::in(['base', 'fgts', 'facta', 'mercantil', 'uy3', '360'])],
 
             'columns' => ['required', 'array', 'min:1'],
             'columns.*' => ['required', 'string', 'distinct', Rule::in(LeadExportColumns::allowed())],
@@ -46,44 +46,44 @@ class ExportLeadsRequest extends FormRequest
             'fgts_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
             // ===== CLT: filtros =====
-            'clt_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado,aprovado,nao_aprovado'],
-            'clt_elegivel' => ['nullable', 'in:sim,nao'],
-            'clt_not_found' => ['nullable', 'in:sim,nao'],
+            'facta_situacao' => ['nullable', 'in:elegivel,nao_elegivel,nao_encontrado,aprovado,nao_aprovado'],
+            'facta_elegivel' => ['nullable', 'in:sim,nao'],
+            'facta_not_found' => ['nullable', 'in:sim,nao'],
 
-            'clt_consulta_from' => ['nullable', 'date_format:Y-m-d'],
-            'clt_consulta_to' => ['nullable', 'date_format:Y-m-d'],
+            'facta_consulta_from' => ['nullable', 'date_format:Y-m-d'],
+            'facta_consulta_to' => ['nullable', 'date_format:Y-m-d'],
 
             // Vínculo
-            'clt_admissao_from' => ['nullable', 'date_format:Y-m-d'],
-            'clt_admissao_to' => ['nullable', 'date_format:Y-m-d'],
-            'clt_meses_min' => ['nullable', 'integer', 'min:0'],
-            'clt_meses_max' => ['nullable', 'integer', 'min:0'],
-            'clt_inicio_empregador_from' => ['nullable', 'date_format:Y-m-d'],
-            'clt_inicio_empregador_to' => ['nullable', 'date_format:Y-m-d'],
-            'clt_categoria_codigos' => ['nullable'],
+            'facta_admissao_from' => ['nullable', 'date_format:Y-m-d'],
+            'facta_admissao_to' => ['nullable', 'date_format:Y-m-d'],
+            'facta_meses_min' => ['nullable', 'integer', 'min:0'],
+            'facta_meses_max' => ['nullable', 'integer', 'min:0'],
+            'facta_inicio_empregador_from' => ['nullable', 'date_format:Y-m-d'],
+            'facta_inicio_empregador_to' => ['nullable', 'date_format:Y-m-d'],
+            'facta_categoria_codigos' => ['nullable'],
 
             // Perfil
-            'clt_idade_min' => ['nullable', 'integer', 'min:0'],
-            'clt_idade_max' => ['nullable', 'integer', 'min:0'],
-            'clt_sexo' => ['nullable'],
+            'facta_idade_min' => ['nullable', 'integer', 'min:0'],
+            'facta_idade_max' => ['nullable', 'integer', 'min:0'],
+            'facta_sexo' => ['nullable'],
 
             // Renda e margem
-            'clt_renda_min' => ['nullable'],
-            'clt_renda_max' => ['nullable'],
-            'clt_base_min' => ['nullable'],
-            'clt_base_max' => ['nullable'],
-            'clt_margem_min' => ['nullable'],
-            'clt_margem_max' => ['nullable'],
-            'clt_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
-            'clt_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
-            'clt_prestacao_min' => ['nullable'],
-            'clt_prestacao_max' => ['nullable'],
+            'facta_renda_min' => ['nullable'],
+            'facta_renda_max' => ['nullable'],
+            'facta_base_min' => ['nullable'],
+            'facta_base_max' => ['nullable'],
+            'facta_margem_min' => ['nullable'],
+            'facta_margem_max' => ['nullable'],
+            'facta_numero_parcelas_min' => ['nullable', 'integer', 'min:0'],
+            'facta_numero_parcelas_max' => ['nullable', 'integer', 'min:0'],
+            'facta_prestacao_min' => ['nullable'],
+            'facta_prestacao_max' => ['nullable'],
 
             // Histórico crédito
-            'clt_ativos_min' => ['nullable', 'integer', 'min:0'],
-            'clt_ativos_max' => ['nullable', 'integer', 'min:0'],
-            'clt_tem_ativos' => ['nullable', 'in:sim,nao'],
-            'clt_tem_legados' => ['nullable', 'in:sim,nao'],
+            'facta_ativos_min' => ['nullable', 'integer', 'min:0'],
+            'facta_ativos_max' => ['nullable', 'integer', 'min:0'],
+            'facta_tem_ativos' => ['nullable', 'in:sim,nao'],
+            'facta_tem_legados' => ['nullable', 'in:sim,nao'],
 
             // ===== MERCANTIL: filtros =====
             'mercantil_situacao' => ['nullable', 'in:aprovado,nao_aprovado'],
@@ -130,8 +130,8 @@ class ExportLeadsRequest extends FormRequest
             'phones',
             'birth_month',
             'selected_banks',
-            'clt_categoria_codigos',
-            'clt_sexo',
+            'facta_categoria_codigos',
+            'facta_sexo',
             'mercantil_status',
             'mercantil_origens',
         ] as $key) {

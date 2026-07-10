@@ -1,15 +1,15 @@
 <?php
 
-namespace App\Modules\CLT\Controllers;
+namespace App\Modules\Facta\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\CLT\Jobs\DispatchCltConsultJob;
-use App\Modules\CLT\Jobs\ProcessCltConsultJob;
-use App\Modules\CLT\Models\CltConsultJob;
-use App\Modules\CLT\Support\CltLog;
-use App\Modules\CLT\Support\CltSchema;
-use App\Modules\CLT\Support\CltSpool;
-use App\Modules\CLT\Support\CltVariant;
+use App\Modules\Facta\Jobs\DispatchFactaCltConsultJob;
+use App\Modules\Facta\Jobs\ProcessFactaCltConsultJob;
+use App\Modules\Facta\Models\FactaCltConsultJob;
+use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\Facta\Support\FactaCltSchema;
+use App\Modules\Facta\Support\FactaCltSpool;
+use App\Modules\Facta\Support\FactaCltVariant;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
 
-class CltConsultController extends Controller
+class FactaCltConsultController extends Controller
 {
     public function index(Request $request)
     {
@@ -29,7 +29,7 @@ class CltConsultController extends Controller
             'variant' => ['nullable', 'in:online,offline,hybrid,credit_policy,on,off,hyb,policy,credit-policy,politica,politica_credito,todos'],
         ])->validate();
 
-        $jobsQuery = CltConsultJob::query();
+        $jobsQuery = FactaCltConsultJob::query();
 
         $status = $data['status'] ?? null;
         if (is_string($status) && $status !== '' && $status !== 'todos') {
@@ -38,7 +38,7 @@ class CltConsultController extends Controller
 
         $variant = $data['variant'] ?? null;
         if (is_string($variant) && $variant !== '' && $variant !== 'todos') {
-            $variantNormalized = CltVariant::normalizeFilter($variant);
+            $variantNormalized = FactaCltVariant::normalizeFilter($variant);
 
             if ($variantNormalized === 'online') {
                 $jobsQuery->where(function ($q) {
@@ -59,14 +59,14 @@ class CltConsultController extends Controller
 
     public function show(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $reportsDiskName = (string) config('facta.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
         $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
-        $spoolHasDataRows = $spoolExists && CltSpool::hasDataRows($reportsDisk, $job->spool_path);
+        $spoolHasDataRows = $spoolExists && FactaCltSpool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
@@ -114,15 +114,15 @@ class CltConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $data = $validator->validated();
-        $variant = CltVariant::normalizeStored($data['variant'] ?? 'online');
-        $isCreditPolicyOnly = CltVariant::isCreditPolicyOnly($variant);
+        $variant = FactaCltVariant::normalizeStored($data['variant'] ?? 'online');
+        $isCreditPolicyOnly = FactaCltVariant::isCreditPolicyOnly($variant);
         $timezone = $data['timezone'] ?? 'America/Sao_Paulo';
         $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $timezone) : null;
         $scheduledFor = $runAt && $runAt->greaterThan(Carbon::now($timezone))
             ? $runAt->clone()->setTimezone('UTC')
             : null;
 
-        $job = CltConsultJob::create([
+        $job = FactaCltConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
             'status' => $scheduledFor ? 'agendado' : 'pendente',
@@ -147,7 +147,7 @@ class CltConsultController extends Controller
         } catch (\Throwable $e) {
             $this->safeCleanupInit($job->id);
             $job->delete();
-            CltLog::error("[CLT] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
+            FactaCltLog::error("[CLT] Erro ao preparar spool (job {$job->id}): " . $e->getMessage(), ['exception' => $e]);
             return response()->json(['message' => 'Falha interna ao preparar arquivos do job.'], 500);
         }
 
@@ -176,9 +176,9 @@ class CltConsultController extends Controller
         if ($job->status === 'pendente') {
             $stage = $isCreditPolicyOnly ? 'phase2' : 'phase1';
             $queue = $isCreditPolicyOnly
-                ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
-                : CltVariant::resolvePhaseOneQueue($variant);
-            ProcessCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
+                ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
+                : FactaCltVariant::resolvePhaseOneQueue($variant);
+            ProcessFactaCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
         }
 
         return response()->json([
@@ -192,13 +192,13 @@ class CltConsultController extends Controller
     /** Estado “prévia” leve */
     public function requestPreview(Request $request, int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
-        $spoolHasDataRows = $spoolExists && CltSpool::hasDataRows($disk, $job->spool_path);
+        $spoolHasDataRows = $spoolExists && FactaCltSpool::hasDataRows($disk, $job->spool_path);
 
         return response()->json([
             'queued' => false,
@@ -210,17 +210,17 @@ class CltConsultController extends Controller
     /** Streaming da PRÉVIA (CSV) com cabeçalho normalizado */
     public function downloadPreview(Request $request, int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
 
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json(['message' => 'Spool indisponível.'], Response::HTTP_CONFLICT);
         }
 
-        if (!CltSpool::hasDataRows($disk, $job->spool_path)) {
+        if (!FactaCltSpool::hasDataRows($disk, $job->spool_path)) {
             return response()->json(['message' => 'Prévia indisponível: nenhum resultado gravado ainda.'], Response::HTTP_CONFLICT);
         }
 
@@ -236,8 +236,8 @@ class CltConsultController extends Controller
             'X-Accel-Buffering' => 'no',
         ];
 
-        $withBOM = (bool) config('cltfacta.csv.embed_bom', true);
-        $finalEol = strtoupper((string) config('cltfacta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
+        $withBOM = (bool) config('facta.csv.embed_bom', true);
+        $finalEol = strtoupper((string) config('facta.csv.final_eol', 'LF')) === 'CRLF' ? "\r\n" : "\n";
         $deltaMap = $this->shouldApplyPhase2DeltaForPreview($job)
             ? $this->loadPhase2DeltaMapForPreview($disk, $job->spool_path)
             : [];
@@ -260,9 +260,9 @@ class CltConsultController extends Controller
                 // escreve cabeçalho normalizado
                 $canWriteCsv = is_resource($out);
                 if ($canWriteCsv) {
-                    fwrite($out, CltSchema::headerCsvLine(';') . $finalEol);
+                    fwrite($out, FactaCltSchema::headerCsvLine(';') . $finalEol);
                 } else {
-                    echo CltSchema::headerCsvLine(';') . $finalEol;
+                    echo FactaCltSchema::headerCsvLine(';') . $finalEol;
                 }
 
                 if (!$canWriteCsv) {
@@ -276,7 +276,7 @@ class CltConsultController extends Controller
                         $csvRow = $this->applyPhase2PatchToCsvRow($csvRow, $deltaMap[$lineNo], $phase2Indexes);
                     }
 
-                    $csvRow = CltSchema::normalizeOrderedRowForCsv($csvRow);
+                    $csvRow = FactaCltSchema::normalizeOrderedRowForCsv($csvRow);
                     fputcsv($out, $csvRow, ';', '"', '\\', $finalEol);
                 }
             } finally {
@@ -289,7 +289,7 @@ class CltConsultController extends Controller
     /** Download do FINAL (CSV) */
     public function download(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -328,7 +328,7 @@ class CltConsultController extends Controller
 
     public function cancel(Request $request, int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -375,7 +375,7 @@ class CltConsultController extends Controller
 
     public function pause(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -395,7 +395,7 @@ class CltConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        DB::table('clt_consult_jobs')
+        DB::table('facta_clt_consult_jobs')
             ->where('id', $job->id)
             ->update([
                 'status' => 'pausado',
@@ -416,7 +416,7 @@ class CltConsultController extends Controller
 
     public function resume(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -427,14 +427,14 @@ class CltConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
         if (empty($job->spool_path) || !$disk->exists($job->spool_path)) {
             return response()->json([
                 'message' => 'Spool indisponível para retomar o job.',
             ], Response::HTTP_CONFLICT);
         }
 
-        $phase = $job->phase === 'fase_2' && CltVariant::supportsCreditPhaseTwo($job->variant)
+        $phase = $job->phase === 'fase_2' && FactaCltVariant::supportsCreditPhaseTwo($job->variant)
             ? 'phase2'
             : 'phase1';
 
@@ -453,10 +453,10 @@ class CltConsultController extends Controller
         ]);
 
         $queue = $phase === 'phase2'
-            ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
-            : CltVariant::resolvePhaseOneQueue($job->variant);
+            ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
+            : FactaCltVariant::resolvePhaseOneQueue($job->variant);
 
-        DispatchCltConsultJob::dispatch($job->id, $phase)
+        DispatchFactaCltConsultJob::dispatch($job->id, $phase)
             ->delay(now()->addSeconds(2))
             ->onQueue($queue);
 
@@ -469,11 +469,11 @@ class CltConsultController extends Controller
 
     public function rerunPhase2(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (!CltVariant::supportsCreditPhaseTwo($job->variant)) {
+        if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
                 'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -490,9 +490,9 @@ class CltConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        $reportsDiskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $reportsDiskName = (string) config('facta.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
-        $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
         if (!$reportsDisk->exists($dirSpool)) {
             $reportsDisk->makeDirectory($dirSpool);
         }
@@ -537,7 +537,7 @@ class CltConsultController extends Controller
                 );
             }
         } catch (\Throwable $e) {
-            CltLog::error("[CLT] Falha ao preparar rerun da fase 2 (job {$job->id}): " . $e->getMessage(), [
+            FactaCltLog::error("[CLT] Falha ao preparar rerun da fase 2 (job {$job->id}): " . $e->getMessage(), [
                 'exception' => $e,
             ]);
 
@@ -546,8 +546,8 @@ class CltConsultController extends Controller
             ], 500);
         }
 
-        if (Schema::hasTable('clt_job_http_counters')) {
-            DB::table('clt_job_http_counters')->where('job_id', $job->id)->delete();
+        if (Schema::hasTable('facta_clt_job_http_counters')) {
+            DB::table('facta_clt_job_http_counters')->where('job_id', $job->id)->delete();
         }
 
         $job->update([
@@ -566,8 +566,8 @@ class CltConsultController extends Controller
             'cancel_reason' => null,
         ]);
 
-        $queue = (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred');
-        ProcessCltConsultJob::dispatch($job->id, 'phase2')->onQueue($queue);
+        $queue = (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred');
+        ProcessFactaCltConsultJob::dispatch($job->id, 'phase2')->onQueue($queue);
 
         return response()->json([
             'id' => $job->id,
@@ -582,7 +582,7 @@ class CltConsultController extends Controller
 
     public function destroy(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
@@ -604,15 +604,15 @@ class CltConsultController extends Controller
                 }
             }
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
+            FactaCltLog::warning("[CLT] Erro ao apagar arquivo final (job {$job->id}): " . $e->getMessage());
         }
 
         try {
-            $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+            $diskName = (string) config('facta.storage.reports_disk', 'local');
             $disk = Storage::disk($diskName);
             $this->deleteSpoolArtifacts($disk, $job->spool_path, $job->spool_cpfs_path);
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
+            FactaCltLog::warning("[CLT] Erro ao apagar spool (job {$job->id}): " . $e->getMessage());
         }
 
         $job->delete();
@@ -622,11 +622,11 @@ class CltConsultController extends Controller
 
     public function httpCounters(int $id)
     {
-        $job = CltConsultJob::query()
+        $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
-        if (!CltVariant::supportsCreditPhaseTwo($job->variant)) {
+        if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
                 'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -647,7 +647,7 @@ class CltConsultController extends Controller
 
         $summary = array_fill_keys($counterFields, 0);
 
-        if (!Schema::hasTable('clt_job_http_counters')) {
+        if (!Schema::hasTable('facta_clt_job_http_counters')) {
             return response()->json([
                 'id' => $job->id,
                 'title' => $job->title,
@@ -664,7 +664,7 @@ class CltConsultController extends Controller
             ]);
         }
 
-        $rows = DB::table('clt_job_http_counters')
+        $rows = DB::table('facta_clt_job_http_counters')
             ->where('job_id', $job->id)
             ->orderByDesc('request_count')
             ->orderBy('endpoint')
@@ -739,7 +739,7 @@ class CltConsultController extends Controller
 
     private function finalPrefix(): string
     {
-        return (string) config('cltfacta.storage.final_prefix', 'clt-consulta');
+        return (string) config('facta.storage.final_prefix', 'facta-clt-consulta');
     }
 
     private function tokenizeCpfsLazy($cpfs): \Generator
@@ -765,10 +765,10 @@ class CltConsultController extends Controller
 
     private function createInitialSpool(int $jobId, iterable $allCpfs): array
     {
-        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $diskName = (string) config('facta.storage.reports_disk', 'local');
         $disk = Storage::disk($diskName);
 
-        $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
         $finalPref = $this->finalPrefix();
 
         if (!$disk->exists($dirSpool)) {
@@ -790,7 +790,7 @@ class CltConsultController extends Controller
                 if (!ftruncate($fp, 0)) {
                     throw new \RuntimeException("Não foi possível truncar spool em {$spoolPath}");
                 }
-                $this->writeCsvRowOrFail($fp, CltSchema::TITLES, "spool inicial {$spoolPath}");
+                $this->writeCsvRowOrFail($fp, FactaCltSchema::TITLES, "spool inicial {$spoolPath}");
                 if (!fflush($fp)) {
                     throw new \RuntimeException("Não foi possível sincronizar spool em {$spoolPath}");
                 }
@@ -851,10 +851,10 @@ class CltConsultController extends Controller
 
     private function createCreditPolicySpoolFromSnapshots(int $jobId, iterable $allCpfs): array
     {
-        $diskName = (string) config('cltfacta.storage.reports_disk', 'local');
+        $diskName = (string) config('facta.storage.reports_disk', 'local');
         $disk = Storage::disk($diskName);
 
-        $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+        $dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
         $finalPref = $this->finalPrefix();
 
         if (!$disk->exists($dirSpool)) {
@@ -893,7 +893,7 @@ class CltConsultController extends Controller
                     throw new \RuntimeException("Não foi possível truncar arquivos do job {$jobId}");
                 }
 
-                $this->writeCsvRowOrFail($spoolHandle, CltSchema::TITLES, "spool inicial {$spoolPath}");
+                $this->writeCsvRowOrFail($spoolHandle, FactaCltSchema::TITLES, "spool inicial {$spoolPath}");
 
                 foreach ($allCpfs as $raw) {
                     $norm = Cpf::normalize((string) $raw);
@@ -948,7 +948,7 @@ class CltConsultController extends Controller
         }
 
         $rows = DB::table('leads')
-            ->leftJoin('clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
+            ->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
             ->whereIn('leads.cpf', $cpfs)
             ->select([
                 'leads.cpf',
@@ -983,9 +983,9 @@ class CltConsultController extends Controller
                 ? $this->creditPolicySnapshotCsvRow($record, $requiresOperationValues)
                 : $this->creditPolicyMissingCsvRow($cpf);
             $canProcess = $this->canProcessCreditPolicyCsvRow($assoc);
-            $assoc = CltSchema::normalizeAssocRowForCsv($assoc);
+            $assoc = FactaCltSchema::normalizeAssocRowForCsv($assoc);
             $ordered = [];
-            foreach (CltSchema::COLS as $key) {
+            foreach (FactaCltSchema::COLS as $key) {
                 $ordered[] = $assoc[$key] ?? null;
             }
 
@@ -1096,7 +1096,7 @@ class CltConsultController extends Controller
 
     private function requiresOperationCreditPolicyValues(): bool
     {
-        $mode = strtolower(trim((string) config('cltfacta.credit_worker.policy_source_mode', 'operacoes')));
+        $mode = strtolower(trim((string) config('facta.credit_worker.policy_source_mode', 'operacoes')));
 
         return !in_array($mode, ['experimental', 'fixed'], true);
     }
@@ -1104,8 +1104,8 @@ class CltConsultController extends Controller
     private function safeCleanupInit(int $jobId): void
     {
         try {
-            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
-            $dirSpool = (string) (config('cltfacta.storage.dir_spool') ?? 'clt-spool');
+            $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
+            $dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
             $finalPref = $this->finalPrefix();
             $spoolPath = "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv";
             $targets = [
@@ -1116,7 +1116,7 @@ class CltConsultController extends Controller
                 "{$spoolPath}.phase2.pending.ndjson",
                 "{$spoolPath}.phase2.pending.ndjson.next",
             ];
-            $maxAttempts = max(1, (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+            $maxAttempts = max(1, (int) config('facta.credit_worker.phase2_max_attempts', 3));
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
                 $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
             }
@@ -1126,20 +1126,20 @@ class CltConsultController extends Controller
                     $disk->delete($p);
             }
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
+            FactaCltLog::warning("[CLT] Falha ao limpar após erro no createInitialSpool (job {$jobId}): " . $e->getMessage());
         }
     }
 
     private function safeCleanupPaths(array $relPaths): void
     {
         try {
-            $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+            $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
             foreach ($relPaths as $p) {
                 if ($p && $disk->exists($p))
                     $disk->delete($p);
             }
         } catch (\Throwable $e) {
-            CltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
+            FactaCltLog::warning("[CLT] Erro limpando arquivos: " . $e->getMessage());
         }
     }
 
@@ -1159,7 +1159,7 @@ class CltConsultController extends Controller
         }
 
         $phase2Indexes = $this->phase2ColumnsIndexesForReset();
-        $colsCount = count(CltSchema::COLS);
+        $colsCount = count(FactaCltSchema::COLS);
 
         try {
             if (!@flock($out, LOCK_EX)) {
@@ -1175,7 +1175,7 @@ class CltConsultController extends Controller
             }
             $inputIndexes = $this->schemaIndexesFromCsvHeader($header);
 
-            $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool de rerun {$targetPath}");
+            $this->writeCsvRowOrFail($out, FactaCltSchema::TITLES, "spool de rerun {$targetPath}");
 
             while (($row = @fgetcsv($in, 0, ';')) !== false) {
                 $row = $this->normalizeCsvRowToCurrentSchema($row, $inputIndexes, $colsCount);
@@ -1184,7 +1184,7 @@ class CltConsultController extends Controller
                     $row[$idx] = null;
                 }
 
-                $row = CltSchema::normalizeOrderedRowForCsv($row);
+                $row = FactaCltSchema::normalizeOrderedRowForCsv($row);
                 $this->writeCsvRowOrFail($out, $row, "spool de rerun {$targetPath}");
             }
 
@@ -1218,7 +1218,7 @@ class CltConsultController extends Controller
             return $indexes;
         }
 
-        $lookup = array_flip(CltSchema::COLS);
+        $lookup = array_flip(FactaCltSchema::COLS);
         $indexes = [];
         foreach (
             [
@@ -1247,9 +1247,9 @@ class CltConsultController extends Controller
         static $aliases = null;
         if (!is_array($aliases)) {
             $aliases = [];
-            foreach (CltSchema::COLS as $idx => $col) {
+            foreach (FactaCltSchema::COLS as $idx => $col) {
                 $aliases[$this->normalizeCsvHeaderToken($col)] = $col;
-                $aliases[$this->normalizeCsvHeaderToken(CltSchema::TITLES[$idx] ?? '')] = $col;
+                $aliases[$this->normalizeCsvHeaderToken(FactaCltSchema::TITLES[$idx] ?? '')] = $col;
             }
         }
 
@@ -1280,7 +1280,7 @@ class CltConsultController extends Controller
         }
 
         $normalized = [];
-        foreach (CltSchema::COLS as $col) {
+        foreach (FactaCltSchema::COLS as $col) {
             $idx = $inputIndexes[$col] ?? null;
             $normalized[] = $idx !== null ? ($row[$idx] ?? null) : null;
         }
@@ -1296,9 +1296,9 @@ class CltConsultController extends Controller
             : strtolower($value);
     }
 
-    private function shouldApplyPhase2DeltaForPreview(CltConsultJob $job): bool
+    private function shouldApplyPhase2DeltaForPreview(FactaCltConsultJob $job): bool
     {
-        return CltVariant::supportsCreditPhaseTwo($job->variant)
+        return FactaCltVariant::supportsCreditPhaseTwo($job->variant)
             && in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado', 'falhou'], true)
             && !empty($job->spool_path);
     }
@@ -1314,7 +1314,7 @@ class CltConsultController extends Controller
         }
 
         $deltaReal = $disk->path($deltaPath);
-        $maxBytes = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_bytes', 8388608));
+        $maxBytes = max(0, (int) config('facta.preview.phase2_delta_preview_max_bytes', 8388608));
         if ($maxBytes > 0) {
             $deltaBytes = @filesize($deltaReal);
             if (is_int($deltaBytes) && $deltaBytes > $maxBytes) {
@@ -1327,7 +1327,7 @@ class CltConsultController extends Controller
             return [];
         }
 
-        $maxRows = max(0, (int) config('cltfacta.preview.phase2_delta_preview_max_rows', 60000));
+        $maxRows = max(0, (int) config('facta.preview.phase2_delta_preview_max_rows', 60000));
         $map = [];
         $mapRows = 0;
         try {
@@ -1381,7 +1381,7 @@ class CltConsultController extends Controller
             return $indexes;
         }
 
-        $lookup = array_flip(CltSchema::COLS);
+        $lookup = array_flip(FactaCltSchema::COLS);
         $indexes = [];
         foreach (
             [
@@ -1409,7 +1409,7 @@ class CltConsultController extends Controller
      */
     private function applyPhase2PatchToCsvRow(array $csvRow, array $patch, array $indexes): array
     {
-        $colsCount = count(CltSchema::COLS);
+        $colsCount = count(FactaCltSchema::COLS);
         if (count($csvRow) < $colsCount) {
             $csvRow = array_pad($csvRow, $colsCount, null);
         }
@@ -1436,11 +1436,11 @@ class CltConsultController extends Controller
         return $csvRow;
     }
 
-    private function cancelIdleJob(CltConsultJob $job, ?string $reason): void
+    private function cancelIdleJob(FactaCltConsultJob $job, ?string $reason): void
     {
-        $disk = Storage::disk((string) config('cltfacta.storage.reports_disk', 'local'));
+        $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
-        $preserveSpool = CltSpool::hasDataRows($disk, $spoolPath);
+        $preserveSpool = FactaCltSpool::hasDataRows($disk, $spoolPath);
 
         if ($preserveSpool) {
             $this->deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $job->spool_cpfs_path);
@@ -1482,12 +1482,12 @@ class CltConsultController extends Controller
 
     private function deleteSpoolArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
     {
-        CltSpool::deleteArtifacts($disk, $spoolPath, $cpfsPath);
+        FactaCltSpool::deleteArtifacts($disk, $spoolPath, $cpfsPath);
     }
 
     private function deletePhaseTwoAuxiliaryArtifacts($disk, ?string $spoolPath, ?string $cpfsPath): void
     {
-        CltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $cpfsPath);
+        FactaCltSpool::deletePhaseTwoAuxiliaryArtifacts($disk, $spoolPath, $cpfsPath);
     }
 
     private function resetPhase2ColumnsInExistingSpool($disk, string $spoolPath): int
@@ -1509,7 +1509,7 @@ class CltConsultController extends Controller
             }
 
             $phase2Indexes = $this->phase2ColumnsIndexesForReset();
-            $colsCount = count(CltSchema::COLS);
+            $colsCount = count(FactaCltSchema::COLS);
 
             try {
                 $header = @fgetcsv($in, 0, ';');
@@ -1518,7 +1518,7 @@ class CltConsultController extends Controller
                 }
                 $inputIndexes = $this->schemaIndexesFromCsvHeader($header);
 
-                $this->writeCsvRowOrFail($out, CltSchema::TITLES, "spool preservado {$spoolPath}");
+                $this->writeCsvRowOrFail($out, FactaCltSchema::TITLES, "spool preservado {$spoolPath}");
 
                 while (($row = @fgetcsv($in, 0, ';')) !== false) {
                     $row = $this->normalizeCsvRowToCurrentSchema($row, $inputIndexes, $colsCount);
@@ -1527,7 +1527,7 @@ class CltConsultController extends Controller
                         $row[$idx] = null;
                     }
 
-                    $row = CltSchema::normalizeOrderedRowForCsv($row);
+                    $row = FactaCltSchema::normalizeOrderedRowForCsv($row);
                     $this->writeCsvRowOrFail($out, $row, "spool preservado {$spoolPath}");
                 }
 

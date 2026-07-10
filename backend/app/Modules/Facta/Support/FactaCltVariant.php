@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Modules\CLT\Support;
+namespace App\Modules\Facta\Support;
 
-final class CltVariant
+final class FactaCltVariant
 {
     public static function normalizeFilter(string $variant): string
     {
@@ -38,10 +38,10 @@ final class CltVariant
     public static function resolvePhaseOneQueue(?string $variant): string
     {
         return match (self::normalizeStored($variant)) {
-            'offline' => (string) config('cltfacta.job.queue_offline', 'clt-off'),
-            'hybrid' => (string) config('cltfacta.job.queue_hybrid', config('cltfacta.job.queue_online', 'clt-consulta-online')),
-            'credit_policy' => (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred'),
-            default => (string) config('cltfacta.job.queue_online', 'clt-consulta-online'),
+            'offline' => (string) config('facta.job.queue_offline', 'facta-clt-off'),
+            'hybrid' => (string) config('facta.job.queue_hybrid', config('facta.job.queue_online', 'facta-clt-consulta-online')),
+            'credit_policy' => (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred'),
+            default => (string) config('facta.job.queue_online', 'facta-clt-consulta-online'),
         };
     }
 }

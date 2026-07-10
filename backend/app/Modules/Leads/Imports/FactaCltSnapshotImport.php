@@ -17,7 +17,7 @@ use Maatwebsite\Excel\Events\BeforeImport;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use Carbon\Carbon;
 
-class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
+class FactaCltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
 {
     protected ImportJob $importJob;
 
@@ -326,7 +326,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             "consulted_at = {$gtt}",
         ];
 
-        $sql = "INSERT INTO clt_snapshots (" . implode(',', $cols) . ") VALUES "
+        $sql = "INSERT INTO facta_clt_snapshots (" . implode(',', $cols) . ") VALUES "
              . implode(',', $rowsSql)
              . " ON DUPLICATE KEY UPDATE " . implode(', ', $sets);
 
@@ -344,7 +344,7 @@ class CltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkReading, 
             $rowsSql[] = $placeholders;
             foreach ($cols as $c) { $values[] = $r[$c] ?? null; }
         }
-        $sql = "INSERT IGNORE INTO clt_snapshots (" . implode(',', $cols) . ") VALUES " . implode(',', $rowsSql);
+        $sql = "INSERT IGNORE INTO facta_clt_snapshots (" . implode(',', $cols) . ") VALUES " . implode(',', $rowsSql);
         DB::statement($sql, $values);
     }
 

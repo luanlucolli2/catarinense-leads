@@ -8,19 +8,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CltJobStatusFilter, CltJobVariantFilter } from "@/api/clt";
+import { FactaCltJobStatusFilter, FactaCltJobVariantFilter } from "@/api/facta";
 
-interface CLTControlsProps {
+interface FactaControlsProps {
   onNewConsultClick: () => void;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  statusFilter: CltJobStatusFilter;
-  onStatusFilterChange: (value: CltJobStatusFilter) => void;
-  variantFilter: CltJobVariantFilter;
-  onVariantFilterChange: (value: CltJobVariantFilter) => void;
+  statusFilter: FactaCltJobStatusFilter;
+  onStatusFilterChange: (value: FactaCltJobStatusFilter) => void;
+  variantFilter: FactaCltJobVariantFilter;
+  onVariantFilterChange: (value: FactaCltJobVariantFilter) => void;
 }
 
-export const CLTControls = ({
+export const FactaControls = ({
   onNewConsultClick,
   searchValue,
   onSearchChange,
@@ -28,7 +28,7 @@ export const CLTControls = ({
   onStatusFilterChange,
   variantFilter,
   onVariantFilterChange,
-}: CLTControlsProps) => {
+}: FactaControlsProps) => {
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
       <div className="px-4 py-4">
@@ -48,7 +48,7 @@ export const CLTControls = ({
 
             <Select
               value={statusFilter}
-              onValueChange={(value) => onStatusFilterChange(value as CltJobStatusFilter)}
+              onValueChange={(value) => onStatusFilterChange(value as FactaCltJobStatusFilter)}
             >
               <SelectTrigger className="w-full sm:w-[210px] focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0">
                 <SelectValue placeholder="Status" />
@@ -67,7 +67,7 @@ export const CLTControls = ({
 
             <Select
               value={variantFilter}
-              onValueChange={(value) => onVariantFilterChange(value as CltJobVariantFilter)}
+              onValueChange={(value) => onVariantFilterChange(value as FactaCltJobVariantFilter)}
             >
               <SelectTrigger className="w-full sm:w-[180px] focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0">
                 <SelectValue placeholder="Tipo" />

@@ -1,4 +1,4 @@
-// src/components/CLTHistoryTable.tsx
+// src/components/FactaHistoryTable.tsx
 import { useState } from "react";
 import {
   Download,
@@ -40,10 +40,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { CltConsultJobListItem } from "@/api/clt";
+import { FactaCltConsultJobListItem } from "@/api/facta";
 
 type Props = {
-  items: CltConsultJobListItem[];
+  items: FactaCltConsultJobListItem[];
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
@@ -63,9 +63,9 @@ type Props = {
   formatDateTimeBR: (iso?: string | null) => string;
 };
 
-type CltJobStatus = CltConsultJobListItem["status"];
+type FactaCltJobStatus = FactaCltConsultJobListItem["status"];
 
-function getStatusInfo(status: CltJobStatus) {
+function getStatusInfo(status: FactaCltJobStatus) {
   switch (status) {
     case "agendado":
       return {
@@ -120,7 +120,7 @@ function getStatusInfo(status: CltJobStatus) {
   }
 }
 
-function getPhaseInfo(phase: CltConsultJobListItem["phase"]) {
+function getPhaseInfo(phase: FactaCltConsultJobListItem["phase"]) {
   if (phase === "fase_1") {
     return {
       className:
@@ -138,7 +138,7 @@ function getPhaseInfo(phase: CltConsultJobListItem["phase"]) {
   return null;
 }
 
-function calcSegments(i: CltConsultJobListItem) {
+function calcSegments(i: FactaCltConsultJobListItem) {
   const total = i.total_cpfs || 0;
   const eligible = Math.max(0, i.elegivel_count ?? 0);
   const ineligible = Math.max(0, i.inelegivel_count ?? 0);
@@ -182,12 +182,12 @@ function calcSegments(i: CltConsultJobListItem) {
 type CltVariant = "online" | "offline" | "hybrid" | "credit_policy" | undefined;
 type OnlinePhaseStatus = "Aguardando" | "Em andamento" | "Pausada" | "Concluído" | "Falhou" | "Cancelada";
 
-function resolveVariant(item: CltConsultJobListItem): CltVariant {
+function resolveVariant(item: FactaCltConsultJobListItem): CltVariant {
   if (item.variant === "online" || item.variant === "offline" || item.variant === "hybrid" || item.variant === "credit_policy") {
     return item.variant;
   }
 
-  const legacyItem = item as CltConsultJobListItem & {
+  const legacyItem = item as FactaCltConsultJobListItem & {
     is_offline?: boolean;
     mode?: string;
     tipo?: string;
@@ -229,7 +229,7 @@ function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {
 }
 
 function resolveOnlinePhaseStatuses(
-  item: CltConsultJobListItem,
+  item: FactaCltConsultJobListItem,
   phase1Processed: number,
   phase2Total: number,
   phase2Resolved: number
@@ -265,7 +265,7 @@ function resolveOnlinePhaseStatuses(
   return { phase1, phase2 };
 }
 
-function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
+function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) {
   const totalCpfs = Math.max(0, item.total_cpfs || 0);
   const phase1Eligible = Math.max(0, item.elegivel_count ?? 0);
   const phase1Ineligible = Math.max(0, item.inelegivel_count ?? 0);
@@ -419,7 +419,7 @@ function OnlineTwoPhaseProgress({ item }: { item: CltConsultJobListItem }) {
   );
 }
 
-function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
+function CreditPolicyOnlyProgress({ item }: { item: FactaCltConsultJobListItem }) {
   const total = Math.max(0, item.total_cpfs ?? item.phase2_total ?? 0);
   const discarded = Math.max(0, Math.min(total, item.descartado_count ?? 0));
   const approved = Math.max(0, Math.min(Math.max(0, total - discarded), item.phase2_aprovado_count ?? 0));
@@ -504,7 +504,7 @@ function CreditPolicyOnlyProgress({ item }: { item: CltConsultJobListItem }) {
   );
 }
 
-function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
+function SegmentedProgressBar({ item }: { item: FactaCltConsultJobListItem }) {
   const s = calcSegments(item);
   const total = item.total_cpfs || 0;
   const processedConsult = s.eligible + s.ineligible + s.notFound + s.fail;
@@ -600,7 +600,7 @@ function SegmentedProgressBar({ item }: { item: CltConsultJobListItem }) {
   );
 }
 
-export const CLTHistoryTable = ({
+export const FactaHistoryTable = ({
   items,
   loading,
   onDownload,
@@ -618,34 +618,34 @@ export const CLTHistoryTable = ({
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [pausingId, setPausingId] = useState<number | null>(null);
   const [resumingId, setResumingId] = useState<number | null>(null);
-  const [confirmJob, setConfirmJob] = useState<CltConsultJobListItem | null>(null);
+  const [confirmJob, setConfirmJob] = useState<FactaCltConsultJobListItem | null>(null);
   const [rerunningId, setRerunningId] = useState<number | null>(null);
-  const [confirmRerunJob, setConfirmRerunJob] = useState<CltConsultJobListItem | null>(null);
+  const [confirmRerunJob, setConfirmRerunJob] = useState<FactaCltConsultJobListItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] =
-    useState<CltConsultJobListItem | null>(null);
+    useState<FactaCltConsultJobListItem | null>(null);
 
-  const canDownloadFinal = (i: CltConsultJobListItem) =>
+  const canDownloadFinal = (i: FactaCltConsultJobListItem) =>
     (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") &&
     Boolean((i.has_file ?? null) || (i.file_path ?? null));
 
-  const canDownloadPreview = (i: CltConsultJobListItem) =>
+  const canDownloadPreview = (i: FactaCltConsultJobListItem) =>
     (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || i.status === "cancelado")
     && Number(i.spool_bytes ?? 0) > 0;
 
-  const canCancel = (i: CltConsultJobListItem) =>
+  const canCancel = (i: FactaCltConsultJobListItem) =>
     i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
 
-  const canPause = (i: CltConsultJobListItem) =>
+  const canPause = (i: FactaCltConsultJobListItem) =>
     i.status === "pendente" || i.status === "em_progresso";
 
-  const canResume = (i: CltConsultJobListItem) =>
+  const canResume = (i: FactaCltConsultJobListItem) =>
     i.status === "pausado";
 
-  const isCancelCleanupPending = (i: CltConsultJobListItem) =>
+  const isCancelCleanupPending = (i: FactaCltConsultJobListItem) =>
     i.status === "cancelado" && !i.finished_at;
 
-  const canRerunPhase2 = (i: CltConsultJobListItem) => {
+  const canRerunPhase2 = (i: FactaCltConsultJobListItem) => {
     const variant = resolveVariant(i);
     const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
     const hasPreservedSpool = Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0;
@@ -661,15 +661,15 @@ export const CLTHistoryTable = ({
     );
   };
 
-  const canDelete = (i: CltConsultJobListItem) =>
+  const canDelete = (i: FactaCltConsultJobListItem) =>
     !(i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || isCancelCleanupPending(i));
 
-  const openCancelDialog = (i: CltConsultJobListItem) => {
+  const openCancelDialog = (i: FactaCltConsultJobListItem) => {
     if (!canCancel(i) || cancelingId !== null) return;
     setConfirmJob(i);
   };
 
-  const executePause = async (i: CltConsultJobListItem) => {
+  const executePause = async (i: FactaCltConsultJobListItem) => {
     if (!canPause(i) || pausingId !== null) return;
     try {
       setPausingId(i.id);
@@ -679,7 +679,7 @@ export const CLTHistoryTable = ({
     }
   };
 
-  const executeResume = async (i: CltConsultJobListItem) => {
+  const executeResume = async (i: FactaCltConsultJobListItem) => {
     if (!canResume(i) || resumingId !== null) return;
     try {
       setResumingId(i.id);
@@ -700,7 +700,7 @@ export const CLTHistoryTable = ({
     }
   };
 
-  const openRerunDialog = (i: CltConsultJobListItem) => {
+  const openRerunDialog = (i: FactaCltConsultJobListItem) => {
     if (!canRerunPhase2(i) || rerunningId !== null) return;
     setConfirmRerunJob(i);
   };
@@ -716,7 +716,7 @@ export const CLTHistoryTable = ({
     }
   };
 
-  const openDeleteDialog = (i: CltConsultJobListItem) => {
+  const openDeleteDialog = (i: FactaCltConsultJobListItem) => {
     if (!canDelete(i) || deletingId !== null) return;
     setConfirmDeleteJob(i);
   };
@@ -754,7 +754,7 @@ export const CLTHistoryTable = ({
         </Card>
       ) : (
         items.map((i) => {
-          const statusInfo = getStatusInfo(i.status as CltJobStatus);
+          const statusInfo = getStatusInfo(i.status as FactaCltJobStatus);
           const phaseInfo =
             i.phase && (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")
               ? getPhaseInfo(i.phase)

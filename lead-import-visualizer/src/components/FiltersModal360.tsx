@@ -174,7 +174,7 @@ function Group({
 }
 
 const BANKS = [
-  { value: "clt" as LeadBankKey, label: "Facta", imageSrc: factaLogo, alt: "Facta" },
+  { value: "facta" as LeadBankKey, label: "Facta", imageSrc: factaLogo, alt: "Facta" },
   { value: "mercantil" as LeadBankKey, label: "Mercantil", imageSrc: mercantilLogo, alt: "Mercantil" },
   { value: "uy3" as LeadBankKey, label: "UY3", imageSrc: uy3Logo, alt: "UY3" },
 ]
@@ -368,7 +368,7 @@ export const FiltersModal360 = ({
     onClose()
   }
 
-  const showClt = localSelectedBanks.includes("clt")
+  const showClt = localSelectedBanks.includes("facta")
   const showMercantil = localSelectedBanks.includes("mercantil")
   const showUy3 = localSelectedBanks.includes("uy3")
 

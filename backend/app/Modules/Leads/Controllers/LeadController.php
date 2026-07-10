@@ -123,14 +123,14 @@ class LeadController extends Controller
 
     public function show(Lead $lead)
     {
-        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'cltSnapshot', 'mercantilSnapshot', 'uy3Snapshot']);
+        $lead->load(['contracts.vendor', 'importJobs', 'fgtsOffSnapshot', 'factaSnapshot', 'mercantilSnapshot', 'uy3Snapshot']);
 
         // FGTS OFF
         $lead->setAttribute('fgts_off_authorized', optional($lead->fgtsOffSnapshot)->authorized);
         $lead->setAttribute('fgts_off_consultado_em', optional($lead->fgtsOffSnapshot)->updated_at);
 
         // CLT – expõe campos e datas separadas
-        $clt = $lead->cltSnapshot;
+        $clt = $lead->factaSnapshot;
         if ($clt) {
             $lead->setAttribute('matricula', $clt->matricula);
             $lead->setAttribute('elegivel', $clt->elegivel);
@@ -149,8 +149,8 @@ class LeadController extends Controller
             $lead->setAttribute('not_found', $clt->not_found);
 
             // datas:
-            $lead->setAttribute('clt_consultado_em', $clt->consulted_at);          // quando consultamos
-            $lead->setAttribute('clt_dados_atualizados_em', $clt->updated_at);     // quando a origem atualizou
+            $lead->setAttribute('facta_consultado_em', $clt->consulted_at);          // quando consultamos
+            $lead->setAttribute('facta_dados_atualizados_em', $clt->updated_at);     // quando a origem atualizou
         }
 
         $mercantil = $lead->mercantilSnapshot;
@@ -196,7 +196,7 @@ class LeadController extends Controller
         $lead->setAttribute('ultima_origem_mercantil', $ultimaMercantil);
 
         $lead->unsetRelation('fgtsOffSnapshot');
-        $lead->unsetRelation('cltSnapshot');
+        $lead->unsetRelation('factaSnapshot');
         $lead->unsetRelation('mercantilSnapshot');
         $lead->unsetRelation('uy3Snapshot');
 

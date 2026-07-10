@@ -1,26 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CltConsultJobShow, CltJobStatus, getCltConsultJob } from '../api/clt'
+import { FactaCltConsultJobShow, FactaCltJobStatus, getFactaCltConsultJob } from '../api/facta'
 
 type Options = {
   intervalMs?: number
   /** estados que param o polling; default fixo para não mudar identidade a cada render */
-  stopOn?: CltJobStatus[]
+  stopOn?: FactaCltJobStatus[]
   enabled?: boolean
 }
 
-const DEFAULT_STOP_ON: CltJobStatus[] = ['concluido', 'falhou']
+const DEFAULT_STOP_ON: FactaCltJobStatus[] = ['concluido', 'falhou']
 
-export function useCltJobPolling(jobId: number | null, opts?: Options) {
+export function useFactaCltJobPolling(jobId: number | null, opts?: Options) {
   const intervalMs = opts?.intervalMs ?? 3000
   const enabled = opts?.enabled ?? Boolean(jobId)
 
   // stopOn nunca muda de identidade sem necessidade
-  const stopOnRef = useRef<CltJobStatus[]>(opts?.stopOn ?? DEFAULT_STOP_ON)
+  const stopOnRef = useRef<FactaCltJobStatus[]>(opts?.stopOn ?? DEFAULT_STOP_ON)
   useEffect(() => {
     stopOnRef.current = opts?.stopOn ?? DEFAULT_STOP_ON
   }, [opts?.stopOn])
 
-  const [job, setJob] = useState<CltConsultJobShow | null>(null)
+  const [job, setJob] = useState<FactaCltConsultJobShow | null>(null)
   const [loading, setLoading] = useState(false)
   const timer = useRef<number | null>(null)
 
@@ -35,7 +35,7 @@ export function useCltJobPolling(jobId: number | null, opts?: Options) {
     if (!jobId) return
     try {
       setLoading(true)
-      const data = await getCltConsultJob(jobId)
+      const data = await getFactaCltConsultJob(jobId)
       setJob(data)
       if (stopOnRef.current.includes(data.status)) {
         clearTimer()

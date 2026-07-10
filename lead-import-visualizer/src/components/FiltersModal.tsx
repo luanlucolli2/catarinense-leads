@@ -154,8 +154,8 @@ interface FiltersModalProps {
   onMercantilOrigensFilterChange: (values: string[]) => void
   availableMercantilOrigens: string[]
   availableMercantilStatuses: string[]
-  selectedBanks: ("fgts" | "clt" | "mercantil" | "uy3")[]
-  onSelectedBanksChange: (values: ("fgts" | "clt" | "mercantil" | "uy3")[]) => void
+  selectedBanks: ("fgts" | "facta" | "mercantil" | "uy3")[]
+  onSelectedBanksChange: (values: ("fgts" | "facta" | "mercantil" | "uy3")[]) => void
   bankCombinationMode: "all" | "any"
   onBankCombinationModeChange: (value: "all" | "any") => void
   uy3Situacao: "todos" | "aprovado" | "nao_aprovado"

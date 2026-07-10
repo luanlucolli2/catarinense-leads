@@ -46,8 +46,8 @@ class LemitPoolControllerTest extends TestCase
     {
         $response = $this->postJson('/api/lemit/pool/preview', [
             'bank_combination_mode' => 'all',
-            'selected_banks' => ['clt'],
-            'clt' => [],
+            'selected_banks' => ['facta'],
+            'facta' => [],
         ]);
 
         $response
@@ -68,9 +68,9 @@ class LemitPoolControllerTest extends TestCase
         $this->createMercantilSnapshot('40000000003', ['status' => 'SUCESSO']);
 
         $payload = [
-            'selected_banks' => ['clt', 'mercantil'],
+            'selected_banks' => ['facta', 'mercantil'],
             'bank_combination_mode' => 'all',
-            'clt' => ['clt_situacao' => 'aprovado'],
+            'facta' => ['facta_situacao' => 'aprovado'],
             'mercantil' => ['mercantil_situacao' => 'aprovado'],
         ];
 
@@ -119,16 +119,16 @@ class LemitPoolControllerTest extends TestCase
         ]);
 
         $payload = [
-            'selected_banks' => ['clt'],
+            'selected_banks' => ['facta'],
             'bank_combination_mode' => 'all',
-            'clt' => [
-                'clt_situacao' => 'aprovado',
-                'clt_meses_admissao_min' => 10,
-                'clt_meses_admissao_max' => 12,
-                'clt_margem_min' => 100,
-                'clt_margem_max' => 180,
-                'clt_numero_parcelas_min' => 30,
-                'clt_numero_parcelas_max' => 40,
+            'facta' => [
+                'facta_situacao' => 'aprovado',
+                'facta_meses_admissao_min' => 10,
+                'facta_meses_admissao_max' => 12,
+                'facta_margem_min' => 100,
+                'facta_margem_max' => 180,
+                'facta_numero_parcelas_min' => 30,
+                'facta_numero_parcelas_max' => 40,
             ],
         ];
 
@@ -136,10 +136,10 @@ class LemitPoolControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('pool_size', 1);
 
-        $payload['clt'] = [
-            'clt_situacao' => 'nao_aprovado',
-            'clt_meses_admissao_min' => 10,
-            'clt_meses_admissao_max' => 12,
+        $payload['facta'] = [
+            'facta_situacao' => 'nao_aprovado',
+            'facta_meses_admissao_min' => 10,
+            'facta_meses_admissao_max' => 12,
         ];
 
         $this->postJson('/api/lemit/pool/preview', $payload)
@@ -374,7 +374,7 @@ class LemitPoolControllerTest extends TestCase
      */
     private function createCltSnapshot(string $cpf, array $overrides = []): void
     {
-        DB::table('clt_snapshots')->insert(array_merge([
+        DB::table('facta_clt_snapshots')->insert(array_merge([
             'cpf' => $cpf,
             'lead_id' => null,
             'nome' => 'CLT ' . $cpf,

@@ -2,14 +2,14 @@
 import axiosClient from "@/api/axiosClient"
 
 /* ---------- Tipagens ---------- */
-export type Mode = "base" | "fgts" | "clt" | "mercantil" | "uy3" | "360"
-export type LeadBankKey = "fgts" | "clt" | "mercantil" | "uy3"
+export type Mode = "base" | "fgts" | "facta" | "mercantil" | "uy3" | "360"
+export type LeadBankKey = "fgts" | "facta" | "mercantil" | "uy3"
 export type LeadBankCombinationMode = "all" | "any"
 export type LeadSort =
   | "lead_updated_at"
   | "lead_created_at"
-  | "clt_updated_at"
-  | "clt_consulted_at"
+  | "facta_updated_at"
+  | "facta_consulted_at"
   | "mercantil_updated_at"
   | "mercantil_consulted_at"
   | "uy3_consulted_at"
@@ -66,7 +66,7 @@ export interface LeadFromApiFGTS {
 }
 
 /** CLT (lista) – subselects no back, join por CPF */
-export interface LeadFromApiCLT {
+export interface LeadFromApiFacta {
   id: number
   cpf: string
   nome: string | null
@@ -94,8 +94,8 @@ export interface LeadFromApiCLT {
   politica_credito_prazo_maximo_disponivel: number | string | null
   politica_credito_data_consulta: string | null
   politica_credito_tabela_aprovada: string | null
-  clt_consultado_em: string | null
-  clt_dados_atualizados_em: string | null,
+  facta_consultado_em: string | null
+  facta_dados_atualizados_em: string | null,
 
   idade: number | null
   sexo: "M" | "F" | string | null
@@ -210,8 +210,8 @@ export interface LeadFromApi360 {
   margem_disponivel: string | number | null
   politica_credito_aprovado: boolean | number | "0" | "1" | null
   politica_credito_valor_maximo_disponivel: string | number | null
-  clt_consultado_em: string | null
-  clt_dados_atualizados_em: string | null
+  facta_consultado_em: string | null
+  facta_dados_atualizados_em: string | null
   mercantil_status: string | null
   mercantil_mensagem_erro: string | null
   mercantil_data_hora_origem: string | null
@@ -272,7 +272,7 @@ export interface LeadDetailFromApi {
   /** ➕ FGTS OFF */
   fgts_off_authorized: boolean | number | "0" | "1" | null
   fgts_off_consultado_em: string | null
-  clt_dados_atualizados_em: string | null,
+  facta_dados_atualizados_em: string | null,
 
   /** ➕ CLT */
   matricula: string | null
@@ -290,7 +290,7 @@ export interface LeadDetailFromApi {
   qtd_emprestimos_ativos_suspensos: number | null
   emprestimos_legados: number | null
   not_found: boolean | null
-  clt_consultado_em: string | null
+  facta_consultado_em: string | null
   mercantil_status: string | null
   mercantil_mensagem_erro: string | null
   mercantil_data_hora_origem: string | null
@@ -327,7 +327,7 @@ export interface PaginatedResponse<T> {
 }
 
 export type PaginatedLeadsResponseFGTS = PaginatedResponse<LeadFromApiFGTS>
-export type PaginatedLeadsResponseCLT = PaginatedResponse<LeadFromApiCLT>
+export type PaginatedLeadsResponseFacta = PaginatedResponse<LeadFromApiFacta>
 export type PaginatedLeadsResponseMercantil = PaginatedResponse<LeadFromApiMercantil>
 export type PaginatedLeadsResponseUY3 = PaginatedResponse<LeadFromApiUY3>
 export type PaginatedLeadsResponseBase = PaginatedResponse<LeadFromApiBase>
@@ -364,34 +364,34 @@ export interface LeadFilters {
 
   /** ➕ CLT — filtros específicos */
   /** novo filtro unificado de situação */
-  clt_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
-  clt_consulta_from?: string
-  clt_consulta_to?: string
-  clt_admissao_from?: string
-  clt_admissao_to?: string
-  clt_meses_min?: string | number
-  clt_meses_max?: string | number
-  clt_inicio_empregador_from?: string
-  clt_inicio_empregador_to?: string
-  clt_categoria_codigos?: string[] // enviaremos como array no POST e CSV no GET
-  clt_idade_min?: string | number
-  clt_idade_max?: string | number
-  clt_sexo?: ("M" | "F")[]
-  clt_renda_min?: string
-  clt_renda_max?: string
-  clt_base_min?: string
-  clt_base_max?: string
-  clt_margem_min?: string
-  clt_margem_max?: string
-  clt_numero_parcelas_min?: string | number
-  clt_numero_parcelas_max?: string | number
-  clt_prestacao_min?: string
-  clt_prestacao_max?: string
-  clt_ativos_min?: string | number
-  clt_ativos_max?: string | number
-  clt_tem_ativos?: "sim" | "nao"
+  facta_situacao?: "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
+  facta_consulta_from?: string
+  facta_consulta_to?: string
+  facta_admissao_from?: string
+  facta_admissao_to?: string
+  facta_meses_min?: string | number
+  facta_meses_max?: string | number
+  facta_inicio_empregador_from?: string
+  facta_inicio_empregador_to?: string
+  facta_categoria_codigos?: string[] // enviaremos como array no POST e CSV no GET
+  facta_idade_min?: string | number
+  facta_idade_max?: string | number
+  facta_sexo?: ("M" | "F")[]
+  facta_renda_min?: string
+  facta_renda_max?: string
+  facta_base_min?: string
+  facta_base_max?: string
+  facta_margem_min?: string
+  facta_margem_max?: string
+  facta_numero_parcelas_min?: string | number
+  facta_numero_parcelas_max?: string | number
+  facta_prestacao_min?: string
+  facta_prestacao_max?: string
+  facta_ativos_min?: string | number
+  facta_ativos_max?: string | number
+  facta_tem_ativos?: "sim" | "nao"
   /** 🔁 apenas boolean */
-  clt_tem_legados?: "sim" | "nao"
+  facta_tem_legados?: "sim" | "nao"
 
   /** ➕ MERCANTIL — filtros específicos */
   mercantil_situacao?: "aprovado" | "nao_aprovado"
@@ -437,7 +437,7 @@ const normalizeMonths = (arr?: string[]) =>
 const buildQueryParams = (f: LeadFilters, mode: Mode) => {
   const p = new URLSearchParams()
   const supportsFgtsFilters = mode === "fgts" || mode === "360"
-  const supportsCltFilters = mode === "clt" || mode === "360"
+  const supportsCltFilters = mode === "facta" || mode === "360"
   const supportsMercantilFilters = mode === "mercantil" || mode === "360"
   const supportsUy3Filters = mode === "uy3" || mode === "360"
 
@@ -478,40 +478,40 @@ const buildQueryParams = (f: LeadFilters, mode: Mode) => {
     if (f.fgts_consulta_to) p.set("fgts_consulta_to", f.fgts_consulta_to)
   }
 
-  // ➕ CLT – somente quando mode = "clt"
+  // ➕ CLT – somente quando mode = "facta"
   if (supportsCltFilters) {
-    if (f.clt_situacao) p.set("clt_situacao", f.clt_situacao)
-    if (f.clt_consulta_from) p.set("clt_consulta_from", f.clt_consulta_from)
-    if (f.clt_consulta_to) p.set("clt_consulta_to", f.clt_consulta_to)
+    if (f.facta_situacao) p.set("facta_situacao", f.facta_situacao)
+    if (f.facta_consulta_from) p.set("facta_consulta_from", f.facta_consulta_from)
+    if (f.facta_consulta_to) p.set("facta_consulta_to", f.facta_consulta_to)
 
-    if (f.clt_admissao_from) p.set("clt_admissao_from", f.clt_admissao_from)
-    if (f.clt_admissao_to) p.set("clt_admissao_to", f.clt_admissao_to)
-    if (f.clt_meses_min !== undefined && f.clt_meses_min !== "") p.set("clt_meses_min", String(f.clt_meses_min))
-    if (f.clt_meses_max !== undefined && f.clt_meses_max !== "") p.set("clt_meses_max", String(f.clt_meses_max))
-    if (f.clt_inicio_empregador_from) p.set("clt_inicio_empregador_from", f.clt_inicio_empregador_from)
-    if (f.clt_inicio_empregador_to) p.set("clt_inicio_empregador_to", f.clt_inicio_empregador_to)
-    if (f.clt_categoria_codigos?.length) p.set("clt_categoria_codigos", f.clt_categoria_codigos.join(","))
+    if (f.facta_admissao_from) p.set("facta_admissao_from", f.facta_admissao_from)
+    if (f.facta_admissao_to) p.set("facta_admissao_to", f.facta_admissao_to)
+    if (f.facta_meses_min !== undefined && f.facta_meses_min !== "") p.set("facta_meses_min", String(f.facta_meses_min))
+    if (f.facta_meses_max !== undefined && f.facta_meses_max !== "") p.set("facta_meses_max", String(f.facta_meses_max))
+    if (f.facta_inicio_empregador_from) p.set("facta_inicio_empregador_from", f.facta_inicio_empregador_from)
+    if (f.facta_inicio_empregador_to) p.set("facta_inicio_empregador_to", f.facta_inicio_empregador_to)
+    if (f.facta_categoria_codigos?.length) p.set("facta_categoria_codigos", f.facta_categoria_codigos.join(","))
 
-    if (f.clt_idade_min !== undefined && f.clt_idade_min !== "") p.set("clt_idade_min", String(f.clt_idade_min))
-    if (f.clt_idade_max !== undefined && f.clt_idade_max !== "") p.set("clt_idade_max", String(f.clt_idade_max))
-    if (f.clt_sexo?.length) p.set("clt_sexo", f.clt_sexo.join(","))
+    if (f.facta_idade_min !== undefined && f.facta_idade_min !== "") p.set("facta_idade_min", String(f.facta_idade_min))
+    if (f.facta_idade_max !== undefined && f.facta_idade_max !== "") p.set("facta_idade_max", String(f.facta_idade_max))
+    if (f.facta_sexo?.length) p.set("facta_sexo", f.facta_sexo.join(","))
 
-    if (f.clt_renda_min) p.set("clt_renda_min", f.clt_renda_min)
-    if (f.clt_renda_max) p.set("clt_renda_max", f.clt_renda_max)
-    if (f.clt_base_min) p.set("clt_base_min", f.clt_base_min)
-    if (f.clt_base_max) p.set("clt_base_max", f.clt_base_max)
-    if (f.clt_margem_min) p.set("clt_margem_min", f.clt_margem_min)
-    if (f.clt_margem_max) p.set("clt_margem_max", f.clt_margem_max)
-    if (f.clt_numero_parcelas_min !== undefined && f.clt_numero_parcelas_min !== "") p.set("clt_numero_parcelas_min", String(f.clt_numero_parcelas_min))
-    if (f.clt_numero_parcelas_max !== undefined && f.clt_numero_parcelas_max !== "") p.set("clt_numero_parcelas_max", String(f.clt_numero_parcelas_max))
-    if (f.clt_prestacao_min) p.set("clt_prestacao_min", f.clt_prestacao_min)
-    if (f.clt_prestacao_max) p.set("clt_prestacao_max", f.clt_prestacao_max)
+    if (f.facta_renda_min) p.set("facta_renda_min", f.facta_renda_min)
+    if (f.facta_renda_max) p.set("facta_renda_max", f.facta_renda_max)
+    if (f.facta_base_min) p.set("facta_base_min", f.facta_base_min)
+    if (f.facta_base_max) p.set("facta_base_max", f.facta_base_max)
+    if (f.facta_margem_min) p.set("facta_margem_min", f.facta_margem_min)
+    if (f.facta_margem_max) p.set("facta_margem_max", f.facta_margem_max)
+    if (f.facta_numero_parcelas_min !== undefined && f.facta_numero_parcelas_min !== "") p.set("facta_numero_parcelas_min", String(f.facta_numero_parcelas_min))
+    if (f.facta_numero_parcelas_max !== undefined && f.facta_numero_parcelas_max !== "") p.set("facta_numero_parcelas_max", String(f.facta_numero_parcelas_max))
+    if (f.facta_prestacao_min) p.set("facta_prestacao_min", f.facta_prestacao_min)
+    if (f.facta_prestacao_max) p.set("facta_prestacao_max", f.facta_prestacao_max)
 
-    if (f.clt_ativos_min !== undefined && f.clt_ativos_min !== "") p.set("clt_ativos_min", String(f.clt_ativos_min))
-    if (f.clt_ativos_max !== undefined && f.clt_ativos_max !== "") p.set("clt_ativos_max", String(f.clt_ativos_max))
-    if (f.clt_tem_ativos) p.set("clt_tem_ativos", f.clt_tem_ativos)
+    if (f.facta_ativos_min !== undefined && f.facta_ativos_min !== "") p.set("facta_ativos_min", String(f.facta_ativos_min))
+    if (f.facta_ativos_max !== undefined && f.facta_ativos_max !== "") p.set("facta_ativos_max", String(f.facta_ativos_max))
+    if (f.facta_tem_ativos) p.set("facta_tem_ativos", f.facta_tem_ativos)
 
-    if (f.clt_tem_legados) p.set("clt_tem_legados", f.clt_tem_legados)
+    if (f.facta_tem_legados) p.set("facta_tem_legados", f.facta_tem_legados)
   }
 
   // ➕ MERCANTIL – somente quando mode = "mercantil"
@@ -670,7 +670,7 @@ export async function fetchLeadsFGTS(filters: LeadFilters) {
 }
 
 export async function fetchLeadsCLT(filters: LeadFilters) {
-  const mode: Mode = "clt"
+  const mode: Mode = "facta"
   const pageParams = {
     ...(filters.page ? { page: filters.page } : {}),
     ...(filters.per_page ? { per_page: filters.per_page } : {}),
@@ -691,33 +691,33 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
       phones: filters.phones ? splitAndNormalize(filters.phones, true) : undefined,
 
       // ➕ CLT
-      clt_situacao: filters.clt_situacao || undefined,
-      clt_consulta_from: filters.clt_consulta_from || undefined,
-      clt_consulta_to: filters.clt_consulta_to || undefined,
-      clt_admissao_from: filters.clt_admissao_from || undefined,
-      clt_admissao_to: filters.clt_admissao_to || undefined,
-      clt_meses_min: filters.clt_meses_min ?? undefined,
-      clt_meses_max: filters.clt_meses_max ?? undefined,
-      clt_inicio_empregador_from: filters.clt_inicio_empregador_from || undefined,
-      clt_inicio_empregador_to: filters.clt_inicio_empregador_to || undefined,
-      clt_categoria_codigos: filters.clt_categoria_codigos?.length ? filters.clt_categoria_codigos : undefined,
-      clt_idade_min: filters.clt_idade_min ?? undefined,
-      clt_idade_max: filters.clt_idade_max ?? undefined,
-      clt_sexo: filters.clt_sexo?.length ? filters.clt_sexo : undefined,
-      clt_renda_min: filters.clt_renda_min || undefined,
-      clt_renda_max: filters.clt_renda_max || undefined,
-      clt_base_min: filters.clt_base_min || undefined,
-      clt_base_max: filters.clt_base_max || undefined,
-      clt_margem_min: filters.clt_margem_min || undefined,
-      clt_margem_max: filters.clt_margem_max || undefined,
-      clt_prestacao_min: filters.clt_prestacao_min || undefined,
-      clt_prestacao_max: filters.clt_prestacao_max || undefined,
-      clt_ativos_min: filters.clt_ativos_min ?? undefined,
-      clt_ativos_max: filters.clt_ativos_max ?? undefined,
-      clt_tem_ativos: filters.clt_tem_ativos || undefined,
-      clt_tem_legados: filters.clt_tem_legados || undefined,
+      facta_situacao: filters.facta_situacao || undefined,
+      facta_consulta_from: filters.facta_consulta_from || undefined,
+      facta_consulta_to: filters.facta_consulta_to || undefined,
+      facta_admissao_from: filters.facta_admissao_from || undefined,
+      facta_admissao_to: filters.facta_admissao_to || undefined,
+      facta_meses_min: filters.facta_meses_min ?? undefined,
+      facta_meses_max: filters.facta_meses_max ?? undefined,
+      facta_inicio_empregador_from: filters.facta_inicio_empregador_from || undefined,
+      facta_inicio_empregador_to: filters.facta_inicio_empregador_to || undefined,
+      facta_categoria_codigos: filters.facta_categoria_codigos?.length ? filters.facta_categoria_codigos : undefined,
+      facta_idade_min: filters.facta_idade_min ?? undefined,
+      facta_idade_max: filters.facta_idade_max ?? undefined,
+      facta_sexo: filters.facta_sexo?.length ? filters.facta_sexo : undefined,
+      facta_renda_min: filters.facta_renda_min || undefined,
+      facta_renda_max: filters.facta_renda_max || undefined,
+      facta_base_min: filters.facta_base_min || undefined,
+      facta_base_max: filters.facta_base_max || undefined,
+      facta_margem_min: filters.facta_margem_min || undefined,
+      facta_margem_max: filters.facta_margem_max || undefined,
+      facta_prestacao_min: filters.facta_prestacao_min || undefined,
+      facta_prestacao_max: filters.facta_prestacao_max || undefined,
+      facta_ativos_min: filters.facta_ativos_min ?? undefined,
+      facta_ativos_max: filters.facta_ativos_max ?? undefined,
+      facta_tem_ativos: filters.facta_tem_ativos || undefined,
+      facta_tem_legados: filters.facta_tem_legados || undefined,
     }
-    const { data } = await axiosClient.post<PaginatedLeadsResponseCLT>(
+    const { data } = await axiosClient.post<PaginatedLeadsResponseFacta>(
       "/leads/search",
       payload,
       { params: Object.keys(pageParams).length ? pageParams : undefined }
@@ -726,7 +726,7 @@ export async function fetchLeadsCLT(filters: LeadFilters) {
   }
 
   const params = buildQueryParams(filters, mode)
-  const { data } = await axiosClient.get<PaginatedLeadsResponseCLT>("/leads", {
+  const { data } = await axiosClient.get<PaginatedLeadsResponseFacta>("/leads", {
     params,
   })
   return data
@@ -842,31 +842,31 @@ export async function fetchLeads360(filters: LeadFilters) {
       fgts_status: filters.fgts_status || undefined,
       fgts_consulta_from: filters.fgts_consulta_from || undefined,
       fgts_consulta_to: filters.fgts_consulta_to || undefined,
-      clt_situacao: filters.clt_situacao || undefined,
-      clt_consulta_from: filters.clt_consulta_from || undefined,
-      clt_consulta_to: filters.clt_consulta_to || undefined,
-      clt_admissao_from: filters.clt_admissao_from || undefined,
-      clt_admissao_to: filters.clt_admissao_to || undefined,
-      clt_meses_min: filters.clt_meses_min ?? undefined,
-      clt_meses_max: filters.clt_meses_max ?? undefined,
-      clt_inicio_empregador_from: filters.clt_inicio_empregador_from || undefined,
-      clt_inicio_empregador_to: filters.clt_inicio_empregador_to || undefined,
-      clt_categoria_codigos: filters.clt_categoria_codigos?.length ? filters.clt_categoria_codigos : undefined,
-      clt_idade_min: filters.clt_idade_min ?? undefined,
-      clt_idade_max: filters.clt_idade_max ?? undefined,
-      clt_sexo: filters.clt_sexo?.length ? filters.clt_sexo : undefined,
-      clt_renda_min: filters.clt_renda_min || undefined,
-      clt_renda_max: filters.clt_renda_max || undefined,
-      clt_base_min: filters.clt_base_min || undefined,
-      clt_base_max: filters.clt_base_max || undefined,
-      clt_margem_min: filters.clt_margem_min || undefined,
-      clt_margem_max: filters.clt_margem_max || undefined,
-      clt_prestacao_min: filters.clt_prestacao_min || undefined,
-      clt_prestacao_max: filters.clt_prestacao_max || undefined,
-      clt_ativos_min: filters.clt_ativos_min ?? undefined,
-      clt_ativos_max: filters.clt_ativos_max ?? undefined,
-      clt_tem_ativos: filters.clt_tem_ativos || undefined,
-      clt_tem_legados: filters.clt_tem_legados || undefined,
+      facta_situacao: filters.facta_situacao || undefined,
+      facta_consulta_from: filters.facta_consulta_from || undefined,
+      facta_consulta_to: filters.facta_consulta_to || undefined,
+      facta_admissao_from: filters.facta_admissao_from || undefined,
+      facta_admissao_to: filters.facta_admissao_to || undefined,
+      facta_meses_min: filters.facta_meses_min ?? undefined,
+      facta_meses_max: filters.facta_meses_max ?? undefined,
+      facta_inicio_empregador_from: filters.facta_inicio_empregador_from || undefined,
+      facta_inicio_empregador_to: filters.facta_inicio_empregador_to || undefined,
+      facta_categoria_codigos: filters.facta_categoria_codigos?.length ? filters.facta_categoria_codigos : undefined,
+      facta_idade_min: filters.facta_idade_min ?? undefined,
+      facta_idade_max: filters.facta_idade_max ?? undefined,
+      facta_sexo: filters.facta_sexo?.length ? filters.facta_sexo : undefined,
+      facta_renda_min: filters.facta_renda_min || undefined,
+      facta_renda_max: filters.facta_renda_max || undefined,
+      facta_base_min: filters.facta_base_min || undefined,
+      facta_base_max: filters.facta_base_max || undefined,
+      facta_margem_min: filters.facta_margem_min || undefined,
+      facta_margem_max: filters.facta_margem_max || undefined,
+      facta_prestacao_min: filters.facta_prestacao_min || undefined,
+      facta_prestacao_max: filters.facta_prestacao_max || undefined,
+      facta_ativos_min: filters.facta_ativos_min ?? undefined,
+      facta_ativos_max: filters.facta_ativos_max ?? undefined,
+      facta_tem_ativos: filters.facta_tem_ativos || undefined,
+      facta_tem_legados: filters.facta_tem_legados || undefined,
       mercantil_situacao: filters.mercantil_situacao || undefined,
       mercantil_status: filters.mercantil_status?.length ? filters.mercantil_status : undefined,
       mercantil_consulta_from: filters.mercantil_consulta_from || undefined,
@@ -951,7 +951,7 @@ export interface LeadsExportStatusDTO {
 export async function startLeadsExport(
   filters: LeadFilters,
   columns: string[],
-  mode: "base" | "fgts" | "clt" | "mercantil" | "uy3" | "360"
+  mode: "base" | "fgts" | "facta" | "mercantil" | "uy3" | "360"
 ): Promise<{ token: string }> {
   const payload = { ...normalizeFiltersForExport(filters), columns, mode }
   const { data } = await axiosClient.post<{ token: string; status: LeadsExportStatus }>("/leads/export", payload)

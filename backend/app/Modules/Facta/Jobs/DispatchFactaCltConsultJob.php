@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Modules\CLT\Jobs;
+namespace App\Modules\Facta\Jobs;
 
-use App\Modules\CLT\Models\CltConsultJob;
-use App\Modules\CLT\Support\CltVariant;
+use App\Modules\Facta\Models\FactaCltConsultJob;
+use App\Modules\Facta\Support\FactaCltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class DispatchCltConsultJob implements ShouldQueue
+class DispatchFactaCltConsultJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -24,16 +24,16 @@ class DispatchCltConsultJob implements ShouldQueue
 
     public function handle(): void
     {
-        $job = CltConsultJob::query()->whereKey($this->jobId)->first();
+        $job = FactaCltConsultJob::query()->whereKey($this->jobId)->first();
         if ($job === null || $job->status !== 'pendente') {
             return;
         }
 
         $queue = $this->stage === 'phase2'
-            ? (string) config('cltfacta.job.queue_phase2', 'clt-valida-politica-cred')
-            : CltVariant::resolvePhaseOneQueue($job->variant);
+            ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
+            : FactaCltVariant::resolvePhaseOneQueue($job->variant);
 
-        ProcessCltConsultJob::dispatch($job->id, $this->stage)
+        ProcessFactaCltConsultJob::dispatch($job->id, $this->stage)
             ->onQueue($queue);
     }
 }

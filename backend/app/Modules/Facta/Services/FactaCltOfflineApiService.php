@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Modules\CLT\Services;
+namespace App\Modules\Facta\Services;
 
-use App\Modules\CLT\Support\CltLog;
+use App\Modules\Facta\Support\FactaCltLog;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
-class CltOfflineApiService
+class FactaCltOfflineApiService
 {
     /** API */
     private string $baseUrl;
@@ -37,9 +37,9 @@ class CltOfflineApiService
 
     public function __construct()
     {
-        $api = (array) config('cltfacta.clt_off.api', []);
-        $http = (array) config('cltfacta.clt_off.http', []);
-        $rate = (array) config('cltfacta.clt_off.rate_limit', []);
+        $api = (array) config('facta.clt_off.api', []);
+        $http = (array) config('facta.clt_off.http', []);
+        $rate = (array) config('facta.clt_off.rate_limit', []);
 
         $this->baseUrl = rtrim((string) ($api['base_url'] ?? ''), '/');
         $this->basicAuth = $api['basic_auth'] ?? null;
@@ -534,14 +534,14 @@ class CltOfflineApiService
             $body = (string) $resp->body();
             $snippet = $this->truncate($body, 4000);
 
-            CltLog::warning(
+            FactaCltLog::warning(
                 '[CLT-OFF] 403 Forbidden'
                 . ($cpf ? " (cpf={$cpf})" : '')
                 . ' — headers=' . json_encode($safe, JSON_UNESCAPED_UNICODE)
                 . ' body_snippet=' . $snippet
             );
         } catch (\Throwable $e) {
-            CltLog::warning('[CLT-OFF] Falha ao logar 403: ' . $e->getMessage());
+            FactaCltLog::warning('[CLT-OFF] Falha ao logar 403: ' . $e->getMessage());
         }
     }
 

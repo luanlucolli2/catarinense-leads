@@ -6,7 +6,7 @@ use App\Models\ImportJob;
 use App\Models\ImportError;
 use App\Modules\Leads\Imports\CadastralImport;
 use App\Modules\Leads\Imports\HigienizacaoImport;
-use App\Modules\Leads\Imports\CltSnapshotImport;
+use App\Modules\Leads\Imports\FactaCltSnapshotImport;
 use App\Modules\Leads\Imports\MercantilCsvImport;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Excel as ExcelReaderType;
@@ -144,7 +144,7 @@ class ProcessLeadImportJob implements ShouldQueue
             }
 
             // pré-validação leve (Excel)
-            if ($type !== 'clt') {
+            if ($type !== 'facta') {
                 $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
                 $headers = $this->readHeaders($fullPath);
                 $missing = $this->diffMissingHeadersIndexed($headers, $requiredHeaders);
@@ -180,7 +180,7 @@ class ProcessLeadImportJob implements ShouldQueue
             $importer = match ($type) {
                 'cadastral'    => new CadastralImport($this->importJob, app(\App\Services\BackupService::class)),
                 'higienizacao' => new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class)),
-                'clt'          => new CltSnapshotImport($this->importJob),
+                'facta'          => new FactaCltSnapshotImport($this->importJob),
                 default        => throw new \InvalidArgumentException("Tipo de import não suportado: {$type}"),
             };
 
@@ -248,7 +248,7 @@ class ProcessLeadImportJob implements ShouldQueue
 
     private function shouldPreCountTotalRows(string $type): bool
     {
-        if ($type === 'clt') {
+        if ($type === 'facta') {
             return true;
         }
 

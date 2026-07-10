@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Modules\CLT\Models;
+namespace App\Modules\Facta\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class CltSnapshot extends Model
+class FactaCltSnapshot extends Model
 {
-    protected $table = 'clt_snapshots';
+    protected $table = 'facta_clt_snapshots';
 
     protected $primaryKey = 'cpf';
     public $incrementing = false;

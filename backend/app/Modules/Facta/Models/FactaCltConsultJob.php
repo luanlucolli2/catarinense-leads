@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Modules\CLT\Models;
+namespace App\Modules\Facta\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class CltConsultJob extends Model
+class FactaCltConsultJob extends Model
 {
-    protected $table = 'clt_consult_jobs';
+    protected $table = 'facta_clt_consult_jobs';
 
     protected $fillable = [
         'user_id','title','status','variant',

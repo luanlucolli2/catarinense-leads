@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\CLT\Services\Exceptions;
+namespace App\Modules\Facta\Services\Exceptions;
 
 use RuntimeException;
 use Throwable;

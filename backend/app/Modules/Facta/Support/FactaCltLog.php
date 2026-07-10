@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Modules\CLT\Support;
+namespace App\Modules\Facta\Support;
 
 use Illuminate\Support\Facades\Log;
 
-final class CltLog
+final class FactaCltLog
 {
     public static function enabled(): bool
     {
-        return (bool) config('cltfacta.logging.enabled', true);
+        return (bool) config('facta.logging.enabled', true);
     }
 
     public static function debug($message, array $context = []): void

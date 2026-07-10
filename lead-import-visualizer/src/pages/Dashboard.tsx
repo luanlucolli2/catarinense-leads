@@ -9,7 +9,7 @@ import {
   LeadsTableMercantil,
   LeadsTableUy3,
   ProcessedLeadFGTS,
-  ProcessedLeadCLT,
+  ProcessedLeadFacta,
   ProcessedLeadMercantil,
   ProcessedLeadUy3,
 } from "@/components/LeadsTable"
@@ -33,7 +33,7 @@ import {
   LeadBankCombinationMode,
   LeadFromApiBase,
   LeadFromApiFGTS,
-  LeadFromApiCLT,
+  LeadFromApiFacta,
   LeadFromApiMercantil,
   LeadFromApiUY3,
   LeadFromApi360,
@@ -41,7 +41,7 @@ import {
   LeadSort,
   PaginatedLeadsResponseBase,
   PaginatedLeadsResponseFGTS,
-  PaginatedLeadsResponseCLT,
+  PaginatedLeadsResponseFacta,
   PaginatedLeadsResponseMercantil,
   PaginatedLeadsResponseUY3,
   PaginatedLeadsResponse360,
@@ -59,7 +59,7 @@ import {
 type StatusFilter = "todos" | "elegiveis" | "nao-elegiveis"
 type FgtsStatusFilter = "todos" | "autorizado" | "nao_autorizado" | "nao_consultado"
 type YesNoAll = "todos" | "sim" | "nao"
-type CltSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
+type FactaSituacaoFilter = "todos" | "nao_encontrado" | "elegivel" | "nao_elegivel" | "aprovado" | "nao_aprovado"
 type Uy3SituacaoFilter = "todos" | "aprovado" | "nao_aprovado"
 type MercantilSituacao360Filter = "todos" | "aprovado" | "nao_aprovado"
 type ActiveTab = "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
@@ -85,31 +85,31 @@ type Dashboard360Filters = {
   fgts_status: FgtsStatusFilter
   fgts_consulta_from: string
   fgts_consulta_to: string
-  clt_situacao: CltSituacaoFilter
-  clt_consulta_from: string
-  clt_consulta_to: string
-  clt_admissao_from: string
-  clt_admissao_to: string
-  clt_meses_min: string
-  clt_meses_max: string
-  clt_inicio_empregador_from: string
-  clt_inicio_empregador_to: string
-  clt_categoria_codigos: string
-  clt_idade_min: string
-  clt_idade_max: string
-  clt_sexo: string[]
-  clt_renda_min: string
-  clt_renda_max: string
-  clt_base_min: string
-  clt_base_max: string
-  clt_margem_min: string
-  clt_margem_max: string
-  clt_prestacao_min: string
-  clt_prestacao_max: string
-  clt_ativos_min: string
-  clt_ativos_max: string
-  clt_tem_ativos: YesNoAll
-  clt_tem_legados: YesNoAll
+  facta_situacao: FactaSituacaoFilter
+  facta_consulta_from: string
+  facta_consulta_to: string
+  facta_admissao_from: string
+  facta_admissao_to: string
+  facta_meses_min: string
+  facta_meses_max: string
+  facta_inicio_empregador_from: string
+  facta_inicio_empregador_to: string
+  facta_categoria_codigos: string
+  facta_idade_min: string
+  facta_idade_max: string
+  facta_sexo: string[]
+  facta_renda_min: string
+  facta_renda_max: string
+  facta_base_min: string
+  facta_base_max: string
+  facta_margem_min: string
+  facta_margem_max: string
+  facta_prestacao_min: string
+  facta_prestacao_max: string
+  facta_ativos_min: string
+  facta_ativos_max: string
+  facta_tem_ativos: YesNoAll
+  facta_tem_legados: YesNoAll
   mercantil_situacao: MercantilSituacao360Filter
   mercantil_status: string[]
   mercantil_consulta_from: string
@@ -134,7 +134,7 @@ type Dashboard360Filters = {
 
 const BASE_SORT_DEFAULT: LeadSort = "lead_updated_at"
 const DASHBOARD_360_SORT_DEFAULT: LeadSort = "lead_updated_at"
-const CLT_SORT_DEFAULT: LeadSort = "clt_consulted_at"
+const FACTA_SORT_DEFAULT: LeadSort = "facta_consulted_at"
 const MERCANTIL_SORT_DEFAULT: LeadSort = "mercantil_consulted_at"
 const UY3_SORT_DEFAULT: LeadSort = "uy3_consulted_at"
 
@@ -165,12 +165,12 @@ export const FGTS_COLUMNS_DEFAULT: string[] = [
   "ultima_origem_higienizacao",
 ];
 
-export const CLT_COLUMNS_DEFAULT: string[] = [
+export const FACTA_COLUMNS_DEFAULT: string[] = [
   "cpf", "nome", "data_nascimento", "telefone_1", "classe_1",
   "idade", "sexo",
   "elegivel",
-  "clt_consultado_em",
-  "clt_dados_atualizados_em", // 🆕
+  "facta_consultado_em",
+  "facta_dados_atualizados_em", // 🆕
   "data_admissao", "meses_admissao", "categoria_trabalhador_codigo", "matricula",
   "valor_renda", "valor_base_margem", "margem_disponivel", "valor_max_prestacao",
   "politica_credito_aprovado", "politica_credito_mensagem",
@@ -224,7 +224,7 @@ export const DASHBOARD_360_COLUMNS_DEFAULT: string[] = [
   "nome",
   "telefone_1",
   "politica_credito_aprovado",
-  "clt_consultado_em",
+  "facta_consultado_em",
   "mercantil_status",
   "mercantil_data_hora_origem",
   "uy3_elegivel_emprestimo",
@@ -287,31 +287,31 @@ const DASHBOARD_360_FILTERS_DEFAULT: Dashboard360Filters = {
   fgts_status: "todos",
   fgts_consulta_from: "",
   fgts_consulta_to: "",
-  clt_situacao: "todos",
-  clt_consulta_from: "",
-  clt_consulta_to: "",
-  clt_admissao_from: "",
-  clt_admissao_to: "",
-  clt_meses_min: "",
-  clt_meses_max: "",
-  clt_inicio_empregador_from: "",
-  clt_inicio_empregador_to: "",
-  clt_categoria_codigos: "",
-  clt_idade_min: "",
-  clt_idade_max: "",
-  clt_sexo: [],
-  clt_renda_min: "",
-  clt_renda_max: "",
-  clt_base_min: "",
-  clt_base_max: "",
-  clt_margem_min: "",
-  clt_margem_max: "",
-  clt_prestacao_min: "",
-  clt_prestacao_max: "",
-  clt_ativos_min: "",
-  clt_ativos_max: "",
-  clt_tem_ativos: "todos",
-  clt_tem_legados: "todos",
+  facta_situacao: "todos",
+  facta_consulta_from: "",
+  facta_consulta_to: "",
+  facta_admissao_from: "",
+  facta_admissao_to: "",
+  facta_meses_min: "",
+  facta_meses_max: "",
+  facta_inicio_empregador_from: "",
+  facta_inicio_empregador_to: "",
+  facta_categoria_codigos: "",
+  facta_idade_min: "",
+  facta_idade_max: "",
+  facta_sexo: [],
+  facta_renda_min: "",
+  facta_renda_max: "",
+  facta_base_min: "",
+  facta_base_max: "",
+  facta_margem_min: "",
+  facta_margem_max: "",
+  facta_prestacao_min: "",
+  facta_prestacao_max: "",
+  facta_ativos_min: "",
+  facta_ativos_max: "",
+  facta_tem_ativos: "todos",
+  facta_tem_legados: "todos",
   mercantil_situacao: "todos",
   mercantil_status: [],
   mercantil_consulta_from: "",
@@ -363,8 +363,8 @@ const DASHBOARD_360_EXPORT_COLUMN_MAP: Record<string, string> = {
   not_found: "not_found",
   margem_disponivel: "margem_disponivel",
   politica_credito_aprovado: "politica_credito_aprovado",
-  clt_consultado_em: "clt_consultado_em",
-  clt_dados_atualizados_em: "clt_dados_atualizados_em",
+  facta_consultado_em: "facta_consultado_em",
+  facta_dados_atualizados_em: "facta_dados_atualizados_em",
   mercantil_status: "mercantil_status",
   mercantil_mensagem_erro: "mercantil_mensagem_erro",
   mercantil_data_hora_origem: "mercantil_data_hora_origem",
@@ -422,8 +422,8 @@ const Dashboard = () => {
     FGTS_COLUMNS_DEFAULT
   )
   const [cltVisibleColumns, setCltVisibleColumns] = usePersistedState<string[]>(
-    "leadstable:clt:visibleColumns:v2",
-    CLT_COLUMNS_DEFAULT
+    "leadstable:facta:visibleColumns:v2",
+    FACTA_COLUMNS_DEFAULT
   )
   const [mercantilVisibleColumns, setMercantilVisibleColumns] = usePersistedState<string[]>(
     "leadstable:mercantil:visibleColumns:v1",
@@ -479,49 +479,49 @@ const Dashboard = () => {
     usePersistedState<string>("dashboard:fgtsConsultaToFilter", "")
 
   /* =========================  CLT (persistido)  ========================= */
-  const [cltSearchValue, setCltSearchValue] = usePersistedState<string>("dashboard-clt:searchValue", "")
-  const [cltStatusFilter, setCltStatusFilter] = usePersistedState<StatusFilter>("dashboard-clt:statusFilter", "todos")
-  const [cltMotivosFilter, setCltMotivosFilter] = usePersistedState<string[]>("dashboard-clt:motivosFilter", [])
-  const [cltOrigemFilter, setCltOrigemFilter] = usePersistedState<string[]>("dashboard-clt:origemFilter", [])
-  const [cltHigienizacaoFilter, setCltHigienizacaoFilter] = usePersistedState<string[]>("dashboard-clt:higienizacaoFilter", [])
-  const [cltDateFromFilter, setCltDateFromFilter] = usePersistedState<string>("dashboard-clt:dateFromFilter", "")
-  const [cltDateToFilter, setCltDateToFilter] = usePersistedState<string>("dashboard-clt:dateToFilter", "")
-  const [cltContractFromFilter, setCltContractFromFilter] = usePersistedState<string>("dashboard-clt:contractDateFromFilter", "")
-  const [cltContractToFilter, setCltContractToFilter] = usePersistedState<string>("dashboard-clt:contractDateToFilter", "")
-  const [cltCpfMassFilter, setCltCpfMassFilter] = usePersistedState<string>("dashboard-clt:cpfMassFilter", "")
-  const [cltNamesMassFilter, setCltNamesMassFilter] = usePersistedState<string>("dashboard-clt:namesMassFilter", "")
-  const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-clt:phonesMassFilter", "")
-  const [cltWithPhonesFilter, setCltWithPhonesFilter] = usePersistedState<boolean>("dashboard-clt:withPhonesFilter", false)
-  const [cltNoPhonesFilter, setCltNoPhonesFilter] = usePersistedState<boolean>("dashboard-clt:noPhonesFilter", false)
-  const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-clt:vendorsFilter", [])
-  const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-clt:birthMonthFilter", [])
+  const [cltSearchValue, setCltSearchValue] = usePersistedState<string>("dashboard-facta:searchValue", "")
+  const [cltStatusFilter, setCltStatusFilter] = usePersistedState<StatusFilter>("dashboard-facta:statusFilter", "todos")
+  const [cltMotivosFilter, setCltMotivosFilter] = usePersistedState<string[]>("dashboard-facta:motivosFilter", [])
+  const [cltOrigemFilter, setCltOrigemFilter] = usePersistedState<string[]>("dashboard-facta:origemFilter", [])
+  const [cltHigienizacaoFilter, setCltHigienizacaoFilter] = usePersistedState<string[]>("dashboard-facta:higienizacaoFilter", [])
+  const [cltDateFromFilter, setCltDateFromFilter] = usePersistedState<string>("dashboard-facta:dateFromFilter", "")
+  const [cltDateToFilter, setCltDateToFilter] = usePersistedState<string>("dashboard-facta:dateToFilter", "")
+  const [cltContractFromFilter, setCltContractFromFilter] = usePersistedState<string>("dashboard-facta:contractDateFromFilter", "")
+  const [cltContractToFilter, setCltContractToFilter] = usePersistedState<string>("dashboard-facta:contractDateToFilter", "")
+  const [cltCpfMassFilter, setCltCpfMassFilter] = usePersistedState<string>("dashboard-facta:cpfMassFilter", "")
+  const [cltNamesMassFilter, setCltNamesMassFilter] = usePersistedState<string>("dashboard-facta:namesMassFilter", "")
+  const [cltPhonesMassFilter, setCltPhonesMassFilter] = usePersistedState<string>("dashboard-facta:phonesMassFilter", "")
+  const [cltWithPhonesFilter, setCltWithPhonesFilter] = usePersistedState<boolean>("dashboard-facta:withPhonesFilter", false)
+  const [cltNoPhonesFilter, setCltNoPhonesFilter] = usePersistedState<boolean>("dashboard-facta:noPhonesFilter", false)
+  const [cltVendorsFilter, setCltVendorsFilter] = usePersistedState<string[]>("dashboard-facta:vendorsFilter", [])
+  const [cltBirthMonthFilter, setCltBirthMonthFilter] = usePersistedState<string[]>("dashboard-facta:birthMonthFilter", [])
 
-  const [cltSituacao, setCltSituacao] = usePersistedState<CltSituacaoFilter>("dashboard-clt:situacao", "todos")
-  const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-clt:consultaFrom", "")
-  const [cltConsultaTo, setCltConsultaTo] = usePersistedState<string>("dashboard-clt:consultaTo", "")
-  const [cltAdmissaoFrom, setCltAdmissaoFrom] = usePersistedState<string>("dashboard-clt:admissaoFrom", "")
-  const [cltAdmissaoTo, setCltAdmissaoTo] = usePersistedState<string>("dashboard-clt:admissaoTo", "")
-  const [cltMesesMin, setCltMesesMin] = usePersistedState<string>("dashboard-clt:mesesMin", "")
-  const [cltMesesMax, setCltMesesMax] = usePersistedState<string>("dashboard-clt:mesesMax", "")
-  const [cltInicioEmpregadorFrom, setCltInicioEmpregadorFrom] = usePersistedState<string>("dashboard-clt:inicioEmpFrom", "")
-  const [cltInicioEmpregadorTo, setCltInicioEmpregadorTo] = usePersistedState<string>("dashboard-clt:inicioEmpTo", "")
-  const [cltCategoriaCodigos, setCltCategoriaCodigos] = usePersistedState<string>("dashboard-clt:categoriaCodigos", "")
-  const [cltIdadeMin, setCltIdadeMin] = usePersistedState<string>("dashboard-clt:idadeMin", "")
-  const [cltIdadeMax, setCltIdadeMax] = usePersistedState<string>("dashboard-clt:idadeMax", "")
-  const [cltSexo, setCltSexo] = usePersistedState<string[]>("dashboard-clt:sexo", [])
-  const [cltRendaMin, setCltRendaMin] = usePersistedState<string>("dashboard-clt:rendaMin", "")
-  const [cltRendaMax, setCltRendaMax] = usePersistedState<string>("dashboard-clt:rendaMax", "")
-  const [cltBaseMin, setCltBaseMin] = usePersistedState<string>("dashboard-clt:baseMin", "")
-  const [cltBaseMax, setCltBaseMax] = usePersistedState<string>("dashboard-clt:baseMax", "")
-  const [cltMargemMin, setCltMargemMin] = usePersistedState<string>("dashboard-clt:margemMin", "")
-  const [cltMargemMax, setCltMargemMax] = usePersistedState<string>("dashboard-clt:margemMax", "")
-  const [cltPrestacaoMin, setCltPrestacaoMin] = usePersistedState<string>("dashboard-clt:prestacaoMin", "")
-  const [cltPrestacaoMax, setCltPrestacaoMax] = usePersistedState<string>("dashboard-clt:prestacaoMax", "")
-  const [cltAtivosMin, setCltAtivosMin] = usePersistedState<string>("dashboard-clt:ativosMin", "")
-  const [cltAtivosMax, setCltAtivosMax] = usePersistedState<string>("dashboard-clt:ativosMax", "")
-  const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-clt:temAtivos", "todos")
-  const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-clt:temLegados", "todos")
-  const [cltSortBy, setCltSortBy] = usePersistedState<LeadSort>("dashboard-clt:sortBy:v2", CLT_SORT_DEFAULT)
+  const [cltSituacao, setCltSituacao] = usePersistedState<FactaSituacaoFilter>("dashboard-facta:situacao", "todos")
+  const [cltConsultaFrom, setCltConsultaFrom] = usePersistedState<string>("dashboard-facta:consultaFrom", "")
+  const [cltConsultaTo, setCltConsultaTo] = usePersistedState<string>("dashboard-facta:consultaTo", "")
+  const [cltAdmissaoFrom, setCltAdmissaoFrom] = usePersistedState<string>("dashboard-facta:admissaoFrom", "")
+  const [cltAdmissaoTo, setCltAdmissaoTo] = usePersistedState<string>("dashboard-facta:admissaoTo", "")
+  const [cltMesesMin, setCltMesesMin] = usePersistedState<string>("dashboard-facta:mesesMin", "")
+  const [cltMesesMax, setCltMesesMax] = usePersistedState<string>("dashboard-facta:mesesMax", "")
+  const [cltInicioEmpregadorFrom, setCltInicioEmpregadorFrom] = usePersistedState<string>("dashboard-facta:inicioEmpFrom", "")
+  const [cltInicioEmpregadorTo, setCltInicioEmpregadorTo] = usePersistedState<string>("dashboard-facta:inicioEmpTo", "")
+  const [cltCategoriaCodigos, setCltCategoriaCodigos] = usePersistedState<string>("dashboard-facta:categoriaCodigos", "")
+  const [cltIdadeMin, setCltIdadeMin] = usePersistedState<string>("dashboard-facta:idadeMin", "")
+  const [cltIdadeMax, setCltIdadeMax] = usePersistedState<string>("dashboard-facta:idadeMax", "")
+  const [cltSexo, setCltSexo] = usePersistedState<string[]>("dashboard-facta:sexo", [])
+  const [cltRendaMin, setCltRendaMin] = usePersistedState<string>("dashboard-facta:rendaMin", "")
+  const [cltRendaMax, setCltRendaMax] = usePersistedState<string>("dashboard-facta:rendaMax", "")
+  const [cltBaseMin, setCltBaseMin] = usePersistedState<string>("dashboard-facta:baseMin", "")
+  const [cltBaseMax, setCltBaseMax] = usePersistedState<string>("dashboard-facta:baseMax", "")
+  const [cltMargemMin, setCltMargemMin] = usePersistedState<string>("dashboard-facta:margemMin", "")
+  const [cltMargemMax, setCltMargemMax] = usePersistedState<string>("dashboard-facta:margemMax", "")
+  const [cltPrestacaoMin, setCltPrestacaoMin] = usePersistedState<string>("dashboard-facta:prestacaoMin", "")
+  const [cltPrestacaoMax, setCltPrestacaoMax] = usePersistedState<string>("dashboard-facta:prestacaoMax", "")
+  const [cltAtivosMin, setCltAtivosMin] = usePersistedState<string>("dashboard-facta:ativosMin", "")
+  const [cltAtivosMax, setCltAtivosMax] = usePersistedState<string>("dashboard-facta:ativosMax", "")
+  const [cltTemAtivos, setCltTemAtivos] = usePersistedState<YesNoAll>("dashboard-facta:temAtivos", "todos")
+  const [cltTemLegados, setCltTemLegados] = usePersistedState<YesNoAll>("dashboard-facta:temLegados", "todos")
+  const [cltSortBy, setCltSortBy] = usePersistedState<LeadSort>("dashboard-facta:sortBy:v2", FACTA_SORT_DEFAULT)
 
   const [mercantilSearchValue, setMercantilSearchValue] = usePersistedState<string>("dashboard-mercantil:searchValue", "")
   const [mercantilOrigemFilter, setMercantilOrigemFilter] = usePersistedState<string[]>("dashboard-mercantil:origemFilter", [])
@@ -605,7 +605,7 @@ const Dashboard = () => {
     isFetching,
     isError,
     refetch,
-  } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360>({
+  } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseFacta | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360>({
     queryKey: [
       "leads",
       activeTab,
@@ -657,7 +657,7 @@ const Dashboard = () => {
       dashboard360SortBy,
       dashboard360Filters,
     ],
-    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseCLT | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
+    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseFacta | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
       if (activeTab === "360") {
         return fetchLeads360({
           page: currentPage,
@@ -668,15 +668,15 @@ const Dashboard = () => {
           without_phones: dashboard360Filters.without_phones || undefined,
           selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
           bank_combination_mode: dashboard360Filters.bank_combination_mode,
-          clt_situacao: dashboard360Filters.clt_situacao !== "todos" ? dashboard360Filters.clt_situacao : undefined,
-          clt_consulta_from: dashboard360Filters.clt_consulta_from || undefined,
-          clt_consulta_to: dashboard360Filters.clt_consulta_to || undefined,
-          clt_meses_min: dashboard360Filters.clt_meses_min || undefined,
-          clt_meses_max: dashboard360Filters.clt_meses_max || undefined,
-          clt_margem_min: dashboard360Filters.clt_margem_min || undefined,
-          clt_margem_max: dashboard360Filters.clt_margem_max || undefined,
-          clt_numero_parcelas_min: dashboard360Filters.clt_prestacao_min || undefined,
-          clt_numero_parcelas_max: dashboard360Filters.clt_prestacao_max || undefined,
+          facta_situacao: dashboard360Filters.facta_situacao !== "todos" ? dashboard360Filters.facta_situacao : undefined,
+          facta_consulta_from: dashboard360Filters.facta_consulta_from || undefined,
+          facta_consulta_to: dashboard360Filters.facta_consulta_to || undefined,
+          facta_meses_min: dashboard360Filters.facta_meses_min || undefined,
+          facta_meses_max: dashboard360Filters.facta_meses_max || undefined,
+          facta_margem_min: dashboard360Filters.facta_margem_min || undefined,
+          facta_margem_max: dashboard360Filters.facta_margem_max || undefined,
+          facta_numero_parcelas_min: dashboard360Filters.facta_prestacao_min || undefined,
+          facta_numero_parcelas_max: dashboard360Filters.facta_prestacao_max || undefined,
           mercantil_situacao: dashboard360Filters.mercantil_situacao !== "todos" ? dashboard360Filters.mercantil_situacao : undefined,
           mercantil_consulta_from: dashboard360Filters.mercantil_consulta_from || undefined,
           mercantil_consulta_to: dashboard360Filters.mercantil_consulta_to || undefined,
@@ -772,31 +772,31 @@ const Dashboard = () => {
           with_phones: cltWithPhonesFilter || undefined,
           without_phones: cltNoPhonesFilter || undefined,
           birth_month: cltBirthMonthFilter,
-          clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
-          clt_consulta_from: cltConsultaFrom || undefined,
-          clt_consulta_to: cltConsultaTo || undefined,
-          clt_admissao_from: cltAdmissaoFrom || undefined,
-          clt_admissao_to: cltAdmissaoTo || undefined,
-          clt_meses_min: cltMesesMin || undefined,
-          clt_meses_max: cltMesesMax || undefined,
-          clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
-          clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
-          clt_categoria_codigos: catCodes,
-          clt_idade_min: cltIdadeMin || undefined,
-          clt_idade_max: cltIdadeMax || undefined,
-          clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
-          clt_renda_min: cltRendaMin || undefined,
-          clt_renda_max: cltRendaMax || undefined,
-          clt_base_min: cltBaseMin || undefined,
-          clt_base_max: cltBaseMax || undefined,
-          clt_margem_min: cltMargemMin || undefined,
-          clt_margem_max: cltMargemMax || undefined,
-          clt_prestacao_min: cltPrestacaoMin || undefined,
-          clt_prestacao_max: cltPrestacaoMax || undefined,
-          clt_ativos_min: cltAtivosMin || undefined,
-          clt_ativos_max: cltAtivosMax || undefined,
-          clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
-          clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+          facta_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
+          facta_consulta_from: cltConsultaFrom || undefined,
+          facta_consulta_to: cltConsultaTo || undefined,
+          facta_admissao_from: cltAdmissaoFrom || undefined,
+          facta_admissao_to: cltAdmissaoTo || undefined,
+          facta_meses_min: cltMesesMin || undefined,
+          facta_meses_max: cltMesesMax || undefined,
+          facta_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+          facta_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+          facta_categoria_codigos: catCodes,
+          facta_idade_min: cltIdadeMin || undefined,
+          facta_idade_max: cltIdadeMax || undefined,
+          facta_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
+          facta_renda_min: cltRendaMin || undefined,
+          facta_renda_max: cltRendaMax || undefined,
+          facta_base_min: cltBaseMin || undefined,
+          facta_base_max: cltBaseMax || undefined,
+          facta_margem_min: cltMargemMin || undefined,
+          facta_margem_max: cltMargemMax || undefined,
+          facta_prestacao_min: cltPrestacaoMin || undefined,
+          facta_prestacao_max: cltPrestacaoMax || undefined,
+          facta_ativos_min: cltAtivosMin || undefined,
+          facta_ativos_max: cltAtivosMax || undefined,
+          facta_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+          facta_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
           sort: cltSortBy,
         })
       }
@@ -911,8 +911,8 @@ const Dashboard = () => {
         margem_disponivel: formatCurrency(lead.margem_disponivel as any),
         politica_credito_aprovado: toBool(lead.politica_credito_aprovado),
         politica_credito_valor_maximo_disponivel: formatCurrency(lead.politica_credito_valor_maximo_disponivel as any),
-        clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
-        clt_dados_atualizados_em: lead.clt_dados_atualizados_em ? formatDate(lead.clt_dados_atualizados_em) : "",
+        facta_consultado_em: lead.facta_consultado_em ? formatDate(lead.facta_consultado_em) : "",
+        facta_dados_atualizados_em: lead.facta_dados_atualizados_em ? formatDate(lead.facta_dados_atualizados_em) : "",
         mercantil_status: lead.mercantil_status || "",
         mercantil_mensagem_erro: lead.mercantil_mensagem_erro || "",
         mercantil_data_hora_origem: lead.mercantil_data_hora_origem ? formatLocalDateTime(lead.mercantil_data_hora_origem) : "",
@@ -1034,11 +1034,11 @@ const Dashboard = () => {
     })
   }, [paginatedData, activeTab])
 
-  const processedLeadsCLT: ProcessedLeadCLT[] = useMemo(() => {
+  const processedLeadsCLT: ProcessedLeadFacta[] = useMemo(() => {
     if (activeTab !== "CLT") return []
-    const resp = paginatedData as PaginatedLeadsResponseCLT | undefined
+    const resp = paginatedData as PaginatedLeadsResponseFacta | undefined
     if (!resp?.data) return []
-    return resp.data.map((lead: LeadFromApiCLT) => {
+    return resp.data.map((lead: LeadFromApiFacta) => {
       const telefones = [
         { fone: formatPhone(lead.fone1), classe: lead.classe_fone1 },
         { fone: formatPhone(lead.fone2), classe: lead.classe_fone2 },
@@ -1084,9 +1084,9 @@ const Dashboard = () => {
             : Number(lead.politica_credito_prazo_maximo_disponivel),
         politica_credito_data_consulta: lead.politica_credito_data_consulta ? formatLocalDateTime(lead.politica_credito_data_consulta) : "",
         politica_credito_tabela_aprovada: lead.politica_credito_tabela_aprovada || "",
-        clt_consultado_em: lead.clt_consultado_em ? formatDate(lead.clt_consultado_em) : "",
+        facta_consultado_em: lead.facta_consultado_em ? formatDate(lead.facta_consultado_em) : "",
         // 🆕
-        clt_dados_atualizados_em: lead.clt_dados_atualizados_em ? formatDate(lead.clt_dados_atualizados_em) : "",
+        facta_dados_atualizados_em: lead.facta_dados_atualizados_em ? formatDate(lead.facta_dados_atualizados_em) : "",
         idade: lead.idade ?? null,
         sexo: lead.sexo ?? null,
         data_admissao: lead.data_admissao ? formatDate(lead.data_admissao) : "",
@@ -1278,7 +1278,7 @@ const Dashboard = () => {
     setCltAtivosMax("")
     setCltTemAtivos("todos")
     setCltTemLegados("todos")
-    setCltSortBy(CLT_SORT_DEFAULT)
+    setCltSortBy(FACTA_SORT_DEFAULT)
   }
 
   const clearMercantil = () => {
@@ -1319,15 +1319,15 @@ const Dashboard = () => {
     dashboard360Filters.with_phones ||
     dashboard360Filters.without_phones ||
     dashboard360SelectedBanks.length ||
-    dashboard360Filters.clt_situacao !== "todos" ||
-    dashboard360Filters.clt_consulta_from ||
-    dashboard360Filters.clt_consulta_to ||
-    dashboard360Filters.clt_meses_min ||
-    dashboard360Filters.clt_meses_max ||
-    dashboard360Filters.clt_margem_min ||
-    dashboard360Filters.clt_margem_max ||
-    dashboard360Filters.clt_prestacao_min ||
-    dashboard360Filters.clt_prestacao_max ||
+    dashboard360Filters.facta_situacao !== "todos" ||
+    dashboard360Filters.facta_consulta_from ||
+    dashboard360Filters.facta_consulta_to ||
+    dashboard360Filters.facta_meses_min ||
+    dashboard360Filters.facta_meses_max ||
+    dashboard360Filters.facta_margem_min ||
+    dashboard360Filters.facta_margem_max ||
+    dashboard360Filters.facta_prestacao_min ||
+    dashboard360Filters.facta_prestacao_max ||
     dashboard360Filters.mercantil_situacao !== "todos" ||
     dashboard360Filters.mercantil_consulta_from ||
     dashboard360Filters.mercantil_consulta_to ||
@@ -1456,15 +1456,15 @@ const Dashboard = () => {
         without_phones: dashboard360Filters.without_phones || undefined,
         selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
         bank_combination_mode: dashboard360SelectedBanks.length ? dashboard360Filters.bank_combination_mode : undefined,
-        clt_situacao: dashboard360Filters.clt_situacao !== "todos" ? dashboard360Filters.clt_situacao : undefined,
-        clt_consulta_from: dashboard360Filters.clt_consulta_from || undefined,
-        clt_consulta_to: dashboard360Filters.clt_consulta_to || undefined,
-        clt_meses_min: dashboard360Filters.clt_meses_min || undefined,
-        clt_meses_max: dashboard360Filters.clt_meses_max || undefined,
-        clt_margem_min: dashboard360Filters.clt_margem_min || undefined,
-        clt_margem_max: dashboard360Filters.clt_margem_max || undefined,
-        clt_numero_parcelas_min: dashboard360Filters.clt_prestacao_min || undefined,
-        clt_numero_parcelas_max: dashboard360Filters.clt_prestacao_max || undefined,
+        facta_situacao: dashboard360Filters.facta_situacao !== "todos" ? dashboard360Filters.facta_situacao : undefined,
+        facta_consulta_from: dashboard360Filters.facta_consulta_from || undefined,
+        facta_consulta_to: dashboard360Filters.facta_consulta_to || undefined,
+        facta_meses_min: dashboard360Filters.facta_meses_min || undefined,
+        facta_meses_max: dashboard360Filters.facta_meses_max || undefined,
+        facta_margem_min: dashboard360Filters.facta_margem_min || undefined,
+        facta_margem_max: dashboard360Filters.facta_margem_max || undefined,
+        facta_numero_parcelas_min: dashboard360Filters.facta_prestacao_min || undefined,
+        facta_numero_parcelas_max: dashboard360Filters.facta_prestacao_max || undefined,
         mercantil_situacao: dashboard360Filters.mercantil_situacao !== "todos" ? dashboard360Filters.mercantil_situacao : undefined,
         mercantil_consulta_from: dashboard360Filters.mercantil_consulta_from || undefined,
         mercantil_consulta_to: dashboard360Filters.mercantil_consulta_to || undefined,
@@ -1552,31 +1552,31 @@ const Dashboard = () => {
         with_phones: cltWithPhonesFilter || undefined,
         without_phones: cltNoPhonesFilter || undefined,
         birth_month: cltBirthMonthFilter.length ? cltBirthMonthFilter : undefined,
-        clt_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
-        clt_consulta_from: cltConsultaFrom || undefined,
-        clt_consulta_to: cltConsultaTo || undefined,
-        clt_admissao_from: cltAdmissaoFrom || undefined,
-        clt_admissao_to: cltAdmissaoTo || undefined,
-        clt_meses_min: cltMesesMin || undefined,
-        clt_meses_max: cltMesesMax || undefined,
-        clt_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
-        clt_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
-        clt_categoria_codigos: catCodes,
-        clt_idade_min: cltIdadeMin || undefined,
-        clt_idade_max: cltIdadeMax || undefined,
-        clt_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
-        clt_renda_min: cltRendaMin || undefined,
-        clt_renda_max: cltRendaMax || undefined,
-        clt_base_min: cltBaseMin || undefined,
-        clt_base_max: cltBaseMax || undefined,
-        clt_margem_min: cltMargemMin || undefined,
-        clt_margem_max: cltMargemMax || undefined,
-        clt_prestacao_min: cltPrestacaoMin || undefined,
-        clt_prestacao_max: cltPrestacaoMax || undefined,
-        clt_ativos_min: cltAtivosMin || undefined,
-        clt_ativos_max: cltAtivosMax || undefined,
-        clt_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
-        clt_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
+        facta_situacao: cltSituacao !== "todos" ? cltSituacao : undefined,
+        facta_consulta_from: cltConsultaFrom || undefined,
+        facta_consulta_to: cltConsultaTo || undefined,
+        facta_admissao_from: cltAdmissaoFrom || undefined,
+        facta_admissao_to: cltAdmissaoTo || undefined,
+        facta_meses_min: cltMesesMin || undefined,
+        facta_meses_max: cltMesesMax || undefined,
+        facta_inicio_empregador_from: cltInicioEmpregadorFrom || undefined,
+        facta_inicio_empregador_to: cltInicioEmpregadorTo || undefined,
+        facta_categoria_codigos: catCodes,
+        facta_idade_min: cltIdadeMin || undefined,
+        facta_idade_max: cltIdadeMax || undefined,
+        facta_sexo: cltSexo.length ? (cltSexo as ("M" | "F")[]) : undefined,
+        facta_renda_min: cltRendaMin || undefined,
+        facta_renda_max: cltRendaMax || undefined,
+        facta_base_min: cltBaseMin || undefined,
+        facta_base_max: cltBaseMax || undefined,
+        facta_margem_min: cltMargemMin || undefined,
+        facta_margem_max: cltMargemMax || undefined,
+        facta_prestacao_min: cltPrestacaoMin || undefined,
+        facta_prestacao_max: cltPrestacaoMax || undefined,
+        facta_ativos_min: cltAtivosMin || undefined,
+        facta_ativos_max: cltAtivosMax || undefined,
+        facta_tem_ativos: cltTemAtivos !== "todos" ? cltTemAtivos : undefined,
+        facta_tem_legados: cltTemLegados !== "todos" ? cltTemLegados : undefined,
       }
     }
 
@@ -1642,7 +1642,7 @@ const Dashboard = () => {
 
   // Inicia export e delega o polling ao singleton
   const handleExport = async (columns: string[]) => {
-    const mode: "base" | "fgts" | "clt" | "mercantil" | "uy3" | "360" =
+    const mode: "base" | "fgts" | "facta" | "mercantil" | "uy3" | "360" =
       activeTab === "360"
         ? "360"
         : activeTab === "BASE"
@@ -1652,7 +1652,7 @@ const Dashboard = () => {
           : activeTab === "FGTS"
             ? "fgts"
             : activeTab === "CLT"
-              ? "clt"
+              ? "facta"
               : "mercantil"
     const preId = toast.loading("Exportando leads", { duration: Infinity })
     try {
@@ -1956,56 +1956,56 @@ const Dashboard = () => {
         fgtsConsultaToFilter={ui.fgtsConsultaToFilter}
         onFgtsConsultaToFilterChange={ui.setFgtsConsultaToFilter}
         /* CLT */
-        cltSituacao={activeTab === "360" ? dashboard360Filters.clt_situacao : cltSituacao}
-        onCltSituacaoChange={(value) => activeTab === "360" ? update360Filter("clt_situacao", value) : setCltSituacao(value)}
-        cltConsultaFrom={activeTab === "360" ? dashboard360Filters.clt_consulta_from : cltConsultaFrom}
-        onCltConsultaFromChange={(value) => activeTab === "360" ? update360Filter("clt_consulta_from", value) : setCltConsultaFrom(value)}
-        cltConsultaTo={activeTab === "360" ? dashboard360Filters.clt_consulta_to : cltConsultaTo}
-        onCltConsultaToChange={(value) => activeTab === "360" ? update360Filter("clt_consulta_to", value) : setCltConsultaTo(value)}
-        cltAdmissaoFrom={activeTab === "360" ? dashboard360Filters.clt_admissao_from : cltAdmissaoFrom}
-        onCltAdmissaoFromChange={(value) => activeTab === "360" ? update360Filter("clt_admissao_from", value) : setCltAdmissaoFrom(value)}
-        cltAdmissaoTo={activeTab === "360" ? dashboard360Filters.clt_admissao_to : cltAdmissaoTo}
-        onCltAdmissaoToChange={(value) => activeTab === "360" ? update360Filter("clt_admissao_to", value) : setCltAdmissaoTo(value)}
-        cltMesesMin={activeTab === "360" ? dashboard360Filters.clt_meses_min : cltMesesMin}
-        onCltMesesMinChange={(value) => activeTab === "360" ? update360Filter("clt_meses_min", value) : setCltMesesMin(value)}
-        cltMesesMax={activeTab === "360" ? dashboard360Filters.clt_meses_max : cltMesesMax}
-        onCltMesesMaxChange={(value) => activeTab === "360" ? update360Filter("clt_meses_max", value) : setCltMesesMax(value)}
-        cltInicioEmpregadorFrom={activeTab === "360" ? dashboard360Filters.clt_inicio_empregador_from : cltInicioEmpregadorFrom}
-        onCltInicioEmpregadorFromChange={(value) => activeTab === "360" ? update360Filter("clt_inicio_empregador_from", value) : setCltInicioEmpregadorFrom(value)}
-        cltInicioEmpregadorTo={activeTab === "360" ? dashboard360Filters.clt_inicio_empregador_to : cltInicioEmpregadorTo}
-        onCltInicioEmpregadorToChange={(value) => activeTab === "360" ? update360Filter("clt_inicio_empregador_to", value) : setCltInicioEmpregadorTo(value)}
-        cltCategoriaCodigos={activeTab === "360" ? dashboard360Filters.clt_categoria_codigos : cltCategoriaCodigos}
-        onCltCategoriaCodigosChange={(value) => activeTab === "360" ? update360Filter("clt_categoria_codigos", value) : setCltCategoriaCodigos(value)}
-        cltIdadeMin={activeTab === "360" ? dashboard360Filters.clt_idade_min : cltIdadeMin}
-        onCltIdadeMinChange={(value) => activeTab === "360" ? update360Filter("clt_idade_min", value) : setCltIdadeMin(value)}
-        cltIdadeMax={activeTab === "360" ? dashboard360Filters.clt_idade_max : cltIdadeMax}
-        onCltIdadeMaxChange={(value) => activeTab === "360" ? update360Filter("clt_idade_max", value) : setCltIdadeMax(value)}
-        cltSexo={activeTab === "360" ? dashboard360Filters.clt_sexo : cltSexo}
-        onCltSexoChange={(value) => activeTab === "360" ? update360Filter("clt_sexo", value) : setCltSexo(value)}
-        cltRendaMin={activeTab === "360" ? dashboard360Filters.clt_renda_min : cltRendaMin}
-        onCltRendaMinChange={(value) => activeTab === "360" ? update360Filter("clt_renda_min", value) : setCltRendaMin(value)}
-        cltRendaMax={activeTab === "360" ? dashboard360Filters.clt_renda_max : cltRendaMax}
-        onCltRendaMaxChange={(value) => activeTab === "360" ? update360Filter("clt_renda_max", value) : setCltRendaMax(value)}
-        cltBaseMin={activeTab === "360" ? dashboard360Filters.clt_base_min : cltBaseMin}
-        onCltBaseMinChange={(value) => activeTab === "360" ? update360Filter("clt_base_min", value) : setCltBaseMin(value)}
-        cltBaseMax={activeTab === "360" ? dashboard360Filters.clt_base_max : cltBaseMax}
-        onCltBaseMaxChange={(value) => activeTab === "360" ? update360Filter("clt_base_max", value) : setCltBaseMax(value)}
-        cltMargemMin={activeTab === "360" ? dashboard360Filters.clt_margem_min : cltMargemMin}
-        onCltMargemMinChange={(value) => activeTab === "360" ? update360Filter("clt_margem_min", value) : setCltMargemMin(value)}
-        cltMargemMax={activeTab === "360" ? dashboard360Filters.clt_margem_max : cltMargemMax}
-        onCltMargemMaxChange={(value) => activeTab === "360" ? update360Filter("clt_margem_max", value) : setCltMargemMax(value)}
-        cltPrestacaoMin={activeTab === "360" ? dashboard360Filters.clt_prestacao_min : cltPrestacaoMin}
-        onCltPrestacaoMinChange={(value) => activeTab === "360" ? update360Filter("clt_prestacao_min", value) : setCltPrestacaoMin(value)}
-        cltPrestacaoMax={activeTab === "360" ? dashboard360Filters.clt_prestacao_max : cltPrestacaoMax}
-        onCltPrestacaoMaxChange={(value) => activeTab === "360" ? update360Filter("clt_prestacao_max", value) : setCltPrestacaoMax(value)}
-        cltAtivosMin={activeTab === "360" ? dashboard360Filters.clt_ativos_min : cltAtivosMin}
-        onCltAtivosMinChange={(value) => activeTab === "360" ? update360Filter("clt_ativos_min", value) : setCltAtivosMin(value)}
-        cltAtivosMax={activeTab === "360" ? dashboard360Filters.clt_ativos_max : cltAtivosMax}
-        onCltAtivosMaxChange={(value) => activeTab === "360" ? update360Filter("clt_ativos_max", value) : setCltAtivosMax(value)}
-        cltTemAtivos={activeTab === "360" ? dashboard360Filters.clt_tem_ativos : cltTemAtivos}
-        onCltTemAtivosChange={(value) => activeTab === "360" ? update360Filter("clt_tem_ativos", value) : setCltTemAtivos(value)}
-        cltTemLegados={activeTab === "360" ? dashboard360Filters.clt_tem_legados : cltTemLegados}
-        onCltTemLegadosChange={(value) => activeTab === "360" ? update360Filter("clt_tem_legados", value) : setCltTemLegados(value)}
+        cltSituacao={activeTab === "360" ? dashboard360Filters.facta_situacao : cltSituacao}
+        onCltSituacaoChange={(value) => activeTab === "360" ? update360Filter("facta_situacao", value) : setCltSituacao(value)}
+        cltConsultaFrom={activeTab === "360" ? dashboard360Filters.facta_consulta_from : cltConsultaFrom}
+        onCltConsultaFromChange={(value) => activeTab === "360" ? update360Filter("facta_consulta_from", value) : setCltConsultaFrom(value)}
+        cltConsultaTo={activeTab === "360" ? dashboard360Filters.facta_consulta_to : cltConsultaTo}
+        onCltConsultaToChange={(value) => activeTab === "360" ? update360Filter("facta_consulta_to", value) : setCltConsultaTo(value)}
+        cltAdmissaoFrom={activeTab === "360" ? dashboard360Filters.facta_admissao_from : cltAdmissaoFrom}
+        onCltAdmissaoFromChange={(value) => activeTab === "360" ? update360Filter("facta_admissao_from", value) : setCltAdmissaoFrom(value)}
+        cltAdmissaoTo={activeTab === "360" ? dashboard360Filters.facta_admissao_to : cltAdmissaoTo}
+        onCltAdmissaoToChange={(value) => activeTab === "360" ? update360Filter("facta_admissao_to", value) : setCltAdmissaoTo(value)}
+        cltMesesMin={activeTab === "360" ? dashboard360Filters.facta_meses_min : cltMesesMin}
+        onCltMesesMinChange={(value) => activeTab === "360" ? update360Filter("facta_meses_min", value) : setCltMesesMin(value)}
+        cltMesesMax={activeTab === "360" ? dashboard360Filters.facta_meses_max : cltMesesMax}
+        onCltMesesMaxChange={(value) => activeTab === "360" ? update360Filter("facta_meses_max", value) : setCltMesesMax(value)}
+        cltInicioEmpregadorFrom={activeTab === "360" ? dashboard360Filters.facta_inicio_empregador_from : cltInicioEmpregadorFrom}
+        onCltInicioEmpregadorFromChange={(value) => activeTab === "360" ? update360Filter("facta_inicio_empregador_from", value) : setCltInicioEmpregadorFrom(value)}
+        cltInicioEmpregadorTo={activeTab === "360" ? dashboard360Filters.facta_inicio_empregador_to : cltInicioEmpregadorTo}
+        onCltInicioEmpregadorToChange={(value) => activeTab === "360" ? update360Filter("facta_inicio_empregador_to", value) : setCltInicioEmpregadorTo(value)}
+        cltCategoriaCodigos={activeTab === "360" ? dashboard360Filters.facta_categoria_codigos : cltCategoriaCodigos}
+        onCltCategoriaCodigosChange={(value) => activeTab === "360" ? update360Filter("facta_categoria_codigos", value) : setCltCategoriaCodigos(value)}
+        cltIdadeMin={activeTab === "360" ? dashboard360Filters.facta_idade_min : cltIdadeMin}
+        onCltIdadeMinChange={(value) => activeTab === "360" ? update360Filter("facta_idade_min", value) : setCltIdadeMin(value)}
+        cltIdadeMax={activeTab === "360" ? dashboard360Filters.facta_idade_max : cltIdadeMax}
+        onCltIdadeMaxChange={(value) => activeTab === "360" ? update360Filter("facta_idade_max", value) : setCltIdadeMax(value)}
+        cltSexo={activeTab === "360" ? dashboard360Filters.facta_sexo : cltSexo}
+        onCltSexoChange={(value) => activeTab === "360" ? update360Filter("facta_sexo", value) : setCltSexo(value)}
+        cltRendaMin={activeTab === "360" ? dashboard360Filters.facta_renda_min : cltRendaMin}
+        onCltRendaMinChange={(value) => activeTab === "360" ? update360Filter("facta_renda_min", value) : setCltRendaMin(value)}
+        cltRendaMax={activeTab === "360" ? dashboard360Filters.facta_renda_max : cltRendaMax}
+        onCltRendaMaxChange={(value) => activeTab === "360" ? update360Filter("facta_renda_max", value) : setCltRendaMax(value)}
+        cltBaseMin={activeTab === "360" ? dashboard360Filters.facta_base_min : cltBaseMin}
+        onCltBaseMinChange={(value) => activeTab === "360" ? update360Filter("facta_base_min", value) : setCltBaseMin(value)}
+        cltBaseMax={activeTab === "360" ? dashboard360Filters.facta_base_max : cltBaseMax}
+        onCltBaseMaxChange={(value) => activeTab === "360" ? update360Filter("facta_base_max", value) : setCltBaseMax(value)}
+        cltMargemMin={activeTab === "360" ? dashboard360Filters.facta_margem_min : cltMargemMin}
+        onCltMargemMinChange={(value) => activeTab === "360" ? update360Filter("facta_margem_min", value) : setCltMargemMin(value)}
+        cltMargemMax={activeTab === "360" ? dashboard360Filters.facta_margem_max : cltMargemMax}
+        onCltMargemMaxChange={(value) => activeTab === "360" ? update360Filter("facta_margem_max", value) : setCltMargemMax(value)}
+        cltPrestacaoMin={activeTab === "360" ? dashboard360Filters.facta_prestacao_min : cltPrestacaoMin}
+        onCltPrestacaoMinChange={(value) => activeTab === "360" ? update360Filter("facta_prestacao_min", value) : setCltPrestacaoMin(value)}
+        cltPrestacaoMax={activeTab === "360" ? dashboard360Filters.facta_prestacao_max : cltPrestacaoMax}
+        onCltPrestacaoMaxChange={(value) => activeTab === "360" ? update360Filter("facta_prestacao_max", value) : setCltPrestacaoMax(value)}
+        cltAtivosMin={activeTab === "360" ? dashboard360Filters.facta_ativos_min : cltAtivosMin}
+        onCltAtivosMinChange={(value) => activeTab === "360" ? update360Filter("facta_ativos_min", value) : setCltAtivosMin(value)}
+        cltAtivosMax={activeTab === "360" ? dashboard360Filters.facta_ativos_max : cltAtivosMax}
+        onCltAtivosMaxChange={(value) => activeTab === "360" ? update360Filter("facta_ativos_max", value) : setCltAtivosMax(value)}
+        cltTemAtivos={activeTab === "360" ? dashboard360Filters.facta_tem_ativos : cltTemAtivos}
+        onCltTemAtivosChange={(value) => activeTab === "360" ? update360Filter("facta_tem_ativos", value) : setCltTemAtivos(value)}
+        cltTemLegados={activeTab === "360" ? dashboard360Filters.facta_tem_legados : cltTemLegados}
+        onCltTemLegadosChange={(value) => activeTab === "360" ? update360Filter("facta_tem_legados", value) : setCltTemLegados(value)}
         mercantilSituacao={activeTab === "360" ? dashboard360Filters.mercantil_situacao : "todos"}
         onMercantilSituacaoChange={(value) => {
           if (activeTab === "360") update360Filter("mercantil_situacao", value as MercantilSituacao360Filter)
@@ -2069,7 +2069,7 @@ const Dashboard = () => {
         defaultVisibleColumns360={DASHBOARD_360_COLUMNS_DEFAULT}
         defaultVisibleColumnsBASE={BASE_COLUMNS_DEFAULT}
         defaultVisibleColumnsFGTS={FGTS_COLUMNS_DEFAULT}
-        defaultVisibleColumnsCLT={CLT_COLUMNS_DEFAULT}
+        defaultVisibleColumnsCLT={FACTA_COLUMNS_DEFAULT}
         defaultVisibleColumnsMERCANTIL={MERCANTIL_COLUMNS_DEFAULT}
         defaultVisibleColumnsUY3={UY3_COLUMNS_DEFAULT}
         stickyIdentityColumns360={dashboard360StickyIdentityColumns}

@@ -1,9 +1,9 @@
-// src/api/clt.ts
+// src/api/facta.ts
 import axiosClient from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 /** Estados do job no backend */
-export type CltJobStatus =
+export type FactaCltJobStatus =
   | 'agendado'
   | 'pendente'
   | 'em_progresso'
@@ -12,21 +12,21 @@ export type CltJobStatus =
   | 'falhou'
   | 'cancelado'
 
-export type CltJobStatusFilter = CltJobStatus | 'todos'
-export type CltJobVariant = 'online' | 'offline' | 'hybrid' | 'credit_policy'
-export type CltJobVariantFilter = CltJobVariant | 'todos'
+export type FactaCltJobStatusFilter = FactaCltJobStatus | 'todos'
+export type FactaCltJobVariant = 'online' | 'offline' | 'hybrid' | 'credit_policy'
+export type FactaCltJobVariantFilter = FactaCltJobVariant | 'todos'
 
-export type CltJobPhase = 'fase_1' | 'fase_2' | null
+export type FactaCltJobPhase = 'fase_1' | 'fase_2' | null
 
 /** Estados da PRÉVIA (alinhado ao backend) */
 export type PreviewStatus = 'none' | 'queued' | 'running' | 'ready' | 'error'
 
 /** DTO básico (index) */
-export interface CltConsultJobListItem {
+export interface FactaCltConsultJobListItem {
   id: number
   title: string
-  status: CltJobStatus
-  phase?: CltJobPhase
+  status: FactaCltJobStatus
+  phase?: FactaCltJobPhase
   phase2_total?: number
   phase2_attempt?: number
   phase2_aprovado_count?: number
@@ -56,7 +56,7 @@ export interface CltConsultJobListItem {
   spool_cpfs_path?: string | null
 
   /** modo/variante */
-  variant?: CltJobVariant | null
+  variant?: FactaCltJobVariant | null
 
   started_at?: string | null
   finished_at?: string | null
@@ -68,11 +68,11 @@ export interface CltConsultJobListItem {
 }
 
 /** DTO de show() — espelha FGTS OFF, com campos de prévia completos */
-export interface CltConsultJobShow {
+export interface FactaCltConsultJobShow {
   id: number
   title: string
-  status: CltJobStatus
-  phase?: CltJobPhase
+  status: FactaCltJobStatus
+  phase?: FactaCltJobPhase
   phase2_total?: number
   phase2_attempt?: number
   phase2_aprovado_count?: number
@@ -100,7 +100,7 @@ export interface CltConsultJobShow {
   spool_bytes?: number | null
 
   /** modo/variante (opcional no show) */
-  variant?: CltJobVariant | null
+  variant?: FactaCltJobVariant | null
 
   /** datas */
   started_at?: string | null
@@ -112,7 +112,7 @@ export interface CltConsultJobShow {
   created_at: string
 }
 
-export interface CltJobHttpCounterRow {
+export interface FactaCltJobHttpCounterRow {
   endpoint: string
   request_count: number
   response_count: number
@@ -126,27 +126,27 @@ export interface CltJobHttpCounterRow {
   no_response_count: number
 }
 
-export interface CltJobHttpCountersResponse {
+export interface FactaCltJobHttpCountersResponse {
   id: number
   title: string
-  variant: CltJobVariant | null
-  status: CltJobStatus
+  variant: FactaCltJobVariant | null
+  status: FactaCltJobStatus
   available: boolean
-  summary: Omit<CltJobHttpCounterRow, 'endpoint'>
+  summary: Omit<FactaCltJobHttpCounterRow, 'endpoint'>
   checks: {
     request_balance_ok: boolean
     status_balance_ok: boolean
   }
-  endpoints: CltJobHttpCounterRow[]
+  endpoints: FactaCltJobHttpCounterRow[]
   updated_at?: string | null
 }
 
 /** Payload de criação alinhado ao backend */
-export interface CreateCltConsultInput {
+export interface CreateFactaCltConsultInput {
   title: string
   cpfs: string | string[]
   /** 'online' | 'offline' | 'hybrid' | 'credit_policy' */
-  variant?: CltJobVariant
+  variant?: FactaCltJobVariant
   run_at?: string
   timezone?: string
 }
@@ -160,34 +160,34 @@ export interface Paginated<T> {
   total: number
 }
 
-const BASE = '/clt/consult-jobs'
-const CLT_JOB_STATUSES: CltJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
-const CLT_JOB_VARIANTS: CltJobVariant[] = ['online', 'offline', 'hybrid', 'credit_policy']
+const BASE = '/facta-clt/consult-jobs'
+const FACTA_CLT_JOB_STATUSES: FactaCltJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
+const FACTA_CLT_JOB_VARIANTS: FactaCltJobVariant[] = ['online', 'offline', 'hybrid', 'credit_policy']
 
 /** Lista os jobs CLT com filtros opcionais */
-export async function listCltConsultJobs(
+export async function listFactaCltConsultJobs(
   page = 1,
-  opts?: { status?: CltJobStatusFilter; variant?: CltJobVariantFilter }
-): Promise<Paginated<CltConsultJobListItem>> {
+  opts?: { status?: FactaCltJobStatusFilter; variant?: FactaCltJobVariantFilter }
+): Promise<Paginated<FactaCltConsultJobListItem>> {
   const params: Record<string, string | number> = { page }
   const requestedStatus = opts?.status
   const requestedVariant = opts?.variant
   if (
     typeof requestedStatus === 'string'
     && requestedStatus !== 'todos'
-    && CLT_JOB_STATUSES.includes(requestedStatus as CltJobStatus)
+    && FACTA_CLT_JOB_STATUSES.includes(requestedStatus as FactaCltJobStatus)
   ) {
     params.status = requestedStatus
   }
   if (
     typeof requestedVariant === 'string'
     && requestedVariant !== 'todos'
-    && CLT_JOB_VARIANTS.includes(requestedVariant as CltJobVariant)
+    && FACTA_CLT_JOB_VARIANTS.includes(requestedVariant as FactaCltJobVariant)
   ) {
     params.variant = requestedVariant
   }
 
-  const { data } = await axiosClient.get<Paginated<CltConsultJobListItem>>(
+  const { data } = await axiosClient.get<Paginated<FactaCltConsultJobListItem>>(
     BASE,
     { params }
   )
@@ -195,8 +195,8 @@ export async function listCltConsultJobs(
 }
 
 /** Cria um novo job (cpfs: string colada do textarea ou array de strings) */
-export async function createCltConsultJob(input: CreateCltConsultInput) {
-  const { data } = await axiosClient.post<{ id: number; status: CltJobStatus; phase?: CltJobPhase; scheduled_for?: string | null }>(
+export async function createFactaCltConsultJob(input: CreateFactaCltConsultInput) {
+  const { data } = await axiosClient.post<{ id: number; status: FactaCltJobStatus; phase?: FactaCltJobPhase; scheduled_for?: string | null }>(
     BASE,
     input
   )
@@ -204,18 +204,18 @@ export async function createCltConsultJob(input: CreateCltConsultInput) {
 }
 
 /** Busca um job específico (para checar status) */
-export async function getCltConsultJob(id: number): Promise<CltConsultJobShow> {
-  const { data } = await axiosClient.get<CltConsultJobShow>(`${BASE}/${id}`)
+export async function getFactaCltConsultJob(id: number): Promise<FactaCltConsultJobShow> {
+  const { data } = await axiosClient.get<FactaCltConsultJobShow>(`${BASE}/${id}`)
   return data
 }
 
-export async function getCltJobHttpCounters(id: number): Promise<CltJobHttpCountersResponse> {
-  const { data } = await axiosClient.get<CltJobHttpCountersResponse>(`${BASE}/${id}/http-counters`)
+export async function getFactaCltJobHttpCounters(id: number): Promise<FactaCltJobHttpCountersResponse> {
+  const { data } = await axiosClient.get<FactaCltJobHttpCountersResponse>(`${BASE}/${id}/http-counters`)
   return data
 }
 
 /** Solicita geração da PRÉVIA (200=já pronta, 202=aceita/andando, 409=indisponível) */
-export async function requestCltPreview(id: number): Promise<200 | 202 | 409> {
+export async function requestFactaCltPreview(id: number): Promise<200 | 202 | 409> {
   const resp = await axiosClient.post(
     `${BASE}/${id}/preview/generate`,
     null,
@@ -227,14 +227,14 @@ export async function requestCltPreview(id: number): Promise<200 | 202 | 409> {
 }
 
 /** Faz o download do relatório FINAL (stream) — aplica cache-busting defensivo */
-export async function downloadCltReport(id: number) {
+export async function downloadFactaCltReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
     params: { t: Date.now() },
   })
 
   const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}.csv`
+  const name = parseContentDispositionFilename(cd) || `facta-clt-consulta-${id}.csv`
 
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')
@@ -247,14 +247,14 @@ export async function downloadCltReport(id: number) {
 }
 
 /** Faz o download da PRÉVIA já pronta (NÃO força regeneração) */
-export async function downloadCltPreview(id: number) {
+export async function downloadFactaCltPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
     params: { t: Date.now() },
   })
 
   const cd = resp.headers['content-disposition'] || ''
-  const name = parseContentDispositionFilename(cd) || `clt-consulta-${id}-preview.csv`
+  const name = parseContentDispositionFilename(cd) || `facta-clt-consulta-${id}-preview.csv`
 
   const url = window.URL.createObjectURL(resp.data)
   const a = document.createElement('a')
@@ -267,11 +267,11 @@ export async function downloadCltPreview(id: number) {
 }
 
 /** Cancela um job (opcionalmente com motivo) */
-export async function cancelCltConsultJob(id: number, reason?: string) {
+export async function cancelFactaCltConsultJob(id: number, reason?: string) {
   const { data } = await axiosClient.post<{
     id: number
-    status: CltJobStatus
-    phase?: CltJobPhase
+    status: FactaCltJobStatus
+    phase?: FactaCltJobPhase
     finished_at?: string | null
     canceled_at?: string | null
     cancel_reason?: string | null
@@ -280,32 +280,32 @@ export async function cancelCltConsultJob(id: number, reason?: string) {
 }
 
 /** Pausa um job CLT em andamento ou pendente */
-export async function pauseCltConsultJob(id: number) {
+export async function pauseFactaCltConsultJob(id: number) {
   const { data } = await axiosClient.post<{
     id: number
-    status: CltJobStatus
-    phase?: CltJobPhase
+    status: FactaCltJobStatus
+    phase?: FactaCltJobPhase
     paused_at?: string | null
   }>(`${BASE}/${id}/pause`)
   return data
 }
 
 /** Retoma um job CLT pausado */
-export async function resumeCltConsultJob(id: number) {
+export async function resumeFactaCltConsultJob(id: number) {
   const { data } = await axiosClient.post<{
     id: number
-    status: CltJobStatus
-    phase?: CltJobPhase
+    status: FactaCltJobStatus
+    phase?: FactaCltJobPhase
   }>(`${BASE}/${id}/resume`)
   return data
 }
 
 /** Reprocessa a fase 2 de um job online/hibrido concluído ou cancelado com spool preservado */
-export async function rerunCltConsultJobPhase2(id: number) {
+export async function rerunFactaCltConsultJobPhase2(id: number) {
   const { data } = await axiosClient.post<{
     id: number
-    status: CltJobStatus
-    phase?: CltJobPhase
+    status: FactaCltJobStatus
+    phase?: FactaCltJobPhase
     phase2_total?: number
     phase2_attempt?: number
     phase2_aprovado_count?: number
@@ -315,7 +315,7 @@ export async function rerunCltConsultJobPhase2(id: number) {
 }
 
 /** Exclui definitivamente um job e seus arquivos (204 No Content) */
-export async function deleteCltConsultJob(id: number): Promise<void> {
+export async function deleteFactaCltConsultJob(id: number): Promise<void> {
   await axiosClient.delete(`${BASE}/${id}`)
 }
 

@@ -1,19 +1,19 @@
 import axiosClient from "@/api/axiosClient"
 
-export type LemitBankKey = "clt" | "mercantil" | "uy3"
+export type LemitBankKey = "facta" | "mercantil" | "uy3"
 export type LemitCombinationMode = "all" | "any"
 export type LemitLoanSituation = "aprovado" | "nao_aprovado"
 
-export interface LemitCltFilters {
-  clt_situacao: LemitLoanSituation | ""
-  clt_consulta_from: string
-  clt_consulta_to: string
-  clt_meses_admissao_min: string
-  clt_meses_admissao_max: string
-  clt_margem_min: string
-  clt_margem_max: string
-  clt_numero_parcelas_min: string
-  clt_numero_parcelas_max: string
+export interface LemitFactaFilters {
+  facta_situacao: LemitLoanSituation | ""
+  facta_consulta_from: string
+  facta_consulta_to: string
+  facta_meses_admissao_min: string
+  facta_meses_admissao_max: string
+  facta_margem_min: string
+  facta_margem_max: string
+  facta_numero_parcelas_min: string
+  facta_numero_parcelas_max: string
 }
 
 export interface LemitMercantilFilters {
@@ -45,7 +45,7 @@ export interface LemitPoolFiltersDraft {
   bank_combination_mode: LemitCombinationMode
   with_phones: boolean
   without_phones: boolean
-  clt: LemitCltFilters
+  facta: LemitFactaFilters
   mercantil: LemitMercantilFilters
   uy3: LemitUy3Filters
 }
@@ -77,16 +77,16 @@ export function createDefaultLemitPoolFilters(): LemitPoolFiltersDraft {
     bank_combination_mode: "any",
     with_phones: false,
     without_phones: false,
-    clt: {
-      clt_situacao: "",
-      clt_consulta_from: "",
-      clt_consulta_to: "",
-      clt_meses_admissao_min: "",
-      clt_meses_admissao_max: "",
-      clt_margem_min: "",
-      clt_margem_max: "",
-      clt_numero_parcelas_min: "",
-      clt_numero_parcelas_max: "",
+    facta: {
+      facta_situacao: "",
+      facta_consulta_from: "",
+      facta_consulta_to: "",
+      facta_meses_admissao_min: "",
+      facta_meses_admissao_max: "",
+      facta_margem_min: "",
+      facta_margem_max: "",
+      facta_numero_parcelas_min: "",
+      facta_numero_parcelas_max: "",
     },
     mercantil: {
       mercantil_situacao: "",

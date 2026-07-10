@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Modules\CLT\Support;
+namespace App\Modules\Facta\Support;
 
 use Illuminate\Filesystem\FilesystemAdapter;
 use Throwable;
 
-final class CltSpool
+final class FactaCltSpool
 {
     /**
      * @return array<int,string>
@@ -28,7 +28,7 @@ final class CltSpool
             $targets[] = "{$spoolPath}.phase2.pending.ndjson";
             $targets[] = "{$spoolPath}.phase2.pending.ndjson.next";
 
-            $attempts = max(1, $phase2MaxAttempts ?? (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+            $attempts = max(1, $phase2MaxAttempts ?? (int) config('facta.credit_worker.phase2_max_attempts', 3));
             for ($attempt = 1; $attempt <= $attempts; $attempt++) {
                 $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
             }
@@ -59,7 +59,7 @@ final class CltSpool
             $targets[] = "{$spoolPath}.phase2.pending.ndjson";
             $targets[] = "{$spoolPath}.phase2.pending.ndjson.next";
 
-            $attempts = max(1, $phase2MaxAttempts ?? (int) config('cltfacta.credit_worker.phase2_max_attempts', 3));
+            $attempts = max(1, $phase2MaxAttempts ?? (int) config('facta.credit_worker.phase2_max_attempts', 3));
             for ($attempt = 1; $attempt <= $attempts; $attempt++) {
                 $targets[] = "{$spoolPath}.phase2.delta.a{$attempt}.ndjson";
             }

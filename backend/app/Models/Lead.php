@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Modules\CLT\Models\CltSnapshot;
+use App\Modules\Facta\Models\FactaCltSnapshot;
 use App\Modules\Uy3\Models\Uy3Snapshot;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -62,9 +62,9 @@ class Lead extends Model
     }
 
     /** Snapshot CLT mais recente por CPF (join por cpf, não por lead_id). */
-    public function cltSnapshot(): HasOne
+    public function factaSnapshot(): HasOne
     {
-        return $this->hasOne(CltSnapshot::class, 'cpf', 'cpf');
+        return $this->hasOne(FactaCltSnapshot::class, 'cpf', 'cpf');
     }
 
     public function mercantilSnapshot(): HasOne
