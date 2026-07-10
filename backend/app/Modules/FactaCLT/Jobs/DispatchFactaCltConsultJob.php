@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Modules\Facta\Jobs;
+namespace App\Modules\FactaCLT\Jobs;
 
-use App\Modules\Facta\Models\FactaCltConsultJob;
-use App\Modules\Facta\Support\FactaCltVariant;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Support\FactaCltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;

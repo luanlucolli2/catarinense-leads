@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Facta\Support;
+namespace App\Modules\FactaCLT\Support;
 
 use Illuminate\Support\Facades\Log;
 

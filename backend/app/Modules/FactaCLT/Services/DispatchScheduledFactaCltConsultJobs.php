@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Modules\Facta\Services;
+namespace App\Modules\FactaCLT\Services;
 
-use App\Modules\Facta\Jobs\DispatchFactaCltConsultJob;
-use App\Modules\Facta\Models\FactaCltConsultJob;
-use App\Modules\Facta\Support\FactaCltLog;
-use App\Modules\Facta\Support\FactaCltSpool;
-use App\Modules\Facta\Support\FactaCltVariant;
+use App\Modules\FactaCLT\Jobs\DispatchFactaCltConsultJob;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Support\FactaCltLog;
+use App\Modules\FactaCLT\Support\FactaCltSpool;
+use App\Modules\FactaCLT\Support\FactaCltVariant;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Throwable;

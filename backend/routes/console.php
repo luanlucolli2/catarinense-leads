@@ -4,7 +4,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
-use App\Modules\Facta\Services\DispatchScheduledFactaCltConsultJobs;
+use App\Modules\FactaCLT\Services\DispatchScheduledFactaCltConsultJobs;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
 use App\Modules\Vendeai\Services\NewCorbanCatalogValidationService;
 use App\Modules\Uy3\Services\BackfillUy3SnapshotsService;

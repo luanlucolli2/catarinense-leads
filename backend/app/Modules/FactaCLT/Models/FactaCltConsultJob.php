@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Facta\Models;
+namespace App\Modules\FactaCLT\Models;
 
 use Illuminate\Database\Eloquent\Model;
 

@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Modules\Facta\Models\FactaCltSnapshot;
+use App\Modules\FactaCLT\Models\FactaCltSnapshot;
 use App\Modules\Uy3\Models\Uy3Snapshot;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;

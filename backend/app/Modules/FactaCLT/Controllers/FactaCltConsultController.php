@@ -1,15 +1,15 @@
 <?php
 
-namespace App\Modules\Facta\Controllers;
+namespace App\Modules\FactaCLT\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Facta\Jobs\DispatchFactaCltConsultJob;
-use App\Modules\Facta\Jobs\ProcessFactaCltConsultJob;
-use App\Modules\Facta\Models\FactaCltConsultJob;
-use App\Modules\Facta\Support\FactaCltLog;
-use App\Modules\Facta\Support\FactaCltSchema;
-use App\Modules\Facta\Support\FactaCltSpool;
-use App\Modules\Facta\Support\FactaCltVariant;
+use App\Modules\FactaCLT\Jobs\DispatchFactaCltConsultJob;
+use App\Modules\FactaCLT\Jobs\ProcessFactaCltConsultJob;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Support\FactaCltLog;
+use App\Modules\FactaCLT\Support\FactaCltSchema;
+use App\Modules\FactaCLT\Support\FactaCltSpool;
+use App\Modules\FactaCLT\Support\FactaCltVariant;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;

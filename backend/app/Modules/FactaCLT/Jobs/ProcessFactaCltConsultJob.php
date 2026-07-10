@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Modules\Facta\Jobs;
+namespace App\Modules\FactaCLT\Jobs;
 
-use App\Modules\Facta\Models\FactaCltConsultJob;
-use App\Modules\Facta\Services\Exceptions\FactaFatalAuthException;
-use App\Modules\Facta\Support\FactaCltLog;
-use App\Modules\Facta\Support\FactaCltSchema;
-use App\Modules\Facta\Support\FactaCltSpool;
-use App\Modules\Facta\Support\FactaCltVariant;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Services\Exceptions\FactaFatalAuthException;
+use App\Modules\FactaCLT\Support\FactaCltLog;
+use App\Modules\FactaCLT\Support\FactaCltSchema;
+use App\Modules\FactaCLT\Support\FactaCltSpool;
+use App\Modules\FactaCLT\Support\FactaCltVariant;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -177,12 +177,12 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->lastStatusCheckAt = microtime(true);
 
         $api = $this->variant === 'offline'
-            ? app(\App\Modules\Facta\Services\FactaCltOfflineApiService::class)
-            : app(\App\Modules\Facta\Services\FactaApiService::class);
+            ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
+            : app(\App\Modules\FactaCLT\Services\FactaApiService::class);
         $hybridOfflineApi = $this->variant === 'hybrid'
-            ? app(\App\Modules\Facta\Services\FactaCltOfflineApiService::class)
+            ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
             : null;
-        if ($api instanceof \App\Modules\Facta\Services\FactaApiService) {
+        if ($api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
             $api->setRuntimeJobId($this->jobId);
         }
 
@@ -213,7 +213,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2PendingNextReal = $this->phase2PendingReal . '.next';
 
         if ($this->stage === self::STAGE_PHASE2) {
-            if (!$this->supportsCreditPhaseTwo() || !$api instanceof \App\Modules\Facta\Services\FactaApiService) {
+            if (!$this->supportsCreditPhaseTwo() || !$api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
                 FactaCltLog::warning('[CLT] Job recebido na fila da fase 2 com variante não suportada.', [
                     'job_id' => $this->jobId,
                     'variant' => $this->variant,
@@ -664,7 +664,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\Facta\Services\FactaApiService) {
+            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
                 $this->dispatchPhaseTwo($job);
                 return;
             }
@@ -679,7 +679,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             } catch (Throwable) {
             }
         } finally {
-            if ($api instanceof \App\Modules\Facta\Services\FactaApiService) {
+            if ($api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
                 try {
                     $api->flushRuntimeHttpCounters();
                 } catch (Throwable $e) {
@@ -808,7 +808,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         int &$totalInAttempt,
         int &$semRespInChunkOut,
         int &$chunkProcessedOut,
-        ?\App\Modules\Facta\Services\FactaCltOfflineApiService $hybridOfflineApi = null,
+        ?\App\Modules\FactaCLT\Services\FactaCltOfflineApiService $hybridOfflineApi = null,
         bool $allowHybridOfflineReuse = false
     ): void {
         $t0 = microtime(true);
@@ -839,8 +839,8 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             $onlineSlice = $slice;
             if (
                 $allowHybridOfflineReuse
-                && $api instanceof \App\Modules\Facta\Services\FactaApiService
-                && $hybridOfflineApi instanceof \App\Modules\Facta\Services\FactaCltOfflineApiService
+                && $api instanceof \App\Modules\FactaCLT\Services\FactaApiService
+                && $hybridOfflineApi instanceof \App\Modules\FactaCLT\Services\FactaCltOfflineApiService
             ) {
                 $onlineSlice = $this->precheckHybridSlice(
                     $hybridOfflineApi,
@@ -863,7 +863,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             $onlineAttemptsInChunk += count($onlineSlice);
-            $consultaSource = $api instanceof \App\Modules\Facta\Services\FactaCltOfflineApiService
+            $consultaSource = $api instanceof \App\Modules\FactaCLT\Services\FactaCltOfflineApiService
                 ? 'offline'
                 : 'online';
 
@@ -1238,7 +1238,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
     }
 
     private function precheckHybridSlice(
-        \App\Modules\Facta\Services\FactaCltOfflineApiService $offlineApi,
+        \App\Modules\FactaCLT\Services\FactaCltOfflineApiService $offlineApi,
         array $slice,
         string $nowStr,
         array &$rows,
@@ -2185,7 +2185,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         return [$processableCount, $discardedCount];
     }
 
-    private function runCreditPhaseTwo(\App\Modules\Facta\Services\FactaApiService $api, FactaCltConsultJob $job): bool
+    private function runCreditPhaseTwo(\App\Modules\FactaCLT\Services\FactaApiService $api, FactaCltConsultJob $job): bool
     {
         if ($this->finishIfStopped($job)) {
             return false;
@@ -2358,7 +2358,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @return array{aborted:bool,token_abort:bool,token_abort_message:?string,pending_count:int,processed_rows:int,skipped_rows:int,resolved_approved:int,resolved_not_approved:int}
      */
     private function processCreditPhaseTwoAttempt(
-        \App\Modules\Facta\Services\FactaApiService $api,
+        \App\Modules\FactaCLT\Services\FactaApiService $api,
         FactaCltConsultJob $job,
         int $attempt,
         bool $usePendingSource,
@@ -3454,7 +3454,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
      * @return array{row:array<string,mixed>,pending:bool,aborted:bool,phase2_request_count:int,phase2_operacoes_request_count:int,phase2_politica_request_count:int,phase2_approved_table:?array,phase2_approved_table_name:?string}
      */
     private function applyCreditPhaseToRow(
-        \App\Modules\Facta\Services\FactaApiService $api,
+        \App\Modules\FactaCLT\Services\FactaApiService $api,
         FactaCltConsultJob $job,
         array $row,
         int $lineNo,

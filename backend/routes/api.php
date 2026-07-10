@@ -8,7 +8,7 @@ use App\Modules\Leads\Controllers\LeadController;
 use App\Modules\Leads\Controllers\ImportController;
 use App\Modules\Leads\Controllers\LeadExportController;
 use App\Modules\Leads\Controllers\RollbackController;
-use App\Modules\Facta\Controllers\FactaCltConsultController;
+use App\Modules\FactaCLT\Controllers\FactaCltConsultController;
 use App\Modules\HubCredito\Controllers\HubCreditoConsultController;
 use App\Modules\V8\Controllers\V8ConsultController;
 use App\Modules\V8Fgts\Controllers\V8FgtsConsultController;

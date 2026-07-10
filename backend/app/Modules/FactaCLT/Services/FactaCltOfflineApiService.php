@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Modules\Facta\Services;
+namespace App\Modules\FactaCLT\Services;
 
-use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\FactaCLT\Support\FactaCltLog;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;

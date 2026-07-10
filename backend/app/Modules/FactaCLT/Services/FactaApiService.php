@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Modules\Facta\Services;
+namespace App\Modules\FactaCLT\Services;
 
-use App\Modules\Facta\Services\Exceptions\FactaFatalAuthException;
-use App\Modules\Facta\Support\FactaCltLog;
+use App\Modules\FactaCLT\Services\Exceptions\FactaFatalAuthException;
+use App\Modules\FactaCLT\Support\FactaCltLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -1885,7 +1885,7 @@ class FactaApiService
             || str_contains($normalized, 'analise-politica-credito');
     }
 
-    // App\Modules\Facta\Services\FactaApiService.php
+    // App\Modules\FactaCLT\Services\FactaApiService.php
 
     private function errorResult(string $mensagem, bool $retriable, ?int $httpStatus = null, ?int $retryAfter = null): array
     {

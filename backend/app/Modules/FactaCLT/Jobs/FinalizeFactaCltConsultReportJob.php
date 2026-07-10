@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Modules\Facta\Jobs;
+namespace App\Modules\FactaCLT\Jobs;
 
-use App\Modules\Facta\Models\FactaCltConsultJob;
-use App\Modules\Facta\Support\FactaCltLog;
-use App\Modules\Facta\Support\FactaCltSchema;
-use App\Modules\Facta\Support\FactaCltSpool;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Support\FactaCltLog;
+use App\Modules\FactaCLT\Support\FactaCltSchema;
+use App\Modules\FactaCLT\Support\FactaCltSpool;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Filesystem\FilesystemAdapter;
