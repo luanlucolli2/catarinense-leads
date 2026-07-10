@@ -57,6 +57,7 @@ class HubCreditoConsultController extends Controller
             'total_cpfs' => $job->total_cpfs,
             'aprovado_count' => $job->aprovado_count,
             'nao_aprovado_count' => $job->nao_aprovado_count,
+            'fail_count' => $job->fail_count,
             'has_file' => (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
@@ -97,6 +98,7 @@ class HubCreditoConsultController extends Controller
             'total_cpfs' => 0,
             'aprovado_count' => 0,
             'nao_aprovado_count' => 0,
+            'fail_count' => 0,
         ]);
 
         try {

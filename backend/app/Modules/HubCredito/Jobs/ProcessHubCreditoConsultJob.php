@@ -40,7 +40,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase2StartDelaySeconds;
     private int $phase1RequestIntervalMs;
     private int $pollDelaySeconds;
-    private int $pageSize;
     private array $genderCache = [];
 
     public function __construct(int $jobId)
@@ -53,8 +52,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2TimeoutSeconds = max(60, (int) config('hubcredito.job.phase2_timeout_seconds', 2700));
         $this->phase2StartDelaySeconds = max(0, (int) config('hubcredito.job.phase2_start_delay_seconds', 60));
         $this->phase1RequestIntervalMs = max(0, (int) config('hubcredito.job.phase1_request_interval_ms', 1500));
-        $this->pollDelaySeconds = max(0, (int) config('hubcredito.job.poll_delay_seconds', 15));
-        $this->pageSize = max(1, min(100, (int) config('hubcredito.job.page_size', 100)));
+        $this->pollDelaySeconds = max(0, (int) config('hubcredito.job.poll_delay_seconds', 120));
     }
 
     public function uniqueId(): string
@@ -179,7 +177,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 if ($parsed['error']) {
                     $totalCount++;
                     $row = $this->baseRow((string) ($parsed['cpf'] ?? ''), $parsed['nome'] ?? null, $parsed['nasc'] ?? null);
-                    $row['situacao'] = $this->notApprovedStatus();
+                    $row['situacao'] = $this->failedStatus();
                     $row['mensagem'] = (string) $parsed['error'];
                     $rowBuffer[] = $row;
                     $this->flushRowBuffer($job, $rowBuffer);
@@ -213,7 +211,9 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
                 if (!is_numeric($preSimId)) {
                     $row = $this->baseRow($entry['cpf'], $entry['nome'], $entry['nasc']);
-                    $row['situacao'] = $this->notApprovedStatus();
+                    $row['situacao'] = $this->isTransientFailure($response)
+                        ? $this->failedStatus()
+                        : $this->notApprovedStatus();
                     $row['mensagem'] = $this->formatApiMessage($response) ?: 'Falha ao criar pré-simulação.';
                     $rowBuffer[] = $row;
                     $this->flushRowBuffer($job, $rowBuffer);
@@ -255,26 +255,13 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 return 'falhou';
             }
 
-            $page = 1;
-            $hasNext = false;
             $resolvedIdsByShard = [];
+            $response = $api->listPreSimulacao([
+                'lojaId' => (int) config('hubcredito.integration.loja_id', 15895),
+                'dataCriacaoInicio' => $this->formatPreSimulacaoTime($startedAt),
+            ]);
 
-            do {
-                if ($this->isCancelled()) {
-                    return 'falhou';
-                }
-
-                $response = $api->listPreSimulacao([
-                    'numeroPagina' => $page,
-                    'tamanhoPagina' => $this->pageSize,
-                    'lojaId' => (int) config('hubcredito.integration.loja_id', 15895),
-                    'dataCriacaoInicio' => $this->formatPreSimulacaoTime($startedAt),
-                ]);
-
-                if (!$response['ok']) {
-                    break;
-                }
-
+            if ($response['ok']) {
                 $items = $this->extractPreSimulacaoItems((array) ($response['body'] ?? []));
                 if ($items !== []) {
                     [$terminalRows, $processedCount] = $this->processPageAgainstShards($api, $items, $resolvedIdsByShard);
@@ -283,11 +270,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                     }
                     $pendingCount -= $processedCount;
                 }
-
-                $hasNext = $this->resolveHasNextPage((array) ($response['body'] ?? []), $items, $page);
-
-                $page++;
-            } while ($hasNext);
+            }
 
             $this->compactResolvedPendingShards($resolvedIdsByShard);
 
@@ -373,6 +356,14 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             'PreSimulacaoId' => (int) ($item['id'] ?? 0),
         ]);
 
+        if ($this->isTransientFailure($response)) {
+            $row['situacao'] = $this->failedStatus();
+            $row['mensagem'] = $this->formatApiMessage($response) ?: 'Falha técnica ao simular após esgotar as tentativas.';
+            $row['finalizado_em'] = Carbon::now()->toDateTimeString();
+
+            return $row;
+        }
+
         if ($this->responseRequiresVinculo($response)) {
             $row['situacao'] = $this->notApprovedStatus();
             $row['mensagem'] = $this->formatApiMessage($response) ?: 'Vínculo requer ação manual.';
@@ -424,6 +415,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
 
         $aprovado = 0;
         $naoAprovado = 0;
+        $falhou = 0;
 
         try {
             flock($handle, LOCK_EX);
@@ -437,6 +429,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 $situacao = $row['situacao'] ?? '';
                 if ($situacao === $this->approvedStatus()) {
                     $aprovado++;
+                } elseif ($situacao === $this->failedStatus()) {
+                    $falhou++;
                 } else {
                     $naoAprovado++;
                 }
@@ -452,6 +446,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             ->update([
                 'aprovado_count' => DB::raw("aprovado_count + {$aprovado}"),
                 'nao_aprovado_count' => DB::raw("nao_aprovado_count + {$naoAprovado}"),
+                'fail_count' => DB::raw("fail_count + {$falhou}"),
                 'spool_bytes' => $this->fileSizeSafe($disk, $job->spool_path),
                 'updated_at' => Carbon::now(),
             ]);
@@ -742,6 +737,11 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         return implode(' | ', array_values(array_unique($errors)));
     }
 
+    private function isTransientFailure(array $response): bool
+    {
+        return (bool) ($response['retriable'] ?? false) && !((bool) ($response['ok'] ?? false));
+    }
+
     private function resolveStatusId(array $item): ?int
     {
         if (isset($item['idStatus']) && is_numeric($item['idStatus'])) {
@@ -792,21 +792,6 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         return array_is_list($value) ? $value : [];
-    }
-
-    private function resolveHasNextPage(array $body, array $items, int $page): bool
-    {
-        $hasNext = $body['temProximaPagina'] ?? ($body['value']['temProximaPagina'] ?? null);
-        if (is_bool($hasNext)) {
-            return $hasNext;
-        }
-
-        $totalPages = $body['totalPaginas'] ?? ($body['value']['totalPaginas'] ?? null);
-        if (is_numeric($totalPages)) {
-            return $page < (int) $totalPages;
-        }
-
-        return $items !== [] && count($items) >= $this->pageSize;
     }
 
     private function formatPreSimulacaoTime(Carbon $value): string
@@ -974,6 +959,11 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     private function notApprovedStatus(): string
     {
         return 'Não Aprovado';
+    }
+
+    private function failedStatus(): string
+    {
+        return 'Falhou';
     }
 
     private function finalizeJob(string $targetStatus): void

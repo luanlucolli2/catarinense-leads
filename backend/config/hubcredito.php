@@ -37,8 +37,7 @@ return [
         'phase2_timeout_seconds' => (int) env('HUBCREDITO_PHASE2_TIMEOUT_SECONDS', 2700),
         'phase2_start_delay_seconds' => (int) env('HUBCREDITO_PHASE2_START_DELAY_SECONDS', 60),
         'phase1_request_interval_ms' => (int) env('HUBCREDITO_PHASE1_REQUEST_INTERVAL_MS', 1500),
-        'poll_delay_seconds' => (int) env('HUBCREDITO_POLL_DELAY_SECONDS', 60),
-        'page_size' => max(1, min(100, (int) env('HUBCREDITO_PAGE_SIZE', 100))),
+        'poll_delay_seconds' => (int) env('HUBCREDITO_POLL_DELAY_SECONDS', 120),
     ],
 
     'preview' => [

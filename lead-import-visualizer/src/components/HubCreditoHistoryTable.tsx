@@ -85,16 +85,17 @@ function getStatusInfo(status: HubCreditoJobStatus) {
 
 function calcSegments(i: HubCreditoConsultJobListItem) {
   const total = i.total_cpfs || 0;
-  if (!total) return { ok: 0, not: 0, sum: 0 };
+  if (!total) return { ok: 0, not: 0, fail: 0, sum: 0 };
   const ok = (i.aprovado_count / total) * 100;
   const not = (i.nao_aprovado_count / total) * 100;
-  return { ok, not, sum: ok + not };
+  const fail = (i.fail_count / total) * 100;
+  return { ok, not, fail, sum: ok + not + fail };
 }
 
 function SegmentedProgressBar({ item }: { item: HubCreditoConsultJobListItem }) {
   const s = calcSegments(item);
   const total = item.total_cpfs || 0;
-  const processed = (item.aprovado_count + item.nao_aprovado_count).toLocaleString();
+  const processed = (item.aprovado_count + item.nao_aprovado_count + item.fail_count).toLocaleString();
   const isCounting = total === 0 && (item.status === "pendente" || item.status === "em_progresso");
   const pulseWidthPct = Math.min(5, Math.max(item.total_cpfs ? (2 / item.total_cpfs) * 100 : 0, 0.8));
 
@@ -113,6 +114,9 @@ function SegmentedProgressBar({ item }: { item: HubCreditoConsultJobListItem }) 
         )}
         {s.not > 0 && (
           <div className="absolute top-0 h-full bg-amber-500 dark:bg-amber-400" style={{ left: `${s.ok}%`, width: `${s.not}%` }} />
+        )}
+        {s.fail > 0 && (
+          <div className="absolute top-0 h-full bg-red-500 dark:bg-red-400" style={{ left: `${s.ok + s.not}%`, width: `${s.fail}%` }} />
         )}
         {(item.status === "em_progresso" || isCounting) && s.sum < 100 && (
           <div
@@ -134,6 +138,12 @@ function SegmentedProgressBar({ item }: { item: HubCreditoConsultJobListItem }) 
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
               <span className="text-muted-foreground">Não Aprovado</span>
+            </div>
+          )}
+          {s.fail > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
+              <span className="text-muted-foreground">Falhou</span>
             </div>
           )}
         </div>
@@ -343,7 +353,7 @@ export const HubCreditoHistoryTable = ({
                     i.status === "em_progresso" ||
                     i.status === "cancelado" ||
                     i.status === "falhou") && (
-                    <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-2 border-t border-border">
+                    <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-2 border-t border-border">
                       <div className="text-center">
                         <div className="text-base sm:text-lg font-semibold text-emerald-600 dark:text-emerald-400">
                           {(i.aprovado_count ?? 0).toLocaleString()}
@@ -355,6 +365,12 @@ export const HubCreditoHistoryTable = ({
                           {(i.nao_aprovado_count ?? 0).toLocaleString()}
                         </div>
                         <div className="text-[11px] sm:text-xs text-muted-foreground">Não Aprovado</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-base sm:text-lg font-semibold text-red-600 dark:text-red-400">
+                          {(i.fail_count ?? 0).toLocaleString()}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">Falhou</div>
                       </div>
                     </div>
                   )}

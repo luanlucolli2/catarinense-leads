@@ -18,6 +18,7 @@ export interface HubCreditoConsultJobListItem {
   total_cpfs: number;
   aprovado_count: number;
   nao_aprovado_count: number;
+  fail_count: number;
   has_file?: boolean | null;
   file_disk?: string | null;
   file_path?: string | null;
@@ -40,6 +41,7 @@ export interface HubCreditoConsultJobShow {
   total_cpfs: number;
   aprovado_count: number;
   nao_aprovado_count: number;
+  fail_count: number;
   has_file: boolean;
   preview_running?: boolean;
   spool_bytes?: number | null;

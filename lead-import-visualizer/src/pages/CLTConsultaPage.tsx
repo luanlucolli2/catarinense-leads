@@ -421,6 +421,7 @@ const CLTConsultaPage = () => {
         total_cpfs: watchedHubCreditoJob.total_cpfs,
         aprovado_count: watchedHubCreditoJob.aprovado_count,
         nao_aprovado_count: watchedHubCreditoJob.nao_aprovado_count,
+        fail_count: watchedHubCreditoJob.fail_count,
         spool_bytes: watchedHubCreditoJob.spool_bytes ?? i.spool_bytes,
         spool_path: watchedHubCreditoJob.spool_path ?? i.spool_path,
         spool_inputs_path: watchedHubCreditoJob.spool_inputs_path ?? i.spool_inputs_path,

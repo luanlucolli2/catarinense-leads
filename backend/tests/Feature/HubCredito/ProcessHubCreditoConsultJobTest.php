@@ -299,6 +299,109 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_it_marks_invalid_input_line_as_falhou(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+        ]);
+
+        $job = $this->makePendingJob(['abc']);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+
+        $this->assertSame('concluido', $job->status);
+        $this->assertSame(0, $job->aprovado_count);
+        $this->assertSame(0, $job->nao_aprovado_count);
+        $this->assertSame(1, $job->fail_count);
+        $content = Storage::disk('hubcredito-test')->get($job->file_path);
+        $this->assertStringContainsString('Falhou', $content);
+        $this->assertStringContainsString('Linha inválida.', $content);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_it_marks_presimulacao_retriable_failure_as_falhou(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+        config(['hubcredito.http.retry' => 1]);
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => Http::sequence()
+                ->push(['message' => 'rate limited'], 429)
+                ->push(['message' => 'still rate limited'], 429),
+        ]);
+
+        $job = $this->makePendingJob(['12345678909 Fulano da Silva 01/02/1990']);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+
+        $this->assertSame('concluido', $job->status);
+        $this->assertSame(0, $job->aprovado_count);
+        $this->assertSame(0, $job->nao_aprovado_count);
+        $this->assertSame(1, $job->fail_count);
+        $content = Storage::disk('hubcredito-test')->get($job->file_path);
+        $this->assertStringContainsString('Falhou', $content);
+        $this->assertStringContainsString('rate limited', $content);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_it_marks_simulation_retriable_failure_as_falhou(): void
+    {
+        Carbon::setTestNow('2026-07-08 10:00:00');
+        config(['hubcredito.http.retry' => 1]);
+
+        Http::fake([
+            'https://api.hubcredito.test/api/Login' => Http::response($this->loginResponse(), 200),
+            'https://api.hubcredito.test/api/presimulacao' => Http::response([
+                'value' => ['id' => 101, 'idStatus' => 0],
+            ], 200),
+            'https://api.hubcredito.test/api/PreSimulacao*' => Http::response([
+                'itens' => [[
+                    'id' => 101,
+                    'cpf' => '12345678909',
+                    'lojaId' => 15895,
+                    'numeroParcelas' => 12,
+                    'valor' => 5000,
+                    'idStatus' => 6,
+                    'status' => '6',
+                    'statusDescricao' => 'Pronta',
+                    'mensagemErro' => null,
+                ]],
+                'numeroPagina' => 1,
+                'tamanhoPagina' => 100,
+                'totalPaginas' => 1,
+                'temProximaPagina' => false,
+            ], 200),
+            'https://api.hubcredito.test/api/Clt/simular' => Http::sequence()
+                ->push(['message' => 'erro interno'], 500)
+                ->push(['message' => 'erro interno'], 500),
+        ]);
+
+        $job = $this->makePendingJob(['12345678909 Fulano da Silva 01/02/1990']);
+
+        ProcessHubCreditoConsultJob::dispatchSync($job->id);
+
+        $job->refresh();
+
+        $this->assertSame('concluido', $job->status);
+        $this->assertSame(0, $job->aprovado_count);
+        $this->assertSame(0, $job->nao_aprovado_count);
+        $this->assertSame(1, $job->fail_count);
+        $content = Storage::disk('hubcredito-test')->get($job->file_path);
+        $this->assertStringContainsString('Falhou', $content);
+        $this->assertStringContainsString('erro interno', $content);
+
+        Carbon::setTestNow();
+    }
+
     public function test_it_dispatches_report_finalization_asynchronously(): void
     {
         Carbon::setTestNow('2026-07-08 10:00:00');
@@ -357,7 +460,7 @@ class ProcessHubCreditoConsultJobTest extends TestCase
 
                 return match ($call) {
                     1 => Http::response([
-                        'itens' => [[
+                        'value' => [[
                             'id' => 101,
                             'cpf' => '12345678909',
                             'lojaId' => 15895,
@@ -366,14 +469,7 @@ class ProcessHubCreditoConsultJobTest extends TestCase
                             'idStatus' => 2,
                             'status' => '2',
                             'mensagemErro' => 'Sem opção',
-                        ]],
-                        'numeroPagina' => 1,
-                        'tamanhoPagina' => 100,
-                        'totalPaginas' => 2,
-                        'temProximaPagina' => true,
-                    ], 200),
-                    2 => Http::response([
-                        'itens' => [[
+                        ], [
                             'id' => 102,
                             'cpf' => '98765432100',
                             'lojaId' => 15895,
@@ -383,13 +479,9 @@ class ProcessHubCreditoConsultJobTest extends TestCase
                             'status' => '13',
                             'mensagemErro' => null,
                         ]],
-                        'numeroPagina' => 2,
-                        'tamanhoPagina' => 100,
-                        'totalPaginas' => 2,
-                        'temProximaPagina' => false,
                     ], 200),
                     default => Http::response([
-                        'itens' => [[
+                        'value' => [[
                             'id' => 102,
                             'cpf' => '98765432100',
                             'lojaId' => 15895,
@@ -399,10 +491,6 @@ class ProcessHubCreditoConsultJobTest extends TestCase
                             'status' => '6',
                             'mensagemErro' => null,
                         ]],
-                        'numeroPagina' => 1,
-                        'tamanhoPagina' => 100,
-                        'totalPaginas' => 1,
-                        'temProximaPagina' => false,
                     ], 200),
                 };
             },
@@ -435,6 +523,7 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertSame('concluido', $job->status);
         $this->assertSame(1, $job->aprovado_count);
         $this->assertSame(1, $job->nao_aprovado_count);
+        $this->assertSame(0, $job->fail_count);
         $this->assertStringContainsString('Aprovado', $content);
         $this->assertStringContainsString('Não Aprovado', $content);
 
@@ -457,7 +546,7 @@ class ProcessHubCreditoConsultJobTest extends TestCase
 
         $lines = [];
         for ($i = 0; $i < 150; $i++) {
-            $lines[] = sprintf('%011d Fulano da Silva 01/02/1990', $i + 10000000000);
+            $lines[] = sprintf('%s Fulano da Silva 01/02/1990', $this->validCpfForIndex($i));
         }
 
         $job = $this->makePendingJob($lines);
@@ -469,6 +558,7 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         $this->assertSame('concluido', $job->status);
         $this->assertSame(150, $job->total_cpfs);
         $this->assertSame(150, $job->nao_aprovado_count);
+        $this->assertSame(0, $job->fail_count);
         $this->assertTrue(Storage::disk('hubcredito-test')->exists((string) $job->file_path));
 
         Carbon::setTestNow();
@@ -571,6 +661,28 @@ class ProcessHubCreditoConsultJobTest extends TestCase
         ]);
 
         return $job;
+    }
+
+    private function validCpfForIndex(int $index): string
+    {
+        $base = str_pad((string) ($index + 1), 9, '0', STR_PAD_LEFT);
+        $digits = array_map('intval', str_split($base));
+
+        $sum = 0;
+        foreach ($digits as $i => $digit) {
+            $sum += $digit * (10 - $i);
+        }
+        $rest = $sum % 11;
+        $digits[] = $rest < 2 ? 0 : 11 - $rest;
+
+        $sum = 0;
+        foreach ($digits as $i => $digit) {
+            $sum += $digit * (11 - $i);
+        }
+        $rest = $sum % 11;
+        $digits[] = $rest < 2 ? 0 : 11 - $rest;
+
+        return implode('', $digits);
     }
 
     private function loginResponse(): array

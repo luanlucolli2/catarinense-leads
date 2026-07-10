@@ -16,6 +16,7 @@ class HubCreditoConsultJob extends Model
         'total_cpfs',
         'aprovado_count',
         'nao_aprovado_count',
+        'fail_count',
         'file_disk',
         'file_path',
         'file_name',
@@ -36,6 +37,7 @@ class HubCreditoConsultJob extends Model
         'total_cpfs' => 'integer',
         'aprovado_count' => 'integer',
         'nao_aprovado_count' => 'integer',
+        'fail_count' => 'integer',
     ];
 
     public function getHasFileAttribute(): bool
