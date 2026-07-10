@@ -112,7 +112,7 @@ class HubCreditoApiService
             }
 
             if ($response->status() === 429 && $attempt < $attempts - 1) {
-                $this->pauseBeforeRetry();
+                $this->pauseOnRateLimit();
                 continue;
             }
 
@@ -220,5 +220,13 @@ class HubCreditoApiService
     private function pauseBeforeRetry(): void
     {
         $this->sharedAuth->throttleRequests($this->effectiveMinIntervalMs());
+    }
+
+    private function pauseOnRateLimit(): void
+    {
+        $this->sharedAuth->pauseOnRateLimit(
+            $this->httpRateLimitSleepSeconds,
+            $this->effectiveMinIntervalMs()
+        );
     }
 }

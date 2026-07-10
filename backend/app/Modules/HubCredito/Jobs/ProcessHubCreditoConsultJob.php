@@ -39,6 +39,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase2TimeoutSeconds;
     private int $phase2StartDelaySeconds;
     private int $phase1RequestIntervalMs;
+    private int $phase1BatchPauseEveryRequests;
+    private int $phase1BatchPauseSeconds;
     private int $pollDelaySeconds;
     private array $genderCache = [];
 
@@ -52,6 +54,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2TimeoutSeconds = max(60, (int) config('hubcredito.job.phase2_timeout_seconds', 2700));
         $this->phase2StartDelaySeconds = max(0, (int) config('hubcredito.job.phase2_start_delay_seconds', 60));
         $this->phase1RequestIntervalMs = max(0, (int) config('hubcredito.job.phase1_request_interval_ms', 1500));
+        $this->phase1BatchPauseEveryRequests = max(0, (int) config('hubcredito.job.phase1_batch_pause_every_requests', 100));
+        $this->phase1BatchPauseSeconds = max(0, (int) config('hubcredito.job.phase1_batch_pause_seconds', 30));
         $this->pollDelaySeconds = max(0, (int) config('hubcredito.job.poll_delay_seconds', 120));
     }
 
@@ -169,6 +173,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
         $totalCount = 0;
         $pendingCount = 0;
         $cancelChecks = 0;
+        $phase1Requests = 0;
         $disk = Storage::disk($this->disk);
 
         try {
@@ -206,6 +211,8 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 $response = $api->createPreSimulacao($this->buildPreSimulacaoPayload($entry));
+                $phase1Requests++;
+                $this->pausePhaseOneBatchIfNeeded($phase1Requests);
                 $value = is_array($response['body']['value'] ?? null) ? $response['body']['value'] : [];
                 $preSimId = $value['id'] ?? null;
 
@@ -237,6 +244,24 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
             ]);
 
         return [$totalCount, $pendingCount];
+    }
+
+    private function pausePhaseOneBatchIfNeeded(int $phase1Requests): void
+    {
+        if ($this->phase1BatchPauseEveryRequests <= 0 || $this->phase1BatchPauseSeconds <= 0) {
+            return;
+        }
+
+        if ($phase1Requests % $this->phase1BatchPauseEveryRequests !== 0) {
+            return;
+        }
+
+        $this->logWarning('Pausa em lote na fase 1.', [
+            'processed_requests' => $phase1Requests,
+            'sleep_seconds' => $this->phase1BatchPauseSeconds,
+        ]);
+
+        sleep($this->phase1BatchPauseSeconds);
     }
 
     private function runPhaseTwo(HubCreditoApiService $api, HubCreditoConsultJob $job, int $pendingCount): string
