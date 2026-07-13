@@ -83,12 +83,8 @@ class DispatchScheduledFactaCltConsultJobs
             }
 
             try {
-                $stage = FactaCltVariant::isCreditPolicyOnly($job->variant) ? 'phase2' : 'phase1';
-                $queue = $stage === 'phase2'
-                    ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
-                    : FactaCltVariant::resolvePhaseOneQueue($job->variant);
-
-                DispatchFactaCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
+                DispatchFactaCltConsultJob::dispatch($job->id, 'phase1')
+                    ->onQueue(FactaCltVariant::resolvePhaseOneQueue($job->variant));
                 $dispatched++;
             } catch (Throwable $e) {
                 FactaCltConsultJob::query()

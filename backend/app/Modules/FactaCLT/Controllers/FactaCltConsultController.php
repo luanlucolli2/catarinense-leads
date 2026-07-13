@@ -26,7 +26,7 @@ class FactaCltConsultController extends Controller
     {
         $data = Validator::make($request->query(), [
             'status' => ['nullable', 'in:agendado,pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
-            'variant' => ['nullable', 'in:online,offline,hybrid,credit_policy,on,off,hyb,policy,credit-policy,politica,politica_credito,todos'],
+            'variant' => ['nullable', 'in:online,offline,hybrid,on,off,hyb,todos'],
         ])->validate();
 
         $jobsQuery = FactaCltConsultJob::query();
@@ -102,7 +102,7 @@ class FactaCltConsultController extends Controller
         $rules = [
             'title' => ['required', 'string', 'max:191'],
             'cpfs' => ['required'],
-            'variant' => ['nullable', 'in:online,offline,hybrid,credit_policy'],
+            'variant' => ['nullable', 'in:online,offline,hybrid'],
             'run_at' => ['nullable', 'date'],
             'timezone' => ['nullable', 'string', 'timezone:all'],
         ];
@@ -115,7 +115,6 @@ class FactaCltConsultController extends Controller
         }
         $data = $validator->validated();
         $variant = FactaCltVariant::normalizeStored($data['variant'] ?? 'online');
-        $isCreditPolicyOnly = FactaCltVariant::isCreditPolicyOnly($variant);
         $timezone = $data['timezone'] ?? 'America/Sao_Paulo';
         $runAt = isset($data['run_at']) ? Carbon::parse($data['run_at'], $timezone) : null;
         $scheduledFor = $runAt && $runAt->greaterThan(Carbon::now($timezone))
@@ -127,7 +126,7 @@ class FactaCltConsultController extends Controller
             'title' => $data['title'],
             'status' => $scheduledFor ? 'agendado' : 'pendente',
             'variant' => $variant,
-            'phase' => $isCreditPolicyOnly ? 'fase_2' : null,
+            'phase' => null,
             'total_cpfs' => 0,
             'phase2_aprovado_count' => 0,
             'phase2_nao_aprovado_count' => 0,
@@ -163,22 +162,12 @@ class FactaCltConsultController extends Controller
             'spool_bytes' => $spoolBytes,
         ];
 
-        if ($isCreditPolicyOnly) {
-            $updates['total_cpfs'] = $cpfsCount;
-            $updates['elegivel_count'] = 0;
-            $updates['inelegivel_count'] = 0;
-            $updates['descartado_count'] = 0;
-            $updates['phase2_total'] = 0;
-        }
-
         $job->update($updates);
 
         if ($job->status === 'pendente') {
-            $stage = $isCreditPolicyOnly ? 'phase2' : 'phase1';
-            $queue = $isCreditPolicyOnly
-                ? (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred')
-                : FactaCltVariant::resolvePhaseOneQueue($variant);
-            ProcessFactaCltConsultJob::dispatch($job->id, $stage)->onQueue($queue);
+            ProcessFactaCltConsultJob::dispatch($job->id, 'phase1')->onQueue(
+                FactaCltVariant::resolvePhaseOneQueue($variant)
+            );
         }
 
         return response()->json([
@@ -847,258 +836,6 @@ class FactaCltConsultController extends Controller
         }
 
         return [$spoolPath, $cpfsPath, $bytes, $count];
-    }
-
-    private function createCreditPolicySpoolFromSnapshots(int $jobId, iterable $allCpfs): array
-    {
-        $diskName = (string) config('facta.storage.reports_disk', 'local');
-        $disk = Storage::disk($diskName);
-
-        $dirSpool = (string) (config('facta.storage.dir_spool') ?? 'facta-clt-spool');
-        $finalPref = $this->finalPrefix();
-
-        if (!$disk->exists($dirSpool)) {
-            $disk->makeDirectory($dirSpool);
-        }
-
-        $spoolPath = "{$dirSpool}/{$finalPref}_{$jobId}.spool.csv";
-        $cpfsPath = "{$dirSpool}/{$finalPref}_{$jobId}.cpfs.txt";
-        $requiresOperationValues = $this->requiresOperationCreditPolicyValues();
-
-        $spoolHandle = fopen($disk->path($spoolPath), 'c+');
-        if ($spoolHandle === false) {
-            throw new \RuntimeException("Não foi possível criar spool em {$spoolPath}");
-        }
-
-        $cpfsHandle = fopen($disk->path($cpfsPath), 'c+');
-        if ($cpfsHandle === false) {
-            fclose($spoolHandle);
-            throw new \RuntimeException("Não foi possível criar cpfs em {$cpfsPath}");
-        }
-
-        $inputCount = 0;
-        $phase2Count = 0;
-        $chunk = [];
-
-        try {
-            if (!flock($spoolHandle, LOCK_EX)) {
-                throw new \RuntimeException("Não foi possível bloquear spool em {$spoolPath}");
-            }
-            if (!flock($cpfsHandle, LOCK_EX)) {
-                throw new \RuntimeException("Não foi possível bloquear arquivo de CPFs em {$cpfsPath}");
-            }
-
-            try {
-                if (!ftruncate($spoolHandle, 0) || !ftruncate($cpfsHandle, 0)) {
-                    throw new \RuntimeException("Não foi possível truncar arquivos do job {$jobId}");
-                }
-
-                $this->writeCsvRowOrFail($spoolHandle, FactaCltSchema::TITLES, "spool inicial {$spoolPath}");
-
-                foreach ($allCpfs as $raw) {
-                    $norm = Cpf::normalize((string) $raw);
-                    if ($norm === null) {
-                        continue;
-                    }
-
-                    $digits = preg_replace('/\D+/', '', $norm);
-                    if ($digits === '' || strlen($digits) !== 11) {
-                        continue;
-                    }
-
-                    $this->writeAllOrFail($cpfsHandle, $digits . "\n", "arquivo de CPFs {$cpfsPath}");
-                    $inputCount++;
-                    $chunk[] = $digits;
-
-                    if (count($chunk) >= 500) {
-                        $phase2Count += $this->writeCreditPolicySnapshotRows($spoolHandle, $chunk, $requiresOperationValues, $spoolPath);
-                        $chunk = [];
-                    }
-                }
-
-                if ($chunk !== []) {
-                    $phase2Count += $this->writeCreditPolicySnapshotRows($spoolHandle, $chunk, $requiresOperationValues, $spoolPath);
-                }
-
-                if (!fflush($spoolHandle) || !fflush($cpfsHandle)) {
-                    throw new \RuntimeException("Não foi possível sincronizar arquivos do job {$jobId}");
-                }
-            } finally {
-                flock($cpfsHandle, LOCK_UN);
-                flock($spoolHandle, LOCK_UN);
-            }
-        } finally {
-            fclose($cpfsHandle);
-            fclose($spoolHandle);
-        }
-
-        $bytes = 0;
-        try {
-            $bytes = (int) $disk->size($spoolPath);
-        } catch (\Throwable) {
-        }
-
-        return [$spoolPath, $cpfsPath, $bytes, $inputCount, $phase2Count];
-    }
-
-    private function writeCreditPolicySnapshotRows($handle, array $cpfs, bool $requiresOperationValues, string $context): int
-    {
-        if ($cpfs === []) {
-            return 0;
-        }
-
-        $rows = DB::table('leads')
-            ->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
-            ->whereIn('leads.cpf', $cpfs)
-            ->select([
-                'leads.cpf',
-                DB::raw('COALESCE(cs.nome, leads.nome) as nome'),
-                'cs.elegivel',
-                'cs.not_found',
-                DB::raw('COALESCE(cs.data_nascimento, leads.data_nascimento) as data_nascimento'),
-                'cs.idade',
-                'cs.sexo',
-                'cs.data_admissao',
-                'cs.meses_admissao',
-                'cs.matricula',
-                'cs.valor_renda',
-                'cs.valor_base_margem',
-                'cs.margem_disponivel',
-                'cs.valor_max_prestacao',
-                'cs.categoria_trabalhador_codigo',
-                'cs.inicio_atividade_empregador',
-                'cs.meses_empresa_empregador',
-                'cs.qtd_emprestimos_ativos_suspensos',
-                'cs.emprestimos_legados',
-                'cs.updated_at',
-                'cs.consulted_at',
-            ])
-            ->get()
-            ->keyBy('cpf');
-
-        $written = 0;
-        foreach ($cpfs as $cpf) {
-            $record = $rows->get($cpf);
-            $assoc = $record !== null
-                ? $this->creditPolicySnapshotCsvRow($record, $requiresOperationValues)
-                : $this->creditPolicyMissingCsvRow($cpf);
-            $canProcess = $this->canProcessCreditPolicyCsvRow($assoc);
-            $assoc = FactaCltSchema::normalizeAssocRowForCsv($assoc);
-            $ordered = [];
-            foreach (FactaCltSchema::COLS as $key) {
-                $ordered[] = $assoc[$key] ?? null;
-            }
-
-            $this->writeCsvRowOrFail($handle, $ordered, "spool política {$context}");
-            if ($canProcess) {
-                $written++;
-            }
-        }
-
-        return $written;
-    }
-
-    private function creditPolicySnapshotCsvRow(object $record, bool $requiresOperationValues): array
-    {
-        $row = [
-            'cpf' => (string) $record->cpf,
-            'nome' => $record->nome,
-            'elegivel' => (bool) ($record->elegivel ?? false),
-            'dataNascimento' => $record->data_nascimento,
-            'idade' => $record->idade,
-            'sexo_descricao' => $record->sexo,
-            'dataAdmissao' => $record->data_admissao,
-            'tempoAdmissaoMeses' => $record->meses_admissao,
-            'valorTotalVencimentos' => $record->valor_renda,
-            'valorBaseMargem' => $record->valor_base_margem,
-            'valorMargemDisponivel' => $record->margem_disponivel,
-            'valorMaximoPrestacao' => $record->valor_max_prestacao,
-            'codigoCategoriaTrabalhador' => $record->categoria_trabalhador_codigo,
-            'dataInicioAtividadeEmpregador' => $record->inicio_atividade_empregador,
-            'mesesEmpresaEmpregador' => $record->meses_empresa_empregador,
-            'qtdEmprestimosAtivosSuspensos' => $record->qtd_emprestimos_ativos_suspensos,
-            'emprestimosLegados' => $record->emprestimos_legados,
-            'matricula' => $record->matricula,
-            'updated_at' => $record->updated_at,
-            'consulted_at' => $record->consulted_at,
-            'fonteConsulta' => 'snapshot_clt',
-        ];
-
-        if (!$this->canProcessCreditPolicySnapshotRecord($record, $requiresOperationValues)) {
-            $row['elegivel'] = false;
-            $row['politicaCreditoMensagem'] = $this->creditPolicyInsufficientMessage();
-        }
-
-        return $row;
-    }
-
-    private function creditPolicyMissingCsvRow(string $cpf): array
-    {
-        return [
-            'cpf' => $cpf,
-            'elegivel' => false,
-            'politicaCreditoMensagem' => $this->creditPolicyInsufficientMessage(),
-            'fonteConsulta' => 'sem_dados',
-        ];
-    }
-
-    private function canProcessCreditPolicySnapshotRecord(object $record, bool $requiresOperationValues): bool
-    {
-        $margemDisponivel = is_numeric($record->margem_disponivel ?? null)
-            ? (float) $record->margem_disponivel
-            : null;
-
-        if (($record->elegivel ?? null) != 1) {
-            return false;
-        }
-
-        if (($record->not_found ?? null) == 1) {
-            return false;
-        }
-
-        if ($margemDisponivel === null || $margemDisponivel <= 40.0) {
-            return false;
-        }
-
-        if (trim((string) ($record->matricula ?? '')) === '') {
-            return false;
-        }
-
-        if (empty($record->data_admissao) || empty($record->data_nascimento)) {
-            return false;
-        }
-
-        if ($requiresOperationValues) {
-            if (($record->valor_renda ?? null) === null || ($record->valor_max_prestacao ?? null) === null) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function canProcessCreditPolicyCsvRow(array $row): bool
-    {
-        $margemDisponivel = is_numeric($row['valorMargemDisponivel'] ?? null)
-            ? (float) $row['valorMargemDisponivel']
-            : null;
-
-        return ($row['elegivel'] ?? null) === true
-            && $margemDisponivel !== null
-            && $margemDisponivel > 40.0
-            && empty($row['politicaCreditoMensagem']);
-    }
-
-    private function creditPolicyInsufficientMessage(): string
-    {
-        return 'Não possui dados suficientes para validação e precisa consultar antes.';
-    }
-
-    private function requiresOperationCreditPolicyValues(): bool
-    {
-        $mode = strtolower(trim((string) config('facta.credit_worker.policy_source_mode', 'operacoes')));
-
-        return !in_array($mode, ['experimental', 'fixed'], true);
     }
 
     private function safeCleanupInit(int $jobId): void
