@@ -6,26 +6,6 @@ x-app-environment: &app-environment
   XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
   XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
   IGNITION_LOCAL_SITES_PATH: '${PWD}'
-  # Variáveis Default (Fallback)
-  CLT_ON_JOB_QUEUE: 'clt-consulta-online'
-  CLT_PHASE2_JOB_QUEUE: 'clt-valida-politica-cred'
-  CLT_OFF_JOB_QUEUE: 'clt-off'
-  CLT_FACTA_LOG_RESPONSES: 'true'
-  CLT_FACTA_LOG_SUCCESS_RESPONSES: 'true'
-  FGTS_OFF_JOB_QUEUE: 'fgts'
-  CLT_PREVIEW_QUEUE: 'reports'
-  V8_JOB_QUEUE: 'v8'
-  HUBCREDITO_JOB_QUEUE: 'hubcredito-clt'
-  URA_JOB_QUEUE: 'ura'
-  C6_JOB_QUEUE: 'c6-auth'
-  PRESENCA_JOB_QUEUE: 'presenca'
-  CLT_ON_JOB_TIMEOUT: '18000'
-  CLT_PHASE2_JOB_TIMEOUT: '18000'
-  CLT_OFF_JOB_TIMEOUT: '18000'
-  FGTS_OFF_JOB_TIMEOUT: '18000'
-  V8_JOB_TIMEOUT: '18000'
-  HUBCREDITO_JOB_TIMEOUT: '18000'
-  PRESENCA_JOB_TIMEOUT: '115200'
 
 services:
   # ===== SERVIÇO APP (HTTP / API) =====
@@ -40,6 +20,8 @@ services:
       - 'host.docker.internal:host-gateway'
     ports:
       - '${APP_PORT:-80}:80'
+    env_file:
+      - .env
     environment:
       <<: *app-environment
     volumes:
@@ -64,6 +46,8 @@ services:
         rm -f /etc/apt/sources.list.d/yarn.list
         apt-get update && apt-get install -y supervisor
         supervisord -c /etc/supervisor/conf.d/supervisord.conf
+    env_file:
+      - .env
     environment:
       <<: *app-environment
     volumes:
