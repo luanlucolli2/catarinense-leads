@@ -34,7 +34,7 @@ const MODE_OPTIONS = [
     label: "Offline",
     helper: "Base offline",
     description:
-      "Consulta apenas a base offline. Não consome o limite do online e não executa a continuação da fase 2.",
+      "Consulta apenas a base offline. Não consome o limite do online e, ao final, também executa a validação da política de crédito.",
   },
   {
     value: "HYBRID" as const,

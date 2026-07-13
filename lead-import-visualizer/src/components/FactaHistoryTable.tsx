@@ -207,7 +207,7 @@ function resolveVariant(item: FactaCltConsultJobListItem): CltVariant {
 }
 
 function isTwoPhaseVariant(variant: CltVariant): boolean {
-  return variant !== "offline";
+  return variant === "online" || variant === "offline" || variant === "hybrid" || variant === "credit_policy";
 }
 
 function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {

@@ -27,7 +27,7 @@ final class FactaCltVariant
 
     public static function supportsCreditPhaseTwo(?string $variant): bool
     {
-        return in_array(self::normalizeStored($variant), ['online', 'hybrid', 'credit_policy'], true);
+        return in_array(self::normalizeStored($variant), ['online', 'offline', 'hybrid', 'credit_policy'], true);
     }
 
     public static function isCreditPolicyOnly(?string $variant): bool

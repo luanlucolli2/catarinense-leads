@@ -176,9 +176,9 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->runToken = (int) ($job->run_token ?? 1);
         $this->lastStatusCheckAt = microtime(true);
 
-        $api = $this->variant === 'offline'
-            ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
-            : app(\App\Modules\FactaCLT\Services\FactaApiService::class);
+        $api = ($this->stage === self::STAGE_PHASE2 || $this->variant !== 'offline')
+            ? app(\App\Modules\FactaCLT\Services\FactaApiService::class)
+            : app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class);
         $hybridOfflineApi = $this->variant === 'hybrid'
             ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
             : null;
@@ -664,7 +664,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
+            if ($this->supportsCreditPhaseTwo()) {
                 $this->dispatchPhaseTwo($job);
                 return;
             }

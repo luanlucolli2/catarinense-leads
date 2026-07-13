@@ -1067,11 +1067,6 @@ const CLTConsultaPage = () => {
 
   const handleViewHttpCounters = (id: number) => {
     const item = itemsWithOverlay.find((j) => j.id === id);
-    if (item?.variant === "offline") {
-      toast.info("Contadores HTTP disponíveis apenas para consultas online e híbridas.");
-      return;
-    }
-
     setHttpCountersModalJob({
       id,
       title: item?.title ?? titleOf(id),

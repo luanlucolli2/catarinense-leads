@@ -475,7 +475,7 @@ class FactaCltConsultController extends Controller
 
         if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
-                'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online ou híbridos.',
+                'message' => 'Reprocessamento da fase 2 disponível apenas para jobs online, offline ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
@@ -628,7 +628,7 @@ class FactaCltConsultController extends Controller
 
         if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
-                'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online ou híbridos.',
+                'message' => 'Contadores HTTP disponíveis apenas para jobs CLT online, offline ou híbridos.',
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
