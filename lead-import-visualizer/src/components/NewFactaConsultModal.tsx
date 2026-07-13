@@ -15,7 +15,7 @@ interface NewFactaConsultModalProps {
   onSubmit: (
     titulo: string,
     cpfs: string,
-    modo: "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY",
+    modo: "OFF" | "ONLINE" | "HYBRID",
     opts?: { runAt?: string | null; timezone?: string | null }
   ) => void;
 }
@@ -34,7 +34,7 @@ const MODE_OPTIONS = [
     label: "Offline",
     helper: "Base offline",
     description:
-      "Consulta apenas a base offline. Não consome o limite do online e não executa a continuação da fase 2.",
+      "Consulta apenas a base offline. Não consome o limite do online e, ao final, também executa a validação da política de crédito.",
   },
   {
     value: "HYBRID" as const,
@@ -43,20 +43,13 @@ const MODE_OPTIONS = [
     description:
       "Consulta primeiro a base offline. Reaproveita dados atualizados nos últimos 7 dias e envia ao online apenas CPFs antigos, incompletos ou não encontrados.",
   },
-  {
-    value: "CREDIT_POLICY" as const,
-    label: "Política",
-    helper: "Leads + snapshot",
-    description:
-      "Valida apenas a política de crédito para CPFs já cadastrados com dados CLT suficientes.",
-  },
 ];
 
 export const NewFactaConsultModal = ({ isOpen, onClose, onSubmit }: NewFactaConsultModalProps) => {
   const [titulo, setTitulo] = useState("");
   const [cpfs, setCpfs] = useState("");
   const [cpfCount, setCpfCount] = useState(0);
-  const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY" | "">("");
+  const [modo, setModo] = useState<"OFF" | "ONLINE" | "HYBRID" | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [isAgendado, setIsAgendado] = useState(false);
   const [runAtLocal, setRunAtLocal] = useState("");
@@ -93,7 +86,7 @@ export const NewFactaConsultModal = ({ isOpen, onClose, onSubmit }: NewFactaCons
       await onSubmit(
         titulo,
         cpfs,
-        modo as "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY",
+        modo as "OFF" | "ONLINE" | "HYBRID",
         isAgendado
           ? {
               runAt: runAtLocal,
@@ -152,9 +145,9 @@ export const NewFactaConsultModal = ({ isOpen, onClose, onSubmit }: NewFactaCons
 
           <div className="space-y-3">
             <Label className="text-sm font-medium">Modo de Consulta *</Label>
-            <Tabs value={modo || ""} onValueChange={(value) => setModo(value as "OFF" | "ONLINE" | "HYBRID" | "CREDIT_POLICY")}>
+            <Tabs value={modo || ""} onValueChange={(value) => setModo(value as "OFF" | "ONLINE" | "HYBRID")}>
               {/* Ajustado: bg-transparent e gap maior entre os itens */}
-              <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-4">
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-3">
                 {MODE_OPTIONS.map((option) => (
                   <TabsTrigger
                     key={option.value}

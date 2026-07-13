@@ -14,7 +14,8 @@ export type FactaCltJobStatus =
 
 export type FactaCltJobStatusFilter = FactaCltJobStatus | 'todos'
 export type FactaCltJobVariant = 'online' | 'offline' | 'hybrid' | 'credit_policy'
-export type FactaCltJobVariantFilter = FactaCltJobVariant | 'todos'
+export type FactaCltSupportedJobVariant = 'online' | 'offline' | 'hybrid'
+export type FactaCltJobVariantFilter = FactaCltSupportedJobVariant | 'todos'
 
 export type FactaCltJobPhase = 'fase_1' | 'fase_2' | null
 
@@ -145,8 +146,8 @@ export interface FactaCltJobHttpCountersResponse {
 export interface CreateFactaCltConsultInput {
   title: string
   cpfs: string | string[]
-  /** 'online' | 'offline' | 'hybrid' | 'credit_policy' */
-  variant?: FactaCltJobVariant
+  /** 'online' | 'offline' | 'hybrid' */
+  variant?: FactaCltSupportedJobVariant
   run_at?: string
   timezone?: string
 }
@@ -162,7 +163,7 @@ export interface Paginated<T> {
 
 const BASE = '/facta-clt/consult-jobs'
 const FACTA_CLT_JOB_STATUSES: FactaCltJobStatus[] = ['agendado', 'pendente', 'em_progresso', 'pausado', 'concluido', 'falhou', 'cancelado']
-const FACTA_CLT_JOB_VARIANTS: FactaCltJobVariant[] = ['online', 'offline', 'hybrid', 'credit_policy']
+const FACTA_CLT_JOB_VARIANTS: FactaCltSupportedJobVariant[] = ['online', 'offline', 'hybrid']
 
 /** Lista os jobs CLT com filtros opcionais */
 export async function listFactaCltConsultJobs(
@@ -182,7 +183,7 @@ export async function listFactaCltConsultJobs(
   if (
     typeof requestedVariant === 'string'
     && requestedVariant !== 'todos'
-    && FACTA_CLT_JOB_VARIANTS.includes(requestedVariant as FactaCltJobVariant)
+    && FACTA_CLT_JOB_VARIANTS.includes(requestedVariant as FactaCltSupportedJobVariant)
   ) {
     params.variant = requestedVariant
   }

@@ -102,8 +102,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
     private int $phase2PendingFlushEveryRows;
     /** @var array<int,string> */
     private array $phase2PendingBuffer = [];
-    /** @var array<string,array<string,mixed>> */
-    private array $phase2SnapshotBuffer = [];
     private bool $phase2CpfValidationAuditLogEnabled;
     private bool $stoppedByRunTokenHandoff = false;
     /**
@@ -176,9 +174,9 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->runToken = (int) ($job->run_token ?? 1);
         $this->lastStatusCheckAt = microtime(true);
 
-        $api = $this->variant === 'offline'
-            ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
-            : app(\App\Modules\FactaCLT\Services\FactaApiService::class);
+        $api = ($this->stage === self::STAGE_PHASE2 || $this->variant !== 'offline')
+            ? app(\App\Modules\FactaCLT\Services\FactaApiService::class)
+            : app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class);
         $hybridOfflineApi = $this->variant === 'hybrid'
             ? app(\App\Modules\FactaCLT\Services\FactaCltOfflineApiService::class)
             : null;
@@ -237,20 +235,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                 'started_at' => $job->started_at ?? Carbon::now(),
                 'spool_bytes' => $this->fileSizeSafe($this->disk, $job->spool_path),
             ]);
-
-            if (FactaCltVariant::isCreditPolicyOnly($this->variant) && !$this->prepareCreditPolicySpoolIfNeeded($job)) {
-                if ($this->stoppedByRunTokenHandoff) {
-                    return;
-                }
-
-                $statusAfterPreparation = $this->currentStatusCached($job->id, true);
-                if ($statusAfterPreparation === null || in_array($statusAfterPreparation, ['pausado', 'cancelado', 'falhou', 'concluido'], true)) {
-                    return;
-                }
-
-                $this->failFinalize();
-                return;
-            }
 
             if (!$this->runCreditPhaseTwo($api, $job)) {
                 if ($this->stoppedByRunTokenHandoff) {
@@ -664,7 +648,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             // A fase 2 trabalha com delta incremental e consolida no spool ao final.
             // Fecha o writer append antes da fase 2 para evitar contenção de arquivo.
             $this->closeSpoolWriter();
-            if ($this->supportsCreditPhaseTwo() && $api instanceof \App\Modules\FactaCLT\Services\FactaApiService) {
+            if ($this->supportsCreditPhaseTwo()) {
                 $this->dispatchPhaseTwo($job);
                 return;
             }
@@ -2004,187 +1988,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolFp = null;
     }
 
-    private function prepareCreditPolicySpoolIfNeeded(FactaCltConsultJob $job): bool
-    {
-        $preparedRows = max(0, (int) ($job->phase2_total ?? 0)) + max(0, (int) ($job->descartado_count ?? 0));
-        $expectedRows = max(0, (int) ($job->total_cpfs ?? 0));
-        $spoolHasDataRows = FactaCltSpool::hasDataRows(Storage::disk($this->disk), $job->spool_path ?? null);
-
-        if ($spoolHasDataRows && $expectedRows > 0 && $preparedRows >= $expectedRows) {
-            return true;
-        }
-
-        return $this->rebuildCreditPolicySpoolFromSnapshots($job);
-    }
-
-    private function rebuildCreditPolicySpoolFromSnapshots(FactaCltConsultJob $job): bool
-    {
-        $disk = Storage::disk($this->disk);
-        $spoolPath = (string) ($job->spool_path ?? '');
-        $cpfsPath = (string) ($job->spool_cpfs_path ?? '');
-
-        if ($spoolPath === '' || $cpfsPath === '' || !$disk->exists($cpfsPath)) {
-            FactaCltLog::error("[CLT] Job {$this->jobId} sem arquivo de CPFs para preparar a fase 2.");
-            return false;
-        }
-
-        $tmpPath = $spoolPath . '.credit-policy.tmp';
-        $tmpReal = $disk->path($tmpPath);
-        $cpfsReal = $disk->path($cpfsPath);
-        $requiresOperationValues = $this->requiresOperationCreditPolicyValues();
-        $inputCount = 0;
-        $processableCount = 0;
-        $discardedCount = 0;
-        $seen = [];
-        $cleanupTmp = true;
-
-        try {
-            $writer = @fopen($tmpReal, 'wb');
-            if (!is_resource($writer)) {
-                throw new \RuntimeException("Falha ao abrir spool temporário da política de crédito (job {$this->jobId}).");
-            }
-
-            $reader = @fopen($cpfsReal, 'rb');
-            if (!is_resource($reader)) {
-                @fclose($writer);
-                throw new \RuntimeException("Falha ao abrir arquivo de CPFs da política de crédito (job {$this->jobId}).");
-            }
-
-            try {
-                $this->writeCsvRowOrFail($writer, FactaCltSchema::TITLES, 'spool temporário da política de crédito');
-
-                $chunk = [];
-                while (($line = fgets($reader)) !== false) {
-                    if ($this->finishIfStopped($job)) {
-                        return false;
-                    }
-
-                    $cpf = trim($line);
-                    if ($cpf === '' || strlen($cpf) !== 11) {
-                        continue;
-                    }
-                    if (isset($seen[$cpf])) {
-                        continue;
-                    }
-                    $seen[$cpf] = true;
-
-                    $inputCount++;
-                    $chunk[] = $cpf;
-                    if (count($chunk) >= 500) {
-                        [$processableRows, $discardedRows] = $this->appendCreditPolicySnapshotChunkRows($writer, $chunk, $requiresOperationValues);
-                        $processableCount += $processableRows;
-                        $discardedCount += $discardedRows;
-                        $chunk = [];
-                    }
-                }
-
-                if ($chunk !== []) {
-                    [$processableRows, $discardedRows] = $this->appendCreditPolicySnapshotChunkRows($writer, $chunk, $requiresOperationValues);
-                    $processableCount += $processableRows;
-                    $discardedCount += $discardedRows;
-                }
-
-                if (!fflush($writer)) {
-                    throw new \RuntimeException("Falha ao sincronizar spool temporário da política de crédito (job {$this->jobId}).");
-                }
-            } finally {
-                @fclose($reader);
-                @fclose($writer);
-            }
-
-            if (!@rename($tmpReal, $this->spoolReal)) {
-                throw new \RuntimeException("Falha ao promover spool preparado da política de crédito (job {$this->jobId}).");
-            }
-            $cleanupTmp = false;
-
-            clearstatcache(true, $this->spoolReal);
-            $spoolBytes = file_exists($this->spoolReal) ? (int) filesize($this->spoolReal) : 0;
-
-            DB::table('facta_clt_consult_jobs')->where('id', $job->id)->update([
-                'spool_bytes' => $spoolBytes,
-                'total_cpfs' => $inputCount,
-                'elegivel_count' => $processableCount,
-                'inelegivel_count' => 0,
-                'descartado_count' => $discardedCount,
-                'phase2_total' => $processableCount,
-                'phase2_attempt' => 0,
-                'phase2_aprovado_count' => 0,
-                'phase2_nao_aprovado_count' => 0,
-                'updated_at' => Carbon::now(),
-            ]);
-
-            $job->forceFill([
-                'spool_bytes' => $spoolBytes,
-                'total_cpfs' => $inputCount,
-                'elegivel_count' => $processableCount,
-                'inelegivel_count' => 0,
-                'descartado_count' => $discardedCount,
-                'phase2_total' => $processableCount,
-                'phase2_attempt' => 0,
-                'phase2_aprovado_count' => 0,
-                'phase2_nao_aprovado_count' => 0,
-            ]);
-
-            return true;
-        } finally {
-            if ($cleanupTmp && is_file($tmpReal)) {
-                @unlink($tmpReal);
-            }
-        }
-    }
-
-    private function appendCreditPolicySnapshotChunkRows($writer, array $cpfs, bool $requiresOperationValues): array
-    {
-        $rows = DB::table('leads')
-            ->leftJoin('facta_clt_snapshots as cs', 'cs.cpf', '=', 'leads.cpf')
-            ->whereIn('leads.cpf', $cpfs)
-            ->select([
-                'leads.cpf',
-                DB::raw('COALESCE(cs.nome, leads.nome) as nome'),
-                'cs.elegivel',
-                'cs.not_found',
-                DB::raw('COALESCE(cs.data_nascimento, leads.data_nascimento) as data_nascimento'),
-                'cs.idade',
-                'cs.sexo',
-                'cs.data_admissao',
-                'cs.meses_admissao',
-                'cs.matricula',
-                'cs.valor_renda',
-                'cs.valor_base_margem',
-                'cs.margem_disponivel',
-                'cs.valor_max_prestacao',
-                'cs.categoria_trabalhador_codigo',
-                'cs.inicio_atividade_empregador',
-                'cs.meses_empresa_empregador',
-                'cs.qtd_emprestimos_ativos_suspensos',
-                'cs.emprestimos_legados',
-                'cs.updated_at',
-                'cs.consulted_at',
-            ])
-            ->get()
-            ->keyBy('cpf');
-
-        $processableCount = 0;
-        $discardedCount = 0;
-
-        foreach ($cpfs as $cpf) {
-            $record = $rows->get($cpf);
-            $row = $record !== null
-                ? $this->creditPolicySnapshotCsvRow($record, $requiresOperationValues)
-                : $this->creditPolicyMissingCsvRow($cpf);
-
-            if ($this->canProcessCreditPolicyCsvRow($row)) {
-                $processableCount++;
-            } else {
-                $discardedCount++;
-            }
-
-            $this->writeCsvRowOrFail($writer, $this->assocToCsvRow($row), 'spool preparado da política de crédito');
-        }
-
-        return [$processableCount, $discardedCount];
-    }
-
     private function runCreditPhaseTwo(\App\Modules\FactaCLT\Services\FactaApiService $api, FactaCltConsultJob $job): bool
     {
         if ($this->finishIfStopped($job)) {
@@ -2219,7 +2022,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $this->phase2DeltaBuffer = [];
         $this->resetPhaseTwoDeltaFile();
         $this->resetPhaseTwoPendingFiles();
-        $this->phase2SnapshotBuffer = [];
         $this->phase2LastAttemptProcessed = 0;
         $this->phase2CpfValidationAuditReqByLine = [];
 
@@ -2232,7 +2034,9 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         if ($phase2PendingCount === 0) {
-            $this->flushPhase2SnapshotBuffer(true);
+            if (!$this->syncPhaseTwoSnapshotsFromFinalSpool($job)) {
+                return false;
+            }
             $this->flushPhaseTwoProgress($job, 0, $phase2Total, $phase2ApprovedCount, $phase2NotApprovedCount, true);
             $this->removePhaseTwoDeltaFile();
             $this->removePhaseTwoPendingFiles();
@@ -2288,7 +2092,9 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                     $phase2NotApprovedCount += $markedAsAborted;
                 }
 
-                $this->flushPhase2SnapshotBuffer(true);
+                if (!$this->syncPhaseTwoSnapshotsFromFinalSpool($job)) {
+                    return false;
+                }
                 $this->flushPhaseTwoProgress(
                     $job,
                     $attempt,
@@ -2320,8 +2126,10 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             $this->updateTotalsThrottled($job, [], true);
 
             if ($pendingCount === 0) {
-                $this->flushPhase2SnapshotBuffer(true);
                 if (!$this->applyPhase2DeltaToSpool($job)) {
+                    return false;
+                }
+                if (!$this->syncPhaseTwoSnapshotsFromFinalSpool($job)) {
                     return false;
                 }
                 $this->removePhaseTwoDeltaFile();
@@ -2330,8 +2138,10 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($attempt >= $this->phase2MaxAttempts) {
-                $this->flushPhase2SnapshotBuffer(true);
                 if (!$this->applyPhase2DeltaToSpool($job)) {
+                    return false;
+                }
+                if (!$this->syncPhaseTwoSnapshotsFromFinalSpool($job)) {
                     return false;
                 }
                 $this->removePhaseTwoDeltaFile();
@@ -2339,14 +2149,12 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                 return true;
             }
 
-            $this->flushPhase2SnapshotBuffer(true);
             if ($this->cooperativeSleep($this->phase2RetryDelaySeconds, $job)) {
                 return false;
             }
             $usePendingSource = true;
         }
 
-        $this->flushPhase2SnapshotBuffer(true);
         $this->removePhaseTwoDeltaFile();
         $this->removePhaseTwoPendingFiles();
         return true;
@@ -2435,7 +2243,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     $row = $creditOutcome['row'];
-                    $this->queuePhase2SnapshotRow($row);
                     $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
@@ -2537,7 +2344,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     $row = $creditOutcome['row'];
-                    $this->queuePhase2SnapshotRow($row);
                     $this->accumulatePhase2CpfValidationAuditCounts($lineNo, $creditOutcome);
                     $this->queuePhase2DeltaRow($lineNo, $row, $attempt);
 
@@ -3280,16 +3086,12 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     /**
      * @param array<string,mixed> $row
+     * @return array<string,mixed>|null
      */
-    private function queuePhase2SnapshotRow(array $row): void
+    private function buildPhase2SnapshotPayloadFromRow(array $row, string $cpf): ?array
     {
         if ($this->isPhaseTwoRowPending($row)) {
-            return;
-        }
-
-        $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
-        if (!is_string($cpf) || strlen($cpf) !== 11) {
-            return;
+            return null;
         }
 
         $mensagem = $row['politicaCreditoMensagem'] ?? null;
@@ -3322,7 +3124,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
-        $this->phase2SnapshotBuffer[$cpf] = [
+        return [
             'cpf' => $cpf,
             'politica_credito_aprovado' => $this->simNaoToBool($row['politicaCreditoAprovado'] ?? null),
             'politica_credito_mensagem' => $mensagem,
@@ -3332,35 +3134,196 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             'politica_credito_tabela_aprovada' => $tabelaAprovada,
             'job_id' => $this->jobId,
         ];
-
-        $this->flushPhase2SnapshotBuffer(false);
     }
 
-    private function flushPhase2SnapshotBuffer(bool $force): void
+    private function syncPhaseTwoSnapshotsFromFinalSpool(FactaCltConsultJob $job): bool
     {
-        if (empty($this->phase2SnapshotBuffer)) {
-            return;
+        if (!is_file($this->spoolReal)) {
+            FactaCltLog::warning("[CLT] Job {$this->jobId} sem spool final para sincronizar snapshots da fase 2.");
+            return false;
         }
 
-        if (!$force && count($this->phase2SnapshotBuffer) < $this->snapBufferFlush) {
-            return;
+        if (!$this->clearPhaseTwoSnapshotPolicyFieldsForJobCpfs($job)) {
+            return false;
+        }
+
+        $in = @fopen($this->spoolReal, 'rb');
+        if (!is_resource($in)) {
+            FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao abrir spool final para sincronizar snapshots da fase 2.");
+            return false;
+        }
+
+        $chunkRows = [];
+        $chunkCpfs = [];
+        $chunkSize = 300;
+
+        try {
+            fgetcsv($in, 0, ';');
+
+            while (($csvRow = fgetcsv($in, 0, ';')) !== false) {
+                if ($this->finishIfStopped($job)) {
+                    return false;
+                }
+
+                $row = $this->csvToAssocRow($csvRow);
+                $cpf = preg_replace('/\D+/', '', (string) ($row['cpf'] ?? ''));
+                if (!is_string($cpf) || strlen($cpf) !== 11) {
+                    continue;
+                }
+
+                $payload = $this->buildPhase2SnapshotPayloadFromRow($row, $cpf);
+                if ($payload === null) {
+                    continue;
+                }
+
+                $chunkRows[] = [
+                    'cpf' => $cpf,
+                    'matricula' => trim((string) ($row['matricula'] ?? '')),
+                    'data_admissao' => $this->parseDateFlexible($row['dataAdmissao'] ?? null),
+                    'payload' => $payload,
+                ];
+                $chunkCpfs[$cpf] = true;
+
+                if (count($chunkRows) >= $chunkSize) {
+                    if (!$this->flushPhaseTwoSnapshotSyncChunk($chunkRows, array_keys($chunkCpfs))) {
+                        return false;
+                    }
+                    $chunkRows = [];
+                    $chunkCpfs = [];
+                }
+            }
+
+            if (!empty($chunkRows) && !$this->flushPhaseTwoSnapshotSyncChunk($chunkRows, array_keys($chunkCpfs))) {
+                return false;
+            }
+
+            return true;
+        } finally {
+            @fclose($in);
+        }
+    }
+
+    private function clearPhaseTwoSnapshotPolicyFieldsForJobCpfs(FactaCltConsultJob $job): bool
+    {
+        $cpfsPath = (string) ($job->spool_cpfs_path ?? '');
+        if ($cpfsPath === '') {
+            return true;
+        }
+
+        $disk = Storage::disk($this->disk);
+        if (!$disk->exists($cpfsPath)) {
+            return true;
+        }
+
+        $reader = @fopen($disk->path($cpfsPath), 'rb');
+        if (!is_resource($reader)) {
+            FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao abrir CPFs do job para limpar snapshots da fase 2.");
+            return false;
+        }
+
+        $chunk = [];
+
+        try {
+            while (($line = fgets($reader)) !== false) {
+                if ($this->finishIfStopped($job)) {
+                    return false;
+                }
+
+                $cpf = preg_replace('/\D+/', '', trim($line));
+                if (!is_string($cpf) || strlen($cpf) !== 11) {
+                    continue;
+                }
+
+                $chunk[] = $cpf;
+
+                if (count($chunk) >= 500) {
+                    $this->clearPhaseTwoSnapshotPolicyFieldsChunk($chunk);
+                    $chunk = [];
+                }
+            }
+
+            if (!empty($chunk)) {
+                $this->clearPhaseTwoSnapshotPolicyFieldsChunk($chunk);
+            }
+
+            return true;
+        } catch (Throwable $e) {
+            FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao limpar snapshots da fase 2: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+            return false;
+        } finally {
+            @fclose($reader);
+        }
+    }
+
+    /**
+     * @param array<int,string> $cpfs
+     */
+    private function clearPhaseTwoSnapshotPolicyFieldsChunk(array $cpfs): void
+    {
+        DB::table('facta_clt_snapshots')
+            ->whereIn('cpf', $cpfs)
+            ->update([
+                'politica_credito_aprovado' => null,
+                'politica_credito_mensagem' => null,
+                'politica_credito_valor_maximo_disponivel' => null,
+                'politica_credito_prazo_maximo_disponivel' => null,
+                'politica_credito_data_consulta' => null,
+                'politica_credito_tabela_aprovada' => null,
+                'job_id' => $this->jobId,
+            ]);
+    }
+
+    /**
+     * @param array<int,array{cpf:string,matricula:string,data_admissao:?string,payload:array<string,mixed>}> $rows
+     * @param array<int,string> $cpfs
+     */
+    private function flushPhaseTwoSnapshotSyncChunk(array $rows, array $cpfs): bool
+    {
+        if (empty($rows) || empty($cpfs)) {
+            return true;
         }
 
         try {
-            $rows = array_values($this->phase2SnapshotBuffer);
-            $cpfs = array_values(array_unique(array_column($rows, 'cpf')));
-
-            $leadMap = DB::table('leads')
+            $snapshots = DB::table('facta_clt_snapshots')
                 ->whereIn('cpf', $cpfs)
+                ->select('cpf', 'matricula', 'data_admissao')
+                ->get()
+                ->keyBy('cpf');
+
+            $updates = [];
+            foreach ($rows as $row) {
+                $snapshot = $snapshots->get($row['cpf']);
+                if ($snapshot === null) {
+                    continue;
+                }
+
+                $snapshotMatricula = trim((string) ($snapshot->matricula ?? ''));
+                $snapshotDataAdmissao = $this->parseDateFlexible($snapshot->data_admissao ?? null);
+                if ($snapshotMatricula !== $row['matricula'] || $snapshotDataAdmissao !== $row['data_admissao']) {
+                    continue;
+                }
+
+                $updates[$row['cpf']] = $row['payload'];
+            }
+
+            if (empty($updates)) {
+                return true;
+            }
+
+            $payloads = array_values($updates);
+            $leadMap = DB::table('leads')
+                ->whereIn('cpf', array_keys($updates))
                 ->pluck('id', 'cpf');
 
-            foreach ($rows as &$row) {
-                $row['lead_id'] = $leadMap[$row['cpf']] ?? null;
+            foreach ($payloads as &$payload) {
+                $payload['lead_id'] = $leadMap[$payload['cpf']] ?? null;
             }
-            unset($row);
+            unset($payload);
 
             DB::table('facta_clt_snapshots')->upsert(
-                $rows,
+                $payloads,
                 ['cpf'],
                 [
                     'politica_credito_aprovado',
@@ -3373,9 +3336,12 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
                 ]
             );
 
-            $this->phase2SnapshotBuffer = [];
-        } catch (\Throwable $e) {
-            FactaCltLog::warning("[CLT] Upsert snapshots da fase 2 falhou no job {$this->jobId}: " . $e->getMessage(), ['exception' => $e]);
+            return true;
+        } catch (Throwable $e) {
+            FactaCltLog::warning("[CLT] Job {$this->jobId} falha ao sincronizar snapshots finais da fase 2: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+            return false;
         }
     }
 
@@ -3521,100 +3487,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             'phase2_approved_table' => is_array($credit['phase2_approved_table'] ?? null) ? $credit['phase2_approved_table'] : null,
             'phase2_approved_table_name' => is_string($credit['phase2_approved_table_name'] ?? null) ? $credit['phase2_approved_table_name'] : null,
         ];
-    }
-
-    private function creditPolicySnapshotCsvRow(object $record, bool $requiresOperationValues): array
-    {
-        $row = [
-            'cpf' => (string) $record->cpf,
-            'nome' => $record->nome,
-            'elegivel' => (bool) ($record->elegivel ?? false),
-            'dataNascimento' => $record->data_nascimento,
-            'idade' => $record->idade,
-            'sexo_descricao' => $record->sexo,
-            'dataAdmissao' => $record->data_admissao,
-            'tempoAdmissaoMeses' => $record->meses_admissao,
-            'valorTotalVencimentos' => $record->valor_renda,
-            'valorBaseMargem' => $record->valor_base_margem,
-            'valorMargemDisponivel' => $record->margem_disponivel,
-            'valorMaximoPrestacao' => $record->valor_max_prestacao,
-            'codigoCategoriaTrabalhador' => $record->categoria_trabalhador_codigo,
-            'dataInicioAtividadeEmpregador' => $record->inicio_atividade_empregador,
-            'mesesEmpresaEmpregador' => $record->meses_empresa_empregador,
-            'qtdEmprestimosAtivosSuspensos' => $record->qtd_emprestimos_ativos_suspensos,
-            'emprestimosLegados' => $record->emprestimos_legados,
-            'matricula' => $record->matricula,
-            'updated_at' => $record->updated_at,
-            'consulted_at' => $record->consulted_at,
-            'fonteConsulta' => 'snapshot_clt',
-        ];
-
-        if (!$this->canProcessCreditPolicySnapshotRecord($record, $requiresOperationValues)) {
-            $row['elegivel'] = false;
-            $row['politicaCreditoMensagem'] = $this->creditPolicyInsufficientMessage();
-        }
-
-        return $row;
-    }
-
-    private function creditPolicyMissingCsvRow(string $cpf): array
-    {
-        return [
-            'cpf' => $cpf,
-            'elegivel' => false,
-            'politicaCreditoMensagem' => $this->creditPolicyInsufficientMessage(),
-            'fonteConsulta' => 'sem_dados',
-        ];
-    }
-
-    private function canProcessCreditPolicySnapshotRecord(object $record, bool $requiresOperationValues): bool
-    {
-        $margemDisponivel = is_numeric($record->margem_disponivel ?? null)
-            ? (float) $record->margem_disponivel
-            : null;
-
-        if (($record->elegivel ?? null) != 1) {
-            return false;
-        }
-
-        if (($record->not_found ?? null) == 1) {
-            return false;
-        }
-
-        if ($margemDisponivel === null || $margemDisponivel <= 40.0) {
-            return false;
-        }
-
-        if (trim((string) ($record->matricula ?? '')) === '') {
-            return false;
-        }
-
-        if (empty($record->data_admissao) || empty($record->data_nascimento)) {
-            return false;
-        }
-
-        if ($requiresOperationValues && (($record->valor_renda ?? null) === null || ($record->valor_max_prestacao ?? null) === null)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function canProcessCreditPolicyCsvRow(array $row): bool
-    {
-        $margemDisponivel = is_numeric($row['valorMargemDisponivel'] ?? null)
-            ? (float) $row['valorMargemDisponivel']
-            : null;
-
-        return ($row['elegivel'] ?? null) === true
-            && $margemDisponivel !== null
-            && $margemDisponivel > 40.0
-            && empty($row['politicaCreditoMensagem']);
-    }
-
-    private function creditPolicyInsufficientMessage(): string
-    {
-        return 'Não possui dados suficientes para validação e precisa consultar antes.';
     }
 
     private function requiresOperationCreditPolicyValues(): bool
@@ -3771,7 +3643,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         if ($status === 'cancelado') {
-            $this->flushPhase2SnapshotBuffer(true);
             $this->flushPhase2DeltaBuffer(true);
             $this->flushPhase2PendingBuffer(true);
             $this->closeSpoolWriter();
@@ -3833,7 +3704,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
     private function stopSupersededExecution(FactaCltConsultJob $job, ?string $status): void
     {
         $this->stoppedByRunTokenHandoff = true;
-        $this->flushPhase2SnapshotBuffer(true);
         $this->flushPhase2DeltaBuffer(true);
         $this->flushPhase2PendingBuffer(true);
         $this->closeSpoolWriter();
@@ -3911,7 +3781,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function pauseCurrentJob(FactaCltConsultJob $job): void
     {
-        $this->flushPhase2SnapshotBuffer(true);
         $this->flushPhase2DeltaBuffer(true);
         $this->flushPhase2PendingBuffer(true);
         $this->closeSpoolWriter();
@@ -3968,7 +3837,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
 
     private function preserveCancelledSpool(FactaCltConsultJob $job): void
     {
-        $this->flushPhase2SnapshotBuffer(true);
         $disk = Storage::disk($this->disk);
         $spoolPath = is_string($job->spool_path ?? null) ? $job->spool_path : null;
         $spoolExists = FactaCltSpool::hasDataRows($disk, $spoolPath);
@@ -4396,7 +4264,6 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ((int) ($job->run_token ?? 1) !== $this->runToken) {
-                $this->flushPhase2SnapshotBuffer(true);
                 $this->flushPhase2DeltaBuffer(true);
                 $this->flushPhase2PendingBuffer(true);
                 $this->closeSpoolWriter();

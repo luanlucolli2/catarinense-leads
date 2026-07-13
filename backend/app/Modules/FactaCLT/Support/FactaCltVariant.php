@@ -10,7 +10,6 @@ final class FactaCltVariant
             'on' => 'online',
             'off' => 'offline',
             'hyb' => 'hybrid',
-            'policy', 'credit-policy', 'politica', 'politica_credito' => 'credit_policy',
             default => $variant,
         };
     }
@@ -27,12 +26,7 @@ final class FactaCltVariant
 
     public static function supportsCreditPhaseTwo(?string $variant): bool
     {
-        return in_array(self::normalizeStored($variant), ['online', 'hybrid', 'credit_policy'], true);
-    }
-
-    public static function isCreditPolicyOnly(?string $variant): bool
-    {
-        return self::normalizeStored($variant) === 'credit_policy';
+        return in_array(self::normalizeStored($variant), ['online', 'offline', 'hybrid'], true);
     }
 
     public static function resolvePhaseOneQueue(?string $variant): string
@@ -40,7 +34,6 @@ final class FactaCltVariant
         return match (self::normalizeStored($variant)) {
             'offline' => (string) config('facta.job.queue_offline', 'facta-clt-off'),
             'hybrid' => (string) config('facta.job.queue_hybrid', config('facta.job.queue_online', 'facta-clt-consulta-online')),
-            'credit_policy' => (string) config('facta.job.queue_phase2', 'facta-clt-valida-politica-cred'),
             default => (string) config('facta.job.queue_online', 'facta-clt-consulta-online'),
         };
     }

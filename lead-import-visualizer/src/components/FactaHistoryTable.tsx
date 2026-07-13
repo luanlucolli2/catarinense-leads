@@ -207,7 +207,7 @@ function resolveVariant(item: FactaCltConsultJobListItem): CltVariant {
 }
 
 function isTwoPhaseVariant(variant: CltVariant): boolean {
-  return variant !== "offline";
+  return variant === "online" || variant === "offline" || variant === "hybrid";
 }
 
 function getOnlinePhaseStatusIcon(status: OnlinePhaseStatus) {
@@ -454,7 +454,7 @@ function CreditPolicyOnlyProgress({ item }: { item: FactaCltConsultJobListItem }
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {getOnlinePhaseStatusIcon(status)}
-          <span className="text-sm font-semibold">Política de crédito</span>
+          <span className="text-sm font-semibold">Política legada</span>
         </div>
         <span className="text-xs font-medium text-muted-foreground bg-background/80 px-2 py-0.5 rounded-full">
           {resolved.toLocaleString()} / {total.toLocaleString()} CPFs
@@ -765,16 +765,10 @@ export const FactaHistoryTable = ({
 
           const variant = resolveVariant(i);
           const isTwoPhase = isTwoPhaseVariant(variant);
-          const isCreditPolicyOnly = variant === "credit_policy";
+          const isLegacyCreditPolicy = variant === "credit_policy";
           const canViewHttpCounters = isTwoPhase && typeof onViewHttpCounters === "function";
           const phaseAndStatusInfo =
-            isCreditPolicyOnly && phaseInfo
-              ? {
-                  icon: statusInfo.icon,
-                  className: statusInfo.className,
-                  label: `Política de crédito • ${statusInfo.label}`,
-                }
-            : isTwoPhase && phaseInfo
+            isTwoPhase && phaseInfo
               ? {
                   icon: statusInfo.icon,
                   className: statusInfo.className,
@@ -806,7 +800,7 @@ export const FactaHistoryTable = ({
                   icon: <ShieldCheck className="w-3.5 h-3.5" />,
                   className:
                     "bg-gradient-to-r from-sky-100 to-cyan-50 text-sky-800 border-sky-300 dark:from-sky-900/30 dark:to-cyan-800/20 dark:text-sky-300 dark:border-sky-700 shadow-sm",
-                  label: "Política",
+                  label: "Legado",
                 }
             : {
                 icon: <Wifi className="w-3.5 h-3.5" />,
@@ -1106,7 +1100,7 @@ export const FactaHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  {isCreditPolicyOnly ? (
+                  {isLegacyCreditPolicy ? (
                     <CreditPolicyOnlyProgress item={i} />
                   ) : isTwoPhase ? (
                     <OnlineTwoPhaseProgress item={i} />
