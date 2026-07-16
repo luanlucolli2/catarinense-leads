@@ -10,7 +10,6 @@ use App\Models\Lead;
 use App\Models\LeadContract;
 use App\Models\Vendor;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 class BackupService
 {
@@ -117,15 +116,5 @@ class BackupService
                 'updated_at'          => now(),
             ]
         );
-    }
-
-    /** Limpa backups antigos no início do import (1 job por vez). */
-    public function purgeOldBackups(): void
-    {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        LeadBackup::truncate();
-        LeadContractBackup::truncate();
-        VendorBackup::truncate();
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
     }
 }

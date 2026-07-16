@@ -10,9 +10,6 @@ class IbgeNameSeeder extends Seeder
 {
     public function run(): void
     {
-        // Limpa a tabela antes de começar
-        DB::table('ibge_names')->truncate();
-
         // Garante que o arquivo esteja em backend/storage/app/nomesibge.csv
         $path = storage_path('app/nomesibge.csv');
 
@@ -43,7 +40,7 @@ class IbgeNameSeeder extends Seeder
         })
         ->chunk(1000) 
         ->each(function ($chunk) {
-            DB::table('ibge_names')->insert($chunk->toArray());
+            DB::table('ibge_names')->upsert($chunk->toArray(), ['name'], ['gender']);
         });
     }
 }

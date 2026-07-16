@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Modules\V8Fgts\Jobs\ProcessV8FgtsConsultJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 class ProcessV8FgtsConsultJobTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     public function test_it_processes_a_happy_path_job_until_simulation_with_paginated_plain_search(): void
     {

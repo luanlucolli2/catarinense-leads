@@ -9,7 +9,7 @@ use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Services\HubCreditoApiService;
 use App\Modules\HubCredito\Support\HubCreditoFiles;
 use App\Modules\HubCredito\Support\HubCreditoSchema;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -19,7 +19,7 @@ use Tests\TestCase;
 
 class ProcessHubCreditoConsultJobTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function setUp(): void
     {
