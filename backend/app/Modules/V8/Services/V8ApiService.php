@@ -85,6 +85,11 @@ class V8ApiService
         return $this->postBff('/private-consignment/simulation', $payload);
     }
 
+    public function listSimulationConfigs(): array
+    {
+        return $this->getBff('/private-consignment/simulation/configs', []);
+    }
+
     private function postBff(string $path, array $payload): array
     {
         return $this->request('post', $path, $payload);
