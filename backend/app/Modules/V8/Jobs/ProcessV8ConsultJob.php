@@ -84,6 +84,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
     private bool $logApi429;
     private bool $reuseRecentLogEnabled;
     private bool $reuseRecentLogApiResponses;
+    private string $simulationConfigId = '';
 
     public function __construct(int $jobId)
     {
@@ -249,6 +250,18 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
             }
 
             if ($this->finishIfStopped($job)) {
+                return;
+            }
+
+            $configError = $this->resolveSimulationConfig($api);
+            if ($configError !== null) {
+                Log::error("[V8] Job {$this->jobId}: {$configError}");
+                $this->logCpfFailure('simulation_config', null, null, $configError);
+                if (!$this->appendSimulationConfigFailureRows($job, $disk->path($uniqRel), $processedCpfs, $configError)) {
+                    return;
+                }
+                $this->updateTotalsThrottled($job, [], true);
+                $this->failFinalize($job);
                 return;
             }
 
@@ -425,7 +438,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $provider = (string) config('v8.bff.provider', 'QI');
-        $configId = (string) config('v8.bff.config_id', '');
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
@@ -502,7 +514,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
-            'config_id' => $configId,
+            'config_id' => $this->simulationConfigId,
             'disbursed_amount' => $disbursedAmount,
             'number_of_installments' => $installments,
             'provider' => $provider,
@@ -1089,14 +1101,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $provider = (string) config('v8.bff.provider', 'QI');
-        $configId = (string) config('v8.bff.config_id', '');
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
         $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
-            'config_id' => $configId,
+            'config_id' => $this->simulationConfigId,
             'disbursed_amount' => $disbursedAmount,
             'number_of_installments' => $installments,
             'provider' => $provider,
@@ -1151,14 +1162,13 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $provider = (string) config('v8.bff.provider', 'QI');
-        $configId = (string) config('v8.bff.config_id', '');
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
         $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
-            'config_id' => $configId,
+            'config_id' => $this->simulationConfigId,
             'disbursed_amount' => $disbursedAmount,
             'number_of_installments' => $installments,
             'provider' => $provider,
@@ -1826,7 +1836,6 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         }
 
         $provider = (string) config('v8.bff.provider', 'QI');
-        $configId = (string) config('v8.bff.config_id', '');
         $disbursedAmount = (int) config('v8.simulation.disbursed_amount', 500);
         $installments = (int) config('v8.simulation.installments', 24);
 
@@ -1842,7 +1851,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $api->setRateLimitMs($this->httpMinIntervalPhase2Simulation);
         $simResult = $this->simulateWithInstallmentsFallback($api, [
             'consult_id' => $consultId,
-            'config_id' => $configId,
+            'config_id' => $this->simulationConfigId,
             'disbursed_amount' => $disbursedAmount,
             'number_of_installments' => $installments,
             'provider' => $provider,
@@ -2257,6 +2266,90 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $row['first_installment_date'] = $data['first_installment_date'] ?? null;
         $row['is_insured'] = $data['is_insured'] ?? null;
         $row['insurance_amount'] = $data['insurance_amount'] ?? null;
+    }
+
+    private function resolveSimulationConfig(V8ApiService $api): ?string
+    {
+        $slug = 'CLT Acelera - Seguro';
+        $resp = $api->listSimulationConfigs();
+
+        if (!$resp['ok']) {
+            return 'Falha ao obter configurações de simulação: ' . $this->formatApiError($resp);
+        }
+
+        $configs = $resp['data']['configs'] ?? null;
+        if (!is_array($configs)) {
+            return 'Resposta inválida ao obter configurações de simulação.';
+        }
+
+        $matches = array_values(array_filter($configs, static function ($config) use ($slug): bool {
+            return is_array($config) && ($config['slug'] ?? null) === $slug;
+        }));
+
+        if (count($matches) === 0) {
+            return "Configuração de simulação \"{$slug}\" não encontrada.";
+        }
+
+        if (count($matches) > 1) {
+            return "Configuração de simulação \"{$slug}\" duplicada.";
+        }
+
+        $id = $matches[0]['id'] ?? null;
+        if (!is_string($id) || trim($id) === '') {
+            return "Configuração de simulação \"{$slug}\" possui ID inválido.";
+        }
+
+        $this->simulationConfigId = trim($id);
+        return null;
+    }
+
+    /** @param array<string,bool> $processedCpfs */
+    private function appendSimulationConfigFailureRows(
+        V8ConsultJob $job,
+        string $uniqReal,
+        array $processedCpfs,
+        string $message
+    ): bool {
+        $reader = @fopen($uniqReal, 'r');
+        if (!is_resource($reader)) {
+            $this->appendErrorRow($job, null, null, null, $message);
+            return true;
+        }
+
+        try {
+            $rows = [];
+            while (($line = fgets($reader)) !== false) {
+                [$cpf, $nome, $nasc] = $this->splitEntryLine(trim($line));
+                if (!$cpf || isset($processedCpfs[$cpf])) {
+                    continue;
+                }
+
+                $row = $this->baseRow($cpf, $nome, $nasc);
+                $row['status'] = 'ERROR';
+                $this->markErro($row, $message);
+                $row['status'] = 'FALHOU';
+                $rows[] = $row;
+
+                if (count($rows) >= 500) {
+                    if ($this->finishIfStopped($job)) {
+                        return false;
+                    }
+                    $this->spoolAppendManyPersist($job, $rows);
+                    $rows = [];
+                }
+            }
+
+            if (!empty($rows)) {
+                if ($this->finishIfStopped($job)) {
+                    return false;
+                }
+                $this->spoolAppendManyPersist($job, $rows);
+            }
+        } finally {
+            fclose($reader);
+        }
+
+        return true;
     }
 
     private function simulateWithInstallmentsFallback(V8ApiService $api, array $payload, string $cpf, ?string $consultId): array

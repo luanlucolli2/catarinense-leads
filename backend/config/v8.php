@@ -14,7 +14,6 @@ return [
     'bff' => [
         'base_url'  => env('V8_BFF_BASE_URL', 'https://bff.v8sistema.com'),
         'provider'  => env('V8_PROVIDER', 'QI'),
-        'config_id' => env('V8_CONFIG_ID', 'fbbb3a06-05ca-4567-9a92-ce78cb4db796'),
     ],
 
     'signer' => [
