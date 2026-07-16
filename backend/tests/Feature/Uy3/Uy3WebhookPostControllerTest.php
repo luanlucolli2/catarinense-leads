@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\Uy3;
 
 use App\Models\Uy3WebhookPost;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class Uy3WebhookPostControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function setUp(): void
     {

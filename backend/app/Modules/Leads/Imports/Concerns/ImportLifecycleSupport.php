@@ -56,7 +56,6 @@ trait ImportLifecycleSupport
 
     protected function bootImportLifecycleState(): void
     {
-        $this->backup->purgeOldBackups();
         $this->rowsInCurrentChunk = 0;
         $this->cancelled = false;
         $this->cancelCheckCounter = 0;

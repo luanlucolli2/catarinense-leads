@@ -42,7 +42,7 @@ sail artisan key:generate
 
 Execute migrations e seeders:
 ```bash
-sail artisan migrate:fresh --seed
+sail artisan migrate
 ```
 
 # Acessar a Aplicação

@@ -5,6 +5,12 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Http\Request;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Console\Migrations\FreshCommand;
+use Illuminate\Database\Console\Migrations\RefreshCommand;
+use Illuminate\Database\Console\Migrations\ResetCommand;
+use Illuminate\Database\Console\Migrations\RollbackCommand;
+use Illuminate\Database\Console\Seeds\SeedCommand;
+use Illuminate\Database\Console\WipeCommand;
 use Illuminate\Support\Facades\RateLimiter;
 
 class AppServiceProvider extends ServiceProvider
@@ -22,6 +28,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $prohibitDestructiveDatabaseCommands = $this->app->environment('production');
+        FreshCommand::prohibit($prohibitDestructiveDatabaseCommands);
+        RefreshCommand::prohibit($prohibitDestructiveDatabaseCommands);
+        ResetCommand::prohibit($prohibitDestructiveDatabaseCommands);
+        RollbackCommand::prohibit($prohibitDestructiveDatabaseCommands);
+        SeedCommand::prohibit($prohibitDestructiveDatabaseCommands);
+        WipeCommand::prohibit($prohibitDestructiveDatabaseCommands);
+
         /**
          * Limite de tentativas de login.
          * Combina IP e identificador do usuário/email para reduzir brute-force e enumeração.

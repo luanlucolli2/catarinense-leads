@@ -7,7 +7,7 @@ namespace Tests\Feature\Uy3;
 use App\Models\User;
 use App\Models\Uy3WebhookPost;
 use App\Modules\Uy3\Jobs\GenerateUy3ExportJob;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -15,7 +15,7 @@ use Tests\TestCase;
 
 class Uy3PostExportControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function setUp(): void
     {

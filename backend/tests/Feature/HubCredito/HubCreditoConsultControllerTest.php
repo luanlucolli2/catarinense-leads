@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Modules\HubCredito\Models\HubCreditoConsultJob;
 use App\Modules\HubCredito\Jobs\ProcessHubCreditoConsultJob;
 use App\Modules\HubCredito\Support\HubCreditoPreviewSnapshot;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 class HubCreditoConsultControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function setUp(): void
     {
