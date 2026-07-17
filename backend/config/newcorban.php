@@ -39,6 +39,7 @@ return [
             'bank_id' => '935',
             'promoter_id' => '413',
             'typing_login' => 'karen@catarinensecredito.com.br',
+            'omit_table_code' => true,
         ],
         'facta' => [
             'bank_id' => '935',
