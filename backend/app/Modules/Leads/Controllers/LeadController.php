@@ -26,14 +26,30 @@ class LeadController extends Controller
         $perPage = (int) $r->input('per_page', (int) config('leads.pagination.per_page_default', 10));
         $maxPerPage = max(1, (int) config('leads.pagination.per_page_max', 100));
         $perPage = min(max(1, $perPage), $maxPerPage);
-        $idPage = \App\Modules\Leads\Filters\LeadFilter::apply($r, null, true)->paginate($perPage);
+        $mode = strtolower((string) $r->input('mode', 'fgts'));
+        $idQuery = \App\Modules\Leads\Filters\LeadFilter::apply($r, null, true);
+        $total = null;
+
+        if ($mode === '360') {
+            $ttlSeconds = max(1, (int) config('leads.pagination.count_cache_ttl_seconds', 60));
+            $cachePrefix = (string) config('leads.pagination.count_cache_key_prefix', 'leads:360:count');
+            $fingerprint = hash('sha256', serialize([$idQuery->toSql(), $idQuery->getBindings()]));
+
+            $total = Cache::remember(
+                "{$cachePrefix}:{$fingerprint}",
+                now()->addSeconds($ttlSeconds),
+                fn (): int => (int) $idQuery->toBase()->getCountForPagination()
+            );
+        }
+
+        $idPage = $idQuery->paginate($perPage, ['*'], 'page', null, $total);
         $ids = collect($idPage->items())->pluck('id')->all();
 
         if (empty($ids)) {
             return response()->json($idPage);
         }
 
-        $leads = \App\Modules\Leads\Filters\LeadFilter::apply($r)
+        $leads = \App\Modules\Leads\Filters\LeadFilter::apply($r, null, false, $mode !== '360')
             ->whereIn('leads.id', $ids)
             ->get()
             ->keyBy('id');
