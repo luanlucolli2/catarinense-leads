@@ -1,6 +1,11 @@
 /* Camada de acesso aos endpoints /leads */
 import axiosClient from "@/api/axiosClient"
 
+const configuredLeads360Timeout = Number(import.meta.env.VITE_LEADS_360_TIMEOUT_MS)
+const LEADS_360_TIMEOUT_MS = Number.isFinite(configuredLeads360Timeout) && configuredLeads360Timeout > 0
+  ? configuredLeads360Timeout
+  : 60_000
+
 /* ---------- Tipagens ---------- */
 export type Mode = "base" | "fgts" | "facta" | "mercantil" | "uy3" | "360"
 export type LeadBankKey = "fgts" | "facta" | "mercantil" | "uy3"
@@ -811,7 +816,7 @@ export async function fetchLeadsUy3(filters: LeadFilters) {
   return data
 }
 
-export async function fetchLeads360(filters: LeadFilters) {
+export async function fetchLeads360(filters: LeadFilters, signal?: AbortSignal) {
   const mode: Mode = "360"
   const pageParams = {
     ...(filters.page ? { page: filters.page } : {}),
@@ -891,7 +896,7 @@ export async function fetchLeads360(filters: LeadFilters) {
     const { data } = await axiosClient.post<PaginatedLeadsResponse360>(
       "/leads/search",
       payload,
-      { params: Object.keys(pageParams).length ? pageParams : undefined }
+      { params: Object.keys(pageParams).length ? pageParams : undefined, signal, timeout: LEADS_360_TIMEOUT_MS }
     )
     return data
   }
@@ -899,6 +904,8 @@ export async function fetchLeads360(filters: LeadFilters) {
   const params = buildQueryParams(filters, mode)
   const { data } = await axiosClient.get<PaginatedLeadsResponse360>("/leads", {
     params,
+    signal,
+    timeout: LEADS_360_TIMEOUT_MS,
   })
   return data
 }

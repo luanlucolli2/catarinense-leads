@@ -11,8 +11,12 @@ use App\Support\Cpf;
 
 class LeadFilter
 {
-    public static function apply(Request $r, ?array $columnsForExport = null, bool $idsOnly = false): Builder
-    {
+    public static function apply(
+        Request $r,
+        ?array $columnsForExport = null,
+        bool $idsOnly = false,
+        bool $applyFilters = true,
+    ): Builder {
         $exportMode = is_array($columnsForExport);
         $columnsForExport = $columnsForExport ?? [];
         $mode = strtolower((string) $r->input('mode', 'fgts')); // 'base' | 'fgts' | 'facta' | 'mercantil' | 'uy3' | '360'
@@ -169,20 +173,34 @@ class LeadFilter
             || $r->filled('fgts_consulta_from')
             || $r->filled('fgts_consulta_to');
 
-        $needCltJoin = $mode === 'facta' || $mode === '360' || $needAnyClt || $hasCltScopedFilters;
-        $needMercantilJoin = (!$exportMode && $mode === 'mercantil')
-            || $mode === '360'
+        $selected360Banks = $mode === '360'
+            ? self::normalizeSelectedBanks(self::requestList($r, 'selected_banks'))
+            : [];
+        $hydrate360 = $mode === '360' && ! $idsOnly;
+
+        $needCltJoin = $mode === 'facta'
+            || $hydrate360
+            || $needAnyClt
+            || $hasCltScopedFilters
+            || ($idsOnly && in_array('facta', $selected360Banks, true));
+        $needMercantilJoin = (! $exportMode && $mode === 'mercantil')
+            || $hydrate360
             || $needAnyMercantil
-            || $hasMercantilScopedFilters;
-        $needUy3Join = (!$exportMode && $mode === 'uy3')
-            || $mode === '360'
+            || $hasMercantilScopedFilters
+            || ($idsOnly && in_array('mercantil', $selected360Banks, true));
+        $needUy3Join = (! $exportMode && $mode === 'uy3')
+            || $hydrate360
             || $needAnyUy3
-            || $hasUy3ScopedFilters;
+            || $hasUy3ScopedFilters
+            || ($idsOnly && in_array('uy3', $selected360Banks, true));
         $needFgtsJoin = $mode === 'fgts'
-            || $mode === '360'
+            || $hydrate360
             || $needFgtsAuthorizedCol
             || $needFgtsConsultadoCol
-            || $hasFgtsScopedFilters;
+            || $hasFgtsScopedFilters
+            || ($idsOnly && in_array('fgts', $selected360Banks, true));
+        $needMercantilJobJoin = $needMercantilJoin
+            && (!$idsOnly || $r->filled('mercantil_origens'));
 
         if ($exportMode) {
             $select = ['leads.id'];
@@ -218,6 +236,8 @@ class LeadFilter
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
+            }
+            if ($needMercantilJobJoin) {
                 $query->leftJoin('import_jobs as ijm', function ($join) {
                     $join->on('ijm.id', '=', 'ms.job_id')
                         ->where('ijm.type', '=', 'mercantil');
@@ -384,6 +404,8 @@ class LeadFilter
             }
             if ($needMercantilJoin) {
                 $query->leftJoin('mercantil_snapshots as ms', 'ms.cpf', '=', 'leads.cpf');
+            }
+            if ($needMercantilJobJoin) {
                 $query->leftJoin('import_jobs as ijm', function ($join) {
                     $join->on('ijm.id', '=', 'ms.job_id')
                         ->where('ijm.type', '=', 'mercantil');
@@ -574,8 +596,9 @@ class LeadFilter
             }
         }
 
-        // ----- busca geral -----
-        if ($r->filled('search')) {
+        if ($applyFilters && $r->filled('search') && $mode === '360') {
+            self::apply360Search($query, (string) $r->input('search'));
+        } elseif ($applyFilters && $r->filled('search')) {
             $termRaw = (string) $r->input('search');
             $termLike = '%' . $termRaw . '%';
             $digits = preg_replace('/\D+/', '', $termRaw) ?: '';
@@ -598,8 +621,7 @@ class LeadFilter
             });
         }
 
-        // ===== filtros FGTS (não se aplicam ao CLT) =====
-        if ($mode === 'fgts') {
+        if ($applyFilters && $mode === 'fgts') {
             $motivos = self::requestList($r, 'motivos');
             if ($motivos)
                 $query->whereIn('leads.consulta', $motivos);
@@ -623,62 +645,74 @@ class LeadFilter
         }
 
         // filtros de origem cadastral (válido para ambos)
-        $origensCad = self::requestList($r, 'origens');
-        if ($origensCad) {
+        $origensCad = $applyFilters ? self::requestList($r, 'origens') : [];
+        if ($applyFilters && $origensCad) {
             self::applyLatestOriginFilter($query, 'cadastral', $origensCad);
         }
 
         $phoneColumns = ['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'];
 
-        self::applyMassFilter($query, $r, 'cpf', ['leads.cpf']);
-        self::applyMassFilter($query, $r, 'names', ['leads.nome']);
-        self::applyMassFilter($query, $r, 'phones', $phoneColumns);
-        if ($r->boolean('with_phones')) {
-            $query->where(function (Builder $phoneQuery) use ($phoneColumns) {
-                foreach ($phoneColumns as $index => $phoneColumn) {
-                    $method = $index === 0 ? 'where' : 'orWhere';
-                    $phoneQuery->{$method}(function (Builder $filledPhoneQuery) use ($phoneColumn) {
-                        $filledPhoneQuery
-                            ->whereNotNull($phoneColumn)
-                            ->whereRaw("TRIM({$phoneColumn}) <> ''");
-                    });
-                }
-            });
+        if ($applyFilters) {
+            self::applyMassFilter($query, $r, 'cpf', ['leads.cpf']);
+            self::applyMassFilter($query, $r, 'names', ['leads.nome']);
+            self::applyMassFilter($query, $r, 'phones', $phoneColumns);
         }
-        if ($r->boolean('without_phones')) {
-            foreach ($phoneColumns as $phoneColumn) {
-                $query->where(function (Builder $phoneQuery) use ($phoneColumn) {
-                    $phoneQuery
-                        ->whereNull($phoneColumn)
-                        ->orWhereRaw("TRIM({$phoneColumn}) = ''");
+        if ($applyFilters && $r->boolean('with_phones')) {
+            if ($mode === '360') {
+                $query->where('leads.has_phone', 1);
+            } else {
+                $query->where(function (Builder $phoneQuery) use ($phoneColumns) {
+                    foreach ($phoneColumns as $index => $phoneColumn) {
+                        $method = $index === 0 ? 'where' : 'orWhere';
+                        $phoneQuery->{$method}(function (Builder $filledPhoneQuery) use ($phoneColumn) {
+                            $filledPhoneQuery
+                                ->whereNotNull($phoneColumn)
+                                ->whereRaw("TRIM({$phoneColumn}) <> ''");
+                        });
+                    }
                 });
             }
         }
+        if ($applyFilters && $r->boolean('without_phones')) {
+            if ($mode === '360') {
+                $query->where('leads.has_phone', 0);
+            } else {
+                foreach ($phoneColumns as $phoneColumn) {
+                    $query->where(function (Builder $phoneQuery) use ($phoneColumn) {
+                        $phoneQuery
+                            ->whereNull($phoneColumn)
+                            ->orWhereRaw("TRIM({$phoneColumn}) = ''");
+                    });
+                }
+            }
+        }
 
-        $birth = self::requestList($r, 'birth_month');
-        self::applyBirthMonthFilter($query, $birth);
+        if ($applyFilters) {
+            $birth = self::requestList($r, 'birth_month');
+            self::applyBirthMonthFilter($query, $birth);
+        }
 
-        if ($mode === 'fgts') {
+        if ($applyFilters && $mode === 'fgts') {
             self::applyFgtsPresence($query);
             self::applyFgtsScopedFilters($query, $r);
         }
 
-        if ($mode === 'facta') {
+        if ($applyFilters && $mode === 'facta') {
             self::applyCltPresence($query);
             self::applyCltScopedFilters($query, $r);
         }
 
-        if ($mode === 'mercantil') {
+        if ($applyFilters && $mode === 'mercantil') {
             self::applyMercantilPresence($query);
             self::applyMercantilScopedFilters($query, $r);
         }
 
-        if ($mode === 'uy3') {
+        if ($applyFilters && $mode === 'uy3') {
             self::applyUy3Presence($query);
             self::applyUy3ScopedFilters($query, $r);
         }
 
-        if ($mode === '360') {
+        if ($applyFilters && $mode === '360') {
             self::apply360SourceSelection($query, $r);
         }
 
@@ -776,6 +810,45 @@ class LeadFilter
         }
 
         return $query->orderByDesc('leads.updated_at')->orderByDesc('leads.id');
+    }
+
+    private static function apply360Search(Builder $query, string $term): void
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return;
+        }
+
+        $digits = preg_replace('/\D+/', '', $term) ?: '';
+        $isNumericSearch = $digits !== '' && preg_match('/^[\d\s().+\-]+$/', $term) === 1;
+
+        if ($isNumericSearch) {
+            $phone = $digits;
+            if (strlen($phone) > 11 && str_starts_with($phone, '55')) {
+                $phone = substr($phone, 2);
+            }
+
+            $query->where(function (Builder $searchQuery) use ($digits, $phone): void {
+                if (strlen($digits) === 11) {
+                    $searchQuery->orWhere('leads.cpf', $digits);
+                }
+
+                if (in_array(strlen($phone), [10, 11], true)) {
+                    foreach (['leads.fone1', 'leads.fone2', 'leads.fone3', 'leads.fone4'] as $column) {
+                        $searchQuery->orWhere($column, $phone);
+                    }
+                }
+
+                if (! in_array(strlen($phone), [10, 11], true) && strlen($digits) !== 11) {
+                    $searchQuery->whereRaw('1 = 0');
+                }
+            });
+
+            return;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', $term) ?: $term;
+        $query->where('leads.nome', 'like', addcslashes($normalized, '\\%_').'%');
     }
 
     private static function applyMassFilter(Builder $q, Request $r, string $key, array $columns): void

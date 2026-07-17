@@ -64,6 +64,17 @@ type Uy3SituacaoFilter = "todos" | "aprovado" | "nao_aprovado"
 type MercantilSituacao360Filter = "todos" | "aprovado" | "nao_aprovado"
 type ActiveTab = "360" | "BASE" | "FGTS" | "CLT" | "MERCANTIL" | "UY3"
 
+const useDebouncedValue = <T,>(value: T, delayMs: number): T => {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delayMs)
+    return () => window.clearTimeout(timer)
+  }, [value, delayMs])
+
+  return debouncedValue
+}
+
 type Dashboard360Filters = {
   search: string
   origens: string[]
@@ -412,6 +423,8 @@ const Dashboard = () => {
     "dashboard-360:filters:v1",
     DASHBOARD_360_FILTERS_DEFAULT
   )
+  const debouncedDashboard360SearchValue = useDebouncedValue(dashboard360SearchValue, 500)
+  const debouncedDashboard360Filters = useDebouncedValue(dashboard360Filters, 500)
 
   const [baseVisibleColumns, setBaseVisibleColumns] = usePersistedState<string[]>(
     "leadstable:base:visibleColumns:v1",
@@ -438,9 +451,11 @@ const Dashboard = () => {
     key: K,
     value: Dashboard360Filters[K]
   ) => {
+    setCurrentPage(1)
     setDashboard360Filters((current) => ({ ...current, [key]: value }))
   }
   const dashboard360SelectedBanks = dashboard360Filters.selected_banks.filter((bank) => bank !== "fgts")
+  const debouncedDashboard360SelectedBanks = debouncedDashboard360Filters.selected_banks.filter((bank) => bank !== "fgts")
 
   const [baseSearchValue, setBaseSearchValue] = usePersistedState<string>("dashboard-base:searchValue", "")
   const [baseOrigemFilter, setBaseOrigemFilter] = usePersistedState<string[]>("dashboard-base:origemFilter", [])
@@ -606,6 +621,9 @@ const Dashboard = () => {
     isError,
     refetch,
   } = useQuery<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseFacta | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360>({
+    enabled: activeTab !== "360"
+      || (dashboard360SearchValue === debouncedDashboard360SearchValue
+        && dashboard360Filters === debouncedDashboard360Filters),
     queryKey: [
       "leads",
       activeTab,
@@ -653,49 +671,49 @@ const Dashboard = () => {
       uy3CpfMassFilter, uy3NamesMassFilter, uy3PhonesMassFilter, uy3WithPhonesFilter, uy3NoPhonesFilter,
       uy3BirthMonthFilter,
       uy3SortBy,
-      dashboard360SearchValue,
+      debouncedDashboard360SearchValue,
       dashboard360SortBy,
-      dashboard360Filters,
+      debouncedDashboard360Filters,
     ],
-    queryFn: async (): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseFacta | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
+    queryFn: async ({ signal }): Promise<PaginatedLeadsResponseBase | PaginatedLeadsResponseFGTS | PaginatedLeadsResponseFacta | PaginatedLeadsResponseMercantil | PaginatedLeadsResponseUY3 | PaginatedLeadsResponse360> => {
       if (activeTab === "360") {
         return fetchLeads360({
           page: currentPage,
           per_page: perPage,
-          search: dashboard360SearchValue,
+          search: debouncedDashboard360SearchValue,
           sort: dashboard360SortBy,
-          with_phones: dashboard360Filters.with_phones || undefined,
-          without_phones: dashboard360Filters.without_phones || undefined,
-          selected_banks: dashboard360SelectedBanks.length ? dashboard360SelectedBanks : undefined,
-          bank_combination_mode: dashboard360Filters.bank_combination_mode,
-          facta_situacao: dashboard360Filters.facta_situacao !== "todos" ? dashboard360Filters.facta_situacao : undefined,
-          facta_consulta_from: dashboard360Filters.facta_consulta_from || undefined,
-          facta_consulta_to: dashboard360Filters.facta_consulta_to || undefined,
-          facta_meses_min: dashboard360Filters.facta_meses_min || undefined,
-          facta_meses_max: dashboard360Filters.facta_meses_max || undefined,
-          facta_margem_min: dashboard360Filters.facta_margem_min || undefined,
-          facta_margem_max: dashboard360Filters.facta_margem_max || undefined,
-          facta_numero_parcelas_min: dashboard360Filters.facta_prestacao_min || undefined,
-          facta_numero_parcelas_max: dashboard360Filters.facta_prestacao_max || undefined,
-          mercantil_situacao: dashboard360Filters.mercantil_situacao !== "todos" ? dashboard360Filters.mercantil_situacao : undefined,
-          mercantil_consulta_from: dashboard360Filters.mercantil_consulta_from || undefined,
-          mercantil_consulta_to: dashboard360Filters.mercantil_consulta_to || undefined,
-          mercantil_valor_parcela_min: dashboard360Filters.mercantil_parcela_min || undefined,
-          mercantil_valor_parcela_max: dashboard360Filters.mercantil_parcela_max || undefined,
-          mercantil_numero_parcelas_min: dashboard360Filters.mercantil_qtd_parcelas_min || undefined,
-          mercantil_numero_parcelas_max: dashboard360Filters.mercantil_qtd_parcelas_max || undefined,
-          uy3_situacao: dashboard360Filters.uy3_situacao !== "todos" ? dashboard360Filters.uy3_situacao : undefined,
-          uy3_consulta_from: dashboard360Filters.uy3_consulta_from || undefined,
-          uy3_consulta_to: dashboard360Filters.uy3_consulta_to || undefined,
-          uy3_meses_admissao_min: dashboard360Filters.uy3_meses_admissao_min || undefined,
-          uy3_meses_admissao_max: dashboard360Filters.uy3_meses_admissao_max || undefined,
-          uy3_margem_min: dashboard360Filters.uy3_margem_min || undefined,
-          uy3_margem_max: dashboard360Filters.uy3_margem_max || undefined,
-          uy3_valor_liberado_min: dashboard360Filters.uy3_valor_liberado_min || undefined,
-          uy3_valor_liberado_max: dashboard360Filters.uy3_valor_liberado_max || undefined,
-          uy3_numero_parcelas_min: dashboard360Filters.uy3_numero_parcelas_min || undefined,
-          uy3_numero_parcelas_max: dashboard360Filters.uy3_numero_parcelas_max || undefined,
-        })
+          with_phones: debouncedDashboard360Filters.with_phones || undefined,
+          without_phones: debouncedDashboard360Filters.without_phones || undefined,
+          selected_banks: debouncedDashboard360SelectedBanks.length ? debouncedDashboard360SelectedBanks : undefined,
+          bank_combination_mode: debouncedDashboard360Filters.bank_combination_mode,
+          facta_situacao: debouncedDashboard360Filters.facta_situacao !== "todos" ? debouncedDashboard360Filters.facta_situacao : undefined,
+          facta_consulta_from: debouncedDashboard360Filters.facta_consulta_from || undefined,
+          facta_consulta_to: debouncedDashboard360Filters.facta_consulta_to || undefined,
+          facta_meses_min: debouncedDashboard360Filters.facta_meses_min || undefined,
+          facta_meses_max: debouncedDashboard360Filters.facta_meses_max || undefined,
+          facta_margem_min: debouncedDashboard360Filters.facta_margem_min || undefined,
+          facta_margem_max: debouncedDashboard360Filters.facta_margem_max || undefined,
+          facta_numero_parcelas_min: debouncedDashboard360Filters.facta_prestacao_min || undefined,
+          facta_numero_parcelas_max: debouncedDashboard360Filters.facta_prestacao_max || undefined,
+          mercantil_situacao: debouncedDashboard360Filters.mercantil_situacao !== "todos" ? debouncedDashboard360Filters.mercantil_situacao : undefined,
+          mercantil_consulta_from: debouncedDashboard360Filters.mercantil_consulta_from || undefined,
+          mercantil_consulta_to: debouncedDashboard360Filters.mercantil_consulta_to || undefined,
+          mercantil_valor_parcela_min: debouncedDashboard360Filters.mercantil_parcela_min || undefined,
+          mercantil_valor_parcela_max: debouncedDashboard360Filters.mercantil_parcela_max || undefined,
+          mercantil_numero_parcelas_min: debouncedDashboard360Filters.mercantil_qtd_parcelas_min || undefined,
+          mercantil_numero_parcelas_max: debouncedDashboard360Filters.mercantil_qtd_parcelas_max || undefined,
+          uy3_situacao: debouncedDashboard360Filters.uy3_situacao !== "todos" ? debouncedDashboard360Filters.uy3_situacao : undefined,
+          uy3_consulta_from: debouncedDashboard360Filters.uy3_consulta_from || undefined,
+          uy3_consulta_to: debouncedDashboard360Filters.uy3_consulta_to || undefined,
+          uy3_meses_admissao_min: debouncedDashboard360Filters.uy3_meses_admissao_min || undefined,
+          uy3_meses_admissao_max: debouncedDashboard360Filters.uy3_meses_admissao_max || undefined,
+          uy3_margem_min: debouncedDashboard360Filters.uy3_margem_min || undefined,
+          uy3_margem_max: debouncedDashboard360Filters.uy3_margem_max || undefined,
+          uy3_valor_liberado_min: debouncedDashboard360Filters.uy3_valor_liberado_min || undefined,
+          uy3_valor_liberado_max: debouncedDashboard360Filters.uy3_valor_liberado_max || undefined,
+          uy3_numero_parcelas_min: debouncedDashboard360Filters.uy3_numero_parcelas_min || undefined,
+          uy3_numero_parcelas_max: debouncedDashboard360Filters.uy3_numero_parcelas_max || undefined,
+        }, signal)
       }
 
       if (activeTab === "BASE") {
@@ -1687,7 +1705,10 @@ const Dashboard = () => {
     ? {
       mode: "360" as const,
       searchValue: dashboard360SearchValue,
-      setSearchValue: setDashboard360SearchValue,
+      setSearchValue: (value: string) => {
+        setCurrentPage(1)
+        setDashboard360SearchValue(value)
+      },
       statusFilter: "todos" as const,
       setStatusFilter: (_: StatusFilter) => {},
       motivosFilter: [] as string[],

@@ -9,6 +9,8 @@ return [
     'pagination' => [
         'per_page_default' => 10,
         'per_page_max' => (int) env('LEADS_PER_PAGE_MAX', 100),
+        'count_cache_ttl_seconds' => (int) env('LEADS_360_COUNT_CACHE_TTL_SECONDS', 60),
+        'count_cache_key_prefix' => 'leads:360:count:v1',
     ],
 
     /*
