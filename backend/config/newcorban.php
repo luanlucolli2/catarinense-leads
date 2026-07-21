@@ -67,6 +67,12 @@ return [
             'typing_login' => 'soma_live_f34a9523608ed2c1',
             'omit_table_code' => true,
         ],
+        'zili' => [
+            'bank_id' => '2560065',
+            'promoter_id' => '3570',
+            'typing_login' => '05395929940',
+            'omit_table_code' => true,
+        ],
         'novo_saque' => [
             'bank_id' => '500001',
             'promoter_id' => '4412',

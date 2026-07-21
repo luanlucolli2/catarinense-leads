@@ -222,6 +222,7 @@ class NewCorbanProposalService
             str_contains($collapsed, 'mercantil') => 'mercantil',
             str_contains($collapsed, 'novosaque') => 'novo_saque',
             str_contains($collapsed, 'soma') => 'soma',
+            str_contains($collapsed, 'zili') => 'zili',
             str_starts_with($collapsed, 'facta') => 'facta',
             str_starts_with($collapsed, 'pan') => 'pan',
             str_starts_with($collapsed, 'c6') => 'c6',
