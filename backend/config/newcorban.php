@@ -36,7 +36,7 @@ return [
             'typing_login' => '42485740801_U4UN',
         ],
         'v8' => [
-            'bank_id' => '935',
+            'bank_id' => '3291',
             'promoter_id' => '413',
             'typing_login' => 'karen@catarinensecredito.com.br',
             'omit_table_code' => true,
