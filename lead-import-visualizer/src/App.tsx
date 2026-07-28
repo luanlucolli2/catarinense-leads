@@ -4,8 +4,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   BrowserRouter,
+  Navigate,
   Routes,
   Route,
+  useParams,
 } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
@@ -18,6 +20,8 @@ import FGTSConsultaPage from "./pages/FGTSConsultaPage"; // 👈 nova página FG
 import C6LinksPage from "./pages/C6LinksPage";
 import ParceirosUY3Page from "./pages/ParceirosUY3Page";
 import IntegracoesVendeaiPage from "./modules/vendeai/pages/IntegracoesVendeaiPage";
+import LinksPage from "./pages/LinksPage";
+import LinkMetricsPage from "./pages/LinkMetricsPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
@@ -53,12 +57,14 @@ const App = () => (
               <Route
                 element={
                   <ProtectedRoute>
-                    <AppLayout />   {/* contém <Outlet/> */}
+                    <AppLayout /> {/* contém <Outlet/> */}
                   </ProtectedRoute>
                 }
               >
                 {/* página inicial (/ → Dashboard) */}
-                <Route index element={<Dashboard />} />
+                <Route index element={<Navigate to="/leads" replace />} />
+
+                <Route path="leads" element={<Dashboard />} />
 
                 <Route
                   path="leads/higienizacao-lemit"
@@ -66,36 +72,55 @@ const App = () => (
                 />
 
                 {/* histórico de importações */}
-                <Route
-                  path="importacoes/historico"
-                  element={<HistoricoPage />}
-                />
+                <Route path="leads/importacoes" element={<HistoricoPage />} />
 
                 {/* consulta CLT (Consignado em Folha) */}
-                <Route
-                  path="clt/consulta"
-                  element={<CLTConsultaPage />}
-                />
+                <Route path="consultas/clt" element={<CLTConsultaPage />} />
 
                 {/* consulta FGTS (Base Offline) */}
-                <Route
-                  path="fgts-off/consulta"
-                  element={<FGTSConsultaPage />}
-                />
+                <Route path="consultas/fgts" element={<FGTSConsultaPage />} />
 
-                <Route
-                  path="c6/links"
-                  element={<C6LinksPage />}
-                />
+                <Route path="ferramentas/c6/links" element={<C6LinksPage />} />
 
-                <Route
-                  path="parceiros/uy3"
-                  element={<ParceirosUY3Page />}
-                />
+                <Route path="integracoes/uy3" element={<ParceirosUY3Page />} />
 
                 <Route
                   path="integracoes/vendeai"
                   element={<IntegracoesVendeaiPage />}
+                />
+
+                <Route path="ferramentas/links" element={<LinksPage />} />
+                <Route
+                  path="ferramentas/links/:id/metrics"
+                  element={<LinkMetricsPage />}
+                />
+                <Route
+                  path="links"
+                  element={<Navigate to="/ferramentas/links" replace />}
+                />
+                <Route
+                  path="links/:id/metrics"
+                  element={<LegacyLinkMetricsRedirect />}
+                />
+                <Route
+                  path="c6/links"
+                  element={<Navigate to="/ferramentas/c6/links" replace />}
+                />
+                <Route
+                  path="parceiros/uy3"
+                  element={<Navigate to="/integracoes/uy3" replace />}
+                />
+                <Route
+                  path="importacoes/historico"
+                  element={<Navigate to="/leads/importacoes" replace />}
+                />
+                <Route
+                  path="clt/consulta"
+                  element={<Navigate to="/consultas/clt" replace />}
+                />
+                <Route
+                  path="fgts-off/consulta"
+                  element={<Navigate to="/consultas/fgts" replace />}
                 />
               </Route>
 
@@ -110,3 +135,8 @@ const App = () => (
 );
 
 export default App;
+
+function LegacyLinkMetricsRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/ferramentas/links/${id}/metrics`} replace />;
+}

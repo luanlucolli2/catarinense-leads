@@ -16,6 +16,7 @@ use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
+use App\Http\Controllers\Api\ShortLinkProxyController;
 use App\Modules\Vendeai\Controllers\VendeaiExportController;
 use App\Modules\Vendeai\Controllers\VendeaiFilterOptionsController;
 use App\Modules\Vendeai\Controllers\VendeaiLeadListController;
@@ -71,6 +72,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user());
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+
+    /* Links curtos (Multi Consulta) */
+    Route::get('/links', [ShortLinkProxyController::class, 'index']);
+    Route::post('/links', [ShortLinkProxyController::class, 'store']);
+    Route::get('/links/{id}', [ShortLinkProxyController::class, 'show']);
+    Route::patch('/links/{id}', [ShortLinkProxyController::class, 'update']);
+    Route::delete('/links/{id}', [ShortLinkProxyController::class, 'destroy']);
+    Route::post('/links/{id}/disable', [ShortLinkProxyController::class, 'disable']);
+    Route::post('/links/{id}/enable', [ShortLinkProxyController::class, 'enable']);
+    Route::get('/links/{id}/analytics', [ShortLinkProxyController::class, 'analytics']);
+    Route::get('/links/{id}/clicks', [ShortLinkProxyController::class, 'clicks']);
+    Route::get('/links/{id}/export.csv', [ShortLinkProxyController::class, 'export']);
 
     /* Parceiros */
     Route::post('/uy3/posts/export', [Uy3PostExportController::class, 'export'])

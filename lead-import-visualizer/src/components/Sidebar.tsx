@@ -77,12 +77,14 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, setUser } = useAuth();
-  const userName = typeof user?.name === "string" && user.name.trim() !== ""
-    ? user.name.trim()
-    : "Conta compartilhada";
-  const userEmail = typeof user?.email === "string" && user.email.trim() !== ""
-    ? user.email.trim().toLowerCase()
-    : "sem-email";
+  const userName =
+    typeof user?.name === "string" && user.name.trim() !== ""
+      ? user.name.trim()
+      : "Conta compartilhada";
+  const userEmail =
+    typeof user?.email === "string" && user.email.trim() !== ""
+      ? user.email.trim().toLowerCase()
+      : "sem-email";
   const userInitials = getUserInitials(userName, userEmail);
 
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
@@ -96,22 +98,22 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
     location.pathname === path || location.pathname.startsWith(path);
 
   const menuGroups: MenuGroup[] = useMemo(() => {
-    const c6Group: MenuGroup = {
-      name: "C6",
+    const c6Item: MenuItem = {
+      name: "Links C6",
       icon: Link2,
-      key: "c6",
-      items: [
-        {
-          name: "Links C6",
-          icon: Link2,
-          path: "/c6/links",
-          active: isActive("/c6/links"),
-        },
-      ],
+      path: "/ferramentas/c6/links",
+      active: isActive("/ferramentas/c6/links"),
     };
 
     if (isC6OnlyUser(user)) {
-      return [c6Group];
+      return [
+        {
+          name: "Ferramentas",
+          icon: Link2,
+          key: "ferramentas",
+          items: [c6Item],
+        },
+      ];
     }
 
     return [
@@ -123,8 +125,8 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {
             name: "Base de leads",
             icon: Home,
-            path: "/",
-            active: location.pathname === "/",
+            path: "/leads",
+            active: location.pathname === "/leads",
           },
           {
             name: "Higienização Lemit",
@@ -135,8 +137,8 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {
             name: "Importações (Leads)",
             icon: FileText,
-            path: "/importacoes/historico",
-            active: isActive("/importacoes/historico"),
+            path: "/leads/importacoes",
+            active: isActive("/leads/importacoes"),
           },
         ],
       },
@@ -148,28 +150,14 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           {
             name: "FGTS",
             icon: PiggyBank,
-            path: "/fgts-off/consulta",
-            active: isActive("/fgts-off/consulta"),
+            path: "/consultas/fgts",
+            active: isActive("/consultas/fgts"),
           },
           {
             name: "CLT",
             icon: Briefcase,
-            path: "/clt/consulta",
-            active: isActive("/clt/consulta"),
-          },
-        ],
-      },
-      {
-        name: "Parceiros",
-        icon: Handshake,
-        key: "parceiros",
-        items: [
-          {
-            name: "UY3",
-            icon: Handshake,
-            imageSrc: logoUy3,
-            path: "/parceiros/uy3",
-            active: location.pathname === "/parceiros/uy3",
+            path: "/consultas/clt",
+            active: isActive("/consultas/clt"),
           },
         ],
       },
@@ -185,9 +173,29 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             path: "/integracoes/vendeai",
             active: isActive("/integracoes/vendeai"),
           },
+          {
+            name: "UY3",
+            icon: Handshake,
+            imageSrc: logoUy3,
+            path: "/integracoes/uy3",
+            active: isActive("/integracoes/uy3"),
+          },
         ],
       },
-      c6Group,
+      {
+        name: "Ferramentas",
+        icon: Link2,
+        key: "ferramentas",
+        items: [
+          {
+            name: "Links",
+            icon: Link2,
+            path: "/ferramentas/links",
+            active: isActive("/ferramentas/links"),
+          },
+          c6Item,
+        ],
+      },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, user]);
@@ -201,14 +209,14 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
         active: false,
       },
     ],
-    []
+    [],
   );
 
   const expandForPath = (path: string) => {
     const group = menuGroups.find((g) => g.items.some((i) => i.path === path));
     if (!group) return;
     setExpandedGroups((prev) =>
-      prev.includes(group.key) ? prev : [...prev, group.key]
+      prev.includes(group.key) ? prev : [...prev, group.key],
     );
   };
 
@@ -216,7 +224,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
     setExpandedGroups((prev) =>
       prev.includes(groupKey)
         ? prev.filter((g) => g !== groupKey)
-        : [...prev, groupKey]
+        : [...prev, groupKey],
     );
   };
 
@@ -297,7 +305,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           isCollapsed
             ? "lg:translate-x-0 lg:w-16 -translate-x-full"
             : "translate-x-0 w-60",
-          className
+          className,
         )}
       >
         {/* Header */}
@@ -320,7 +328,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
               "transition-all duration-200",
               isCollapsed
                 ? "opacity-0 scale-95 pointer-events-none select-none"
-                : "opacity-100 scale-100"
+                : "opacity-100 scale-100",
             )}
             aria-hidden={isCollapsed}
           >
@@ -347,7 +355,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                     if (isCollapsed) {
                       onToggle();
                       setExpandedGroups((prev) =>
-                        prev.includes(group.key) ? prev : [...prev, group.key]
+                        prev.includes(group.key) ? prev : [...prev, group.key],
                       );
                       return;
                     }
@@ -356,11 +364,16 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                   className={cn(
                     "w-full flex items-center px-3 py-3 rounded-lg text-left transition-colors duration-200",
                     isCollapsed ? "justify-center" : "justify-between",
-                    "text-gray-300 hover:bg-gray-700 hover:text-white"
+                    "text-gray-300 hover:bg-gray-700 hover:text-white",
                   )}
                   title={isCollapsed ? group.name : undefined}
                 >
-                  <div className={cn("flex items-center", isCollapsed ? "justify-center" : "space-x-3")}>
+                  <div
+                    className={cn(
+                      "flex items-center",
+                      isCollapsed ? "justify-center" : "space-x-3",
+                    )}
+                  >
                     <group.icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
 
                     {/* Mantém o label montado e oculta via opacity/width (evita “reorganizar”) */}
@@ -370,7 +383,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                         "transition-[opacity,transform,width] duration-200",
                         isCollapsed
                           ? "opacity-0 w-0 translate-x-1 overflow-hidden"
-                          : "opacity-100 w-auto translate-x-0"
+                          : "opacity-100 w-auto translate-x-0",
                       )}
                     >
                       {group.name}
@@ -384,7 +397,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                       isCollapsed
                         ? "opacity-0 w-0 overflow-hidden"
                         : "opacity-100 w-4",
-                      isExpanded ? "rotate-180" : "rotate-0"
+                      isExpanded ? "rotate-180" : "rotate-0",
                     )}
                     aria-hidden={isCollapsed}
                   />
@@ -401,7 +414,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                           "w-full flex items-center px-3 py-2 rounded-lg text-left transition-colors duration-200 space-x-3",
                           item.active
                             ? "bg-green-700 text-white"
-                            : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                            : "text-gray-300 hover:bg-gray-700 hover:text-white",
                         )}
                       >
                         {item.imageSrc ? (
@@ -414,7 +427,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                           <item.icon
                             className={cn(
                               "w-4 h-4 flex-shrink-0",
-                              item.active ? "text-white" : "text-gray-400"
+                              item.active ? "text-white" : "text-gray-400",
                             )}
                           />
                         )}
@@ -455,7 +468,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                 isCollapsed ? "justify-center" : "space-x-3",
                 item.active
                   ? "bg-green-700 text-white"
-                  : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                  : "text-gray-300 hover:bg-gray-700 hover:text-white",
               )}
               title={isCollapsed ? item.name : undefined}
             >
@@ -466,7 +479,7 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
                   "transition-[opacity,transform,width] duration-200",
                   isCollapsed
                     ? "opacity-0 w-0 translate-x-1 overflow-hidden"
-                    : "opacity-100 w-auto translate-x-0"
+                    : "opacity-100 w-auto translate-x-0",
                 )}
               >
                 {item.name}
@@ -491,7 +504,10 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
           </div>
 
           <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel disabled={loggingOut} className="w-full sm:w-auto">
+            <AlertDialogCancel
+              disabled={loggingOut}
+              className="w-full sm:w-auto"
+            >
               Fechar
             </AlertDialogCancel>
 

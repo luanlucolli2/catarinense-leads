@@ -77,6 +77,8 @@ class NewCorbanProposalService
         $phone = $this->phoneParts(data_get($payload, 'chat_summary.details.contact.phone'));
         $proposalId = $this->stringOrNull(data_get($payload, 'proposal.proposal_id'));
         $proposalNumber = $this->stringOrNull(data_get($payload, 'proposal.proposal_number'));
+        $proposalIdIsUuid = is_string($proposalId)
+            && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $proposalId) === 1;
         $requestPayload = $this->filterNulls([
             'proposal' => [
                 'bank_id' => $this->newCorbanBankId(data_get($payload, 'proposal.bank')),
@@ -102,8 +104,8 @@ class NewCorbanProposalService
                 'franchise_id' => $this->defaultConfigValue('franchise_id'),
             ],
             'bank_reference' => [
-                'proposal_number' => $proposalNumber ?? $proposalId,
-                'api_reference' => $proposalNumber === null ? null : $proposalId,
+                'proposal_number' => $proposalNumber ?? ($proposalIdIsUuid ? null : $proposalId),
+                'api_reference' => $proposalNumber !== null || $proposalIdIsUuid ? $proposalId : null,
                 'formalization_link' => $this->stringOrNull(data_get($payload, 'proposal.formalization_link')),
             ],
             'customer' => $this->filterNulls([
@@ -127,6 +129,10 @@ class NewCorbanProposalService
                 'type' => 'CELULAR',
             ],
         ]);
+
+        if ($proposalNumber === null && $proposalIdIsUuid) {
+            $requestPayload['bank_reference']['proposal_number'] = null;
+        }
 
         return $requestPayload;
     }
