@@ -24,8 +24,11 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (isC6OnlyUser(user) && !location.pathname.startsWith("/c6/links")) {
-    return <Navigate to="/c6/links" replace />;
+  if (
+    isC6OnlyUser(user) &&
+    !location.pathname.startsWith("/ferramentas/c6/links")
+  ) {
+    return <Navigate to="/ferramentas/c6/links" replace />;
   }
 
   return <>{children}</>;
