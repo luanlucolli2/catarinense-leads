@@ -1659,7 +1659,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
                     continue;
                 }
                 [$cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs] = $parsed;
-                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $message);
+                $this->finalizePendingError($job, $this->entryFromParsed($cpf, $nome, $nasc, $consultId, $attempts, $reconsentAttempts, $reused, $pendingSinceTs), $mode, $message, true);
             }
         } finally {
             fclose($fh);
@@ -1779,7 +1779,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $this->spoolAppendManyPersist($job, [$row]);
     }
 
-    private function finalizePendingError(V8ConsultJob $job, array $entry, string $mode, string $message): void
+    private function finalizePendingError(V8ConsultJob $job, array $entry, string $mode, string $message, bool $technicalFailure = false): void
     {
         $cpf = (string) ($entry['cpf'] ?? '');
         $nome = (string) ($entry['nome'] ?? '');
@@ -1791,7 +1791,7 @@ class ProcessV8ConsultJob implements ShouldQueue, ShouldBeUnique
         $row['consult_id'] = $consultId;
         $row['consentimento_reaproveitado'] = $reused ? 'SIM' : 'NAO';
 
-        if ($mode === 'existing') {
+        if ($technicalFailure || $mode === 'existing') {
             $row['status'] = 'FALHOU';
             $this->markErro($row, $message);
             $this->logCpfFailure('status', $cpf, $consultId, $row['mensagem']);

@@ -52,6 +52,10 @@ class FactaCltOfflineApiService
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 5);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpRetryDelayMs = (int) ($http['retry_delay_ms'] ?? 200);
+        $this->tokenLockTtl = max(
+            $this->tokenLockTtl,
+            ($this->httpTimeout * max(1, $this->httpRetry + 1)) + 10
+        );
         $this->rateLimitEnabled = (bool) ($rate['enabled'] ?? true);
         $this->minIntervalMs = max(0, (int) ($rate['min_interval_ms'] ?? $http['min_interval_ms'] ?? 3200));
         $this->rateLockTtl = max(1, (int) ($rate['lock_ttl'] ?? 10));
@@ -67,8 +71,7 @@ class FactaCltOfflineApiService
             return $cached;
         }
 
-        $lock = Cache::lock('clt_off_token_lock', $this->tokenLockTtl);
-        $lock->block($this->tokenLockWait);
+        $lock = $this->acquireLock('clt_off_token_lock', $this->tokenLockTtl, $this->tokenLockWait);
 
         try {
             $cached = Cache::get('clt_off_token');
@@ -295,25 +298,8 @@ class FactaCltOfflineApiService
             return;
         }
 
-        $lockTimeoutCount = 0;
         while (true) {
-            $lock = Cache::lock($this->rateLockKey, $this->rateLockTtl);
-
-            try {
-                $lock->block($this->rateLockWait);
-            } catch (LockTimeoutException $e) {
-                $lockTimeoutCount++;
-                if ($lockTimeoutCount >= 5) {
-                    throw new \RuntimeException(
-                        'Não foi possível adquirir lock de rate limit do CLT-OFF após múltiplas tentativas.',
-                        0,
-                        $e
-                    );
-                }
-
-                usleep(200000);
-                continue;
-            }
+            $lock = $this->acquireLock($this->rateLockKey, $this->rateLockTtl, $this->rateLockWait);
 
             $waitMs = 0;
 
@@ -337,6 +323,29 @@ class FactaCltOfflineApiService
             }
 
             usleep(max(1, $waitMs) * 1000);
+        }
+    }
+
+    private function acquireLock(string $key, int $ttlSeconds, int $waitSeconds)
+    {
+        $attempt = 0;
+
+        while (true) {
+            $lock = Cache::lock($key, max(1, $ttlSeconds));
+
+            try {
+                $lock->block(max(1, $waitSeconds));
+                return $lock;
+            } catch (LockTimeoutException) {
+                $attempt++;
+                if ($attempt === 1 || ($attempt % 12) === 0) {
+                    FactaCltLog::warning('[FACTA-CLT-OFF] Aguardando lock compartilhado.', [
+                        'lock_key' => $key,
+                        'attempt' => $attempt,
+                    ]);
+                }
+                usleep(250000);
+            }
         }
     }
 

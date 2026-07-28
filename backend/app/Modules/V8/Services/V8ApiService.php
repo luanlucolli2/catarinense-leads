@@ -2,6 +2,7 @@
 
 namespace App\Modules\V8\Services;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
@@ -147,6 +148,13 @@ class V8ApiService
 
             [$message, $type] = $this->extractError($resp);
             return $this->errorResult($message, $type, $this->isRetriable($resp->status()), $resp->status());
+        } catch (LockTimeoutException $e) {
+            Log::warning('[V8] Timeout ao aguardar lock compartilhado.', [
+                'job_id' => $this->jobId,
+                'method' => strtoupper($method),
+                'path' => $path,
+            ]);
+            return $this->errorResult('V8: aguardando controle de requisições.', null, true, null);
         } catch (ConnectionException $e) {
             return $this->errorResult('V8: falha de conexão.', null, true, null);
         } catch (\Throwable $e) {
