@@ -2,10 +2,12 @@
 
 namespace App\Modules\V8\Services;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class V8SharedAuthService
 {
@@ -37,15 +39,17 @@ class V8SharedAuthService
         $this->clientId = $oauth['client_id'] ?? null;
         $this->scope = (string) ($oauth['scope'] ?? 'offline_access');
         $this->tokenTtlSkew = (int) ($oauth['token_ttl_skew'] ?? 60);
-        $this->tokenLockTtl = (int) ($oauth['token_lock_ttl'] ?? 10);
-        $this->tokenLockWait = (int) ($oauth['token_lock_wait'] ?? 5);
-
         $this->httpTimeout = (int) ($http['timeout'] ?? 15);
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
         $this->httpRetry = (int) ($http['retry'] ?? 1);
         $this->httpMinIntervalMs = (int) ($http['min_interval_ms'] ?? 2000);
         $this->httpRateLimitSleepSeconds = (int) ($http['rate_limit_sleep_seconds'] ?? 15);
         $this->httpRateLimitRecoverySuccesses = max(1, (int) ($http['rate_limit_recovery_successes'] ?? 5));
+        $this->tokenLockTtl = max(
+            (int) ($oauth['token_lock_ttl'] ?? 10),
+            ($this->httpTimeout * max(1, $this->httpRetry + 1)) + $this->httpRateLimitSleepSeconds + 10
+        );
+        $this->tokenLockWait = max(1, (int) ($oauth['token_lock_wait'] ?? 5));
     }
 
     public function getToken(?callable $responseLogger = null): ?string
@@ -55,8 +59,7 @@ class V8SharedAuthService
             return $cached;
         }
 
-        $lock = Cache::lock('v8_oauth_token_lock', $this->tokenLockTtl);
-        $lock->block($this->tokenLockWait);
+        $lock = $this->acquireLock('v8_oauth_token_lock', $this->tokenLockTtl, $this->tokenLockWait);
 
         try {
             $cached = Cache::get('v8_oauth_token');
@@ -126,22 +129,19 @@ class V8SharedAuthService
             return;
         }
 
-        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
-        $lock->block(5);
-
+        $lock = $this->acquireRateLimitLock($scope);
         try {
             $now = (int) floor(microtime(true) * 1000);
             $readyAt = (int) Cache::get($this->scopedKey('v8_http_last_at_ms', $scope), 0);
-            $delayMs = max(0, $readyAt - $now);
-
-            if ($delayMs > 0) {
-                usleep($delayMs * 1000);
-                $now = (int) floor(microtime(true) * 1000);
-            }
-
-            Cache::put($this->scopedKey('v8_http_last_at_ms', $scope), $now + $minInterval, 3600);
+            $scheduledAt = max($now, $readyAt);
+            Cache::put($this->scopedKey('v8_http_last_at_ms', $scope), $scheduledAt + $minInterval, 3600);
+            $delayMs = max(0, $scheduledAt - $now);
         } finally {
             optional($lock)->release();
+        }
+
+        if ($delayMs > 0) {
+            usleep($delayMs * 1000);
         }
     }
 
@@ -155,8 +155,7 @@ class V8SharedAuthService
             return 0;
         }
 
-        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
-        $lock->block(5);
+        $lock = $this->acquireRateLimitLock($scope);
 
         try {
             $now = (int) floor(microtime(true) * 1000);
@@ -189,8 +188,7 @@ class V8SharedAuthService
         }
 
         $cooldownUntilMs = (int) floor(microtime(true) * 1000) + ($sleepSeconds * 1000);
-        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
-        $lock->block(5);
+        $lock = $this->acquireRateLimitLock($scope);
 
         try {
             $readyAt = (int) Cache::get($this->scopedKey('v8_http_last_at_ms', $scope), 0);
@@ -210,8 +208,7 @@ class V8SharedAuthService
             return $this->claimThrottleSlotOrDelay($fallbackIntervalMs, $scope);
         }
 
-        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
-        $lock->block(5);
+        $lock = $this->acquireRateLimitLock($scope);
 
         try {
             $streakKey = $this->scopedKey('v8_http_rate_limit_streak', $scope);
@@ -250,8 +247,7 @@ class V8SharedAuthService
             return;
         }
 
-        $lock = Cache::lock($this->scopedKey('v8_http_rate_lock', $scope), 10);
-        $lock->block(5);
+        $lock = $this->acquireRateLimitLock($scope);
 
         try {
             $levelKey = $this->scopedKey('v8_http_rate_limit_level', $scope);
@@ -285,6 +281,39 @@ class V8SharedAuthService
         }
     }
 
+    private function acquireRateLimitLock(?string $scope = null)
+    {
+        return $this->acquireLock($this->scopedKey('v8_http_rate_lock', $scope), 10, 5);
+    }
+
+    private function acquireLock(string $key, int $ttlSeconds, int $waitSeconds)
+    {
+        $attempt = 0;
+
+        while (true) {
+            $lock = Cache::lock($key, max(1, $ttlSeconds));
+
+            try {
+                $lock->block(max(1, $waitSeconds));
+                return $lock;
+            } catch (LockTimeoutException) {
+                $attempt++;
+
+                if ($attempt === 1 || ($attempt % 12) === 0) {
+                    try {
+                        Log::warning('[V8] Aguardando lock compartilhado.', [
+                            'lock_key' => $key,
+                            'attempt' => $attempt,
+                        ]);
+                    } catch (\Throwable) {
+                    }
+                }
+
+                usleep(250000);
+            }
+        }
+    }
+
     private function effectiveMinInterval(int $baseMs, ?string $scope): int
     {
         $baseMs = max(0, $baseMs);
@@ -312,9 +341,10 @@ class V8SharedAuthService
     {
         $attempts = max(1, $this->httpRetry + 1);
         $lastResponse = null;
+        $rateLimitScope = 'v8_oauth';
 
         for ($attempt = 0; $attempt < $attempts; $attempt++) {
-            $this->throttleRequests();
+            $this->throttleRequests(null, $rateLimitScope);
 
             try {
                 $resp = $caller();
@@ -327,7 +357,7 @@ class V8SharedAuthService
             }
 
             if ($resp->status() === 429) {
-                $this->pauseOnRateLimit();
+                $this->pauseOnRateLimit(null, null, $rateLimitScope);
 
                 try {
                     $resp = $caller();
