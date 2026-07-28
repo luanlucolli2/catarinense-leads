@@ -4,6 +4,7 @@ namespace App\Modules\FactaCLT\Services;
 
 use App\Modules\FactaCLT\Services\Exceptions\FactaFatalAuthException;
 use App\Modules\FactaCLT\Support\FactaCltLog;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response as HttpResponse;
@@ -159,6 +160,7 @@ class FactaApiService
         // HTTP (1ª)
         $this->httpTimeout = (int) ($http['timeout'] ?? 30);
         $this->httpConnectTimeout = (int) ($http['connect_timeout'] ?? 10);
+        $this->tokenLockTtl = max($this->tokenLockTtl, $this->httpTimeout + 10);
 
         $this->logFactaResponses = (bool) config('facta.logging.facta_log_responses', true);
         $this->logFactaSuccessResponses = (bool) config('facta.logging.facta_log_success_responses', false);
@@ -549,8 +551,7 @@ class FactaApiService
             return $cached;
         }
 
-        $lock = Cache::lock('facta_token_lock', $this->tokenLockTtl);
-        $lock->block($this->tokenLockWait);
+        $lock = $this->acquireLock('facta_token_lock', $this->tokenLockTtl, $this->tokenLockWait);
 
         try {
             // re-check após adquirir o lock
@@ -647,6 +648,29 @@ class FactaApiService
             return $token;
         } finally {
             optional($lock)->release();
+        }
+    }
+
+    private function acquireLock(string $key, int $ttlSeconds, int $waitSeconds)
+    {
+        $attempt = 0;
+
+        while (true) {
+            $lock = Cache::lock($key, max(1, $ttlSeconds));
+
+            try {
+                $lock->block(max(1, $waitSeconds));
+                return $lock;
+            } catch (LockTimeoutException) {
+                $attempt++;
+                if ($attempt === 1 || ($attempt % 12) === 0) {
+                    FactaCltLog::warning('[FACTA] Aguardando lock compartilhado.', [
+                        'lock_key' => $key,
+                        'attempt' => $attempt,
+                    ]);
+                }
+                usleep(250000);
+            }
         }
     }
 

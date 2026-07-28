@@ -2,11 +2,13 @@
 
 namespace App\Modules\FgtsOffline\Services;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Carbon;
 use Throwable;
 
@@ -55,6 +57,10 @@ class FactaOfflineApiService
         $this->httpConnectTimeout = (int) ($httpCfg['connect_timeout']  ?? 5);
         $this->httpRetry          = (int) ($httpCfg['retry']            ?? 1);
         $this->httpRetryDelayMs   = (int) ($httpCfg['retry_delay_ms']   ?? 200);
+        $this->tokenLockTtl = max(
+            $this->tokenLockTtl,
+            ($this->httpTimeout * max(1, $this->httpRetry + 1)) + 10
+        );
 
         // Pool/concorrência
         $poolCfg = (array) ($cfg['pool'] ?? []);
@@ -78,8 +84,7 @@ class FactaOfflineApiService
             return $cached;
         }
 
-        $lock = Cache::lock('facta_off_token_lock', $this->tokenLockTtl);
-        $lock->block($this->tokenLockWait);
+        $lock = $this->acquireLock('facta_off_token_lock', $this->tokenLockTtl, $this->tokenLockWait);
 
         try {
             $cached = Cache::get('facta_off_token');
@@ -138,8 +143,7 @@ class FactaOfflineApiService
         // - fgts_off_bucket_tokens (int)
         // - fgts_off_bucket_last_ms (int, epoch ms da última recarga)
         while (true) {
-            $lock = Cache::lock('fgts_off_bucket_lock', $this->bucketLockTtl);
-            $lock->block($this->bucketLockWait);
+            $lock = $this->acquireLock('fgts_off_bucket_lock', $this->bucketLockTtl, $this->bucketLockWait);
 
             try {
                 $nowMs   = (int) round(microtime(true) * 1000);
@@ -174,6 +178,29 @@ class FactaOfflineApiService
 
             // Dorme fora do lock
             usleep(max(1, $waitMs) * 1000);
+        }
+    }
+
+    private function acquireLock(string $key, int $ttlSeconds, int $waitSeconds)
+    {
+        $attempt = 0;
+
+        while (true) {
+            $lock = Cache::lock($key, max(1, $ttlSeconds));
+
+            try {
+                $lock->block(max(1, $waitSeconds));
+                return $lock;
+            } catch (LockTimeoutException) {
+                $attempt++;
+                if ($attempt === 1 || ($attempt % 12) === 0) {
+                    Log::warning('[FGTS-OFF] Aguardando lock compartilhado.', [
+                        'lock_key' => $key,
+                        'attempt' => $attempt,
+                    ]);
+                }
+                usleep(250000);
+            }
         }
     }
 
