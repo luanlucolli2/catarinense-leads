@@ -150,8 +150,13 @@ class V8ApiService
         } catch (ConnectionException $e) {
             return $this->errorResult('V8: falha de conexão.', null, true, null);
         } catch (\Throwable $e) {
-            Log::warning('[V8] Erro inesperado na requisição: ' . $e->getMessage(), [
+            Log::warning('[V8] Erro inesperado na requisição.', [
                 'job_id' => $this->jobId,
+                'method' => strtoupper($method),
+                'path' => $path,
+                'exception_class' => $e::class,
+                'exception_message' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return $this->errorResult('V8: erro inesperado.', null, false, null);
         }
