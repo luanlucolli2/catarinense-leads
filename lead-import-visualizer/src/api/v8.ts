@@ -1,4 +1,4 @@
-import axiosClient from './axiosClient'
+import axiosClient, { DOWNLOAD_TIMEOUT_MS } from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 export type V8JobStatus =
@@ -107,6 +107,7 @@ export async function getV8ConsultJob(id: number): Promise<V8ConsultJobShow> {
 export async function downloadV8Report(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
   })
 
@@ -126,6 +127,7 @@ export async function downloadV8Report(id: number) {
 export async function downloadV8Preview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
     validateStatus: (s) => (s >= 200 && s < 300) || s === 409,
   })

@@ -6,6 +6,7 @@ function resolveTimeout(raw: unknown, fallback: number): number {
 }
 
 const API_TIMEOUT_MS = resolveTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
+export const DOWNLOAD_TIMEOUT_MS = resolveTimeout(import.meta.env.VITE_DOWNLOAD_TIMEOUT_MS, 60000);
 const CSRF_TIMEOUT_MS = resolveTimeout(import.meta.env.VITE_CSRF_TIMEOUT_MS, 10000);
 
 const axiosClient = axios.create({

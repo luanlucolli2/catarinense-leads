@@ -1,5 +1,5 @@
 // src/api/facta.ts
-import axiosClient from './axiosClient'
+import axiosClient, { DOWNLOAD_TIMEOUT_MS } from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 /** Estados do job no backend */
@@ -231,6 +231,7 @@ export async function requestFactaCltPreview(id: number): Promise<200 | 202 | 40
 export async function downloadFactaCltReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
   })
 
@@ -251,6 +252,7 @@ export async function downloadFactaCltReport(id: number) {
 export async function downloadFactaCltPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
   })
 

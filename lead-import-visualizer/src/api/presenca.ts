@@ -1,4 +1,4 @@
-import axiosClient from './axiosClient'
+import axiosClient, { DOWNLOAD_TIMEOUT_MS } from './axiosClient'
 export { ensureCsrfCookie } from './axiosClient'
 
 export type PresencaJobStatus =
@@ -120,6 +120,7 @@ export async function getPresencaConsultJob(id: number): Promise<PresencaConsult
 export async function downloadPresencaReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
   })
 
@@ -139,6 +140,7 @@ export async function downloadPresencaReport(id: number) {
 export async function downloadPresencaPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: 'blob',
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
     validateStatus: (s) => (s >= 200 && s < 300) || s === 409,
   })
