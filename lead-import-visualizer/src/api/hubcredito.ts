@@ -1,4 +1,4 @@
-import axiosClient from "./axiosClient";
+import axiosClient, { DOWNLOAD_TIMEOUT_MS } from "./axiosClient";
 
 export type HubCreditoJobStatus =
   | "pendente"
@@ -107,6 +107,7 @@ export async function getHubCreditoConsultJob(id: number): Promise<HubCreditoCon
 export async function downloadHubCreditoReport(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/download`, {
     responseType: "blob",
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
   });
 
@@ -126,6 +127,7 @@ export async function downloadHubCreditoReport(id: number) {
 export async function downloadHubCreditoPreview(id: number) {
   const resp = await axiosClient.get(`${BASE}/${id}/preview`, {
     responseType: "blob",
+    timeout: DOWNLOAD_TIMEOUT_MS,
     params: { t: Date.now() },
     validateStatus: (s) => (s >= 200 && s < 300) || s === 409,
   });
