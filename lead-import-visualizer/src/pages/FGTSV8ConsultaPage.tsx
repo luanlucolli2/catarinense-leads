@@ -204,6 +204,7 @@ const FGTSV8ConsultaPage = () => {
     await createMutation.mutateAsync({
       title: titulo,
       cpfs,
+      executor: "api",
     });
   };
 

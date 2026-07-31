@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'external_api' => [
+        'base_url' => env('V8_FGTS_EXTERNAL_API_BASE_URL', 'https://apibot.catarinensecredito.com.br'),
+        'email' => env('V8_FGTS_EXTERNAL_API_EMAIL'),
+        'password' => env('V8_FGTS_EXTERNAL_API_PASSWORD'),
+        'timeout' => (int) env('V8_FGTS_EXTERNAL_API_TIMEOUT', 30),
+        'connect_timeout' => (int) env('V8_FGTS_EXTERNAL_API_CONNECT_TIMEOUT', 10),
+    ],
+
     'bff' => [
         'base_url' => env('V8_BFF_BASE_URL', 'https://bff.v8sistema.com'),
         'provider' => env('V8_FGTS_PROVIDER', 'bms'),

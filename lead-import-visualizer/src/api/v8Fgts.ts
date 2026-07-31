@@ -13,6 +13,8 @@ export type V8FgtsJobPhase = "iniciar_saldo" | "polling_e_simulacao" | string | 
 export interface V8FgtsConsultJobListItem {
   id: number;
   title: string;
+  executor: "local" | "api";
+  external_has_report?: boolean;
   status: V8FgtsJobStatus;
   phase?: V8FgtsJobPhase;
   total_cpfs: number;
@@ -35,6 +37,7 @@ export interface V8FgtsConsultJobListItem {
 export interface V8FgtsConsultJobShow {
   id: number;
   title: string;
+  executor: "local" | "api";
   status: V8FgtsJobStatus;
   phase?: V8FgtsJobPhase;
   total_cpfs: number;
@@ -71,6 +74,7 @@ export async function listV8FgtsConsultJobs(page = 1): Promise<Paginated<V8FgtsC
 export async function createV8FgtsConsultJob(input: {
   title: string;
   cpfs: string | string[];
+  executor: "local" | "api";
 }) {
   const { data } = await axiosClient.post<{
     id: number;

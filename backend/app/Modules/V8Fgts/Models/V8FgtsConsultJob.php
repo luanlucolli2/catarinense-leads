@@ -11,6 +11,9 @@ class V8FgtsConsultJob extends Model
     protected $fillable = [
         'user_id',
         'title',
+        'executor',
+        'external_job_id',
+        'external_has_report',
         'status',
         'phase',
         'total_cpfs',
@@ -34,10 +37,15 @@ class V8FgtsConsultJob extends Model
         'finished_at' => 'datetime',
         'canceled_at' => 'datetime',
         'spool_bytes' => 'integer',
+        'external_has_report' => 'boolean',
     ];
 
     public function getHasFileAttribute(): bool
     {
+        if ($this->executor === 'api') {
+            return $this->external_has_report;
+        }
+
         return !empty($this->file_path) && !empty($this->file_disk);
     }
 }

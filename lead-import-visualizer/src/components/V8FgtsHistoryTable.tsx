@@ -194,7 +194,7 @@ export const V8FgtsHistoryTable = ({
 
   const canDownloadFinal = (i: V8FgtsConsultJobListItem) =>
     (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") &&
-    Boolean(i.file_path);
+    (i.executor === "api" ? Boolean(i.external_has_report) : Boolean(i.file_path));
 
   const canDownloadPreview = (i: V8FgtsConsultJobListItem) =>
     i.status === "pendente" ||
@@ -274,6 +274,7 @@ export const V8FgtsHistoryTable = ({
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:gap-4 sm:text-sm">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        <span>Executor: {i.executor === "api" ? "API" : "Local"}</span>
                       </div>
                     </div>
 

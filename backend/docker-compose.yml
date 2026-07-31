@@ -86,7 +86,7 @@ services:
       - laravel.test
     environment:
       NODE_OPTIONS: '--max_old_space_size=256'
-    mem_limit: 256m
+    mem_limit: 512m
 
   # ===== SERVIÇO MYSQL =====
   mysql:
