@@ -5,11 +5,14 @@ namespace App\Modules\V8Fgts\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\V8Fgts\Jobs\ProcessV8FgtsConsultJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
+use App\Modules\V8Fgts\Services\V8FgtsExternalApiService;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
 use App\Modules\V8Fgts\Support\V8FgtsSpool;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -19,6 +22,8 @@ class V8FgtsConsultController extends Controller
 {
     public function index()
     {
+        $this->refreshActiveExternalJobs();
+
         $jobs = V8FgtsConsultJob::query()
             ->where('user_id', Auth::id())
             ->orderByDesc('created_at')
@@ -33,8 +38,12 @@ class V8FgtsConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            $this->syncExternalJob($job);
+        }
+
         $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
-        $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
+        $spoolExists = $job->executor === 'local' && $job->spool_path && $disk->exists($job->spool_path);
         $spoolHasDataRows = $spoolExists && V8FgtsSpool::hasDataRows($disk, $job->spool_path);
 
         return response()->json([
@@ -52,7 +61,9 @@ class V8FgtsConsultController extends Controller
             'canceled_at' => $job->canceled_at,
             'cancel_reason' => $job->cancel_reason,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'cancelado'], true) && $spoolHasDataRows,
+            'preview_running' => $job->executor === 'api'
+                ? in_array($job->status, ['pendente', 'em_progresso', 'cancelado'], true)
+                : in_array($job->status, ['pendente', 'em_progresso', 'cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -64,9 +75,11 @@ class V8FgtsConsultController extends Controller
         $validator = Validator::make([
             'title' => $request->input('title'),
             'cpfs' => $rawCpfs,
+            'executor' => $request->input('executor', 'local'),
         ], [
             'title' => ['required', 'string', 'max:191'],
             'cpfs' => ['required'],
+            'executor' => ['required', 'in:local,api'],
         ]);
 
         if ($validator->fails()) {
@@ -76,16 +89,30 @@ class V8FgtsConsultController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $job = V8FgtsConsultJob::create([
-            'user_id' => $request->user()->id,
-            'title' => (string) $request->input('title'),
-            'status' => 'pendente',
-            'phase' => null,
-            'total_cpfs' => 0,
-            'success_count' => 0,
-            'nao_elegivel_count' => 0,
-            'fail_count' => 0,
-        ]);
+        $executor = (string) $request->input('executor', 'local');
+        $lock = Cache::lock('v8_fgts_consult_creation', 60);
+        if (!$lock->get()) {
+            return response()->json(['message' => 'Já existe uma criação de consulta V8 FGTS em andamento.'], Response::HTTP_CONFLICT);
+        }
+
+        try {
+            if ($this->hasActiveJob()) {
+                return response()->json(['message' => 'Já existe uma consulta V8 FGTS em andamento.'], Response::HTTP_CONFLICT);
+            }
+
+            if ($executor === 'api') {
+                return $this->storeExternalJob($request, $rawCpfs);
+            }
+
+            return $this->storeLocalJob($request, $rawCpfs);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function storeLocalJob(Request $request, mixed $rawCpfs)
+    {
+        $job = $this->newJob($request, 'local');
 
         try {
             [$spoolPath, $cpfsPath, $spoolBytes, $cpfsCount] = $this->createInitialSpool(
@@ -123,11 +150,51 @@ class V8FgtsConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
+    private function storeExternalJob(Request $request, mixed $rawCpfs)
+    {
+        $job = $this->newJob($request, 'api');
+
+        try {
+            $remote = app(V8FgtsExternalApiService::class)->createJob(
+                $job->title,
+                $this->externalInput($rawCpfs)
+            );
+            $externalJobId = $remote['id'] ?? null;
+            if (!is_string($externalJobId) || $externalJobId === '') {
+                throw new \RuntimeException('A API externa não retornou o identificador do job.');
+            }
+
+            $job->update(['external_job_id' => $externalJobId]);
+            $this->syncExternalJob($job, $remote);
+        } catch (\Throwable $e) {
+            $job->delete();
+            Log::warning('[V8-FGTS] Falha ao criar job na API externa: ' . $e->getMessage());
+
+            return response()->json(['message' => 'Não foi possível criar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+        }
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+        ], Response::HTTP_ACCEPTED);
+    }
+
     public function requestPreview(Request $request, int $id)
     {
         $job = V8FgtsConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            $this->syncExternalJob($job);
+
+            return response()->json([
+                'queued' => false,
+                'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'cancelado'], true),
+                'message' => 'Prévia disponível diretamente na API externa.',
+            ]);
+        }
 
         $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
@@ -145,6 +212,10 @@ class V8FgtsConsultController extends Controller
         $job = V8FgtsConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            return $this->externalDownload($job, 'preview');
+        }
 
         $disk = Storage::disk((string) config('v8_fgts.storage.reports_disk', 'local'));
         if (!empty($job->spool_path)) {
@@ -204,6 +275,10 @@ class V8FgtsConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            return $this->externalDownload($job, 'report');
+        }
+
         if (!in_array($job->status, ['concluido', 'falhou', 'cancelado'], true) || empty($job->file_disk) || empty($job->file_path)) {
             return response()->json(['message' => 'Relatório ainda não disponível.'], Response::HTTP_CONFLICT);
         }
@@ -241,6 +316,38 @@ class V8FgtsConsultController extends Controller
         $job = V8FgtsConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
+                return response()->json([
+                    'message' => 'Job não pode ser cancelado neste estado.',
+                    'status' => $job->status,
+                ], Response::HTTP_CONFLICT);
+            }
+
+            $data = $request->validate(['reason' => ['nullable', 'string', 'max:191']]);
+
+            try {
+                $remote = app(V8FgtsExternalApiService::class)->cancelJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+                $job->update(['cancel_reason' => $data['reason'] ?? null]);
+            } catch (\Throwable $e) {
+                Log::warning("[V8-FGTS] Falha ao cancelar job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível cancelar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            $job->refresh();
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'canceled_at' => $job->canceled_at,
+                'cancel_reason' => $job->cancel_reason,
+                'finished_at' => $job->finished_at,
+            ]);
+        }
 
         if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
             return response()->json([
@@ -292,6 +399,24 @@ class V8FgtsConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
+        if ($job->executor === 'api') {
+            try {
+                $response = app(V8FgtsExternalApiService::class)->deleteJob((string) $job->external_job_id);
+            } catch (\Throwable $e) {
+                Log::warning("[V8-FGTS] Falha ao excluir job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível excluir a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            if (!$response->successful() && $response->status() !== Response::HTTP_NOT_FOUND) {
+                $status = $response->status() === Response::HTTP_CONFLICT
+                    ? Response::HTTP_CONFLICT
+                    : Response::HTTP_BAD_GATEWAY;
+
+                return response()->json(['message' => 'A API externa não permitiu excluir a consulta.'], $status);
+            }
+        }
+
         try {
             if ($job->file_disk && $job->file_path) {
                 $disk = Storage::disk($job->file_disk);
@@ -316,6 +441,141 @@ class V8FgtsConsultController extends Controller
         $job->delete();
 
         return response()->noContent();
+    }
+
+    private function newJob(Request $request, string $executor): V8FgtsConsultJob
+    {
+        return V8FgtsConsultJob::create([
+            'user_id' => $request->user()->id,
+            'title' => (string) $request->input('title'),
+            'executor' => $executor,
+            'status' => 'pendente',
+            'phase' => null,
+            'total_cpfs' => 0,
+            'success_count' => 0,
+            'nao_elegivel_count' => 0,
+            'fail_count' => 0,
+        ]);
+    }
+
+    private function hasActiveJob(): bool
+    {
+        $this->refreshActiveExternalJobs();
+
+        return V8FgtsConsultJob::query()
+            ->where(function ($query) {
+                $query->whereIn('status', ['pendente', 'em_progresso'])
+                    ->orWhere(function ($query) {
+                        $query->where('status', 'cancelado')->whereNull('finished_at');
+                    });
+            })
+            ->exists();
+    }
+
+    private function refreshActiveExternalJobs(): void
+    {
+        $externalJobs = V8FgtsConsultJob::query()
+            ->where('executor', 'api')
+            ->where(function ($query) {
+                $query->whereIn('status', ['pendente', 'em_progresso'])
+                    ->orWhere(function ($query) {
+                        $query->where('status', 'cancelado')->whereNull('finished_at');
+                    });
+            })
+            ->get();
+
+        foreach ($externalJobs as $job) {
+            try {
+                $this->syncExternalJob($job);
+            } catch (\Throwable $e) {
+                Log::warning("[V8-FGTS] Não foi possível atualizar job externo ativo {$job->id}: " . $e->getMessage());
+            }
+        }
+    }
+
+    private function externalInput(mixed $rawCpfs): string
+    {
+        if (is_string($rawCpfs)) {
+            return $rawCpfs;
+        }
+
+        if (is_array($rawCpfs) || $rawCpfs instanceof \Traversable) {
+            return implode("\n", array_filter(array_map(
+                static fn ($value) => trim((string) $value),
+                is_array($rawCpfs) ? $rawCpfs : iterator_to_array($rawCpfs)
+            ), static fn ($value) => $value !== ''));
+        }
+
+        return '';
+    }
+
+    private function syncExternalJob(V8FgtsConsultJob $job, ?array $remote = null): void
+    {
+        if (empty($job->external_job_id)) {
+            throw new \RuntimeException('Job externo sem identificador.');
+        }
+
+        $remote ??= app(V8FgtsExternalApiService::class)->getJob((string) $job->external_job_id);
+        $remoteStatus = (string) ($remote['status'] ?? 'queued');
+        $status = match ($remoteStatus) {
+            'completed' => 'concluido',
+            'failed', 'expired' => 'falhou',
+            'cancelled' => 'cancelado',
+            'running', 'pausing', 'paused' => 'em_progresso',
+            default => 'pendente',
+        };
+        $metrics = is_array($remote['metrics'] ?? null) ? $remote['metrics'] : [];
+        $pipeline = is_array($metrics['pipeline'] ?? null) ? $metrics['pipeline'] : [];
+        $total = $remote['total_count'] ?? data_get($remote, 'progress.phase_1.total') ?? 0;
+        $terminal = in_array($status, ['concluido', 'falhou', 'cancelado'], true);
+
+        $job->update([
+            'status' => $status,
+            'phase' => is_string($remote['phase'] ?? null) ? $remote['phase'] : null,
+            'total_cpfs' => max(0, (int) $total),
+            'success_count' => max(0, (int) ($pipeline['success'] ?? $metrics['pipeline.success'] ?? 0)),
+            'nao_elegivel_count' => max(0, (int) ($pipeline['not_eligible'] ?? $metrics['pipeline.not_eligible'] ?? 0)),
+            'fail_count' => max(0, (int) ($pipeline['errors'] ?? $metrics['pipeline.errors'] ?? 0)),
+            'external_has_report' => (bool) ($remote['has_report'] ?? false),
+            'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
+            'finished_at' => $remote['finished_at'] ?? ($terminal ? ($job->finished_at ?? now()) : null),
+            'canceled_at' => $remote['canceled_at'] ?? ($status === 'cancelado' ? ($job->canceled_at ?? now()) : null),
+        ]);
+    }
+
+    private function externalDownload(V8FgtsConsultJob $job, string $kind)
+    {
+        try {
+            $response = $kind === 'preview'
+                ? app(V8FgtsExternalApiService::class)->preview((string) $job->external_job_id)
+                : app(V8FgtsExternalApiService::class)->report((string) $job->external_job_id);
+        } catch (\Throwable $e) {
+            Log::warning("[V8-FGTS] Falha ao baixar {$kind} externo {$job->id}: " . $e->getMessage());
+
+            return response()->json(['message' => 'Não foi possível baixar o arquivo da API externa.'], Response::HTTP_BAD_GATEWAY);
+        }
+
+        if (!$response->successful()) {
+            $status = in_array($response->status(), [404, 409], true) ? $response->status() : Response::HTTP_BAD_GATEWAY;
+
+            return response()->json(['message' => 'Arquivo indisponível na API externa.'], $status);
+        }
+
+        $filename = $this->externalFilename($response, "{$this->finalPrefix()}-{$job->id}" . ($kind === 'preview' ? '-preview' : '') . '.csv');
+
+        return response()->streamDownload(function () use ($response) {
+            echo $response->body();
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    private function externalFilename(HttpResponse $response, string $fallback): string
+    {
+        $header = (string) $response->header('Content-Disposition', '');
+        if (preg_match('/filename\\*?=(?:UTF-8\\x27\\x27|\")?([^\";]+)/i', $header, $matches) === 1) {
+            return trim(rawurldecode($matches[1]), " \"");
+        }
+
+        return $fallback;
     }
 
     private function finalPrefix(): string
