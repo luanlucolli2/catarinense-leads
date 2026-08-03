@@ -28,6 +28,19 @@ class ShortLinkService
         return $this->send($method, $path, $payload, $query, $this->token());
     }
 
+    public function requestText(string $method, string $path, string $body, array $query = []): Response
+    {
+        $response = $this->sendText($method, $path, $body, $query, $this->token());
+
+        if ($response->status() !== 401) {
+            return $response;
+        }
+
+        Cache::forget(self::CACHE_KEY);
+
+        return $this->sendText($method, $path, $body, $query, $this->token());
+    }
+
     private function send(string $method, string $path, array $payload, array $query, string $token): Response
     {
         $client = Http::baseUrl($this->baseUrl())
@@ -45,6 +58,18 @@ class ShortLinkService
             'DELETE' => $client->delete($url . $this->queryString($query), $payload),
             default => throw new RuntimeException('Método HTTP não suportado.'),
         };
+    }
+
+    private function sendText(string $method, string $path, string $body, array $query, string $token): Response
+    {
+        $client = Http::baseUrl($this->baseUrl())
+            ->acceptJson()
+            ->withToken($token)
+            ->timeout(max(1, (int) config('multi_consulta.timeout', 15)))
+            ->connectTimeout(max(1, (int) config('multi_consulta.connect_timeout', 5)))
+            ->withBody($body, 'text/plain;charset=UTF-8');
+
+        return $client->send(strtoupper($method), '/v1' . $path . $this->queryString($query));
     }
 
     private function token(): string

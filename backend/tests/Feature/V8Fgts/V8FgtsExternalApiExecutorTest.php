@@ -17,11 +17,11 @@ class V8FgtsExternalApiExecutorTest extends TestCase
     {
         parent::setUp();
 
-        Cache::forget('v8_fgts_external_api_token');
+        Cache::forget('multi_consulta:short_links:token');
         config([
-            'v8_fgts.external_api.base_url' => 'https://apibot.test',
-            'v8_fgts.external_api.email' => 'user@test.com',
-            'v8_fgts.external_api.password' => 'secret',
+            'multi_consulta.base_url' => 'https://apibot.test',
+            'multi_consulta.email' => 'user@test.com',
+            'multi_consulta.password' => 'secret',
         ]);
     }
 
@@ -34,7 +34,7 @@ class V8FgtsExternalApiExecutorTest extends TestCase
             $path = parse_url($request->url(), PHP_URL_PATH);
 
             if ($path === '/v1/auth/login') {
-                return Http::response(['token' => 'external-token'], 200);
+                return Http::response(['token' => 'external-token', 'expires_at' => now()->addHour()->toIso8601String()], 200);
             }
 
             if ($path === '/v1/jobs' && $request->method() === 'POST') {
@@ -160,7 +160,7 @@ class V8FgtsExternalApiExecutorTest extends TestCase
             'status' => 'cancelado',
         ]);
         Http::fake([
-            'https://apibot.test/v1/auth/login' => Http::response(['token' => 'external-token'], 200),
+            'https://apibot.test/v1/auth/login' => Http::response(['token' => 'external-token', 'expires_at' => now()->addHour()->toIso8601String()], 200),
             'https://apibot.test/v1/jobs*' => Http::response($this->remoteJob('remote-2', 'queued'), 202),
         ]);
 
