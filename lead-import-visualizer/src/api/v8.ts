@@ -15,12 +15,19 @@ export type V8JobPhase = 'fase_1' | 'fase_2' | null
 export interface V8ConsultJobListItem {
   id: number
   title: string
+  executor?: 'local' | 'api'
   status: V8JobStatus
   phase?: V8JobPhase
   total_cpfs: number
   success_count: number
   nao_elegivel_count: number
   fail_count: number
+  phase1_submitted_count?: number
+  phase1_not_eligible_count?: number
+  phase1_errors_count?: number
+  phase2_approved_count?: number
+  phase2_not_approved_count?: number
+  phase2_errors_count?: number
 
   has_file?: boolean | null
   file_disk?: string | null
@@ -43,6 +50,7 @@ export interface V8ConsultJobListItem {
 export interface V8ConsultJobShow {
   id: number
   title: string
+  executor?: 'local' | 'api'
   status: V8JobStatus
   phase?: V8JobPhase
   reuse_recent_consults?: boolean
@@ -51,6 +59,12 @@ export interface V8ConsultJobShow {
   success_count: number
   nao_elegivel_count: number
   fail_count: number
+  phase1_submitted_count?: number
+  phase1_not_eligible_count?: number
+  phase1_errors_count?: number
+  phase2_approved_count?: number
+  phase2_not_approved_count?: number
+  phase2_errors_count?: number
   has_file: boolean
 
   preview_running?: boolean

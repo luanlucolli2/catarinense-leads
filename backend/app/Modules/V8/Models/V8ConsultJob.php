@@ -8,9 +8,14 @@ class V8ConsultJob extends Model
 {
     protected $table = 'v8_consult_jobs';
 
+    protected $appends = ['has_file'];
+
     protected $fillable = [
         'user_id',
         'title',
+        'executor',
+        'external_job_id',
+        'external_has_report',
         'status',
         'phase',
         'total_cpfs',
@@ -31,6 +36,12 @@ class V8ConsultJob extends Model
         'spool_bytes',
         'reuse_recent_consults',
         'reuse_recent_consults_days',
+        'phase1_submitted_count',
+        'phase1_not_eligible_count',
+        'phase1_errors_count',
+        'phase2_approved_count',
+        'phase2_not_approved_count',
+        'phase2_errors_count',
     ];
 
     protected $casts = [
@@ -42,10 +53,15 @@ class V8ConsultJob extends Model
         'spool_bytes' => 'integer',
         'reuse_recent_consults' => 'boolean',
         'reuse_recent_consults_days' => 'integer',
+        'external_has_report' => 'boolean',
     ];
 
     public function getHasFileAttribute(): bool
     {
+        if ($this->executor === 'api') {
+            return (bool) $this->external_has_report;
+        }
+
         return !empty($this->file_path) && !empty($this->file_disk);
     }
 }

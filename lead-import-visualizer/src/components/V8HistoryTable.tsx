@@ -231,6 +231,103 @@ function SegmentedProgressBar({ item }: { item: V8ConsultJobListItem }) {
   );
 }
 
+type TwoPhaseStatus = "Aguardando" | "Em andamento" | "Pausada" | "Concluído" | "Falhou" | "Cancelada";
+
+function phaseStatus(item: V8ConsultJobListItem, phase: "fase_1" | "fase_2", total: number, processed: number): TwoPhaseStatus {
+  if (processed >= total && total > 0) return "Concluído";
+  if (item.status === "concluido") return "Concluído";
+  if (item.status === "falhou" && item.phase === phase) return "Falhou";
+  if (item.status === "cancelado" && item.phase === phase) return "Cancelada";
+  if (item.status === "pausado" && item.phase === phase) return "Pausada";
+  if ((item.status === "pendente" || item.status === "em_progresso") && item.phase === phase) return "Em andamento";
+  return "Aguardando";
+}
+
+function phaseStatusIcon(status: TwoPhaseStatus) {
+  if (status === "Concluído") return <CheckCircle className="w-4 h-4 text-emerald-500" />;
+  if (status === "Em andamento") return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+  if (status === "Pausada") return <Pause className="w-4 h-4 text-amber-500" />;
+  if (status === "Falhou") return <XCircle className="w-4 h-4 text-red-500" />;
+  if (status === "Cancelada") return <X className="w-4 h-4 text-gray-500" />;
+  return <Clock className="w-4 h-4 text-muted-foreground" />;
+}
+
+function ExternalMetrics({ item }: { item: V8ConsultJobListItem }) {
+  const total = Math.max(0, item.total_cpfs || 0);
+  const submitted = Math.max(0, item.phase1_submitted_count ?? 0);
+  const notEligible = Math.max(0, item.phase1_not_eligible_count ?? 0);
+  const phase1Errors = Math.max(0, item.phase1_errors_count ?? 0);
+  const phase1Processed = Math.min(total, submitted + notEligible + phase1Errors);
+  const approved = Math.max(0, item.phase2_approved_count ?? 0);
+  const notApproved = Math.max(0, item.phase2_not_approved_count ?? 0);
+  const phase2Errors = Math.max(0, item.phase2_errors_count ?? 0);
+  const phase2Total = submitted;
+  const phase2Processed = Math.min(phase2Total, approved + notApproved + phase2Errors);
+  const phase1Status = phaseStatus(item, "fase_1", total, phase1Processed);
+  const phase2Status = phaseStatus(item, "fase_2", phase2Total, phase2Processed);
+  const currentPhase = phase1Status === "Concluído" ? 2 : 1;
+  const phase1Pct = total > 0 ? {
+    submitted: (submitted / total) * 100,
+    notEligible: (notEligible / total) * 100,
+    errors: (phase1Errors / total) * 100,
+  } : { submitted: 0, notEligible: 0, errors: 0 };
+  const phase2Pct = phase2Total > 0 ? {
+    approved: (approved / phase2Total) * 100,
+    notApproved: (notApproved / phase2Total) * 100,
+    errors: (phase2Errors / phase2Total) * 100,
+  } : { approved: 0, notApproved: 0, errors: 0 };
+
+  const renderMetric = (color: string, label: string, value: number) => (
+    <div className="flex items-center gap-1.5" key={label}>
+      <div className={`w-2 h-2 rounded-full ${color}`} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold text-foreground">{value.toLocaleString()}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 1 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">{phaseStatusIcon(phase1Status)}<span className="text-sm font-semibold">Consentimento</span></div>
+          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{phase1Processed.toLocaleString()} / {total.toLocaleString()} CPFs</span>
+        </div>
+        <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+          {phase1Pct.submitted > 0 && <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase1Pct.submitted}%` }} />}
+          {phase1Pct.notEligible > 0 && <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase1Pct.submitted}%`, width: `${phase1Pct.notEligible}%` }} />}
+          {phase1Pct.errors > 0 && <div className="absolute top-0 h-full bg-destructive transition-all duration-500" style={{ left: `${phase1Pct.submitted + phase1Pct.notEligible}%`, width: `${phase1Pct.errors}%` }} />}
+          {phase1Status === "Em andamento" && phase1Processed < total && <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase1Pct.submitted + phase1Pct.notEligible + phase1Pct.errors}%`, width: `${Math.min(8, 100 - phase1Pct.submitted - phase1Pct.notEligible - phase1Pct.errors)}%` }} />}
+        </div>
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          {renderMetric("bg-emerald-500", "Enviados", submitted)}
+          {renderMetric("bg-amber-500", "Não elegíveis", notEligible)}
+          {renderMetric("bg-destructive", "Falhas", phase1Errors)}
+          {total > phase1Processed && renderMetric("bg-slate-400", "Pendentes", total - phase1Processed)}
+        </div>
+      </div>
+
+      <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 2 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">{phaseStatusIcon(phase2Status)}<span className="text-sm font-semibold">Consulta e simulação</span></div>
+          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{phase2Processed.toLocaleString()} / {phase2Total.toLocaleString()} CPFs</span>
+        </div>
+        <div className="relative h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+          {phase2Pct.approved > 0 && <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phase2Pct.approved}%` }} />}
+          {phase2Pct.notApproved > 0 && <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase2Pct.approved}%`, width: `${phase2Pct.notApproved}%` }} />}
+          {phase2Pct.errors > 0 && <div className="absolute top-0 h-full bg-destructive transition-all duration-500" style={{ left: `${phase2Pct.approved + phase2Pct.notApproved}%`, width: `${phase2Pct.errors}%` }} />}
+          {phase2Status === "Em andamento" && phase2Processed < phase2Total && <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase2Pct.approved + phase2Pct.notApproved + phase2Pct.errors}%`, width: `${Math.min(8, 100 - phase2Pct.approved - phase2Pct.notApproved - phase2Pct.errors)}%` }} />}
+        </div>
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          {renderMetric("bg-emerald-500", "Aprovados", approved)}
+          {renderMetric("bg-amber-500", "Não aprovados", notApproved)}
+          {renderMetric("bg-destructive", "Falhas", phase2Errors)}
+          {phase2Total > phase2Processed && renderMetric("bg-slate-400", "Pendentes", phase2Total - phase2Processed)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const V8HistoryTable = ({
   items,
   loading,
@@ -257,10 +354,13 @@ export const V8HistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: V8ConsultJobListItem) =>
-    i.status === "pendente" ||
-    i.status === "em_progresso" ||
-    i.status === "pausado" ||
-    (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
+    (i.executor === "api" && (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")) ||
+    (i.executor !== "api" && (
+      i.status === "pendente" ||
+      i.status === "em_progresso" ||
+      i.status === "pausado" ||
+      (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0))
+    ));
 
   const canCancel = (i: V8ConsultJobListItem) =>
     i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
@@ -604,9 +704,9 @@ export const V8HistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  <SegmentedProgressBar item={i} />
+                  {i.executor === "api" ? <ExternalMetrics item={i} /> : <SegmentedProgressBar item={i} />}
 
-                  {(i.status === "concluido" ||
+                  {i.executor !== "api" && (i.status === "concluido" ||
                     i.status === "em_progresso" ||
                     i.status === "pausado" ||
                     i.status === "cancelado" ||

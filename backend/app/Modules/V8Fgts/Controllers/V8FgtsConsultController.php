@@ -4,6 +4,7 @@ namespace App\Modules\V8Fgts\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\V8Fgts\Jobs\ProcessV8FgtsConsultJob;
+use App\Modules\V8Fgts\Jobs\StoreV8FgtsExternalReportJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
 use App\Modules\V8Fgts\Services\V8FgtsExternalApiService;
 use App\Modules\V8Fgts\Support\V8FgtsSchema;
@@ -276,6 +277,10 @@ class V8FgtsConsultController extends Controller
             ->findOrFail($id);
 
         if ($job->executor === 'api') {
+            if ($this->hasStoredReport($job)) {
+                return $this->downloadStoredReport($job);
+            }
+
             return $this->externalDownload($job, 'report');
         }
 
@@ -518,6 +523,7 @@ class V8FgtsConsultController extends Controller
         $pipeline = is_array($metrics['pipeline'] ?? null) ? $metrics['pipeline'] : [];
         $total = $remote['total_count'] ?? data_get($remote, 'progress.phase_1.total') ?? 0;
         $terminal = in_array($status, ['concluido', 'falhou', 'cancelado'], true);
+        $hasReport = (bool) ($remote['has_report'] ?? false);
 
         $job->update([
             'status' => $status,
@@ -526,11 +532,39 @@ class V8FgtsConsultController extends Controller
             'success_count' => max(0, (int) ($pipeline['success'] ?? $metrics['pipeline.success'] ?? 0)),
             'nao_elegivel_count' => max(0, (int) ($pipeline['not_eligible'] ?? $metrics['pipeline.not_eligible'] ?? 0)),
             'fail_count' => max(0, (int) ($pipeline['errors'] ?? $metrics['pipeline.errors'] ?? 0)),
-            'external_has_report' => (bool) ($remote['has_report'] ?? false),
+            'external_has_report' => $hasReport,
             'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
             'finished_at' => $remote['finished_at'] ?? ($terminal ? ($job->finished_at ?? now()) : null),
             'canceled_at' => $remote['canceled_at'] ?? ($status === 'cancelado' ? ($job->canceled_at ?? now()) : null),
         ]);
+
+        if ($hasReport && !$this->hasStoredReport($job)) {
+            StoreV8FgtsExternalReportJob::dispatch($job->id);
+        }
+    }
+
+    private function hasStoredReport(V8FgtsConsultJob $job): bool
+    {
+        return $job->file_disk && $job->file_path && Storage::disk($job->file_disk)->exists($job->file_path);
+    }
+
+    private function downloadStoredReport(V8FgtsConsultJob $job)
+    {
+        $disk = Storage::disk($job->file_disk);
+        $stream = $disk->readStream($job->file_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
+        }
+
+        return response()->streamDownload(function () use ($stream) {
+            try {
+                fpassthru($stream);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }, $job->file_name ?: "{$this->finalPrefix()}-{$job->id}.csv", ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     private function externalDownload(V8FgtsConsultJob $job, string $kind)
