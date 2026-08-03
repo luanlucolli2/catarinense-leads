@@ -150,6 +150,29 @@ class V8FgtsExternalApiExecutorTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_cancelled_job_does_not_block_a_new_consultation(): void
+    {
+        $user = User::factory()->create();
+        V8FgtsConsultJob::create([
+            'user_id' => $user->id,
+            'title' => 'Cancelado',
+            'executor' => 'local',
+            'status' => 'cancelado',
+        ]);
+        Http::fake([
+            'https://apibot.test/v1/auth/login' => Http::response(['token' => 'external-token'], 200),
+            'https://apibot.test/v1/jobs*' => Http::response($this->remoteJob('remote-2', 'queued'), 202),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v8-fgts/consult-jobs', [
+                'title' => 'Nova consulta',
+                'cpfs' => '12345678909',
+                'executor' => 'api',
+            ])
+            ->assertAccepted();
+    }
+
     private function remoteJob(string $id, string $status): array
     {
         return [

@@ -463,12 +463,7 @@ class V8FgtsConsultController extends Controller
         $this->refreshActiveExternalJobs();
 
         return V8FgtsConsultJob::query()
-            ->where(function ($query) {
-                $query->whereIn('status', ['pendente', 'em_progresso'])
-                    ->orWhere(function ($query) {
-                        $query->where('status', 'cancelado')->whereNull('finished_at');
-                    });
-            })
+            ->whereIn('status', ['pendente', 'em_progresso'])
             ->exists();
     }
 
@@ -476,12 +471,7 @@ class V8FgtsConsultController extends Controller
     {
         $externalJobs = V8FgtsConsultJob::query()
             ->where('executor', 'api')
-            ->where(function ($query) {
-                $query->whereIn('status', ['pendente', 'em_progresso'])
-                    ->orWhere(function ($query) {
-                        $query->where('status', 'cancelado')->whereNull('finished_at');
-                    });
-            })
+            ->whereIn('status', ['pendente', 'em_progresso'])
             ->get();
 
         foreach ($externalJobs as $job) {
