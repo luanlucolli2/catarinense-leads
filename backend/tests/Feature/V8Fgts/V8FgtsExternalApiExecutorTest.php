@@ -3,10 +3,13 @@
 namespace Tests\Feature\V8Fgts;
 
 use App\Models\User;
+use App\Modules\V8Fgts\Jobs\StoreV8FgtsExternalReportJob;
 use App\Modules\V8Fgts\Models\V8FgtsConsultJob;
+use App\Modules\V8Fgts\Services\V8FgtsExternalApiService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class V8FgtsExternalApiExecutorTest extends TestCase
@@ -29,6 +32,7 @@ class V8FgtsExternalApiExecutorTest extends TestCase
     {
         $user = User::factory()->create();
         $remoteStatus = 'queued';
+        Queue::fake();
 
         Http::fake(function ($request) use (&$remoteStatus) {
             $path = parse_url($request->url(), PHP_URL_PATH);
@@ -83,7 +87,7 @@ class V8FgtsExternalApiExecutorTest extends TestCase
         ]);
 
         $created->assertAccepted();
-        $job = V8FgtsConsultJob::query()->firstOrFail();
+        $job = V8FgtsConsultJob::query()->where('user_id', $user->id)->firstOrFail();
         $this->assertSame('api', $job->executor);
         $this->assertSame('remote-1', $job->external_job_id);
 
@@ -101,11 +105,16 @@ class V8FgtsExternalApiExecutorTest extends TestCase
             ->postJson("/api/v8-fgts/consult-jobs/{$job->id}/cancel", ['reason' => 'teste'])
             ->assertOk()
             ->assertJsonPath('status', 'cancelado');
+        Queue::assertPushed(StoreV8FgtsExternalReportJob::class, fn ($queued) => $queued->jobId === $job->id);
+        (new StoreV8FgtsExternalReportJob($job->id))->handle(app(V8FgtsExternalApiService::class));
+        $job->refresh();
+        $this->assertNotNull($job->file_disk);
+        $this->assertNotNull($job->file_path);
 
         $this->actingAs($user, 'sanctum')
             ->get("/api/v8-fgts/consult-jobs/{$job->id}/download")
             ->assertOk()
-            ->assertDownload('externo.csv');
+            ->assertDownload("{$job->id}-externo.csv");
 
         $this->actingAs($user, 'sanctum')
             ->deleteJson("/api/v8-fgts/consult-jobs/{$job->id}")
@@ -126,7 +135,7 @@ class V8FgtsExternalApiExecutorTest extends TestCase
             ])
             ->assertStatus(502);
 
-        $this->assertDatabaseCount('v8_fgts_consult_jobs', 0);
+        $this->assertDatabaseMissing('v8_fgts_consult_jobs', ['user_id' => $user->id]);
     }
 
     public function test_it_blocks_any_executor_while_a_v8_fgts_job_is_active(): void
