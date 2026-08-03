@@ -274,7 +274,6 @@ export const V8FgtsHistoryTable = ({
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:gap-4 sm:text-sm">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
-                        <span>Executor: {i.executor === "api" ? "API" : "Local"}</span>
                       </div>
                     </div>
 
