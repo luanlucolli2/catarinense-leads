@@ -4,13 +4,18 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use App\Modules\CLT\Services\ResumeActiveCltConsultJobsService;
 use App\Modules\FactaCLT\Services\DispatchScheduledFactaCltConsultJobs;
 use App\Modules\Presenca\Services\DispatchScheduledPresencaConsultJobs;
+use App\Modules\Presenca\Services\ResumeActivePresencaConsultJobsService;
 use App\Modules\Vendeai\Services\NewCorbanCatalogValidationService;
 use App\Modules\Uy3\Services\BackfillUy3SnapshotsService;
 use App\Modules\Vendeai\Services\BackfillVendeaiLeadProductKeysService;
 use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
+use App\Modules\V8\Services\ResumeActiveV8ConsultJobsService;
+use App\Modules\V8Fgts\Services\ResumeActiveV8FgtsJobsService;
 use App\Models\C6AuthorizationLink;
+use App\Services\MultiConsulta\SyncActiveExternalConsultJobsService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -79,6 +84,41 @@ Artisan::command('v8:dispatch-scheduled-consult-jobs', function () {
         (int) ($result['failed'] ?? 0),
     ));
 })->purpose('Despacha jobs V8 agendados cujo horário já venceu');
+
+Artisan::command('v8-fgts:resume-active-jobs', function () {
+    $result = app(ResumeActiveV8FgtsJobsService::class)->handle();
+
+    $this->info(sprintf(
+        'V8 FGTS ativos: %d verificado(s), %d preparo religado(s), %d batch religado(s).',
+        (int) ($result['scanned'] ?? 0),
+        (int) ($result['prepare_dispatched'] ?? 0),
+        (int) ($result['batch_dispatched'] ?? 0),
+    ));
+})->purpose('Religa jobs V8 FGTS ativos após restart/deploy do worker');
+
+Artisan::command('consult-jobs:resume-active-after-deploy', function () {
+    $clt = app(ResumeActiveCltConsultJobsService::class)->handle();
+    $v8 = app(ResumeActiveV8ConsultJobsService::class)->handle();
+    $presenca = app(ResumeActivePresencaConsultJobsService::class)->handle();
+    $v8Fgts = app(ResumeActiveV8FgtsJobsService::class)->handle();
+    $external = app(SyncActiveExternalConsultJobsService::class)->handle();
+
+    $this->info(sprintf(
+        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d sincronizados.',
+        (int) ($clt['dispatched'] ?? 0),
+        (int) ($clt['scanned'] ?? 0),
+        (int) ($v8['dispatched'] ?? 0),
+        (int) ($v8['scanned'] ?? 0),
+        (int) ($presenca['dispatched'] ?? 0),
+        (int) ($presenca['scanned'] ?? 0),
+        (int) ($v8Fgts['prepare_dispatched'] ?? 0),
+        (int) ($v8Fgts['batch_dispatched'] ?? 0),
+        (int) ($v8Fgts['scanned'] ?? 0),
+        (int) ($external['v8'] ?? 0),
+        (int) ($external['presenca'] ?? 0),
+        (int) ($external['v8_fgts'] ?? 0),
+    ));
+})->purpose('Religa jobs ativos e sincroniza consultas API após deploy/restart do worker');
 
 Artisan::command('c6:purge-expired-links', function () {
     $updated = C6AuthorizationLink::markExpired();
