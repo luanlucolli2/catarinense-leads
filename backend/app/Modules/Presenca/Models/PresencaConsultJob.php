@@ -8,9 +8,14 @@ class PresencaConsultJob extends Model
 {
     protected $table = 'presenca_consult_jobs';
 
+    protected $appends = ['has_file'];
+
     protected $fillable = [
         'user_id',
         'title',
+        'executor',
+        'external_job_id',
+        'external_has_report',
         'status',
         'phase',
         'total_cpfs',
@@ -42,10 +47,15 @@ class PresencaConsultJob extends Model
         'success_count' => 'integer',
         'policy_declined_count' => 'integer',
         'fail_count' => 'integer',
+        'external_has_report' => 'boolean',
     ];
 
     public function getHasFileAttribute(): bool
     {
+        if ($this->executor === 'api') {
+            return (bool) $this->external_has_report;
+        }
+
         return !empty($this->file_path) && !empty($this->file_disk);
     }
 }

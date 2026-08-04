@@ -5,15 +5,19 @@ namespace App\Modules\Presenca\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Presenca\Jobs\DispatchPresencaConsultJob;
 use App\Modules\Presenca\Jobs\ProcessPresencaConsultJob;
+use App\Modules\Presenca\Jobs\StorePresencaExternalReportJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
+use App\Modules\Presenca\Services\PresencaExternalApiService;
 use App\Modules\Presenca\Support\PresencaLog;
 use App\Modules\Presenca\Support\PresencaSchema;
 use App\Modules\Presenca\Support\PresencaSpool;
 use App\Support\Cpf;
 use Illuminate\Http\Request;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
@@ -22,6 +26,8 @@ class PresencaConsultController extends Controller
 {
     public function index(Request $request)
     {
+        $this->refreshActiveExternalJobs();
+
         $data = Validator::make($request->query(), [
             'status' => ['nullable', 'in:agendado,pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
         ])->validate();
@@ -46,21 +52,26 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            $this->syncExternalJob($job);
+        }
+
         $reportsDiskName = (string) config('presenca.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
-        $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+        $spoolExists = $job->executor === 'local' && $job->spool_path && $reportsDisk->exists($job->spool_path);
         $spoolHasDataRows = $spoolExists && PresencaSpool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
+            'executor' => $job->executor,
             'status' => $job->status,
             'phase' => $job->phase,
             'total_cpfs' => (int) ($job->total_cpfs ?? 0),
             'success_count' => (int) ($job->success_count ?? 0),
             'policy_declined_count' => (int) ($job->policy_declined_count ?? 0),
             'fail_count' => (int) ($job->fail_count ?? 0),
-            'has_file' => (bool) $job->has_file,
+            'has_file' => $job->executor === 'api' ? (bool) $job->external_has_report : (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'canceled_at' => $job->canceled_at,
@@ -68,7 +79,9 @@ class PresencaConsultController extends Controller
             'cancel_reason' => $job->cancel_reason,
             'scheduled_for' => $job->scheduled_for,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
+            'preview_running' => $job->executor === 'api'
+                ? in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true)
+                : in_array($job->status, ['pendente', 'em_progresso', 'pausado', 'cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => (int) ($job->spool_bytes ?? 0),
         ]);
     }
@@ -109,9 +122,28 @@ class PresencaConsultController extends Controller
             ? $runAt->clone()->setTimezone('UTC')
             : null;
 
+        $lock = Cache::lock('presenca_consult_creation', 60);
+        if (!$lock->get()) {
+            return response()->json(['message' => 'Já existe uma criação de consulta Presença em andamento.'], Response::HTTP_CONFLICT);
+        }
+
+        try {
+            if ($this->hasActiveJob()) {
+                return response()->json(['message' => 'Já existe uma consulta Presença em andamento.'], Response::HTTP_CONFLICT);
+            }
+
+            return $this->storeExternalJob($request, $uploadedFile, $rawLines, $scheduledFor);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function storeLocalJob(Request $request, ?UploadedFile $uploadedFile, mixed $rawLines, ?Carbon $scheduledFor)
+    {
         $job = PresencaConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => (string) $request->input('title'),
+            'executor' => 'local',
             'status' => $scheduledFor ? 'agendado' : 'pendente',
             'phase' => null,
             'total_cpfs' => 0,
@@ -176,6 +208,16 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            $this->syncExternalJob($job);
+
+            return response()->json([
+                'queued' => false,
+                'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true),
+                'message' => 'Prévia disponível diretamente na API externa.',
+            ]);
+        }
+
         $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
         $spoolHasDataRows = $spoolExists && PresencaSpool::hasDataRows($disk, $job->spool_path);
@@ -192,6 +234,10 @@ class PresencaConsultController extends Controller
         $job = PresencaConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            return $this->externalDownload($job, 'preview');
+        }
 
         $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
 
@@ -251,6 +297,14 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            if ($this->hasStoredReport($job)) {
+                return $this->downloadStoredReport($job);
+            }
+
+            return $this->externalDownload($job, 'report');
+        }
+
         if (!in_array($job->status, ['concluido', 'falhou', 'cancelado'], true) || empty($job->file_disk) || empty($job->file_path)) {
             return response()->json(['message' => 'Relatório ainda não disponível.'], 409);
         }
@@ -288,6 +342,38 @@ class PresencaConsultController extends Controller
         $job = PresencaConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
+                return response()->json([
+                    'message' => 'Job não pode ser cancelado neste estado.',
+                    'status' => $job->status,
+                ], Response::HTTP_CONFLICT);
+            }
+
+            $data = $request->validate(['reason' => ['nullable', 'string', 'max:191']]);
+
+            try {
+                $remote = app(PresencaExternalApiService::class)->cancelJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+                $job->update(['cancel_reason' => $data['reason'] ?? null]);
+            } catch (\Throwable $e) {
+                PresencaLog::warning("[PRESENCA] Falha ao cancelar job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível cancelar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            $job->refresh();
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'canceled_at' => $job->canceled_at,
+                'cancel_reason' => $job->cancel_reason,
+                'finished_at' => $job->finished_at,
+            ]);
+        }
 
         if (in_array($job->status, ['concluido', 'falhou', 'cancelado'], true)) {
             return response()->json([
@@ -332,6 +418,26 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            try {
+                $remote = app(PresencaExternalApiService::class)->pauseJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+            } catch (\Throwable $e) {
+                PresencaLog::warning("[PRESENCA] Falha ao pausar job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível pausar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            $job->refresh();
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ], Response::HTTP_ACCEPTED);
+        }
+
         if ($job->status === 'pausado') {
             return response()->json([
                 'id' => $job->id,
@@ -366,6 +472,25 @@ class PresencaConsultController extends Controller
         $job = PresencaConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            try {
+                $remote = app(PresencaExternalApiService::class)->resumeJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+            } catch (\Throwable $e) {
+                PresencaLog::warning("[PRESENCA] Falha ao retomar job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível retomar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            $job->refresh();
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+            ], Response::HTTP_ACCEPTED);
+        }
 
         if ($job->status !== 'pausado') {
             return response()->json([
@@ -420,6 +545,24 @@ class PresencaConsultController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
+        if ($job->executor === 'api') {
+            try {
+                $response = app(PresencaExternalApiService::class)->deleteJob((string) $job->external_job_id);
+            } catch (\Throwable $e) {
+                PresencaLog::warning("[PRESENCA] Falha ao excluir job externo {$job->id}: " . $e->getMessage());
+
+                return response()->json(['message' => 'Não foi possível excluir a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            if (!$response->successful() && $response->status() !== Response::HTTP_NOT_FOUND) {
+                $status = $response->status() === Response::HTTP_CONFLICT
+                    ? Response::HTTP_CONFLICT
+                    : Response::HTTP_BAD_GATEWAY;
+
+                return response()->json(['message' => 'A API externa não permitiu excluir a consulta.'], $status);
+            }
+        }
+
         try {
             if ($job->file_disk && $job->file_path) {
                 $disk = Storage::disk($job->file_disk);
@@ -446,6 +589,204 @@ class PresencaConsultController extends Controller
         $job->delete();
 
         return response()->noContent();
+    }
+
+    private function storeExternalJob(Request $request, ?UploadedFile $uploadedFile, mixed $rawLines, ?Carbon $scheduledFor)
+    {
+        $job = PresencaConsultJob::create([
+            'user_id' => $request->user()->id,
+            'title' => (string) $request->input('title'),
+            'executor' => 'api',
+            'status' => $scheduledFor ? 'agendado' : 'pendente',
+            'phase' => null,
+            'total_cpfs' => 0,
+            'success_count' => 0,
+            'policy_declined_count' => 0,
+            'fail_count' => 0,
+            'scheduled_for' => $scheduledFor,
+        ]);
+
+        try {
+            $remote = app(PresencaExternalApiService::class)->createJob(
+                $job->title,
+                $this->externalInput($uploadedFile, $rawLines),
+                $scheduledFor?->toIso8601String()
+            );
+            $externalJobId = $remote['id'] ?? null;
+            if (!is_string($externalJobId) || $externalJobId === '') {
+                throw new \RuntimeException('A API externa não retornou o identificador do job.');
+            }
+
+            $job->update(['external_job_id' => $externalJobId]);
+            $this->syncExternalJob($job, $remote);
+        } catch (\Throwable $e) {
+            $job->delete();
+            PresencaLog::warning('[PRESENCA] Falha ao criar job na API externa: ' . $e->getMessage());
+
+            return response()->json(['message' => 'Não foi possível criar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+        }
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'scheduled_for' => $job->scheduled_for,
+        ], Response::HTTP_ACCEPTED);
+    }
+
+    private function hasActiveJob(): bool
+    {
+        $this->refreshActiveExternalJobs();
+
+        return PresencaConsultJob::query()
+            ->whereIn('status', ['agendado', 'pendente', 'em_progresso', 'pausado'])
+            ->exists();
+    }
+
+    private function refreshActiveExternalJobs(): void
+    {
+        $externalJobs = PresencaConsultJob::query()
+            ->where('executor', 'api')
+            ->whereIn('status', ['agendado', 'pendente', 'em_progresso', 'pausado'])
+            ->get();
+
+        foreach ($externalJobs as $job) {
+            try {
+                $this->syncExternalJob($job);
+            } catch (\Throwable $e) {
+                PresencaLog::warning("[PRESENCA] Não foi possível atualizar job externo ativo {$job->id}: " . $e->getMessage());
+            }
+        }
+    }
+
+    private function externalInput(?UploadedFile $uploadedFile, mixed $rawLines): string
+    {
+        if ($uploadedFile instanceof UploadedFile) {
+            if (!$uploadedFile->isValid()) {
+                throw new \RuntimeException('Arquivo enviado inválido para processamento.');
+            }
+
+            $contents = file_get_contents((string) $uploadedFile->getRealPath());
+            if ($contents === false) {
+                throw new \RuntimeException('Não foi possível ler o arquivo enviado.');
+            }
+
+            return $contents;
+        }
+
+        if (is_string($rawLines)) {
+            return $rawLines;
+        }
+
+        if (is_array($rawLines) || $rawLines instanceof \Traversable) {
+            return implode("\n", array_filter(array_map(
+                static fn ($value) => trim((string) $value),
+                is_array($rawLines) ? $rawLines : iterator_to_array($rawLines)
+            ), static fn ($value) => $value !== ''));
+        }
+
+        return '';
+    }
+
+    private function syncExternalJob(PresencaConsultJob $job, ?array $remote = null): void
+    {
+        if (empty($job->external_job_id)) {
+            throw new \RuntimeException('Job externo sem identificador.');
+        }
+
+        $remote ??= app(PresencaExternalApiService::class)->getJob((string) $job->external_job_id);
+        $status = match ((string) ($remote['status'] ?? 'queued')) {
+            'scheduled' => 'agendado',
+            'completed' => 'concluido',
+            'failed', 'expired' => 'falhou',
+            'cancelled' => 'cancelado',
+            'paused' => 'pausado',
+            'running', 'pausing' => 'em_progresso',
+            default => 'pendente',
+        };
+        $metrics = is_array($remote['metrics'] ?? null) ? $remote['metrics'] : [];
+        $hasReport = (bool) ($remote['has_report'] ?? false);
+        $terminal = in_array($status, ['concluido', 'falhou', 'cancelado'], true);
+
+        $job->update([
+            'status' => $status,
+            'phase' => ($remote['phase'] ?? null) === 'phase_1' ? 'processando' : null,
+            'total_cpfs' => max(0, (int) ($remote['total_count'] ?? data_get($remote, 'progress.phase_1.total') ?? 0)),
+            'success_count' => max(0, (int) ($metrics['phase1.success'] ?? 0)),
+            'policy_declined_count' => max(0, (int) ($metrics['phase1.policy_declined'] ?? 0)),
+            'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+            'external_has_report' => $hasReport,
+            'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
+            'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
+            'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
+            'finished_at' => $remote['finished_at'] ?? ($terminal && ($status !== 'cancelado' || $hasReport) ? ($job->finished_at ?? now()) : null),
+            'canceled_at' => $remote['cancelled_at'] ?? ($status === 'cancelado' ? ($job->canceled_at ?? now()) : null),
+        ]);
+
+        if ($hasReport && !$this->hasStoredReport($job)) {
+            StorePresencaExternalReportJob::dispatch($job->id);
+        }
+    }
+
+    private function hasStoredReport(PresencaConsultJob $job): bool
+    {
+        return $job->file_disk && $job->file_path && Storage::disk($job->file_disk)->exists($job->file_path);
+    }
+
+    private function downloadStoredReport(PresencaConsultJob $job)
+    {
+        $disk = Storage::disk($job->file_disk);
+        $stream = $disk->readStream($job->file_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
+        }
+
+        return response()->streamDownload(function () use ($stream) {
+            try {
+                fpassthru($stream);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }, $job->file_name ?: "{$this->finalPrefix()}-{$job->id}.csv", ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    private function externalDownload(PresencaConsultJob $job, string $kind)
+    {
+        try {
+            $response = $kind === 'preview'
+                ? app(PresencaExternalApiService::class)->preview((string) $job->external_job_id)
+                : app(PresencaExternalApiService::class)->report((string) $job->external_job_id);
+        } catch (\Throwable $e) {
+            PresencaLog::warning("[PRESENCA] Falha ao baixar {$kind} externo {$job->id}: " . $e->getMessage());
+
+            return response()->json(['message' => 'Não foi possível baixar o arquivo da API externa.'], Response::HTTP_BAD_GATEWAY);
+        }
+
+        if (!$response->successful()) {
+            $status = in_array($response->status(), [Response::HTTP_NOT_FOUND, Response::HTTP_CONFLICT], true)
+                ? $response->status()
+                : Response::HTTP_BAD_GATEWAY;
+
+            return response()->json(['message' => 'Arquivo indisponível na API externa.'], $status);
+        }
+
+        $filename = $this->externalFilename($response, "{$this->finalPrefix()}-{$job->id}" . ($kind === 'preview' ? '-preview' : '') . '.csv');
+
+        return response()->streamDownload(function () use ($response) {
+            echo $response->body();
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    private function externalFilename(HttpResponse $response, string $fallback): string
+    {
+        $header = (string) $response->header('Content-Disposition', '');
+        if (preg_match('/filename\\*?=(?:UTF-8\\x27\\x27|\")?([^\";]+)/i', $header, $matches) === 1) {
+            return trim(rawurldecode($matches[1]), " \"");
+        }
+
+        return $fallback;
     }
 
     private function finalPrefix(): string
