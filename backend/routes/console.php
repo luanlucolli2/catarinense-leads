@@ -15,6 +15,7 @@ use App\Modules\V8\Services\DispatchScheduledV8ConsultJobs;
 use App\Modules\V8\Services\ResumeActiveV8ConsultJobsService;
 use App\Modules\V8Fgts\Services\ResumeActiveV8FgtsJobsService;
 use App\Models\C6AuthorizationLink;
+use App\Services\MultiConsulta\SyncActiveExternalConsultJobsService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -100,9 +101,10 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
     $v8 = app(ResumeActiveV8ConsultJobsService::class)->handle();
     $presenca = app(ResumeActivePresencaConsultJobsService::class)->handle();
     $v8Fgts = app(ResumeActiveV8FgtsJobsService::class)->handle();
+    $external = app(SyncActiveExternalConsultJobsService::class)->handle();
 
     $this->info(sprintf(
-        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d.',
+        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d sincronizados.',
         (int) ($clt['dispatched'] ?? 0),
         (int) ($clt['scanned'] ?? 0),
         (int) ($v8['dispatched'] ?? 0),
@@ -112,6 +114,9 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
         (int) ($v8Fgts['prepare_dispatched'] ?? 0),
         (int) ($v8Fgts['batch_dispatched'] ?? 0),
         (int) ($v8Fgts['scanned'] ?? 0),
+        (int) ($external['v8'] ?? 0),
+        (int) ($external['presenca'] ?? 0),
+        (int) ($external['v8_fgts'] ?? 0),
     ));
 })->purpose('Religa jobs ativos de CLT, V8, Presença e V8 FGTS após deploy/restart do worker');
 

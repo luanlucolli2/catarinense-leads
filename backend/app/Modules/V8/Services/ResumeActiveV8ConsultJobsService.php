@@ -20,6 +20,7 @@ class ResumeActiveV8ConsultJobsService
         $queue = (string) config('v8.job.queue', 'v8');
 
         V8ConsultJob::query()
+            ->where('executor', 'local')
             ->whereIn('status', ['pendente', 'em_progresso'])
             ->orderBy('id')
             ->get()

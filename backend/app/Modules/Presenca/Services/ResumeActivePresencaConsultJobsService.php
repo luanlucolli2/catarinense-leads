@@ -20,6 +20,7 @@ class ResumeActivePresencaConsultJobsService
         $queue = (string) config('presenca.job.queue', 'presenca');
 
         PresencaConsultJob::query()
+            ->where('executor', 'local')
             ->whereIn('status', ['pendente', 'em_progresso'])
             ->orderBy('id')
             ->get()

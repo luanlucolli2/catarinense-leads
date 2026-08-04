@@ -20,6 +20,7 @@ class ResumeActiveV8FgtsJobsService
         $queue = (string) config('v8_fgts.job.queue', 'fgts');
 
         V8FgtsConsultJob::query()
+            ->where('executor', 'local')
             ->whereIn('status', ['pendente', 'em_progresso'])
             ->orderBy('id')
             ->get()
