@@ -473,6 +473,19 @@ class PresencaConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->status !== 'pausado') {
+            return response()->json([
+                'message' => 'Apenas jobs pausados podem ser retomados.',
+                'status' => $job->status,
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if ($this->hasActiveJob($job->id)) {
+            return response()->json([
+                'message' => 'Já existe uma consulta Presença em andamento.',
+            ], Response::HTTP_CONFLICT);
+        }
+
         if ($job->executor === 'api') {
             try {
                 $remote = app(PresencaExternalApiService::class)->resumeJob((string) $job->external_job_id);
@@ -490,13 +503,6 @@ class PresencaConsultController extends Controller
                 'status' => $job->status,
                 'phase' => $job->phase,
             ], Response::HTTP_ACCEPTED);
-        }
-
-        if ($job->status !== 'pausado') {
-            return response()->json([
-                'message' => 'Apenas jobs pausados podem ser retomados.',
-                'status' => $job->status,
-            ], Response::HTTP_CONFLICT);
         }
 
         $disk = Storage::disk((string) config('presenca.storage.reports_disk', 'local'));
@@ -634,12 +640,18 @@ class PresencaConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
-    private function hasActiveJob(): bool
+    private function hasActiveJob(?int $excludingJobId = null): bool
     {
         $this->refreshActiveExternalJobs();
 
-        return PresencaConsultJob::query()
-            ->whereIn('status', ['agendado', 'pendente', 'em_progresso', 'pausado'])
+        $query = PresencaConsultJob::query()
+            ->whereIn('status', ['agendado', 'pendente', 'em_progresso']);
+
+        if ($excludingJobId !== null) {
+            $query->whereKeyNot($excludingJobId);
+        }
+
+        return $query
             ->exists();
     }
 
