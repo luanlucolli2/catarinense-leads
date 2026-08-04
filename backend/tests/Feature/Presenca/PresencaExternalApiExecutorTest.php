@@ -177,7 +177,7 @@ class PresencaExternalApiExecutorTest extends TestCase
             'user_id' => $user->id,
             'title' => 'Em andamento',
             'executor' => 'local',
-            'status' => 'pausado',
+            'status' => 'em_progresso',
         ]);
 
         $this->actingAs($user, 'sanctum')->postJson('/api/presenca/consult-jobs', [
@@ -186,6 +186,30 @@ class PresencaExternalApiExecutorTest extends TestCase
         ])->assertConflict();
 
         Http::assertNothingSent();
+    }
+
+    public function test_a_paused_job_does_not_block_a_new_consultation_but_cannot_resume_while_another_is_active(): void
+    {
+        $user = User::factory()->create();
+        $pausedJob = PresencaConsultJob::create([
+            'user_id' => $user->id,
+            'title' => 'Pausado',
+            'executor' => 'local',
+            'status' => 'pausado',
+        ]);
+        Http::fake([
+            'https://apibot.test/v1/auth/login' => Http::response(['token' => 'external-token', 'expires_at' => now()->addHour()->toIso8601String()], 200),
+            'https://apibot.test/v1/jobs*' => Http::response($this->remoteJob('remote-3', 'queued'), 202),
+        ]);
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/presenca/consult-jobs', [
+            'title' => 'Nova consulta',
+            'lines' => '12345678909;Maria Silva',
+        ])->assertAccepted();
+
+        $this->actingAs($user, 'sanctum')->postJson("/api/presenca/consult-jobs/{$pausedJob->id}/resume")
+            ->assertConflict()
+            ->assertJsonPath('message', 'Já existe uma consulta Presença em andamento.');
     }
 
     public function test_a_cancelled_job_does_not_block_a_new_consultation(): void
