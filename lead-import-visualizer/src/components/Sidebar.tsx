@@ -12,7 +12,6 @@ import {
   Link2,
   Loader2,
   Handshake,
-  Phone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -127,12 +126,6 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             icon: Home,
             path: "/leads",
             active: location.pathname === "/leads",
-          },
-          {
-            name: "Higienização Lemit",
-            icon: Phone,
-            path: "/leads/higienizacao-lemit",
-            active: isActive("/leads/higienizacao-lemit"),
           },
           {
             name: "Importações (Leads)",
