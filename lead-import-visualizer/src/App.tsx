@@ -13,7 +13,6 @@ import {
 import Dashboard from "./pages/Dashboard";
 import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
-import LemitPoolPage from "./pages/LemitPoolPage";
 import NotFound from "./pages/NotFound";
 import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSConsultaPage from "./pages/FGTSConsultaPage"; // 👈 nova página FGTS
@@ -65,11 +64,6 @@ const App = () => (
                 <Route index element={<Navigate to="/leads" replace />} />
 
                 <Route path="leads" element={<Dashboard />} />
-
-                <Route
-                  path="leads/higienizacao-lemit"
-                  element={<LemitPoolPage />}
-                />
 
                 {/* histórico de importações */}
                 <Route path="leads/importacoes" element={<HistoricoPage />} />
