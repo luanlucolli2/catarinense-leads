@@ -239,10 +239,13 @@ export const PresencaHistoryTable = ({
     Boolean(i.has_file ?? i.file_path);
 
   const canDownloadPreview = (i: PresencaConsultJobListItem) =>
-    i.status === "pendente" ||
-    i.status === "em_progresso" ||
-    i.status === "pausado" ||
-    (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
+    (i.executor === "api" && (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")) ||
+    (i.executor !== "api" && (
+      i.status === "pendente" ||
+      i.status === "em_progresso" ||
+      i.status === "pausado" ||
+      (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0))
+    ));
 
   const canCancel = (i: PresencaConsultJobListItem) =>
     i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";

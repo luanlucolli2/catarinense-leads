@@ -450,6 +450,7 @@ const CLTConsultaPage = () => {
         ...i,
         status: watchedPresencaJob.status,
         phase: watchedPresencaJob.phase,
+        executor: watchedPresencaJob.executor ?? i.executor,
         total_cpfs: watchedPresencaJob.total_cpfs,
         success_count: watchedPresencaJob.success_count,
         policy_declined_count: watchedPresencaJob.policy_declined_count,
