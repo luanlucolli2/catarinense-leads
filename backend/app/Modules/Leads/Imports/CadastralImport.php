@@ -252,16 +252,8 @@ class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, With
             $this->backedUpLeadIds[$lead->id] = true;
         }
 
-        $normalizedNameForInsert = null;
-        if ($action === 'insert') {
-            $normalizedNameForInsert = $this->normalizeName($row['nomecliente'] ?? null);
-            if ($normalizedNameForInsert === null) {
-                throw new \Exception("Nome é obrigatório para inserir novo lead.", 0, new \Exception('nomecliente'));
-            }
-        }
-
         $dataFromSheet = [
-            'nome'             => $normalizedNameForInsert ?? $this->normalizeName($row['nomecliente'] ?? null),
+            'nome'             => $this->normalizeName($row['nomecliente'] ?? null),
             'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
             'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
             'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
