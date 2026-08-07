@@ -277,16 +277,22 @@ class SomaCltConsultController extends Controller
 
     private function normalizeLines(string $raw): array|\Illuminate\Http\JsonResponse
     {
-        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $raw) ?: []), static fn (string $line): bool => $line !== ''));
-        if ($lines === [] || count($lines) > 40000) {
-            return response()->json(['message' => 'Informe entre 1 e 40.000 linhas no formato CPF;NOME.'], Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
+        $lines = preg_split('/\r\n|\r|\n/', $raw) ?: [];
         $normalized = [];
         foreach ($lines as $line) {
-            if (preg_match('/^(\d{1,11})(?:;|\s+)(\S.*)$/u', $line, $matches) !== 1) {
-                return response()->json(['message' => 'Cada linha deve estar no formato CPF;NOME COMPLETO.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+            $line = trim($line);
+            if ($line === '' || preg_match('/\d/', $line) !== 1 || preg_match('/^\s*([\d.\-]+)(.*)$/u', $line, $matches) !== 1) {
+                continue;
             }
-            $normalized[] = str_pad($matches[1], 11, '0', STR_PAD_LEFT) . ';' . trim($matches[2]);
+            $cpf = preg_replace('/\D/', '', $matches[1]);
+            if ($cpf === '') {
+                continue;
+            }
+            $name = trim(preg_replace('/^[\s;,\t]+/u', '', $matches[2]) ?? '');
+            $normalized[] = (strlen($cpf) < 11 ? str_pad($cpf, 11, '0', STR_PAD_LEFT) : $cpf) . ';' . $name;
+        }
+        if ($normalized === [] || count($normalized) > 40000) {
+            return response()->json(['message' => 'Informe entre 1 e 40.000 linhas com CPF.'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         return ['body' => implode("\n", $normalized), 'count' => count($normalized)];
