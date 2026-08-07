@@ -17,6 +17,7 @@ export type PresencaJobPhase = string | null
 export interface PresencaConsultJobListItem {
   id: number
   title: string
+  mode?: string | null
   executor?: 'local' | 'api'
   status: PresencaJobStatus
   phase?: PresencaJobPhase
