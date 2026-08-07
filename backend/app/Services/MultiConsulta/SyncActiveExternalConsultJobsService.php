@@ -5,6 +5,9 @@ namespace App\Services\MultiConsulta;
 use App\Modules\Presenca\Jobs\StorePresencaExternalReportJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Services\PresencaExternalApiService;
+use App\Modules\SomaClt\Jobs\StoreSomaCltExternalReportJob;
+use App\Modules\SomaClt\Models\SomaCltConsultJob;
+use App\Modules\SomaClt\Services\SomaCltExternalApiService;
 use App\Modules\V8\Jobs\StoreV8ExternalReportJob;
 use App\Modules\V8\Models\V8ConsultJob;
 use App\Modules\V8\Services\V8ExternalApiService;
@@ -25,6 +28,7 @@ class SyncActiveExternalConsultJobsService
             'v8' => $this->syncV8(),
             'v8_fgts' => $this->syncV8Fgts(),
             'presenca' => $this->syncPresenca(),
+            'soma_clt' => $this->syncSomaClt(),
         ];
     }
 
@@ -109,6 +113,32 @@ class SyncActiveExternalConsultJobsService
                 StorePresencaExternalReportJob::dispatch($job->id);
             }
         }, 'Presença');
+    }
+
+    private function syncSomaClt(): int
+    {
+        $api = app(SomaCltExternalApiService::class);
+
+        return $this->sync($this->active(SomaCltConsultJob::class), function (SomaCltConsultJob $job) use ($api): void {
+            $remote = $api->getJob((string) $job->external_job_id);
+            $metrics = (array) ($remote['metrics'] ?? []);
+            $status = $this->status($remote);
+            $hasReport = (bool) ($remote['has_report'] ?? false);
+
+            $job->update([
+                ...$this->common($job, $remote, $status, $hasReport),
+                'phase' => ($remote['phase'] ?? null) === 'phase_1' ? 'processando' : null,
+                'success_count' => max(0, (int) ($metrics['phase1.success'] ?? 0)),
+                'policy_declined_count' => max(0, (int) ($metrics['phase1.declined'] ?? 0)),
+                'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+                'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
+                'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
+            ]);
+
+            if ($hasReport && !$this->hasStoredReport($job)) {
+                StoreSomaCltExternalReportJob::dispatch($job->id);
+            }
+        }, 'Soma CLT');
     }
 
     private function active(string $model): \Illuminate\Database\Eloquent\Collection

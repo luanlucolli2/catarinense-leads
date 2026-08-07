@@ -14,6 +14,7 @@ use App\Modules\V8\Controllers\V8ConsultController;
 use App\Modules\V8Fgts\Controllers\V8FgtsConsultController;
 use App\Modules\FgtsOffline\Controllers\FgtsOfflineController;
 use App\Modules\Presenca\Controllers\PresencaConsultController;
+use App\Modules\SomaClt\Controllers\SomaCltConsultController;
 use App\Http\Controllers\Api\C6AuthorizationLinkController;
 use App\Http\Controllers\Api\C6AuthorizationLinkListController;
 use App\Http\Controllers\Api\ShortLinkProxyController;
@@ -217,4 +218,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/presenca/consult-jobs/{id}/resume', [PresencaConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/presenca/consult-jobs/{id}/cancel', [PresencaConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/presenca/consult-jobs/{id}', [PresencaConsultController::class, 'destroy'])->whereNumber('id');
+
+    /* Soma CLT */
+    Route::get('/soma-clt/consult-jobs', [SomaCltConsultController::class, 'index']);
+    Route::post('/soma-clt/consult-jobs', [SomaCltConsultController::class, 'store']);
+    Route::get('/soma-clt/consult-jobs/{id}', [SomaCltConsultController::class, 'show'])->whereNumber('id');
+    Route::get('/soma-clt/consult-jobs/{id}/download', [SomaCltConsultController::class, 'download'])->whereNumber('id');
+    Route::post('/soma-clt/consult-jobs/{id}/preview/generate', [SomaCltConsultController::class, 'requestPreview'])->whereNumber('id');
+    Route::get('/soma-clt/consult-jobs/{id}/preview', [SomaCltConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/soma-clt/consult-jobs/{id}/pause', [SomaCltConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/soma-clt/consult-jobs/{id}/resume', [SomaCltConsultController::class, 'resume'])->whereNumber('id');
+    Route::post('/soma-clt/consult-jobs/{id}/cancel', [SomaCltConsultController::class, 'cancel'])->whereNumber('id');
+    Route::delete('/soma-clt/consult-jobs/{id}', [SomaCltConsultController::class, 'destroy'])->whereNumber('id');
 });

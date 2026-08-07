@@ -51,6 +51,7 @@ type Props = {
   onPageChange: (p: number) => void;
 
   formatDateTimeBR: (iso?: string | null) => string;
+  metricLabels?: { success: string; declined: string; failure: string };
 };
 
 function getStatusInfo(status: PresencaJobStatus) {
@@ -118,7 +119,7 @@ function calcSegments(i: PresencaConsultJobListItem) {
   return { ok, not, err, sum, total };
 }
 
-function SegmentedProgressBar({ item }: { item: PresencaConsultJobListItem }) {
+function SegmentedProgressBar({ item, metricLabels }: { item: PresencaConsultJobListItem; metricLabels: NonNullable<Props['metricLabels']> }) {
   const s = calcSegments(item);
   const total = item.total_cpfs || 0;
   const processed = (
@@ -189,19 +190,19 @@ function SegmentedProgressBar({ item }: { item: PresencaConsultJobListItem }) {
           {s.ok > 0 && (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />
-              <span className="text-muted-foreground">Sucesso</span>
+              <span className="text-muted-foreground">{metricLabels.success}</span>
             </div>
           )}
           {s.not > 0 && (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-amber-500 dark:bg-amber-400 rounded-full" />
-              <span className="text-muted-foreground">Recusa política</span>
+              <span className="text-muted-foreground">{metricLabels.declined}</span>
             </div>
           )}
           {s.err > 0 && (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
-              <span className="text-muted-foreground">Falhas</span>
+              <span className="text-muted-foreground">{metricLabels.failure}</span>
             </div>
           )}
         </div>
@@ -225,6 +226,7 @@ export const PresencaHistoryTable = ({
   lastPage,
   onPageChange,
   formatDateTimeBR,
+  metricLabels = { success: "Sucesso", declined: "Recusa política", failure: "Falhas" },
 }: Props) => {
   const [cancelingId, setCancelingId] = useState<number | null>(null);
   const [pausingId, setPausingId] = useState<number | null>(null);
@@ -564,7 +566,7 @@ export const PresencaHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  <SegmentedProgressBar item={i} />
+                  <SegmentedProgressBar item={i} metricLabels={metricLabels} />
 
                   {(i.status === "concluido" ||
                     i.status === "em_progresso" ||
@@ -576,21 +578,21 @@ export const PresencaHistoryTable = ({
                         <div className="text-base sm:text-lg font-semibold text-emerald-600 dark:text-emerald-400">
                           {i.success_count.toLocaleString()}
                         </div>
-                        <div className="text-[11px] sm:text-xs text-muted-foreground">Sucesso</div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">{metricLabels.success}</div>
                       </div>
                       <div className="text-center">
                         <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">
                           {(i.policy_declined_count ?? 0).toLocaleString()}
                         </div>
                         <div className="text-[11px] sm:text-xs text-muted-foreground">
-                          Recusa política
+                          {metricLabels.declined}
                         </div>
                       </div>
                       <div className="text-center">
                         <div className="text-base sm:text-lg font-semibold text-red-600 dark:text-red-400">
                           {i.fail_count.toLocaleString()}
                         </div>
-                        <div className="text-[11px] sm:text-xs text-muted-foreground">Falhas</div>
+                        <div className="text-[11px] sm:text-xs text-muted-foreground">{metricLabels.failure}</div>
                       </div>
                     </div>
                   )}

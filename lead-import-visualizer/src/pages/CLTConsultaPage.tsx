@@ -11,6 +11,7 @@ import { V8HistoryTable } from "@/components/V8HistoryTable";
 import { NewV8ConsultModal } from "@/components/NewV8ConsultModal";
 import { PresencaHistoryTable } from "@/components/PresencaHistoryTable";
 import { NewPresencaConsultModal } from "@/components/NewPresencaConsultModal";
+import { SomaCltTab } from "@/components/SomaCltTab";
 import { HubCreditoHistoryTable } from "@/components/HubCreditoHistoryTable";
 import { NewHubCreditoConsultModal } from "@/components/NewHubCreditoConsultModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -112,7 +113,7 @@ function deleteJobErrorMessage(error: any) {
 const CLTConsultaPage = () => {
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "hubcredito" | "presenca">(
+  const [activeTab, setActiveTab] = usePersistedState<"facta" | "v8" | "hubcredito" | "presenca" | "soma-clt">(
     "facta:activeTab",
     "facta"
   );
@@ -1259,12 +1260,15 @@ const CLTConsultaPage = () => {
   const isV8Tab = activeTab === "v8";
   const isHubCreditoTab = activeTab === "hubcredito";
   const isPresencaTab = activeTab === "presenca";
+  const isSomaCltTab = activeTab === "soma-clt";
   const headerTitle = isV8Tab
     ? "Consulta CLT (V8)"
     : isHubCreditoTab
       ? "Consulta CLT (HubCredito)"
     : isPresencaTab
       ? "Consulta CLT (Presença)"
+      : isSomaCltTab
+        ? "Consulta CLT (Soma)"
       : "Consulta CLT (FACTA)";
   const headerDescription = isV8Tab
     ? "Envie CPF, nome e data de nascimento em massa e baixe o resultado em CSV."
@@ -1272,6 +1276,8 @@ const CLTConsultaPage = () => {
       ? "Envie CPF, nome e data de nascimento em massa para consulta HubCredito e baixe o resultado em CSV."
     : isPresencaTab
       ? "Envie CPF e nome em massa para consulta Presença e baixe o resultado em CSV."
+      : isSomaCltTab
+        ? "Envie CPF e nome em massa para consulta Soma CLT e baixe o resultado em CSV."
       : "Realize consultas CLT em massa colando CPFs e baixe o resultado em Excel.";
 
   return (
@@ -1287,7 +1293,7 @@ const CLTConsultaPage = () => {
 
       <Tabs
         value={activeTab}
-        onValueChange={(val) => setActiveTab(val as "facta" | "v8" | "hubcredito" | "presenca")}
+        onValueChange={(val) => setActiveTab(val as "facta" | "v8" | "hubcredito" | "presenca" | "soma-clt")}
         className="space-y-6"
       >
         <TabsList className="flex w-fit h-auto p-1 bg-muted/50 rounded-lg justify-start">
@@ -1342,6 +1348,12 @@ const CLTConsultaPage = () => {
               />
               Presença
             </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="soma-clt"
+            className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          >
+            Soma CLT
           </TabsTrigger>
         </TabsList>
 
@@ -1463,6 +1475,10 @@ const CLTConsultaPage = () => {
             onPageChange={(p) => setPagePresenca(p)}
             formatDateTimeBR={formatDateTimeBR}
           />
+        </TabsContent>
+
+        <TabsContent value="soma-clt" className="space-y-6">
+          <SomaCltTab active={activeTab === "soma-clt"} formatDateTimeBR={formatDateTimeBR} />
         </TabsContent>
       </Tabs>
 
