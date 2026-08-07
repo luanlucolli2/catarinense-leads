@@ -37,7 +37,7 @@ class SomaCltExternalApiTest extends TestCase
                 $this->assertSame('soma_clt', $query['module'] ?? null);
                 $this->assertSame('uy3', $query['mode'] ?? null);
                 $this->assertSame('2030-01-01T13:00:00+00:00', $query['scheduled_for'] ?? null);
-                $this->assertSame("00700367136;RICARDO MENDES FIGUEIRA", $request->body());
+                $this->assertSame("00700367136;RICARDO MENDES FIGUEIRA\n00021143480;", $request->body());
                 return Http::response($this->remote('soma-1', $status), 202);
             }
             if ($path === '/v1/jobs/soma-1' && $request->method() === 'GET') { $status = 'running'; return Http::response($this->remote('soma-1', $status)); }
@@ -51,7 +51,7 @@ class SomaCltExternalApiTest extends TestCase
         });
 
         $this->actingAs($user, 'sanctum')->postJson('/api/soma-clt/consult-jobs', [
-            'title' => 'Consulta Soma', 'mode' => 'uy3', 'lines' => "700367136\tRICARDO MENDES FIGUEIRA",
+            'title' => 'Consulta Soma', 'mode' => 'uy3', 'lines' => "SEM CPF\n700367136\tRICARDO MENDES FIGUEIRA\n21143480;",
             'run_at' => '2030-01-01T10:00', 'timezone' => 'America/Sao_Paulo',
         ])->assertAccepted()->assertJsonPath('status', 'agendado');
 
