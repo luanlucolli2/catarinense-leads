@@ -339,6 +339,14 @@ export const PresencaHistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as PresencaJobStatus);
+          const bankerBadge = i.mode
+            ? {
+                label: i.mode.toUpperCase(),
+                className: i.mode.toLowerCase() === "uy3"
+                  ? "bg-gradient-to-r from-blue-100 to-indigo-50 text-blue-800 border-blue-300 dark:from-blue-900/30 dark:to-indigo-800/20 dark:text-blue-300 dark:border-blue-700 shadow-sm"
+                  : "bg-gradient-to-r from-violet-100 to-fuchsia-50 text-violet-800 border-violet-300 dark:from-violet-900/30 dark:to-fuchsia-800/20 dark:text-violet-300 dark:border-violet-700 shadow-sm",
+              }
+            : null;
           const finalReady = canDownloadFinal(i);
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
@@ -438,6 +446,11 @@ export const PresencaHistoryTable = ({
                     </div>
 
                     <div className="hidden sm:flex flex-wrap items-center justify-end gap-2 sm:gap-3 ml-4">
+                      {bankerBadge && (
+                        <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none", bankerBadge.className)}>
+                          <span className="whitespace-nowrap">{bankerBadge.label}</span>
+                        </Badge>
+                      )}
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
@@ -536,6 +549,11 @@ export const PresencaHistoryTable = ({
 
                   <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
+                      {bankerBadge && (
+                        <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium pointer-events-none select-none", bankerBadge.className)}>
+                          <span className="whitespace-nowrap">{bankerBadge.label}</span>
+                        </Badge>
+                      )}
                       <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
                         {statusInfo.icon}
                         <span className="whitespace-nowrap">{statusInfo.label}</span>
