@@ -21,6 +21,7 @@ import { usePersistedState } from "@/hooks/usePersistedState";
 import factaLogo from "@/assets/factalogo.png";
 import v8Logo from "@/assets/v8logo.png";
 import pbankLogo from "@/assets/pbanklogo.png";
+import somaLogo from "@/assets/somalogo.png";
 import hubCreditoLogo from "@/assets/hubcredito-logo.png";
 
 import {
@@ -1353,7 +1354,10 @@ const CLTConsultaPage = () => {
             value="soma-clt"
             className="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 data-[state=active]:bg-background data-[state=active]:text-foreground text-gray-600 hover:text-gray-900 hover:bg-gray-50"
           >
-            Soma CLT
+            <span className="inline-flex items-center gap-2">
+              <img src={somaLogo} alt="Soma" className="h-4 w-4 object-contain" />
+              Soma CLT
+            </span>
           </TabsTrigger>
         </TabsList>
 
