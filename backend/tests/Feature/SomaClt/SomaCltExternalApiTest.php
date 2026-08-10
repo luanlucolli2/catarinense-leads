@@ -40,7 +40,7 @@ class SomaCltExternalApiTest extends TestCase
                 $this->assertSame("00700367136;RICARDO MENDES FIGUEIRA\n00021143480;", $request->body());
                 return Http::response($this->remote('soma-1', $status), 202);
             }
-            if ($path === '/v1/jobs/soma-1' && $request->method() === 'GET') { $status = 'running'; return Http::response($this->remote('soma-1', $status)); }
+            if ($path === '/v1/jobs/soma-1' && $request->method() === 'GET') { $status = 'running'; return Http::response($this->remote('soma-1', $status, false, 'phase_2')); }
             if ($path === '/v1/jobs/soma-1/pause') { $status = 'paused'; return Http::response($this->remote('soma-1', $status), 202); }
             if ($path === '/v1/jobs/soma-1/resume') { $status = 'queued'; return Http::response($this->remote('soma-1', $status), 202); }
             if ($path === '/v1/jobs/soma-1/cancel') { $status = 'cancelled'; return Http::response($this->remote('soma-1', $status, true), 202); }
@@ -57,8 +57,9 @@ class SomaCltExternalApiTest extends TestCase
 
         $job = SomaCltConsultJob::query()->firstOrFail();
         $this->actingAs($user, 'sanctum')->getJson("/api/soma-clt/consult-jobs/{$job->id}")
-            ->assertOk()->assertJsonPath('status', 'em_progresso')->assertJsonPath('success_count', 2)
-            ->assertJsonPath('policy_declined_count', 3)->assertJsonPath('fail_count', 4);
+            ->assertOk()->assertJsonPath('status', 'em_progresso')->assertJsonPath('phase', 'fase_2')
+            ->assertJsonPath('success_count', 6)->assertJsonPath('policy_declined_count', 8)->assertJsonPath('fail_count', 10)
+            ->assertJsonPath('phase1_pending_count', 42)->assertJsonPath('phase2_success_count', 4);
         $this->actingAs($user, 'sanctum')->postJson("/api/soma-clt/consult-jobs/{$job->id}/pause")->assertAccepted()->assertJsonPath('status', 'pausado');
         $this->actingAs($user, 'sanctum')->postJson("/api/soma-clt/consult-jobs/{$job->id}/resume")->assertAccepted()->assertJsonPath('status', 'pendente');
         $this->actingAs($user, 'sanctum')->get("/api/soma-clt/consult-jobs/{$job->id}/preview")->assertOk()->assertDownload('previa.csv');
@@ -94,9 +95,10 @@ class SomaCltExternalApiTest extends TestCase
         $this->actingAs($user, 'sanctum')->postJson("/api/soma-clt/consult-jobs/{$paused->id}/resume")->assertConflict();
     }
 
-    private function remote(string $id, string $status, bool $hasReport = false): array
+    private function remote(string $id, string $status, bool $hasReport = false, string $phase = 'phase_1'): array
     {
-        return ['id' => $id, 'status' => $status, 'phase' => 'phase_1', 'total_count' => 9, 'has_report' => $hasReport,
-            'metrics' => ['phase1.success' => 2, 'phase1.declined' => 3, 'phase1.errors' => 4]];
+        return ['id' => $id, 'status' => $status, 'phase' => $phase, 'total_count' => 46, 'has_report' => $hasReport,
+            'metrics' => ['phase1.pending' => 42, 'phase1.success' => 2, 'phase1.declined' => 3, 'phase1.errors' => 1,
+                'phase2.success' => 4, 'phase2.declined' => 5, 'phase2.errors' => 6]];
     }
 }

@@ -214,6 +214,79 @@ function SegmentedProgressBar({ item, metricLabels }: { item: PresencaConsultJob
   );
 }
 
+type SomaPhaseStatus = "Aguardando" | "Em andamento" | "Pausada" | "Concluído" | "Falhou" | "Cancelada";
+
+function somaPhaseStatus(item: PresencaConsultJobListItem, phase: "fase_1" | "fase_2", total: number, processed: number): SomaPhaseStatus {
+  if (processed >= total && total > 0) return "Concluído";
+  if (item.status === "concluido") return "Concluído";
+  if (item.status === "falhou" && item.phase === phase) return "Falhou";
+  if (item.status === "cancelado" && item.phase === phase) return "Cancelada";
+  if (item.status === "pausado" && item.phase === phase) return "Pausada";
+  if ((item.status === "pendente" || item.status === "em_progresso") && item.phase === phase) return "Em andamento";
+  return "Aguardando";
+}
+
+function somaPhaseStatusIcon(status: SomaPhaseStatus) {
+  if (status === "Concluído") return <CheckCircle className="h-4 w-4 text-emerald-500" />;
+  if (status === "Em andamento") return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+  if (status === "Pausada") return <Pause className="h-4 w-4 text-amber-500" />;
+  if (status === "Falhou") return <XCircle className="h-4 w-4 text-red-500" />;
+  if (status === "Cancelada") return <X className="h-4 w-4 text-gray-500" />;
+  return <Clock className="h-4 w-4 text-muted-foreground" />;
+}
+
+function SomaPhaseProgress({ item }: { item: PresencaConsultJobListItem }) {
+  const phase1 = {
+    pending: item.phase1_pending_count ?? 0,
+    success: item.phase1_success_count ?? 0,
+    declined: item.phase1_declined_count ?? 0,
+    errors: item.phase1_errors_count ?? 0,
+  };
+  const phase2 = {
+    success: item.phase2_success_count ?? 0,
+    declined: item.phase2_declined_count ?? 0,
+    errors: item.phase2_errors_count ?? 0,
+  };
+  const phase1Processed = phase1.pending + phase1.success + phase1.declined + phase1.errors;
+  const phase2Processed = phase2.success + phase2.declined + phase2.errors;
+  const phase2Total = phase1.pending;
+  const phase1Total = item.total_cpfs || phase1Processed;
+  const phase1Status = somaPhaseStatus(item, "fase_1", phase1Total, phase1Processed);
+  const phase2Status = somaPhaseStatus(item, "fase_2", phase2Total, phase2Processed);
+  const currentPhase = phase1Status === "Concluído" ? 2 : 1;
+  const pct = (value: number, total: number) => total > 0 ? Math.min(100, (value / total) * 100) : 0;
+  const phaseBar = (values: { success: number; declined: number; errors: number; pending?: number }, total: number, pendingFirst = false) => {
+    const success = pct(values.success, total);
+    const declined = pct(values.declined, total);
+    const errors = pct(values.errors, total);
+    const pending = pct(values.pending ?? 0, total);
+    const segments = pendingFirst
+      ? { first: pending, second: success, third: declined, fourth: errors }
+      : { first: success, second: declined, third: errors, fourth: 0 };
+    return <div className="relative mb-3 h-2.5 overflow-hidden rounded-full bg-muted">
+      {pendingFirst ? pending > 0 && <div className="absolute left-0 top-0 h-full bg-blue-500" style={{ width: `${pending}%` }} /> : success > 0 && <div className="absolute left-0 top-0 h-full bg-emerald-500" style={{ width: `${success}%` }} />}
+      {pendingFirst ? success > 0 && <div className="absolute top-0 h-full bg-emerald-500" style={{ left: `${segments.first}%`, width: `${success}%` }} /> : declined > 0 && <div className="absolute top-0 h-full bg-amber-500" style={{ left: `${segments.first}%`, width: `${declined}%` }} />}
+      {pendingFirst ? declined > 0 && <div className="absolute top-0 h-full bg-amber-500" style={{ left: `${segments.first + segments.second}%`, width: `${declined}%` }} /> : errors > 0 && <div className="absolute top-0 h-full bg-red-500" style={{ left: `${segments.first + segments.second}%`, width: `${errors}%` }} />}
+      {pendingFirst && errors > 0 && <div className="absolute top-0 h-full bg-red-500" style={{ left: `${segments.first + segments.second + segments.third}%`, width: `${errors}%` }} />}
+      {item.status === "em_progresso" && success + declined + errors + pending < 100 && <div className="absolute top-0 h-full animate-pulse bg-primary/20" style={{ left: `${success + declined + errors + pending}%`, width: `${Math.min(8, 100 - success - declined - errors - pending)}%` }} />}
+    </div>;
+  };
+  const metric = (color: string, label: string, value: number) => <div className="flex items-center gap-1.5" key={label}><div className={cn("h-2 w-2 rounded-full", color)} /><span className="text-muted-foreground">{label}</span><span className="font-semibold text-foreground">{value.toLocaleString()}</span></div>;
+
+  return <div className="space-y-3">
+    <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 1 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
+      <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2">{somaPhaseStatusIcon(phase1Status)}<span className="text-sm font-semibold">Consentimento inicial</span></div><span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{phase1Processed.toLocaleString()} / {phase1Total.toLocaleString()} CPFs</span></div>
+      {phaseBar({ success: phase1.success, declined: phase1.declined, errors: phase1.errors, pending: phase1.pending }, phase1Total, true)}
+      <div className="flex flex-wrap items-center gap-3 text-xs">{metric("bg-blue-500", "Consentimentos encaminhados", phase1.pending)}{metric("bg-emerald-500", "Resultados diretos", phase1.success)}{metric("bg-amber-500", "Recusas", phase1.declined)}{metric("bg-destructive", "Falhas", phase1.errors)}</div>
+    </div>
+    <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 2 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
+      <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2">{somaPhaseStatusIcon(phase2Status)}<span className="text-sm font-semibold">Margem e simulação</span></div><span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{phase2Processed.toLocaleString()} / {phase2Total.toLocaleString()} CPFs</span></div>
+      {phaseBar(phase2, phase2Total)}
+      <div className="flex flex-wrap items-center gap-3 text-xs">{metric("bg-emerald-500", "Sucessos", phase2.success)}{metric("bg-amber-500", "Recusas", phase2.declined)}{metric("bg-destructive", "Falhas", phase2.errors)}{phase2Total > phase2Processed && metric("bg-slate-400", "Pendentes", phase2Total - phase2Processed)}</div>
+    </div>
+  </div>;
+}
+
 export const PresencaHistoryTable = ({
   items,
   loading,
@@ -584,9 +657,9 @@ export const PresencaHistoryTable = ({
 
               <CardContent className="pt-0">
                 <div className="space-y-4">
-                  <SegmentedProgressBar item={i} metricLabels={metricLabels} />
+                  {i.phase1_success_count !== undefined ? <SomaPhaseProgress item={i} /> : <SegmentedProgressBar item={i} metricLabels={metricLabels} />}
 
-                  {(i.status === "concluido" ||
+                  {i.phase1_success_count === undefined && (i.status === "concluido" ||
                     i.status === "em_progresso" ||
                     i.status === "pausado" ||
                     i.status === "cancelado" ||

@@ -252,16 +252,30 @@ class SomaCltConsultController extends Controller
             'cancelled' => 'cancelado', 'paused' => 'pausado', 'running', 'pausing' => 'em_progresso', default => 'pendente',
         };
         $metrics = is_array($remote['metrics'] ?? null) ? $remote['metrics'] : [];
+        $phase1Success = max(0, (int) ($metrics['phase1.success'] ?? 0));
+        $phase1Declined = max(0, (int) ($metrics['phase1.declined'] ?? 0));
+        $phase1Errors = max(0, (int) ($metrics['phase1.errors'] ?? 0));
+        $phase1Pending = max(0, (int) ($metrics['phase1.pending'] ?? 0));
+        $phase2Success = max(0, (int) ($metrics['phase2.success'] ?? 0));
+        $phase2Declined = max(0, (int) ($metrics['phase2.declined'] ?? 0));
+        $phase2Errors = max(0, (int) ($metrics['phase2.errors'] ?? 0));
         $hasReport = (bool) ($remote['has_report'] ?? false);
         $terminal = in_array($status, self::TERMINAL_STATUSES, true);
 
         $job->update([
             'status' => $status,
-            'phase' => ($remote['phase'] ?? null) === 'phase_1' ? 'processando' : null,
+            'phase' => match ($remote['phase'] ?? null) { 'phase_1' => 'fase_1', 'phase_2' => 'fase_2', default => null },
             'total_cpfs' => max(0, (int) ($remote['total_count'] ?? data_get($remote, 'progress.phase_1.total') ?? $job->total_cpfs)),
-            'success_count' => max(0, (int) ($metrics['phase1.success'] ?? 0)),
-            'policy_declined_count' => max(0, (int) ($metrics['phase1.declined'] ?? 0)),
-            'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+            'success_count' => $phase1Success + $phase2Success,
+            'policy_declined_count' => $phase1Declined + $phase2Declined,
+            'fail_count' => $phase1Errors + $phase2Errors,
+            'phase1_pending_count' => $phase1Pending,
+            'phase1_success_count' => $phase1Success,
+            'phase1_declined_count' => $phase1Declined,
+            'phase1_errors_count' => $phase1Errors,
+            'phase2_success_count' => $phase2Success,
+            'phase2_declined_count' => $phase2Declined,
+            'phase2_errors_count' => $phase2Errors,
             'external_has_report' => $hasReport,
             'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
             'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
@@ -362,6 +376,10 @@ class SomaCltConsultController extends Controller
             'id' => $job->id, 'title' => $job->title, 'mode' => $job->mode, 'status' => $job->status,
             'phase' => $job->phase, 'total_cpfs' => $job->total_cpfs, 'success_count' => $job->success_count,
             'policy_declined_count' => $job->policy_declined_count, 'fail_count' => $job->fail_count,
+            'phase1_pending_count' => $job->phase1_pending_count, 'phase1_success_count' => $job->phase1_success_count,
+            'phase1_declined_count' => $job->phase1_declined_count, 'phase1_errors_count' => $job->phase1_errors_count,
+            'phase2_success_count' => $job->phase2_success_count, 'phase2_declined_count' => $job->phase2_declined_count,
+            'phase2_errors_count' => $job->phase2_errors_count,
             'has_file' => (bool) $job->external_has_report, 'started_at' => $job->started_at,
             'finished_at' => $job->finished_at, 'canceled_at' => $job->canceled_at, 'paused_at' => $job->paused_at,
             'cancel_reason' => $job->cancel_reason, 'scheduled_for' => $job->scheduled_for, 'created_at' => $job->created_at,
