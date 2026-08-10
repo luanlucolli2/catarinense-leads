@@ -25,6 +25,13 @@ export interface PresencaConsultJobListItem {
   success_count: number
   policy_declined_count: number
   fail_count: number
+  phase1_pending_count?: number
+  phase1_success_count?: number
+  phase1_declined_count?: number
+  phase1_errors_count?: number
+  phase2_success_count?: number
+  phase2_declined_count?: number
+  phase2_errors_count?: number
 
   has_file?: boolean | null
   file_disk?: string | null

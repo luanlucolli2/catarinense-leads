@@ -124,13 +124,26 @@ class SyncActiveExternalConsultJobsService
             $metrics = (array) ($remote['metrics'] ?? []);
             $status = $this->status($remote);
             $hasReport = (bool) ($remote['has_report'] ?? false);
+            $phase1Success = max(0, (int) ($metrics['phase1.success'] ?? 0));
+            $phase1Declined = max(0, (int) ($metrics['phase1.declined'] ?? 0));
+            $phase1Errors = max(0, (int) ($metrics['phase1.errors'] ?? 0));
+            $phase2Success = max(0, (int) ($metrics['phase2.success'] ?? 0));
+            $phase2Declined = max(0, (int) ($metrics['phase2.declined'] ?? 0));
+            $phase2Errors = max(0, (int) ($metrics['phase2.errors'] ?? 0));
 
             $job->update([
                 ...$this->common($job, $remote, $status, $hasReport),
-                'phase' => ($remote['phase'] ?? null) === 'phase_1' ? 'processando' : null,
-                'success_count' => max(0, (int) ($metrics['phase1.success'] ?? 0)),
-                'policy_declined_count' => max(0, (int) ($metrics['phase1.declined'] ?? 0)),
-                'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+                'phase' => match ($remote['phase'] ?? null) { 'phase_1' => 'fase_1', 'phase_2' => 'fase_2', default => null },
+                'success_count' => $phase1Success + $phase2Success,
+                'policy_declined_count' => $phase1Declined + $phase2Declined,
+                'fail_count' => $phase1Errors + $phase2Errors,
+                'phase1_pending_count' => max(0, (int) ($metrics['phase1.pending'] ?? 0)),
+                'phase1_success_count' => $phase1Success,
+                'phase1_declined_count' => $phase1Declined,
+                'phase1_errors_count' => $phase1Errors,
+                'phase2_success_count' => $phase2Success,
+                'phase2_declined_count' => $phase2Declined,
+                'phase2_errors_count' => $phase2Errors,
                 'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
                 'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
             ]);
