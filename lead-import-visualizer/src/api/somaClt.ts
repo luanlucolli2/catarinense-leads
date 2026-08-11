@@ -21,6 +21,7 @@ export interface SomaCltConsultJobListItem {
   phase2_success_count: number
   phase2_declined_count: number
   phase2_errors_count: number
+  bank_metrics?: Record<string, number>
   has_file?: boolean | null
   file_path?: string | null
   started_at?: string | null

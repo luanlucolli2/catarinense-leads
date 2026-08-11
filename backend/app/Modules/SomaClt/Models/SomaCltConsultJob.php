@@ -15,6 +15,7 @@ class SomaCltConsultJob extends Model
         'status', 'phase', 'total_cpfs', 'success_count', 'policy_declined_count', 'fail_count',
         'phase1_pending_count', 'phase1_success_count', 'phase1_declined_count', 'phase1_errors_count',
         'phase2_success_count', 'phase2_declined_count', 'phase2_errors_count',
+        'bank_metrics',
         'file_disk', 'file_path', 'file_name', 'started_at', 'finished_at', 'canceled_at',
         'paused_at', 'cancel_reason', 'scheduled_for',
     ];
@@ -32,6 +33,7 @@ class SomaCltConsultJob extends Model
         'phase2_success_count' => 'integer',
         'phase2_declined_count' => 'integer',
         'phase2_errors_count' => 'integer',
+        'bank_metrics' => 'array',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
         'canceled_at' => 'datetime',

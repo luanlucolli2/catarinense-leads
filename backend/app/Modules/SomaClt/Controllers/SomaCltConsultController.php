@@ -259,6 +259,7 @@ class SomaCltConsultController extends Controller
         $phase2Success = max(0, (int) ($metrics['phase2.success'] ?? 0));
         $phase2Declined = max(0, (int) ($metrics['phase2.declined'] ?? 0));
         $phase2Errors = max(0, (int) ($metrics['phase2.errors'] ?? 0));
+        $bankMetrics = array_filter($metrics, static fn ($value, $key): bool => is_string($key) && preg_match('/^phase[12]\.(uy3|celcoin)\.(pending|success|declined|errors)$/', $key) === 1 && is_numeric($value), ARRAY_FILTER_USE_BOTH);
         $hasReport = (bool) ($remote['has_report'] ?? false);
         $terminal = in_array($status, self::TERMINAL_STATUSES, true);
 
@@ -276,6 +277,7 @@ class SomaCltConsultController extends Controller
             'phase2_success_count' => $phase2Success,
             'phase2_declined_count' => $phase2Declined,
             'phase2_errors_count' => $phase2Errors,
+            'bank_metrics' => $bankMetrics,
             'external_has_report' => $hasReport,
             'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
             'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
@@ -380,6 +382,7 @@ class SomaCltConsultController extends Controller
             'phase1_declined_count' => $job->phase1_declined_count, 'phase1_errors_count' => $job->phase1_errors_count,
             'phase2_success_count' => $job->phase2_success_count, 'phase2_declined_count' => $job->phase2_declined_count,
             'phase2_errors_count' => $job->phase2_errors_count,
+            'bank_metrics' => $job->bank_metrics ?? [],
             'has_file' => (bool) $job->external_has_report, 'started_at' => $job->started_at,
             'finished_at' => $job->finished_at, 'canceled_at' => $job->canceled_at, 'paused_at' => $job->paused_at,
             'cancel_reason' => $job->cancel_reason, 'scheduled_for' => $job->scheduled_for, 'created_at' => $job->created_at,
