@@ -130,6 +130,7 @@ class SyncActiveExternalConsultJobsService
             $phase2Success = max(0, (int) ($metrics['phase2.success'] ?? 0));
             $phase2Declined = max(0, (int) ($metrics['phase2.declined'] ?? 0));
             $phase2Errors = max(0, (int) ($metrics['phase2.errors'] ?? 0));
+            $bankMetrics = array_filter($metrics, static fn ($value, $key): bool => is_string($key) && preg_match('/^phase[12]\.(uy3|celcoin)\.(pending|success|declined|errors)$/', $key) === 1 && is_numeric($value), ARRAY_FILTER_USE_BOTH);
 
             $job->update([
                 ...$this->common($job, $remote, $status, $hasReport),
@@ -144,6 +145,7 @@ class SyncActiveExternalConsultJobsService
                 'phase2_success_count' => $phase2Success,
                 'phase2_declined_count' => $phase2Declined,
                 'phase2_errors_count' => $phase2Errors,
+                'bank_metrics' => $bankMetrics,
                 'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
                 'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
             ]);

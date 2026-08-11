@@ -235,6 +235,53 @@ function somaPhaseStatusIcon(status: SomaPhaseStatus) {
   return <Clock className="h-4 w-4 text-muted-foreground" />;
 }
 
+function SomaBankMetrics({ item, phase }: { item: PresencaConsultJobListItem; phase: "fase_1" | "fase_2" }) {
+  const metrics = item.bank_metrics ?? {};
+  if (item.mode !== "both" || Object.keys(metrics).length === 0) return null;
+
+  const phaseNumber = phase === "fase_1" ? "1" : "2";
+  const banks = [
+    { id: "uy3", label: "UY3", tone: "bg-[#eb6800]" },
+    { id: "celcoin", label: "CELCOIN", tone: "bg-[#7560f5]" },
+  ];
+
+  return <div className="mt-2 grid grid-cols-1 gap-1.5">
+    {banks.map((bank) => {
+      const prefix = `phase${phaseNumber}.${bank.id}`;
+      const total = phase === "fase_1"
+        ? Math.ceil((item.total_cpfs || 0) / 2)
+        : (metrics[`phase1.${bank.id}.pending`] ?? 0);
+      const values = phase === "fase_1"
+        ? [
+            [metrics[`${prefix}.pending`] ?? 0, "bg-[#3b82c4]"],
+            [metrics[`${prefix}.success`] ?? 0, "bg-[#22a06b]"],
+            [metrics[`${prefix}.declined`] ?? 0, "bg-[#e6a23c]"],
+            [metrics[`${prefix}.errors`] ?? 0, "bg-[#e05257]"],
+          ]
+        : [
+            [metrics[`${prefix}.success`] ?? 0, "bg-[#22a06b]"],
+            [metrics[`${prefix}.declined`] ?? 0, "bg-[#e6a23c]"],
+            [metrics[`${prefix}.errors`] ?? 0, "bg-[#e05257]"],
+          ];
+      const processed = values.reduce((sum, [value]) => sum + Number(value), 0);
+      let offset = 0;
+
+      return <div className="flex items-center gap-2 rounded-md bg-muted/60 px-2 py-1.5 text-[10px] text-muted-foreground" key={bank.id}>
+        <span className="inline-flex w-[58px] shrink-0 items-center gap-1 font-bold text-foreground"><i className={cn("h-1.5 w-1.5 rounded-full", bank.tone)} />{bank.label}</span>
+        <div className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={processed}>
+          {values.map(([value, tone], index) => {
+            const width = total ? Math.min(100 - offset, (Number(value) / total) * 100) : 0;
+            const left = offset;
+            offset += width;
+            return <i className={cn("absolute top-0 h-full", tone)} style={{ left: `${left}%`, width: `${width}%` }} key={index} />;
+          })}
+        </div>
+        <b className="w-[58px] shrink-0 text-right text-foreground">{processed.toLocaleString("pt-BR")}/{Number(total).toLocaleString("pt-BR")}</b>
+      </div>;
+    })}
+  </div>;
+}
+
 function SomaPhaseProgress({ item }: { item: PresencaConsultJobListItem }) {
   const phase1 = {
     pending: item.phase1_pending_count ?? 0,
@@ -254,6 +301,7 @@ function SomaPhaseProgress({ item }: { item: PresencaConsultJobListItem }) {
   const phase1Status = somaPhaseStatus(item, "fase_1", phase1Total, phase1Processed);
   const phase2Status = somaPhaseStatus(item, "fase_2", phase2Total, phase2Processed);
   const currentPhase = phase1Status === "Concluído" ? 2 : 1;
+  const hasBankMetrics = item.mode === "both" && Object.keys(item.bank_metrics ?? {}).length > 0;
   const pct = (value: number, total: number) => total > 0 ? Math.min(100, (value / total) * 100) : 0;
   const phaseBar = (values: { success: number; declined: number; errors: number; pending?: number }, total: number, pendingFirst = false) => {
     const success = pct(values.success, total);
@@ -276,12 +324,12 @@ function SomaPhaseProgress({ item }: { item: PresencaConsultJobListItem }) {
   return <div className="space-y-3">
     <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 1 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
       <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2">{somaPhaseStatusIcon(phase1Status)}<span className="text-sm font-semibold">Consentimento inicial</span></div><span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{phase1Processed.toLocaleString()} / {phase1Total.toLocaleString()} CPFs</span></div>
-      {phaseBar({ success: phase1.success, declined: phase1.declined, errors: phase1.errors, pending: phase1.pending }, phase1Total, true)}
+      {hasBankMetrics ? <SomaBankMetrics item={item} phase="fase_1" /> : phaseBar({ success: phase1.success, declined: phase1.declined, errors: phase1.errors, pending: phase1.pending }, phase1Total, true)}
       <div className="flex flex-wrap items-center gap-3 text-xs">{metric("bg-blue-500", "Consentimentos encaminhados", phase1.pending)}{metric("bg-emerald-500", "Resultados diretos", phase1.success)}{metric("bg-amber-500", "Recusas", phase1.declined)}{metric("bg-destructive", "Falhas", phase1.errors)}</div>
     </div>
     <div className={cn("rounded-xl border p-4 transition-all", currentPhase === 2 ? "border-border/70 bg-muted/5 shadow-sm" : "border-border bg-muted/10")}>
       <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2">{somaPhaseStatusIcon(phase2Status)}<span className="text-sm font-semibold">Margem e simulação</span></div><span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{phase2Processed.toLocaleString()} / {phase2Total.toLocaleString()} CPFs</span></div>
-      {phaseBar(phase2, phase2Total)}
+      {hasBankMetrics ? <SomaBankMetrics item={item} phase="fase_2" /> : phaseBar(phase2, phase2Total)}
       <div className="flex flex-wrap items-center gap-3 text-xs">{metric("bg-emerald-500", "Sucessos", phase2.success)}{metric("bg-amber-500", "Recusas", phase2.declined)}{metric("bg-destructive", "Falhas", phase2.errors)}{phase2Total > phase2Processed && metric("bg-slate-400", "Pendentes", phase2Total - phase2Processed)}</div>
     </div>
   </div>;
@@ -414,7 +462,7 @@ export const PresencaHistoryTable = ({
           const statusInfo = getStatusInfo(i.status as PresencaJobStatus);
           const bankerBadge = i.mode
             ? {
-                label: i.mode.toUpperCase(),
+                label: i.mode.toLowerCase() === "both" ? "UY3 + CELCOIN" : i.mode.toUpperCase(),
                 className: i.mode.toLowerCase() === "uy3"
                   ? "bg-gradient-to-r from-blue-100 to-indigo-50 text-blue-800 border-blue-300 dark:from-blue-900/30 dark:to-indigo-800/20 dark:text-blue-300 dark:border-blue-700 shadow-sm"
                   : "bg-gradient-to-r from-violet-100 to-fuchsia-50 text-violet-800 border-violet-300 dark:from-violet-900/30 dark:to-fuchsia-800/20 dark:text-violet-300 dark:border-violet-700 shadow-sm",

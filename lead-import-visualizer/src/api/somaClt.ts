@@ -6,7 +6,7 @@ export type SomaCltJobStatusFilter = SomaCltJobStatus | 'todos'
 export interface SomaCltConsultJobListItem {
   id: number
   title: string
-  mode: 'uy3' | 'celcoin'
+  mode: 'uy3' | 'celcoin' | 'both'
   executor?: 'api'
   status: SomaCltJobStatus
   phase?: string | null
@@ -21,6 +21,7 @@ export interface SomaCltConsultJobListItem {
   phase2_success_count: number
   phase2_declined_count: number
   phase2_errors_count: number
+  bank_metrics?: Record<string, number>
   has_file?: boolean | null
   file_path?: string | null
   started_at?: string | null
@@ -46,7 +47,7 @@ export async function listSomaCltConsultJobs(page = 1, status: SomaCltJobStatusF
   return data
 }
 
-export async function createSomaCltConsultJob(input: { title: string; mode: 'uy3' | 'celcoin'; lines: string; run_at?: string; timezone?: string }) {
+export async function createSomaCltConsultJob(input: { title: string; mode: 'uy3' | 'celcoin' | 'both'; lines: string; run_at?: string; timezone?: string }) {
   const { data } = await axiosClient.post<SomaCltConsultJobShow>(BASE, input)
   return data
 }

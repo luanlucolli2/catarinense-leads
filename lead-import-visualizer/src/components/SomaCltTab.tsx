@@ -32,6 +32,7 @@ type Props = { active: boolean; formatDateTimeBR: (iso?: string | null) => strin
 const SOMA_MODE_OPTIONS = [
   { value: "uy3" as const, label: "UY3", helper: "Consulta UY3", description: "Consulta e simulação pela integração UY3." },
   { value: "celcoin" as const, label: "CELCOIN", helper: "Consulta Celcoin", description: "Consulta e simulação pela integração Celcoin." },
+  { value: "both" as const, label: "UY3 + CELCOIN", helper: "Consulta dupla", description: "Executa a consulta nas duas bancarizadoras, com aceite independente." },
 ];
 
 export function SomaCltTab({ active, formatDateTimeBR }: Props) {
@@ -191,10 +192,10 @@ export function SomaCltTab({ active, formatDateTimeBR }: Props) {
 function NewSomaCltConsultModal({ isOpen, onClose, onSubmit }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (input: { title: string; mode: 'uy3' | 'celcoin'; lines: string; run_at?: string; timezone?: string }) => Promise<void>;
+  onSubmit: (input: { title: string; mode: 'uy3' | 'celcoin' | 'both'; lines: string; run_at?: string; timezone?: string }) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
-  const [mode, setMode] = useState<"" | "uy3" | "celcoin">("");
+  const [mode, setMode] = useState<"" | "uy3" | "celcoin" | "both">("");
   const [lines, setLines] = useState("");
   const [scheduled, setScheduled] = useState(false);
   const [runAt, setRunAt] = useState("");
@@ -223,7 +224,7 @@ function NewSomaCltConsultModal({ isOpen, onClose, onSubmit }: {
       <div className="space-y-4 py-4">
         <div className="space-y-2"><Label htmlFor="soma-title" className="text-sm font-medium">Título da consulta *</Label><Input id="soma-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Lote Soma CLT – Campanha Agosto" disabled={submitting} className={cn("w-full", noFocus)} /></div>
         <div className="space-y-3"><Label className="text-sm font-medium">Modo de Consulta *</Label>
-          <Tabs value={mode} onValueChange={(value) => setMode(value as "uy3" | "celcoin")}><TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-2">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as "uy3" | "celcoin" | "both")}><TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 sm:grid-cols-3">
             {SOMA_MODE_OPTIONS.map((option) => <TabsTrigger key={option.value} value={option.value} disabled={submitting} className={cn(noFocus, "h-auto min-h-[72px] flex-col items-start gap-1 rounded-lg border-2 px-4 py-3 text-left transition-all duration-200 sm:items-center sm:text-center", "border-gray-100 bg-gray-50/50 text-gray-600 hover:border-gray-300 hover:bg-gray-100", "data-[state=active]:border-blue-600 data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md")}>
               <span className="text-sm font-bold">{option.label}</span><span className={cn("text-[10px] leading-tight transition-colors sm:text-xs", mode === option.value ? "text-blue-100" : "text-gray-500")}>{option.helper}</span>
             </TabsTrigger>)}
