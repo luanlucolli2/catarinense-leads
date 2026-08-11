@@ -50,7 +50,7 @@ class SomaCltConsultController extends Controller
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:191'],
-            'mode' => ['required', 'in:uy3,celcoin'],
+            'mode' => ['required', 'in:uy3,celcoin,both'],
             'lines' => ['required', 'string'],
             'run_at' => ['nullable', 'date'],
             'timezone' => ['nullable', 'string', 'timezone:all'],

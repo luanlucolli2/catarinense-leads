@@ -414,7 +414,7 @@ export const PresencaHistoryTable = ({
           const statusInfo = getStatusInfo(i.status as PresencaJobStatus);
           const bankerBadge = i.mode
             ? {
-                label: i.mode.toUpperCase(),
+                label: i.mode.toLowerCase() === "both" ? "UY3 + CELCOIN" : i.mode.toUpperCase(),
                 className: i.mode.toLowerCase() === "uy3"
                   ? "bg-gradient-to-r from-blue-100 to-indigo-50 text-blue-800 border-blue-300 dark:from-blue-900/30 dark:to-indigo-800/20 dark:text-blue-300 dark:border-blue-700 shadow-sm"
                   : "bg-gradient-to-r from-violet-100 to-fuchsia-50 text-violet-800 border-violet-300 dark:from-violet-900/30 dark:to-fuchsia-800/20 dark:text-violet-300 dark:border-violet-700 shadow-sm",
