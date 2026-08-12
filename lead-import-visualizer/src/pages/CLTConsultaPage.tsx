@@ -366,6 +366,7 @@ const CLTConsultaPage = () => {
         phase2_attempt: watchedJob.phase2_attempt ?? i.phase2_attempt,
         phase2_aprovado_count: watchedJob.phase2_aprovado_count ?? i.phase2_aprovado_count,
         phase2_nao_aprovado_count: watchedJob.phase2_nao_aprovado_count ?? i.phase2_nao_aprovado_count,
+        phase2_fail_count: watchedJob.phase2_fail_count ?? i.phase2_fail_count,
         total_cpfs: watchedJob.total_cpfs,
         elegivel_count: watchedJob.elegivel_count,
         inelegivel_count: watchedJob.inelegivel_count,

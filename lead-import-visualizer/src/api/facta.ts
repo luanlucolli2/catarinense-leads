@@ -32,6 +32,7 @@ export interface FactaCltConsultJobListItem {
   phase2_attempt?: number
   phase2_aprovado_count?: number
   phase2_nao_aprovado_count?: number
+  phase2_fail_count?: number
   total_cpfs: number
   elegivel_count: number
   inelegivel_count: number
@@ -58,6 +59,7 @@ export interface FactaCltConsultJobListItem {
 
   /** modo/variante */
   variant?: FactaCltJobVariant | null
+  executor?: 'local' | 'api'
 
   started_at?: string | null
   finished_at?: string | null
@@ -78,6 +80,7 @@ export interface FactaCltConsultJobShow {
   phase2_attempt?: number
   phase2_aprovado_count?: number
   phase2_nao_aprovado_count?: number
+  phase2_fail_count?: number
   total_cpfs: number
   elegivel_count: number
   inelegivel_count: number
@@ -102,6 +105,7 @@ export interface FactaCltConsultJobShow {
 
   /** modo/variante (opcional no show) */
   variant?: FactaCltJobVariant | null
+  executor?: 'local' | 'api'
 
   /** datas */
   started_at?: string | null

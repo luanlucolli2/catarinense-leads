@@ -104,7 +104,7 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
     $external = app(SyncActiveExternalConsultJobsService::class)->handle();
 
     $this->info(sprintf(
-        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d sincronizados.',
+        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d, Facta Offline %d sincronizados.',
         (int) ($clt['dispatched'] ?? 0),
         (int) ($clt['scanned'] ?? 0),
         (int) ($v8['dispatched'] ?? 0),
@@ -117,6 +117,7 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
         (int) ($external['v8'] ?? 0),
         (int) ($external['presenca'] ?? 0),
         (int) ($external['v8_fgts'] ?? 0),
+        (int) ($external['facta_clt_offline'] ?? 0),
     ));
 })->purpose('Religa jobs ativos e sincroniza consultas API após deploy/restart do worker');
 
