@@ -256,6 +256,12 @@ function resolveOnlinePhaseStatuses(
     phase2 = "Falhou";
   } else if (item.status === "cancelado" && (item.phase === "fase_2" || phase2Resolved > 0)) {
     phase2 = "Cancelada";
+  } else if (item.executor === "api" && item.status === "pausado") {
+    phase2 = "Pausada";
+  } else if (item.executor === "api" && (item.status === "pendente" || item.status === "em_progresso")) {
+    // No Facta Offline remoto, consulta e política avançam em paralelo,
+    // mesmo quando a API ainda informa a fase 1 como fase atual.
+    phase2 = "Em andamento";
   } else if (item.phase === "fase_2" && item.status === "pausado") {
     phase2 = "Pausada";
   } else if (item.phase === "fase_2" && (item.status === "pendente" || item.status === "em_progresso")) {
@@ -266,6 +272,7 @@ function resolveOnlinePhaseStatuses(
 }
 
 function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) {
+  const isOfflineApi = item.variant === "offline" && item.executor === "api";
   const totalCpfs = Math.max(0, item.total_cpfs || 0);
   const phase1Eligible = Math.max(0, item.elegivel_count ?? 0);
   const phase1Ineligible = Math.max(0, item.inelegivel_count ?? 0);
@@ -289,12 +296,20 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
       item.phase2_nao_aprovado_count ?? 0
     )
   );
-  const phase2Resolved = Math.max(0, Math.min(phase2Total, phase2Approved + phase2NotApproved));
+  const phase2Fail = Math.max(
+    0,
+    Math.min(
+      Math.max(0, phase2Total - phase2Approved - phase2NotApproved),
+      item.phase2_fail_count ?? 0
+    )
+  );
+  const phase2Resolved = Math.max(0, Math.min(phase2Total, phase2Approved + phase2NotApproved + phase2Fail));
   const phase2Pending = Math.max(0, phase2Total - phase2Resolved);
 
   const phase2ApprovedPct = phase2Total > 0 ? (phase2Approved / phase2Total) * 100 : 0;
   const phase2NotApprovedPct = phase2Total > 0 ? (phase2NotApproved / phase2Total) * 100 : 0;
-  const phase2TotalPct = phase2ApprovedPct + phase2NotApprovedPct;
+  const phase2FailPct = phase2Total > 0 ? (phase2Fail / phase2Total) * 100 : 0;
+  const phase2TotalPct = phase2ApprovedPct + phase2NotApprovedPct + phase2FailPct;
 
   const statuses = resolveOnlinePhaseStatuses(item, phase1Processed, phase2Total, phase2Resolved);
   const phase1Done = statuses.phase1 === "Concluído" || statuses.phase1 === "Falhou" || statuses.phase1 === "Cancelada";
@@ -314,7 +329,9 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
             <span className="text-sm font-semibold">Consulta</span>
           </div>
           <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-            {phase1Processed.toLocaleString()} / {totalCpfs.toLocaleString()} CPFs
+            {isOfflineApi
+              ? `${phase1Processed.toLocaleString()} de ${totalCpfs.toLocaleString()} CPFs · ${totalCpfs > 0 ? Math.round((phase1Processed / totalCpfs) * 100) : 0}%`
+              : `${phase1Processed.toLocaleString()} / ${totalCpfs.toLocaleString()} CPFs`}
           </span>
         </div>
 
@@ -357,7 +374,7 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
             <span className="text-muted-foreground">Falhas</span>
             <span className="font-semibold text-foreground">{phase1Fail.toLocaleString()}</span>
           </div>
-          {phase1Pending > 0 && (
+          {!isOfflineApi && phase1Pending > 0 && (
             <div className="flex items-center gap-1.5">
               <Clock className="w-3 h-3 text-muted-foreground" />
               <span className="text-muted-foreground">Pendentes</span>
@@ -376,10 +393,12 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             {getOnlinePhaseStatusIcon(statuses.phase2)}
-            <span className="text-sm font-semibold">Validação de Política</span>
+            <span className="text-sm font-semibold">{isOfflineApi ? "Política de crédito" : "Validação de Política"}</span>
           </div>
           <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-            {phase2Resolved.toLocaleString()} / {phase2Total.toLocaleString()} CPFs
+            {isOfflineApi
+              ? `${phase2Resolved.toLocaleString()} analisados · ${phase2Pending.toLocaleString()} aguardando`
+              : `${phase2Resolved.toLocaleString()} / ${phase2Total.toLocaleString()} CPFs`}
           </span>
         </div>
 
@@ -389,6 +408,9 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
           )}
           {phase2NotApprovedPct > 0 && (
             <div className="absolute top-0 h-full bg-amber-500 transition-all duration-500" style={{ left: `${phase2ApprovedPct}%`, width: `${phase2NotApprovedPct}%` }} />
+          )}
+          {phase2FailPct > 0 && (
+            <div className="absolute top-0 h-full bg-destructive transition-all duration-500" style={{ left: `${phase2ApprovedPct + phase2NotApprovedPct}%`, width: `${phase2FailPct}%` }} />
           )}
           {statuses.phase2 === "Em andamento" && phase2TotalPct < 100 && (
             <div className="absolute top-0 h-full bg-primary/20 animate-pulse" style={{ left: `${phase2TotalPct}%`, width: `${Math.min(8, 100 - phase2TotalPct)}%` }} />
@@ -406,10 +428,15 @@ function OnlineTwoPhaseProgress({ item }: { item: FactaCltConsultJobListItem }) 
             <span className="text-muted-foreground">Não aprovados</span>
             <span className="font-semibold text-foreground">{phase2NotApproved.toLocaleString()}</span>
           </div>
-          {phase2Pending > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-destructive" />
+            <span className="text-muted-foreground">Falhas</span>
+            <span className="font-semibold text-foreground">{phase2Fail.toLocaleString()}</span>
+          </div>
+          {(isOfflineApi || phase2Pending > 0) && (
             <div className="flex items-center gap-1.5">
               <Clock className="w-3 h-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Pendentes</span>
+              <span className="text-muted-foreground">{isOfflineApi ? "Aguardando/reprocessando" : "Pendentes"}</span>
               <span className="font-semibold text-foreground">{phase2Pending.toLocaleString()}</span>
             </div>
           )}
@@ -630,8 +657,10 @@ export const FactaHistoryTable = ({
     Boolean((i.has_file ?? null) || (i.file_path ?? null));
 
   const canDownloadPreview = (i: FactaCltConsultJobListItem) =>
-    (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || i.status === "cancelado")
-    && Number(i.spool_bytes ?? 0) > 0;
+    i.executor === "api"
+      ? (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado")
+      : (i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado" || i.status === "cancelado")
+        && Number(i.spool_bytes ?? 0) > 0;
 
   const canCancel = (i: FactaCltConsultJobListItem) =>
     i.status === "agendado" || i.status === "pendente" || i.status === "em_progresso" || i.status === "pausado";
@@ -646,6 +675,8 @@ export const FactaHistoryTable = ({
     i.status === "cancelado" && !i.finished_at;
 
   const canRerunPhase2 = (i: FactaCltConsultJobListItem) => {
+    if (i.executor === "api") return false;
+
     const variant = resolveVariant(i);
     const hasFinal = Boolean((i.has_file ?? null) || (i.file_path ?? null));
     const hasPreservedSpool = Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0;
@@ -766,7 +797,7 @@ export const FactaHistoryTable = ({
           const variant = resolveVariant(i);
           const isTwoPhase = isTwoPhaseVariant(variant);
           const isLegacyCreditPolicy = variant === "credit_policy";
-          const canViewHttpCounters = isTwoPhase && typeof onViewHttpCounters === "function";
+          const canViewHttpCounters = i.executor !== "api" && isTwoPhase && typeof onViewHttpCounters === "function";
           const phaseAndStatusInfo =
             isTwoPhase && phaseInfo
               ? {

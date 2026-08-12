@@ -1542,7 +1542,7 @@ class ProcessFactaCltConsultJob implements ShouldQueue, ShouldBeUnique
         $f = $this->toFloatSmart($valor);
         if ($f === null)
             return null;
-        return round($f * 0.70, 2);
+        return round($f * 0.90, 2);
     }
 
     private function computeTempoAdmissaoMeses(?string $admissao, ?string $deslig): ?int

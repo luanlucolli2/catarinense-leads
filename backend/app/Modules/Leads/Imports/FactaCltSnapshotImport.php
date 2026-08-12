@@ -68,8 +68,8 @@ class FactaCltSnapshotImport implements OnEachRow, WithHeadingRow, WithChunkRead
 
             // margem disponível
             $margemDisp = $this->toFloat($r['margem_disponivel'] ?? null);
-            // valor máximo = 70% da margem disponível
-            $valorMax = is_null($margemDisp) ? null : round($margemDisp * 0.70, 2);
+            // valor máximo = 90% da margem disponível
+            $valorMax = is_null($margemDisp) ? null : round($margemDisp * 0.90, 2);
 
             $cand = [
                 'cpf'   => $cpf,

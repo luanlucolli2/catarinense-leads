@@ -5,12 +5,15 @@ namespace App\Modules\FactaCLT\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\FactaCLT\Jobs\DispatchFactaCltConsultJob;
 use App\Modules\FactaCLT\Jobs\ProcessFactaCltConsultJob;
+use App\Modules\FactaCLT\Jobs\StoreFactaCltExternalReportJob;
 use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Services\FactaCltExternalApiService;
 use App\Modules\FactaCLT\Support\FactaCltLog;
 use App\Modules\FactaCLT\Support\FactaCltSchema;
 use App\Modules\FactaCLT\Support\FactaCltSpool;
 use App\Modules\FactaCLT\Support\FactaCltVariant;
 use App\Support\Cpf;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +27,8 @@ class FactaCltConsultController extends Controller
 {
     public function index(Request $request)
     {
+        $this->refreshActiveExternalJobs();
+
         $data = Validator::make($request->query(), [
             'status' => ['nullable', 'in:agendado,pendente,em_progresso,pausado,concluido,falhou,cancelado,todos'],
             'variant' => ['nullable', 'in:online,offline,hybrid,on,off,hyb,todos'],
@@ -63,28 +68,34 @@ class FactaCltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            $this->syncExternalJob($job);
+        }
+
         $reportsDiskName = (string) config('facta.storage.reports_disk', 'local');
         $reportsDisk = Storage::disk($reportsDiskName);
-        $spoolExists = $job->spool_path && $reportsDisk->exists($job->spool_path);
+        $spoolExists = $job->executor === 'local' && $job->spool_path && $reportsDisk->exists($job->spool_path);
         $spoolHasDataRows = $spoolExists && FactaCltSpool::hasDataRows($reportsDisk, $job->spool_path);
 
         return response()->json([
             'id' => $job->id,
             'title' => $job->title,
             'variant' => $job->variant,
+            'executor' => $job->executor,
             'status' => $job->status,
             'phase' => $job->phase,
             'phase2_total' => (int) ($job->phase2_total ?? 0),
             'phase2_attempt' => (int) ($job->phase2_attempt ?? 0),
             'phase2_aprovado_count' => (int) ($job->phase2_aprovado_count ?? 0),
             'phase2_nao_aprovado_count' => (int) ($job->phase2_nao_aprovado_count ?? 0),
+            'phase2_fail_count' => (int) ($job->phase2_fail_count ?? 0),
             'total_cpfs' => $job->total_cpfs,
             'elegivel_count' => (int) ($job->elegivel_count ?? 0),
             'inelegivel_count' => (int) ($job->inelegivel_count ?? 0),
             'descartado_count' => (int) ($job->descartado_count ?? 0),
             'not_found_count' => $job->not_found_count,
             'fail_count' => $job->fail_count,
-            'has_file' => (bool) $job->has_file,
+            'has_file' => $job->executor === 'api' ? (bool) $job->external_has_report : (bool) $job->has_file,
             'started_at' => $job->started_at,
             'finished_at' => $job->finished_at,
             'paused_at' => $job->paused_at,
@@ -92,7 +103,9 @@ class FactaCltConsultController extends Controller
             'cancel_reason' => $job->cancel_reason,
             'scheduled_for' => $job->scheduled_for,
             'created_at' => $job->created_at,
-            'preview_running' => in_array($job->status, ['pendente','em_progresso','pausado','cancelado'], true) && $spoolHasDataRows,
+            'preview_running' => $job->executor === 'api'
+                ? in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true)
+                : in_array($job->status, ['pendente','em_progresso','pausado','cancelado'], true) && $spoolHasDataRows,
             'spool_bytes' => $job->spool_bytes,
         ]);
     }
@@ -121,15 +134,21 @@ class FactaCltConsultController extends Controller
             ? $runAt->clone()->setTimezone('UTC')
             : null;
 
+        if ($variant === 'offline') {
+            return $this->storeExternalOfflineJob($request, $data, $scheduledFor);
+        }
+
         $job = FactaCltConsultJob::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
+            'executor' => 'local',
             'status' => $scheduledFor ? 'agendado' : 'pendente',
             'variant' => $variant,
             'phase' => null,
             'total_cpfs' => 0,
             'phase2_aprovado_count' => 0,
             'phase2_nao_aprovado_count' => 0,
+            'phase2_fail_count' => 0,
             'elegivel_count' => 0,
             'inelegivel_count' => 0,
             'descartado_count' => 0,
@@ -178,12 +197,94 @@ class FactaCltConsultController extends Controller
         ], Response::HTTP_ACCEPTED);
     }
 
+    private function storeExternalOfflineJob(Request $request, array $data, ?Carbon $scheduledFor)
+    {
+        try {
+            $remote = app(FactaCltExternalApiService::class)->createOfflineJob(
+                (string) $data['title'],
+                $this->externalInput($data['cpfs']),
+                $scheduledFor?->toIso8601String(),
+            );
+            $externalJobId = $remote['id'] ?? null;
+            if (! is_string($externalJobId) || $externalJobId === '') {
+                throw new \RuntimeException('A API externa não retornou o identificador do job.');
+            }
+
+            $job = FactaCltConsultJob::create([
+                'user_id' => $request->user()->id,
+                'title' => (string) $data['title'],
+                'executor' => 'api',
+                'external_job_id' => $externalJobId,
+                'external_has_report' => false,
+                'status' => $scheduledFor ? 'agendado' : 'pendente',
+                'variant' => 'offline',
+                'phase' => null,
+                'total_cpfs' => 0,
+                'phase2_total' => 0,
+                'phase2_attempt' => 0,
+                'phase2_aprovado_count' => 0,
+                'phase2_nao_aprovado_count' => 0,
+                'phase2_fail_count' => 0,
+                'elegivel_count' => 0,
+                'inelegivel_count' => 0,
+                'descartado_count' => 0,
+                'not_found_count' => 0,
+                'fail_count' => 0,
+                'scheduled_for' => $scheduledFor,
+            ]);
+            $this->syncExternalJob($job, $remote);
+        } catch (\Throwable $e) {
+            FactaCltLog::warning('[CLT] Falha ao criar job offline na API externa: ' . $e->getMessage());
+
+            return response()->json([
+                'message' => 'Não foi possível criar a consulta Offline na API externa.',
+            ], Response::HTTP_BAD_GATEWAY);
+        }
+
+        return response()->json([
+            'id' => $job->id,
+            'status' => $job->status,
+            'phase' => $job->phase,
+            'scheduled_for' => $job->scheduled_for,
+        ], Response::HTTP_ACCEPTED);
+    }
+
+    private function externalInput(mixed $cpfs): string
+    {
+        if (is_string($cpfs)) {
+            return $cpfs;
+        }
+
+        if (is_array($cpfs) || $cpfs instanceof \Traversable) {
+            return implode("\n", array_filter(array_map(
+                static fn ($value) => trim((string) $value),
+                is_array($cpfs) ? $cpfs : iterator_to_array($cpfs),
+            ), static fn ($value) => $value !== ''));
+        }
+
+        return '';
+    }
+
     /** Estado “prévia” leve */
     public function requestPreview(Request $request, int $id)
     {
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            try {
+                $this->syncExternalJob($job);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao atualizar prévia externa {$job->id}: {$e->getMessage()}");
+            }
+
+            return response()->json([
+                'queued' => false,
+                'preview_running' => in_array($job->status, ['pendente', 'em_progresso', 'pausado'], true),
+                'message' => 'Prévia disponível diretamente pela API externa.',
+            ]);
+        }
 
         $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
         $spoolExists = $job->spool_path && $disk->exists($job->spool_path);
@@ -202,6 +303,10 @@ class FactaCltConsultController extends Controller
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            return $this->externalDownload($job, 'preview');
+        }
 
         $disk = Storage::disk((string) config('facta.storage.reports_disk', 'local'));
 
@@ -282,6 +387,24 @@ class FactaCltConsultController extends Controller
             ->where('user_id', Auth::id())
             ->findOrFail($id);
 
+        if ($job->executor === 'api') {
+            try {
+                $this->syncExternalJob($job);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao atualizar relatório externo {$job->id}: {$e->getMessage()}");
+            }
+
+            if ($job->file_disk && $job->file_path && Storage::disk($job->file_disk)->exists($job->file_path)) {
+                return $this->downloadStoredReport($job);
+            }
+
+            if (! $job->external_has_report) {
+                return response()->json(['message' => 'Relatório ainda não disponível.'], Response::HTTP_CONFLICT);
+            }
+
+            return $this->externalDownload($job, 'report');
+        }
+
         if (!in_array($job->status, ['concluido', 'falhou', 'cancelado'], true) || empty($job->file_disk) || empty($job->file_path)) {
             return response()->json(['message' => 'Relatório ainda não disponível.'], 409);
         }
@@ -332,6 +455,30 @@ class FactaCltConsultController extends Controller
             'reason' => ['nullable', 'string', 'max:191'],
         ]);
 
+        if ($job->executor === 'api') {
+            try {
+                $remote = app(FactaCltExternalApiService::class)->cancelJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao cancelar job externo {$job->id}: {$e->getMessage()}");
+
+                return response()->json(['message' => 'Não foi possível cancelar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            if (! empty($data['reason'])) {
+                $job->update(['cancel_reason' => $data['reason']]);
+            }
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'finished_at' => $job->finished_at,
+                'canceled_at' => $job->canceled_at,
+                'cancel_reason' => $job->cancel_reason,
+            ]);
+        }
+
         if (in_array($job->status, ['agendado', 'pendente', 'pausado'], true)) {
             $this->cancelIdleJob($job, $data['reason'] ?? null);
 
@@ -367,6 +514,33 @@ class FactaCltConsultController extends Controller
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            if ($job->status === 'pausado') {
+                return response()->json([
+                    'id' => $job->id,
+                    'status' => $job->status,
+                    'phase' => $job->phase,
+                    'paused_at' => $job->paused_at,
+                ]);
+            }
+
+            try {
+                $remote = app(FactaCltExternalApiService::class)->pauseJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao pausar job externo {$job->id}: {$e->getMessage()}");
+
+                return response()->json(['message' => 'Não foi possível pausar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'paused_at' => $job->paused_at,
+            ], Response::HTTP_ACCEPTED);
+        }
 
         if ($job->status === 'pausado') {
             return response()->json([
@@ -408,6 +582,30 @@ class FactaCltConsultController extends Controller
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            if ($job->status !== 'pausado') {
+                return response()->json([
+                    'message' => 'Apenas jobs pausados podem ser retomados.',
+                    'status' => $job->status,
+                ], Response::HTTP_CONFLICT);
+            }
+
+            try {
+                $remote = app(FactaCltExternalApiService::class)->resumeJob((string) $job->external_job_id);
+                $this->syncExternalJob($job, $remote);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao retomar job externo {$job->id}: {$e->getMessage()}");
+
+                return response()->json(['message' => 'Não foi possível retomar a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            return response()->json([
+                'id' => $job->id,
+                'status' => $job->status,
+                'phase' => $job->phase,
+            ], Response::HTTP_ACCEPTED);
+        }
 
         if ($job->status !== 'pausado') {
             return response()->json([
@@ -461,6 +659,12 @@ class FactaCltConsultController extends Controller
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            return response()->json([
+                'message' => 'Reprocessamento da fase 2 não está disponível para consultas executadas pela API externa.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
@@ -546,6 +750,7 @@ class FactaCltConsultController extends Controller
             'phase2_attempt' => 0,
             'phase2_aprovado_count' => 0,
             'phase2_nao_aprovado_count' => 0,
+            'phase2_fail_count' => 0,
             'spool_path' => $spoolPath,
             'spool_cpfs_path' => null,
             'spool_bytes' => $spoolBytes,
@@ -576,13 +781,28 @@ class FactaCltConsultController extends Controller
             ->findOrFail($id);
 
         $cancelCleanupInProgress = $job->status === 'cancelado'
-            && $job->finished_at === null;
+            && $job->finished_at === null
+            && ! ($job->executor === 'api' && $job->external_has_report);
 
         if (in_array($job->status, ['agendado', 'pendente', 'em_progresso', 'pausado'], true) || $cancelCleanupInProgress) {
             return response()->json([
                 'message' => 'Não é possível excluir enquanto o job ainda está agendado, em andamento, pausado ou finalizando o cancelamento.',
                 'status' => $job->status,
             ], Response::HTTP_CONFLICT);
+        }
+
+        if ($job->executor === 'api') {
+            try {
+                $response = app(FactaCltExternalApiService::class)->deleteJob((string) $job->external_job_id);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Falha ao excluir job externo {$job->id}: {$e->getMessage()}");
+
+                return response()->json(['message' => 'Não foi possível excluir a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
+
+            if (! $response->successful()) {
+                return response()->json(['message' => 'Não foi possível excluir a consulta na API externa.'], Response::HTTP_BAD_GATEWAY);
+            }
         }
 
         try {
@@ -614,6 +834,12 @@ class FactaCltConsultController extends Controller
         $job = FactaCltConsultJob::query()
             ->where('user_id', Auth::id())
             ->findOrFail($id);
+
+        if ($job->executor === 'api') {
+            return response()->json([
+                'message' => 'Contadores HTTP não estão disponíveis para consultas executadas pela API externa.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         if (!FactaCltVariant::supportsCreditPhaseTwo($job->variant)) {
             return response()->json([
@@ -1171,6 +1397,141 @@ class FactaCltConsultController extends Controller
         }
 
         return $csvRow;
+    }
+
+    private function refreshActiveExternalJobs(): void
+    {
+        $jobs = FactaCltConsultJob::query()
+            ->where('executor', 'api')
+            ->whereIn('status', ['agendado', 'pendente', 'em_progresso', 'pausado'])
+            ->get();
+
+        foreach ($jobs as $job) {
+            try {
+                $this->syncExternalJob($job);
+            } catch (\Throwable $e) {
+                FactaCltLog::warning("[CLT] Não foi possível atualizar job offline externo {$job->id}: {$e->getMessage()}");
+            }
+        }
+    }
+
+    private function syncExternalJob(FactaCltConsultJob $job, ?array $remote = null): void
+    {
+        if (empty($job->external_job_id)) {
+            throw new \RuntimeException('Job externo sem identificador.');
+        }
+
+        $remote ??= app(FactaCltExternalApiService::class)->getJob((string) $job->external_job_id);
+        $status = match ((string) ($remote['status'] ?? 'queued')) {
+            'scheduled' => 'agendado',
+            'completed' => 'concluido',
+            'failed', 'expired' => 'falhou',
+            'cancelled' => 'cancelado',
+            'paused' => 'pausado',
+            'running', 'pausing' => 'em_progresso',
+            default => 'pendente',
+        };
+        $metrics = is_array($remote['metrics'] ?? null) ? $remote['metrics'] : [];
+        $hasReport = (bool) ($remote['has_report'] ?? false);
+        $terminal = in_array($status, ['concluido', 'falhou', 'cancelado'], true);
+
+        $job->update([
+            'status' => $status,
+            'phase' => match ($remote['phase'] ?? null) {
+                'phase_1' => 'fase_1',
+                'phase_2' => 'fase_2',
+                default => null,
+            },
+            'total_cpfs' => max(0, (int) ($remote['total_count'] ?? data_get($remote, 'progress.phase_1.total') ?? 0)),
+            'elegivel_count' => max(0, (int) ($metrics['phase1.eligible'] ?? 0)),
+            'inelegivel_count' => max(0, (int) ($metrics['phase1.ineligible'] ?? 0)),
+            'not_found_count' => max(0, (int) ($metrics['phase1.not_found'] ?? 0)),
+            'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+            'phase2_total' => max(0, (int) ($metrics['phase2.total'] ?? data_get($remote, 'progress.phase_2.total') ?? 0)),
+            'phase2_aprovado_count' => max(0, (int) ($metrics['phase2.approved'] ?? 0)),
+            'phase2_nao_aprovado_count' => max(0, (int) ($metrics['phase2.not_approved'] ?? 0)),
+            'phase2_fail_count' => max(0, (int) ($metrics['phase2.errors'] ?? 0)),
+            'external_has_report' => $hasReport,
+            'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
+            'started_at' => $remote['started_at'] ?? $job->started_at ?? ($status === 'em_progresso' ? now() : null),
+            'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
+            'finished_at' => $remote['finished_at'] ?? ($terminal && ($status !== 'cancelado' || $hasReport) ? ($job->finished_at ?? now()) : null),
+            'canceled_at' => $remote['cancelled_at'] ?? $remote['canceled_at'] ?? ($status === 'cancelado' ? ($job->canceled_at ?? now()) : null),
+        ]);
+
+        if ($hasReport && ! $this->hasStoredReport($job)) {
+            StoreFactaCltExternalReportJob::dispatch($job->id);
+        }
+    }
+
+    private function hasStoredReport(FactaCltConsultJob $job): bool
+    {
+        return $job->file_disk && $job->file_path && Storage::disk($job->file_disk)->exists($job->file_path);
+    }
+
+    private function downloadStoredReport(FactaCltConsultJob $job)
+    {
+        $disk = Storage::disk($job->file_disk);
+        $stream = $disk->readStream($job->file_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Arquivo não encontrado.'], Response::HTTP_NOT_FOUND);
+        }
+
+        return response()->streamDownload(function () use ($stream) {
+            try {
+                fpassthru($stream);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }, $job->file_name ?: "{$this->finalPrefix()}-{$job->id}.csv", [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    private function externalDownload(FactaCltConsultJob $job, string $kind)
+    {
+        try {
+            $response = $kind === 'preview'
+                ? app(FactaCltExternalApiService::class)->preview((string) $job->external_job_id)
+                : app(FactaCltExternalApiService::class)->report((string) $job->external_job_id);
+        } catch (\Throwable $e) {
+            FactaCltLog::warning("[CLT] Falha ao baixar {$kind} externo {$job->id}: {$e->getMessage()}");
+
+            return response()->json(['message' => 'Não foi possível baixar o arquivo da API externa.'], Response::HTTP_BAD_GATEWAY);
+        }
+
+        if (! $response->successful()) {
+            $status = in_array($response->status(), [Response::HTTP_NOT_FOUND, Response::HTTP_CONFLICT], true)
+                ? $response->status()
+                : Response::HTTP_BAD_GATEWAY;
+
+            return response()->json(['message' => 'Arquivo indisponível na API externa.'], $status);
+        }
+
+        $filename = $this->externalFilename(
+            $response,
+            "{$this->finalPrefix()}-{$job->id}" . ($kind === 'preview' ? '-preview' : '') . '.csv',
+        );
+
+        return response()->streamDownload(function () use ($response) {
+            echo $response->body();
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    private function externalFilename(HttpResponse $response, string $fallback): string
+    {
+        $header = (string) $response->header('Content-Disposition', '');
+        if (preg_match('/filename\\*?=(?:UTF-8\\x27\\x27|\")?([^\";]+)/i', $header, $matches) === 1) {
+            return basename(trim(rawurldecode($matches[1]), " \""));
+        }
+
+        return $fallback;
     }
 
     private function cancelIdleJob(FactaCltConsultJob $job, ?string $reason): void

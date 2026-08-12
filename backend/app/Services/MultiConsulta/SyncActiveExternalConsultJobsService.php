@@ -2,6 +2,9 @@
 
 namespace App\Services\MultiConsulta;
 
+use App\Modules\FactaCLT\Jobs\StoreFactaCltExternalReportJob;
+use App\Modules\FactaCLT\Models\FactaCltConsultJob;
+use App\Modules\FactaCLT\Services\FactaCltExternalApiService;
 use App\Modules\Presenca\Jobs\StorePresencaExternalReportJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Services\PresencaExternalApiService;
@@ -29,6 +32,7 @@ class SyncActiveExternalConsultJobsService
             'v8_fgts' => $this->syncV8Fgts(),
             'presenca' => $this->syncPresenca(),
             'soma_clt' => $this->syncSomaClt(),
+            'facta_clt_offline' => $this->syncFactaCltOffline(),
         ];
     }
 
@@ -154,6 +158,37 @@ class SyncActiveExternalConsultJobsService
                 StoreSomaCltExternalReportJob::dispatch($job->id);
             }
         }, 'Soma CLT');
+    }
+
+    private function syncFactaCltOffline(): int
+    {
+        $api = app(FactaCltExternalApiService::class);
+
+        return $this->sync($this->active(FactaCltConsultJob::class), function (FactaCltConsultJob $job) use ($api): void {
+            $remote = $api->getJob((string) $job->external_job_id);
+            $metrics = (array) ($remote['metrics'] ?? []);
+            $status = $this->status($remote);
+            $hasReport = (bool) ($remote['has_report'] ?? false);
+
+            $job->update([
+                ...$this->common($job, $remote, $status, $hasReport),
+                'phase' => match ($remote['phase'] ?? null) { 'phase_1' => 'fase_1', 'phase_2' => 'fase_2', default => null },
+                'elegivel_count' => max(0, (int) ($metrics['phase1.eligible'] ?? 0)),
+                'inelegivel_count' => max(0, (int) ($metrics['phase1.ineligible'] ?? 0)),
+                'not_found_count' => max(0, (int) ($metrics['phase1.not_found'] ?? 0)),
+                'fail_count' => max(0, (int) ($metrics['phase1.errors'] ?? 0)),
+                'phase2_total' => max(0, (int) ($metrics['phase2.total'] ?? data_get($remote, 'progress.phase_2.total') ?? 0)),
+                'phase2_aprovado_count' => max(0, (int) ($metrics['phase2.approved'] ?? 0)),
+                'phase2_nao_aprovado_count' => max(0, (int) ($metrics['phase2.not_approved'] ?? 0)),
+                'phase2_fail_count' => max(0, (int) ($metrics['phase2.errors'] ?? 0)),
+                'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for,
+                'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
+            ]);
+
+            if ($hasReport && ! $this->hasStoredReport($job)) {
+                StoreFactaCltExternalReportJob::dispatch($job->id);
+            }
+        }, 'Facta CLT Offline');
     }
 
     private function active(string $model): \Illuminate\Database\Eloquent\Collection
