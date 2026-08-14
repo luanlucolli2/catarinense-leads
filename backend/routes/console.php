@@ -16,6 +16,7 @@ use App\Modules\V8\Services\ResumeActiveV8ConsultJobsService;
 use App\Modules\V8Fgts\Services\ResumeActiveV8FgtsJobsService;
 use App\Models\C6AuthorizationLink;
 use App\Services\MultiConsulta\SyncActiveExternalConsultJobsService;
+use App\Modules\Leads\Services\RecoverStaleImportsService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -179,3 +180,8 @@ Artisan::command('uy3:backfill-snapshots', function () {
         (int) ($result['skipped'] ?? 0),
     ));
 })->purpose('Reprocessa uy3_webhook_posts e preenche leads + uy3_snapshots');
+
+Artisan::command('leads:recover-stale-imports', function () {
+    $recovered = app(RecoverStaleImportsService::class)->handle();
+    $this->info("Importações recuperadas: {$recovered}");
+})->purpose('Reverte importações de leads sem atividade');

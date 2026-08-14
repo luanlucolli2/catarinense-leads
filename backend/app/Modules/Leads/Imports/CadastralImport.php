@@ -2,687 +2,308 @@
 
 namespace App\Modules\Leads\Imports;
 
-use App\Modules\Leads\Imports\Concerns\ImportLifecycleSupport;
-use App\Models\Lead;
-use App\Models\LeadContract;
 use App\Models\ImportJob;
 use App\Models\Vendor;
+use App\Modules\Leads\Imports\Concerns\ImportLifecycleSupport;
+use App\Modules\Leads\Imports\Exceptions\ImportHeaderException;
 use App\Support\Cpf;
-use Maatwebsite\Excel\Concerns\ToModel;
-use Maatwebsite\Excel\Concerns\WithHeadingRow;
-use Maatwebsite\Excel\Concerns\WithChunkReading;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Collection;
-use Maatwebsite\Excel\Concerns\RemembersRowNumber;
-use Maatwebsite\Excel\Concerns\WithEvents;
-use Maatwebsite\Excel\Events\AfterChunk;
-use Maatwebsite\Excel\Events\AfterImport;
-use Maatwebsite\Excel\Events\BeforeImport;
 use Carbon\Carbon;
-use PhpOffice\PhpSpreadsheet\Shared\Date;
-use App\Services\BackupService;
+use Illuminate\Support\Facades\DB;
 
-class CadastralImport implements ToModel, WithHeadingRow, WithChunkReading, WithEvents, ShouldQueue
+class CadastralImport
 {
-    use RemembersRowNumber;
     use ImportLifecycleSupport;
 
-    public const REQUIRED_HEADERS = [
-        'cpfcliente',
-        'nomecliente',
-        'datanascimento',
-        'fone1',
-        'classefone1',
-        'fone2',
-        'classefone2',
-        'fone3',
-        'classefone3',
-        'fone4',
-        'classefone4',
-        'datacontrato',
-        'vendedor',
-    ];
+    public const REQUIRED_HEADERS = ['cpfcliente', 'nomecliente', 'datanascimento', 'fone1', 'classefone1', 'fone2', 'classefone2', 'fone3', 'classefone3', 'fone4', 'classefone4', 'datacontrato', 'vendedor'];
+    private const LEAD_FIELDS = ['cpf', 'nome', 'data_nascimento', 'fone1', 'classe_fone1', 'fone2', 'classe_fone2', 'fone3', 'classe_fone3', 'fone4', 'classe_fone4', 'consulta', 'data_atualizacao', 'saldo', 'libera'];
 
-    protected ImportJob $importJob;
-    protected BackupService $backup;
-
-    protected array $vendorCache = [];
-    protected array $backedUpLeadIds = [];
-    protected array $rowBuffer = [];
-    protected array $pendingLeadImports = [];
-    protected array $pendingErrors = [];
-    protected int $errorCount = 0;
-    protected int $maxErrorsPerJob = 0;
-
-    /** contador real deste chunk */
-    protected int $rowsInCurrentChunk = 0;
-
-    public function __construct(ImportJob $importJob, BackupService $backup)
-    {
-        $this->importJob = $importJob;
-        $this->backup    = $backup;
-    }
-
-    public function model(array $row)
-    {
-        if ($this->shouldStopImport()) {
-            return null;
-        }
-
-        // normaliza chaves
-        $row = $this->normalizeRowKeys($row);
-
-        // cpf com dígitos?
-        $cpfRaw = $row['cpfcliente'] ?? null;
-        $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string)$cpfRaw) : '';
-        if ($digits === '') {
-            return null; // ignora linha sem CPF
-        }
-        $this->rowsInCurrentChunk++;
-
-        // skip linha realmente vazia por segurança
-        if ($this->isEffectivelyEmptyRow($row)) {
-            return null;
-        }
-
-        $this->rowBuffer[] = [
-            'row'        => $row,
-            'row_number' => $this->getRowNumber(),
-        ];
-
-        if (count($this->rowBuffer) >= $this->dbBatchSize()) {
-            $this->flushRowBuffer();
-        }
-
-        return null;
-    }
+    public function __construct(private readonly ImportJob $importJob) {}
 
     public static function missingRequiredHeaders(array $headers): array
     {
         $index = self::buildHeaderIndex($headers);
-        $missing = [];
-        foreach (self::REQUIRED_HEADERS as $header) {
-            if (!isset($index[$header])) {
-                $missing[] = $header;
-            }
-        }
-        return $missing;
+        return array_values(array_filter(self::REQUIRED_HEADERS, fn (string $header) => !isset($index[$header])));
     }
 
-    public function process(string $fullPath): void
+    public function process(string $path): void
     {
         $this->bootImportLifecycleState();
-        $this->rowBuffer = [];
-        $this->pendingLeadImports = [];
-        $this->pendingErrors = [];
-        $this->backedUpLeadIds = [];
-
-        $handle = fopen($fullPath, 'rb');
-        if (!$handle) {
-            throw new \RuntimeException("Não foi possível abrir o CSV cadastral: {$fullPath}");
-        }
+        $handle = fopen($path, 'rb');
+        if ($handle === false) throw new \RuntimeException('Não foi possível abrir o CSV cadastral.');
 
         try {
             $headers = fgetcsv($handle, 0, $this->csvDelimiter(), $this->csvEnclosure());
-            if ($headers === false) {
-                throw new \RuntimeException('CSV cadastral vazio ou sem cabeçalho.');
-            }
-
+            if ($headers === false) throw new ImportHeaderException(self::REQUIRED_HEADERS);
             $headerIndex = self::buildHeaderIndex($headers);
             $missing = self::missingRequiredHeaders($headers);
-            if (!empty($missing)) {
-                throw new \RuntimeException('Cabeçalhos ausentes no CSV cadastral: ' . implode(', ', $missing));
-            }
+            if ($missing !== []) throw new ImportHeaderException($missing);
 
-            $lineNumber = 1;
+            $batch = [];
+            $line = 1;
             while (($csvRow = fgetcsv($handle, 0, $this->csvDelimiter(), $this->csvEnclosure())) !== false) {
-                if ($this->shouldStopImport()) {
-                    $this->flushRowBuffer();
-                    $this->flushQueuedErrors();
-                    $this->finalizeImportJobAsCancelled();
-                    return;
-                }
-
-                $lineNumber++;
-                if ($this->isCsvRowEmpty($csvRow)) {
-                    continue;
-                }
-
-                $row = $this->parseCsvRow($headerIndex, $csvRow);
-                $cpfRaw = $row['cpfcliente'] ?? null;
-                $digits = $cpfRaw !== null ? preg_replace('/\D+/', '', (string) $cpfRaw) : '';
-                if ($digits === '') {
-                    continue;
-                }
-
-                $this->rowsInCurrentChunk++;
-                $this->rowBuffer[] = [
-                    'row' => $row,
-                    'row_number' => $lineNumber,
-                ];
-
-                if (count($this->rowBuffer) >= $this->dbBatchSize()) {
-                    $this->flushRowBuffer();
-                }
-
-                if ($this->rowsInCurrentChunk >= $this->chunkSize()) {
-                    $this->flushRowBuffer();
-                    $this->updateProcessedRowsAfterChunk();
+                $line++;
+                if ($this->isCsvRowEmpty($csvRow)) continue;
+                $batch[] = ['row_number' => $line, 'row' => $this->parseRow($headerIndex, $csvRow)];
+                if (count($batch) >= $this->batchSize()) {
+                    $this->flushBatch($batch);
+                    $this->advanceProgress(count($batch));
+                    $batch = [];
                 }
             }
-
-            $this->flushRowBuffer();
-            $this->flushQueuedErrors();
-            if ($this->refreshImportCancelledFlag(true)) {
-                $this->finalizeImportJobAsCancelled();
-                return;
+            if ($batch !== []) {
+                $this->flushBatch($batch);
+                $this->advanceProgress(count($batch));
             }
-            $this->finalizeImportJobAsCompleted();
+            $this->completeImport();
         } finally {
             fclose($handle);
         }
     }
 
-    private function flushRowBuffer(): void
+    /** @param array<int, array{row_number:int,row:array<string, string|null>}> $batch */
+    private function flushBatch(array $batch): void
     {
-        if (empty($this->rowBuffer)) {
+        $this->assertNotCancellationRequested();
+        $valid = [];
+        $errors = [];
+        foreach ($batch as $item) {
+            try {
+                $row = $this->prepareRow($item['row']);
+                if ($row !== null) $valid[] = ['row_number' => $item['row_number'], 'row' => $row];
+            } catch (\Throwable $e) {
+                $errors[] = ['row_number' => $item['row_number'], 'column_name' => $e->getPrevious()?->getMessage() ?: 'Geral', 'error_message' => $e->getMessage()];
+            }
+        }
+        if ($valid === []) {
+            DB::transaction(fn () => $this->insertErrors($errors));
             return;
         }
 
-        $buffer = $this->rowBuffer;
-        $this->rowBuffer = [];
+        DB::transaction(function () use ($valid, $errors): void {
+            $cpfs = array_values(array_unique(array_column(array_column($valid, 'row'), 'cpf')));
+            $existing = DB::table('leads')->whereIn('cpf', $cpfs)->get()->keyBy('cpf');
+            $states = [];
+            $contracts = [];
 
-        $cpfs = [];
-        foreach ($buffer as $item) {
-            $cpf = Cpf::normalize($item['row']['cpfcliente'] ?? null);
-            if ($cpf !== null) {
-                $cpfs[$cpf] = true;
+            foreach ($valid as $item) {
+                $row = $item['row'];
+                $cpf = $row['cpf'];
+                if (!isset($states[$cpf])) {
+                    $current = $existing->get($cpf);
+                    $states[$cpf] = [
+                        'id' => $current?->id,
+                        'is_new' => $current === null,
+                        'action' => $current === null ? 'insert' : 'update',
+                        'before' => $current ? (array) $current : null,
+                        'data' => $current ? $this->leadData((array) $current) : $this->emptyLead($cpf),
+                    ];
+                }
+                $states[$cpf]['data'] = $this->mergeLead($states[$cpf]['data'], $row);
+                if ($row['contract_date'] !== null) {
+                    $contracts[$cpf . '|' . $row['contract_date']] = ['cpf' => $cpf, 'date' => $row['contract_date'], 'vendor' => $row['vendor_name']];
+                }
             }
-        }
 
-        /** @var Collection<string, Lead> $leadsByCpf */
-        $leadsByCpf = empty($cpfs)
-            ? collect()
-            : Lead::query()->whereIn('cpf', array_keys($cpfs))->get()->keyBy('cpf');
+            $now = now();
+            $existingStates = array_filter($states, fn (array $state) => !$state['is_new']);
+            $this->backupExisting($existingStates, $now);
+            $updates = array_map(fn (array $state) => ['id' => $state['id'], ...$state['data'], 'updated_at' => $now], $existingStates);
+            if ($updates !== []) DB::table('leads')->upsert($updates, ['id'], array_merge(array_diff(self::LEAD_FIELDS, ['cpf']), ['updated_at']));
 
-        foreach ($buffer as $item) {
-            $row = $item['row'];
-            $rowNumber = (int) $item['row_number'];
+            $newStates = array_filter($states, fn (array $state) => $state['is_new']);
+            $inserts = array_map(fn (array $state) => [...$state['data'], 'created_at' => $now, 'updated_at' => $now], $newStates);
+            if ($inserts !== []) DB::table('leads')->insertOrIgnore($inserts);
 
-            try {
-                $this->processBufferedRow($row, $leadsByCpf);
-            } catch (\Throwable $e) {
-                $columnName = $e->getPrevious() ? $e->getPrevious()->getMessage() : 'Geral';
-                $this->queueImportError($rowNumber, $columnName, $e->getMessage());
-            }
-        }
-
-        $this->flushQueuedLeadImports();
-        $this->flushQueuedErrors();
-
-        // mantém cache sob controle em arquivos com alta cardinalidade de vendedores.
-        if (count($this->vendorCache) > max(100, (int) config('leads.import.vendor_cache_max', 5000))) {
-            $this->vendorCache = [];
-        }
+            $leadIds = DB::table('leads')->whereIn('cpf', array_keys($states))->pluck('id', 'cpf')->all();
+            $this->backupNew($newStates, $leadIds, $now);
+            $this->linkLeads($states, $leadIds, $now);
+            $this->upsertContracts($contracts, $leadIds, $now);
+            $this->insertErrors($errors);
+        });
     }
 
-    private function processBufferedRow(array $row, Collection $leadsByCpf): void
+    /** @return array<string, mixed>|null */
+    private function prepareRow(array $row): ?array
     {
         $cpf = Cpf::normalize($row['cpfcliente'] ?? null);
-        if (!$cpf) {
-            throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
-        }
-        if (!Cpf::isValid($cpf)) {
-            throw new \Exception("CPF inválido.", 0, new \Exception('cpfcliente'));
-        }
+        if ($cpf === null) return null;
+        if (!Cpf::isValid($cpf)) $this->rowError('CPF inválido.', 'cpfcliente');
 
-        /** @var Lead|null $lead */
-        $lead = $leadsByCpf->get($cpf);
-        if (!$lead) {
-            $lead = new Lead(['cpf' => $cpf]);
-            $leadsByCpf->put($cpf, $lead);
-        }
-
-        $action = $lead->exists ? 'update' : 'insert';
-
-        // backup apenas uma vez por lead atualizado neste job.
-        if ($action === 'update' && !isset($this->backedUpLeadIds[$lead->id])) {
-            $this->backup->backupExistingLead($lead, $this->importJob);
-            $this->backedUpLeadIds[$lead->id] = true;
-        }
-
-        $dataFromSheet = [
-            'nome'             => $this->normalizeName($row['nomecliente'] ?? null),
-            'data_nascimento'  => $this->transformDate($row['datanascimento'] ?? null),
-            'fone1'            => $this->normalizePhone($row['fone1'] ?? null, 'fone1'),
-            'classe_fone1'     => $this->normalizeClasse($row['classefone1'] ?? null),
-            'fone2'            => $this->normalizePhone($row['fone2'] ?? null, 'fone2'),
-            'classe_fone2'     => $this->normalizeClasse($row['classefone2'] ?? null),
-            'fone3'            => $this->normalizePhone($row['fone3'] ?? null, 'fone3'),
-            'classe_fone3'     => $this->normalizeClasse($row['classefone3'] ?? null),
-            'fone4'            => $this->normalizePhone($row['fone4'] ?? null, 'fone4'),
-            'classe_fone4'     => $this->normalizeClasse($row['classefone4'] ?? null),
-        ];
-
-        $mergedPhones = $this->mergePhones($lead, $dataFromSheet);
-        foreach ($mergedPhones as $field => $value) {
-            $dataFromSheet[$field] = $value;
-        }
-
-        foreach ($dataFromSheet as $field => $value) {
-            if (!is_null($value) && $value !== '') {
-                $lead->{$field} = $value;
+        $contractDate = null;
+        $vendor = null;
+        if (($row['datacontrato'] ?? '') !== '') {
+            $contractDate = $this->date($row['datacontrato']);
+            if ($contractDate === null) $this->rowError('Formato de data inválido.', 'datacontrato');
+            if (($row['vendedor'] ?? '') !== '') {
+                $vendor = $this->name($row['vendedor']);
+                if ($vendor === null) $this->rowError('Vendedor inválido.', 'vendedor');
             }
-        }
-
-        $lead->save();
-
-        if ($action === 'insert') {
-            $this->backup->backupNewLead($lead, $this->importJob);
-            $this->backedUpLeadIds[$lead->id] = true;
-        }
-
-        if (!empty($row['datacontrato'])) {
-            $contractDate = $this->transformDate($row['datacontrato']);
-            if (!$contractDate) {
-                throw new \Exception("Formato de data inválido.", 0, new \Exception('datacontrato'));
-            }
-
-            $vendorId = null;
-            if (!empty($row['vendedor'])) {
-                $cleanedVendorName = $this->normalizeName($row['vendedor']);
-                if ($cleanedVendorName === null) {
-                    throw new \Exception("Vendedor inválido.", 0, new \Exception('vendedor'));
-                }
-                $vendorId = $this->resolveVendorId($cleanedVendorName);
-            }
-
-            $contract = LeadContract::updateOrCreate(
-                ['lead_id' => $lead->id, 'data_contrato' => $contractDate],
-                ['vendor_id' => $vendorId]
-            );
-
-            if ($contract->wasRecentlyCreated) {
-                $this->backup->backupInsertedContract($contract, $this->importJob);
-            }
-        }
-
-        $this->queueLeadImport((int) $lead->id, $action);
-    }
-
-    private function queueLeadImport(int $leadId, string $action): void
-    {
-        if (isset($this->pendingLeadImports[$leadId])) {
-            return;
-        }
-
-        $this->pendingLeadImports[$leadId] = [
-            'lead_id'       => $leadId,
-            'import_job_id' => $this->importJob->id,
-            'action'        => $action,
-            'created_at'    => now(),
-        ];
-
-        if (count($this->pendingLeadImports) >= $this->dbBatchSize()) {
-            $this->flushQueuedLeadImports();
-        }
-    }
-
-    private function flushQueuedLeadImports(): void
-    {
-        if (empty($this->pendingLeadImports)) {
-            return;
-        }
-
-        DB::table('lead_imports')->insertOrIgnore(array_values($this->pendingLeadImports));
-        $this->pendingLeadImports = [];
-    }
-
-    public function chunkSize(): int
-    {
-        return max(1, (int) config('leads.import.chunk_size', 1000));
-    }
-
-    private function transformDate($value): ?string
-    {
-        if (empty($value)) {
-            return null;
-        }
-        if (is_numeric($value)) {
-            return Carbon::instance(Date::excelToDateTimeObject($value))->format('Y-m-d');
-        }
-        try {
-            return Carbon::createFromFormat('d/m/Y', trim($value))->format('Y-m-d');
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    private function normalizeName(?string $name): ?string
-    {
-        if ($name === null || $name === '') {
-            return null;
-        }
-        $name = trim(self::normalizeCsvValue($name));
-        $name = preg_replace('/[^\p{L}\p{N} \'\-]/u', '', $name) ?? '';
-        $name = preg_replace('/\s+/', ' ', $name) ?? '';
-        $len  = mb_strlen($name);
-        if ($len < 2 || $len > 100) {
-            throw new \Exception("Tamanho de nome deve ser entre 2 e 100 caracteres.", 0, new \Exception('nomecliente'));
-        }
-        return $name;
-    }
-
-    /**
-     * Retorna prioridade da classe (com string já normalizada para comparação):
-     *  - 2: carteira
-     *  - 1: atendimento ia
-     *  - 0: demais / vazio
-     */
-    private function classPriority(?string $class): int
-    {
-        $c = $this->normalizeClasse($class) ?? '';
-        if ($c === 'carteira') return 2;
-        if ($c === 'atendimento ia') return 1;
-        return 0;
-    }
-
-    private function mergePhones(Lead $lead, array $incomingSheet): array
-    {
-        // empacota número + classe normalizada + prioridade
-        $pack = function ($phone, $class) {
-            $normClass = $this->normalizeClasse($class);
-            return [
-                'phone' => $phone ?: null,
-                'class' => $normClass,                 // sempre salvo/propago normalizado (lowercase, espaços colapsados)
-                'prio'  => $this->classPriority($normClass),
-            ];
-        };
-
-        // estado atual (classes normalizadas na leitura)
-        $result = [
-            $pack($lead->fone1, $lead->classe_fone1),
-            $pack($lead->fone2, $lead->classe_fone2),
-            $pack($lead->fone3, $lead->classe_fone3),
-            $pack($lead->fone4, $lead->classe_fone4),
-        ];
-
-        // entradas novas (já normalizadas via normalizeClasse)
-        $incoming = [
-            $pack($incomingSheet['fone1'] ?? null, $incomingSheet['classe_fone1'] ?? null),
-            $pack($incomingSheet['fone2'] ?? null, $incomingSheet['classe_fone2'] ?? null),
-            $pack($incomingSheet['fone3'] ?? null, $incomingSheet['classe_fone3'] ?? null),
-            $pack($incomingSheet['fone4'] ?? null, $incomingSheet['classe_fone4'] ?? null),
-        ];
-
-        foreach ($incoming as $slot) {
-            $phone = $slot['phone'];
-            if (!$phone) continue;
-
-            $incomingClass = $slot['class'];
-            $incomingPrio  = $slot['prio'];
-
-            // já existe o mesmo número?
-            $idxExisting = array_search($phone, array_column($result, 'phone'), true);
-            if ($idxExisting !== false) {
-                // só atualiza a classificação se a nova tiver prioridade MAIOR
-                if ($incomingPrio > $result[$idxExisting]['prio']) {
-                    $result[$idxExisting]['class'] = $incomingClass; // persistimos já normalizado
-                    $result[$idxExisting]['prio']  = $incomingPrio;
-                }
-                continue;
-            }
-
-            // número novo
-            // 1) tenta preencher slot vazio
-            $freeIdx = null;
-            foreach ($result as $i => $s) {
-                if (empty($s['phone'])) { $freeIdx = $i; break; }
-            }
-            if (!is_null($freeIdx)) {
-                $result[$freeIdx] = $slot;
-                continue;
-            }
-
-            // 2) sem vagas: substitui apenas se prioridade do novo for maior que algum existente
-            if ($incomingPrio > 0) {
-                $minPrio = min(array_column($result, 'prio'));
-                if ($incomingPrio > $minPrio) {
-                    foreach ($result as $i => $s) {
-                        if ($s['prio'] === $minPrio) {
-                            $result[$i] = $slot;
-                            break;
-                        }
-                    }
-                }
-            }
-            // prioridade 0 sem vagas: ignora (não derruba ninguém)
         }
 
         return [
-            'fone1'        => $result[0]['phone'] ?? null,
-            'classe_fone1' => $result[0]['class'] ?? null,
-            'fone2'        => $result[1]['phone'] ?? null,
-            'classe_fone2' => $result[1]['class'] ?? null,
-            'fone3'        => $result[2]['phone'] ?? null,
-            'classe_fone3' => $result[2]['class'] ?? null,
-            'fone4'        => $result[3]['phone'] ?? null,
-            'classe_fone4' => $result[3]['class'] ?? null,
+            'cpf' => $cpf,
+            'nome' => $this->name($row['nomecliente'] ?? null),
+            'data_nascimento' => $this->date($row['datanascimento'] ?? null),
+            'fone1' => $this->phone($row['fone1'] ?? null, 'fone1'),
+            'classe_fone1' => $this->normalizeClass($row['classefone1'] ?? null),
+            'fone2' => $this->phone($row['fone2'] ?? null, 'fone2'),
+            'classe_fone2' => $this->normalizeClass($row['classefone2'] ?? null),
+            'fone3' => $this->phone($row['fone3'] ?? null, 'fone3'),
+            'classe_fone3' => $this->normalizeClass($row['classefone3'] ?? null),
+            'fone4' => $this->phone($row['fone4'] ?? null, 'fone4'),
+            'classe_fone4' => $this->normalizeClass($row['classefone4'] ?? null),
+            'contract_date' => $contractDate,
+            'vendor_name' => $vendor,
         ];
     }
 
-    private function normalizePhone(?string $phone, string $column): ?string
+    /** @param array<string, mixed> $data @param array<string, mixed> $incoming */
+    private function mergeLead(array $data, array $incoming): array
     {
-        if ($phone === null || $phone === '') {
-            return null;
+        foreach (['nome', 'data_nascimento'] as $field) if ($incoming[$field] !== null && $incoming[$field] !== '') $data[$field] = $incoming[$field];
+
+        $current = $incomingSlots = [];
+        for ($i = 1; $i <= 4; $i++) {
+            $current[] = $this->slot($data["fone{$i}"], $data["classe_fone{$i}"]);
+            $incomingSlots[] = $this->slot($incoming["fone{$i}"], $incoming["classe_fone{$i}"]);
         }
-        $digits = preg_replace('/\D/', '', $phone);
-        if (strlen($digits) > 11 && substr($digits, 0, 2) === '55') {
-            $digits = substr($digits, 2);
-        }
-        if (strlen($digits) !== 10 && strlen($digits) !== 11) {
-            throw new \Exception("Formato de telefone inválido.", 0, new \Exception($column));
-        }
-        return $digits;
-    }
-
-    /**
-     * Normaliza a classificação para persistência:
-     * - trim + substitui underscores por espaço
-     * - colapsa espaços
-     * - remove caracteres de controle
-     * - lowercase (sempre salvar como minúsculas)
-     * - limita a 255 caracteres
-     */
-    private function normalizeClasse($classe): ?string
-    {
-        if ($classe === null) return null;
-        $s = trim((string)$classe);
-        if ($s === '') return null;
-
-        $s = str_replace('_', ' ', $s);
-        $s = preg_replace('/\s+/', ' ', $s);
-        $s = preg_replace('/[^\P{C}]+/u', '', $s) ?? $s;
-        $s = mb_strtolower($s);
-        return mb_substr($s, 0, 255);
-    }
-
-    public function registerEvents(): array
-    {
-        return [
-            BeforeImport::class => function () {
-                $this->bootImportLifecycleState();
-                $this->rowBuffer = [];
-                $this->pendingLeadImports = [];
-                $this->pendingErrors = [];
-                $this->backedUpLeadIds = [];
-            },
-
-            AfterChunk::class => function () {
-                $this->flushRowBuffer();
-                $this->updateProcessedRowsAfterChunk();
-                if ($this->refreshImportCancelledFlag(true)) {
-                    $this->finalizeImportJobAsCancelled();
+        foreach ($incomingSlots as $slot) {
+            if ($slot['phone'] === null) continue;
+            $same = array_search($slot['phone'], array_column($current, 'phone'), true);
+            if ($same !== false) {
+                if ($slot['priority'] > $current[$same]['priority']) $current[$same] = $slot;
+                continue;
+            }
+            foreach ($current as $index => $old) {
+                if ($old['phone'] === null) {
+                    $current[$index] = $slot;
+                    continue 2;
                 }
-            },
-
-            AfterImport::class => function () {
-                $this->flushRowBuffer();
-                if ($this->refreshImportCancelledFlag(true)) {
-                    $this->finalizeImportJobAsCancelled();
-                    return;
-                }
-                $this->finalizeImportJobAsCompleted();
-            },
-        ];
-    }
-
-    private function normalizeRowKeys(array $row): array
-    {
-        $aliases = [
-            'cpf_cliente'       => 'cpfcliente',
-            'cpf_cliente '      => 'cpfcliente',
-            'nome_cliente'      => 'nomecliente',
-            'data_nascimento'   => 'datanascimento',
-            'classe_fone1'      => 'classefone1',
-            'classe_fone2'      => 'classefone2',
-            'classe_fone3'      => 'classefone3',
-            'classe_fone4'      => 'classefone4',
-            'data_contrato'     => 'datacontrato',
-        ];
-
-        foreach ($aliases as $from => $to) {
-            if (!array_key_exists($to, $row) && array_key_exists($from, $row)) {
-                $row[$to] = $row[$from];
+            }
+            $minimum = min(array_column($current, 'priority'));
+            if ($slot['priority'] > $minimum) foreach ($current as $index => $old) if ($old['priority'] === $minimum) {
+                $current[$index] = $slot;
+                break;
             }
         }
-        return $row;
+        foreach ($current as $index => $slot) {
+            $number = $index + 1;
+            $data["fone{$number}"] = $slot['phone'];
+            $data["classe_fone{$number}"] = $slot['class'];
+        }
+        return $data;
     }
 
+    /** @param array<string, array<string,mixed>> $states */
+    private function backupExisting(array $states, mixed $now): void
+    {
+        $ids = array_values(array_filter(array_column($states, 'id')));
+        if ($ids === []) return;
+        $already = DB::table('lead_backups')->where('import_job_id', $this->importJob->id)->whereIn('lead_id', $ids)->pluck('lead_id')->flip();
+        $rows = [];
+        foreach ($states as $state) {
+            if (isset($already[$state['id']])) continue;
+            $rows[] = ['import_job_id' => $this->importJob->id, 'lead_id' => $state['id'], 'was_new' => false, ...array_intersect_key($state['before'], array_flip(self::LEAD_FIELDS)), 'created_at' => $now, 'updated_at' => $now];
+        }
+        if ($rows !== []) DB::table('lead_backups')->insert($rows);
+    }
+
+    /** @param array<string, array<string,mixed>> $states @param array<string,int> $leadIds */
+    private function backupNew(array $states, array $leadIds, mixed $now): void
+    {
+        $rows = [];
+        foreach ($states as $cpf => $state) if (isset($leadIds[$cpf])) {
+            $rows[] = ['import_job_id' => $this->importJob->id, 'lead_id' => $leadIds[$cpf], 'was_new' => true, 'cpf' => $cpf, 'created_at' => $now, 'updated_at' => $now];
+        }
+        if ($rows !== []) DB::table('lead_backups')->insert($rows);
+    }
+
+    /** @param array<string, array<string,mixed>> $states @param array<string,int> $leadIds */
+    private function linkLeads(array $states, array $leadIds, mixed $now): void
+    {
+        $rows = [];
+        foreach ($states as $cpf => $state) if (isset($leadIds[$cpf])) $rows[] = ['lead_id' => $leadIds[$cpf], 'import_job_id' => $this->importJob->id, 'action' => $state['action'], 'created_at' => $now];
+        if ($rows !== []) DB::table('lead_imports')->insertOrIgnore($rows);
+    }
+
+    /** @param array<string,array{cpf:string,date:string,vendor:?string}> $contracts @param array<string,int> $leadIds */
+    private function upsertContracts(array $contracts, array $leadIds, mixed $now): void
+    {
+        if ($contracts === []) return;
+        $names = array_values(array_unique(array_filter(array_column($contracts, 'vendor'))));
+        $vendorIds = [];
+        if ($names !== []) {
+            $keys = array_map(fn (string $name) => Vendor::clean($name), $names);
+            $known = DB::table('vendors')->whereIn('name_clean', $keys)->pluck('id', 'name_clean')->all();
+            $missing = [];
+            foreach ($names as $name) {
+                $key = Vendor::clean($name);
+                if (!isset($known[$key])) $missing[$key] = ['name' => $name, 'name_clean' => $key, 'created_at' => $now, 'updated_at' => $now];
+            }
+            if ($missing !== []) DB::table('vendors')->insertOrIgnore(array_values($missing));
+            $vendorIds = DB::table('vendors')->whereIn('name_clean', $keys)->pluck('id', 'name_clean')->all();
+            $vendorBackups = [];
+            foreach ($missing as $key => $vendor) if (isset($vendorIds[$key])) $vendorBackups[] = ['import_job_id' => $this->importJob->id, 'vendor_id' => $vendorIds[$key], 'name' => $vendor['name'], 'name_clean' => $key, 'original_created_at' => $now, 'created_at' => $now, 'updated_at' => $now];
+            if ($vendorBackups !== []) DB::table('vendor_backups')->insertOrIgnore($vendorBackups);
+        }
+
+        $rows = [];
+        foreach ($contracts as $contract) {
+            $leadId = $leadIds[$contract['cpf']] ?? null;
+            if ($leadId !== null) $rows[] = ['lead_id' => $leadId, 'data_contrato' => $contract['date'], 'vendor_id' => $contract['vendor'] === null ? null : ($vendorIds[Vendor::clean($contract['vendor'])] ?? null), 'created_at' => $now, 'updated_at' => $now];
+        }
+        if ($rows === []) return;
+        $leadIdsForContracts = array_values(array_unique(array_column($rows, 'lead_id')));
+        $dates = array_values(array_unique(array_column($rows, 'data_contrato')));
+        $before = DB::table('lead_contracts')->whereIn('lead_id', $leadIdsForContracts)->whereIn('data_contrato', $dates)->get()->keyBy(fn ($row) => $row->lead_id . '|' . $row->data_contrato);
+        $beforeIds = $before->pluck('id')->all();
+        $backed = $beforeIds === [] ? collect() : DB::table('lead_contract_backups')->where('import_job_id', $this->importJob->id)->whereIn('lead_contract_id', $beforeIds)->pluck('lead_contract_id')->flip();
+        $updates = [];
+        foreach ($before as $contract) if (!isset($backed[$contract->id])) $updates[] = ['import_job_id' => $this->importJob->id, 'lead_id' => $contract->lead_id, 'lead_contract_id' => $contract->id, 'vendor_id' => $contract->vendor_id, 'data_contrato' => $contract->data_contrato, 'action' => 'update', 'created_at' => $now, 'updated_at' => $now];
+        if ($updates !== []) DB::table('lead_contract_backups')->insert($updates);
+        DB::table('lead_contracts')->upsert($rows, ['lead_id', 'data_contrato'], ['vendor_id', 'updated_at']);
+        $after = DB::table('lead_contracts')->whereIn('lead_id', $leadIdsForContracts)->whereIn('data_contrato', $dates)->get()->keyBy(fn ($row) => $row->lead_id . '|' . $row->data_contrato);
+        $inserts = [];
+        foreach ($rows as $row) {
+            $key = $row['lead_id'] . '|' . $row['data_contrato'];
+            if (!isset($before[$key]) && isset($after[$key])) {
+                $contract = $after[$key];
+                $inserts[] = ['import_job_id' => $this->importJob->id, 'lead_id' => $contract->lead_id, 'lead_contract_id' => $contract->id, 'vendor_id' => $contract->vendor_id, 'data_contrato' => $contract->data_contrato, 'action' => 'insert', 'created_at' => $now, 'updated_at' => $now];
+            }
+        }
+        if ($inserts !== []) DB::table('lead_contract_backups')->insert($inserts);
+    }
+
+    /** @return array<string,mixed> */
+    private function emptyLead(string $cpf): array { return ['cpf' => $cpf, 'nome' => null, 'data_nascimento' => null, 'fone1' => null, 'classe_fone1' => null, 'fone2' => null, 'classe_fone2' => null, 'fone3' => null, 'classe_fone3' => null, 'fone4' => null, 'classe_fone4' => null, 'consulta' => null, 'data_atualizacao' => null, 'saldo' => null, 'libera' => null]; }
+    /** @return array<string,mixed> */
+    private function leadData(array $record): array { return array_intersect_key($record, array_flip(self::LEAD_FIELDS)); }
+    /** @return array{phone:?string,class:?string,priority:int} */
+    private function slot(?string $phone, ?string $class): array { $class = $this->normalizeClass($class); return ['phone' => $phone ?: null, 'class' => $class, 'priority' => $class === 'carteira' ? 2 : ($class === 'atendimento ia' ? 1 : 0)]; }
+    private function date(mixed $value): ?string { if ($value === null || $value === '') return null; try { return Carbon::createFromFormat('d/m/Y', trim((string) $value))->format('Y-m-d'); } catch (\Throwable) { return null; } }
+    private function name(?string $value): ?string { if ($value === null || $value === '') return null; $value = trim(self::normalizeCsvValue($value)); $value = preg_replace('/[^\p{L}\p{N} \'\-]/u', '', $value) ?? ''; $value = preg_replace('/\s+/', ' ', $value) ?? ''; if (mb_strlen($value) < 2 || mb_strlen($value) > 100) $this->rowError('Tamanho de nome deve ser entre 2 e 100 caracteres.', 'nomecliente'); return $value; }
+    private function phone(?string $value, string $column): ?string { if ($value === null || $value === '') return null; $digits = preg_replace('/\D/', '', $value); if (strlen($digits) > 11 && str_starts_with($digits, '55')) $digits = substr($digits, 2); if (!in_array(strlen($digits), [10, 11], true)) $this->rowError('Formato de telefone inválido.', $column); return $digits; }
+    private function normalizeClass(?string $value): ?string { if ($value === null || trim($value) === '') return null; $value = mb_strtolower(trim(str_replace('_', ' ', $value))); return mb_substr(preg_replace('/\s+/', ' ', $value) ?? $value, 0, 255); }
+    private function rowError(string $message, string $column): never { throw new \RuntimeException($message, 0, new \RuntimeException($column)); }
+
+    /** @param array<int,string> $headers @return array<string,int> */
     private static function buildHeaderIndex(array $headers): array
     {
-        $aliases = [
-            'cpf_cliente' => 'cpfcliente',
-            'nome_cliente' => 'nomecliente',
-            'data_nascimento' => 'datanascimento',
-            'classe_fone_1' => 'classefone1',
-            'classe_fone_2' => 'classefone2',
-            'classe_fone_3' => 'classefone3',
-            'classe_fone_4' => 'classefone4',
-            'classe_fone1' => 'classefone1',
-            'classe_fone2' => 'classefone2',
-            'classe_fone3' => 'classefone3',
-            'classe_fone4' => 'classefone4',
-            'data_contrato' => 'datacontrato',
-        ];
-
+        $aliases = ['cpf_cliente' => 'cpfcliente', 'nome_cliente' => 'nomecliente', 'data_nascimento' => 'datanascimento', 'classe_fone_1' => 'classefone1', 'classe_fone_2' => 'classefone2', 'classe_fone_3' => 'classefone3', 'classe_fone_4' => 'classefone4', 'data_contrato' => 'datacontrato'];
         $index = [];
-        foreach ($headers as $i => $header) {
-            $normalized = self::normalizeHeaderLabel((string) $header);
-            $canonical = $aliases[$normalized] ?? $normalized;
-            if (in_array($canonical, self::REQUIRED_HEADERS, true) && !isset($index[$canonical])) {
-                $index[$canonical] = (int) $i;
-            }
+        foreach ($headers as $position => $header) {
+            $name = self::normalizeHeaderLabel((string) $header);
+            $name = $aliases[$name] ?? $name;
+            if (in_array($name, self::REQUIRED_HEADERS, true) && !isset($index[$name])) $index[$name] = $position;
         }
         return $index;
     }
 
-    private static function normalizeHeaderLabel(string $value): string
-    {
-        $value = self::normalizeCsvValue($value);
-        $value = preg_replace('/^\xEF\xBB\xBF/u', '', $value) ?? $value;
-        $value = str_replace("\u{00A0}", ' ', $value);
-        $normalized = \Illuminate\Support\Str::of($value)->ascii()->lower()->value();
-        $normalized = preg_replace('/[^a-z0-9]+/u', '_', $normalized) ?? '';
-        return trim((string) preg_replace('/_+/u', '_', $normalized), '_');
-    }
-
-    private function parseCsvRow(array $headerIndex, array $csvRow): array
+    /** @param array<string,int> $headerIndex @param array<int,string> $csvRow @return array<string,string|null> */
+    private function parseRow(array $headerIndex, array $csvRow): array
     {
         $row = [];
-        foreach ($headerIndex as $header => $index) {
-            $row[$header] = isset($csvRow[$index]) ? self::normalizeCsvValue((string) $csvRow[$index]) : null;
-        }
+        foreach ($headerIndex as $header => $position) $row[$header] = isset($csvRow[$position]) ? self::normalizeCsvValue((string) $csvRow[$position]) : null;
         return $row;
-    }
-
-    private static function normalizeCsvValue(string $value): string
-    {
-        if ($value === '') {
-            return $value;
-        }
-
-        if (!mb_check_encoding($value, 'UTF-8')) {
-            $value = mb_convert_encoding($value, 'UTF-8', 'Windows-1252');
-        }
-
-        $value = preg_replace('/^\xEF\xBB\xBF/u', '', $value) ?? $value;
-        return str_replace("\u{00A0}", ' ', $value);
-    }
-
-    private function isCsvRowEmpty(array $row): bool
-    {
-        foreach ($row as $value) {
-            if (trim((string) $value) !== '') {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private function csvDelimiter(): string
-    {
-        $configured = (string) config('leads.import.csv.delimiter', ';');
-        return $configured !== '' ? $configured[0] : ';';
-    }
-
-    private function csvEnclosure(): string
-    {
-        $configured = (string) config('leads.import.csv.enclosure', '"');
-        return $configured !== '' ? $configured[0] : '"';
-    }
-
-    private function isEffectivelyEmptyRow(array $row): bool
-    {
-        foreach (self::REQUIRED_HEADERS as $key) {
-            if (array_key_exists($key, $row)) {
-                $v = $row[$key];
-                if ($v !== null && trim((string)$v) !== '') {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    private function resolveVendorId(string $cleanedVendorName): ?int
-    {
-        $key = Vendor::clean($cleanedVendorName);
-        if (isset($this->vendorCache[$key])) {
-            return $this->vendorCache[$key];
-        }
-
-        $vendor = Vendor::where('name_clean', $key)->first();
-        if ($vendor) {
-            $this->vendorCache[$key] = $vendor->id;
-            return $vendor->id;
-        }
-
-        try {
-            $vendor = Vendor::firstOrCreate(
-                ['name_clean' => $key],
-                ['name' => $cleanedVendorName]
-            );
-        } catch (\Throwable $t) {
-            $vendor = Vendor::where('name_clean', $key)->firstOrFail();
-        }
-
-        if ($vendor->wasRecentlyCreated ?? false) {
-            $this->backup->backupVendorIfNew($vendor, $this->importJob);
-        }
-
-        $this->vendorCache[$key] = $vendor->id;
-        return $vendor->id;
     }
 }

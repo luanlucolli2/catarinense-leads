@@ -25,7 +25,6 @@ import LinkMetricsPage from "./pages/LinkMetricsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
 import { AuthProvider } from "./contexts/AuthContext";
-import { ImportProgressProvider } from "@/contexts/ImportProgressContext";
 import { AppLayout } from "@/components/AppLayout";
 
 const queryClient = new QueryClient();
@@ -38,9 +37,7 @@ const App = () => (
         <Toaster />
         <Sonner />
 
-        {/* Provider global de progresso das importações */}
-        <ImportProgressProvider>
-          <BrowserRouter>
+        <BrowserRouter>
             <Routes>
               {/* Login (rota de convidado) */}
               <Route
@@ -121,8 +118,7 @@ const App = () => (
               {/* 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </BrowserRouter>
-        </ImportProgressProvider>
+        </BrowserRouter>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>

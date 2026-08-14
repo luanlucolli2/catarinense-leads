@@ -43,28 +43,35 @@ class RollbackService
      *  - Remover vendors criados que ficaram sem contratos.
      *  - Marcar job como revertido e limpar resíduos (pivot/backups).
      */
-    public function rollback(ImportJob $job): void
+    public function rollback(ImportJob $job, string $finalStatus = 'revertido'): void
     {
         $chunkSize = max(100, (int) config('leads.rollback.chunk_size', 1000));
 
         // 0..2) Remove dependências e leads inseridos no job em lotes pequenos.
         $this->rollbackInsertedLeadsFromBackups($job->id, $chunkSize);
+        $this->heartbeat($job->id);
         $this->rollbackInsertedLeadsFromPivotFallback($job->id, $chunkSize);
+        $this->heartbeat($job->id);
 
         // 3) Restaura dados dos leads atualizados em batch (upsert por id).
         $this->restoreUpdatedLeads($job->id, $chunkSize);
+        $this->heartbeat($job->id);
 
-        // 4) Remove contratos inseridos em leads pré-existentes.
+        // 4) Restaura contratos atualizados e remove contratos inseridos.
+        $this->restoreUpdatedContracts($job->id, $chunkSize);
         $this->rollbackInsertedContracts($job->id, $chunkSize);
+        $this->heartbeat($job->id);
 
         // 5) Remove vendors criados que ficaram órfãos.
         $this->rollbackOrphanVendors($job->id, $chunkSize);
+        $this->heartbeat($job->id);
 
         // 6) Marca job como revertido e limpa resíduos.
-        DB::transaction(function () use ($job): void {
+        DB::transaction(function () use ($job, $finalStatus): void {
             $job->update([
-                'status'         => 'revertido',
+                'status'         => $finalStatus,
                 'rolled_back_at' => now(),
+                'rollback_final_status' => null,
             ]);
 
             LeadImport::where('import_job_id', $job->id)->delete();
@@ -182,6 +189,30 @@ class RollbackService
             }, 'id');
     }
 
+    private function restoreUpdatedContracts(int $jobId, int $chunkSize): void
+    {
+        LeadContractBackup::query()
+            ->where('import_job_id', $jobId)
+            ->where('action', 'update')
+            ->select(['id', 'lead_contract_id', 'vendor_id'])
+            ->orderBy('id')
+            ->chunkById($chunkSize, function ($rows): void {
+                $payload = [];
+                foreach ($rows as $backup) {
+                    if ($backup->lead_contract_id) {
+                        $payload[] = [
+                            'id' => $backup->lead_contract_id,
+                            'vendor_id' => $backup->vendor_id,
+                            'updated_at' => now(),
+                        ];
+                    }
+                }
+                if ($payload !== []) {
+                    DB::table('lead_contracts')->upsert($payload, ['id'], ['vendor_id', 'updated_at']);
+                }
+            }, 'id');
+    }
+
     private function rollbackOrphanVendors(int $jobId, int $chunkSize): void
     {
         VendorBackup::query()
@@ -196,5 +227,13 @@ class RollbackService
                         ->delete();
                 }
             }, 'id');
+    }
+
+    private function heartbeat(int $jobId): void
+    {
+        DB::table('import_jobs')
+            ->where('id', $jobId)
+            ->where('status', 'revertendo')
+            ->update(['updated_at' => now()]);
     }
 }
