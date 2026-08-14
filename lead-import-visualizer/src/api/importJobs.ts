@@ -1,5 +1,9 @@
 import axiosClient from "@/api/axiosClient";
 
+const IMPORT_UPLOAD_TIMEOUT_MS = Number(import.meta.env.VITE_IMPORT_UPLOAD_TIMEOUT_MS) > 0
+  ? Number(import.meta.env.VITE_IMPORT_UPLOAD_TIMEOUT_MS)
+  : 120000;
+
 /** Para polling (toast de progresso) */
 export interface ActiveImportJobDto {
   id: number;
@@ -45,6 +49,7 @@ export async function startImport(
 ): Promise<{ job_id: number }> { // O retorno agora é mais simples
   const { data } = await axiosClient.post("/import", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    timeout: IMPORT_UPLOAD_TIMEOUT_MS,
   });
   // Apenas retorne os dados da resposta do POST
   return data;
