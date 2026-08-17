@@ -184,6 +184,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/hubcredito-clt/consult-jobs/{id}/download', [HubCreditoConsultController::class, 'download'])->whereNumber('id');
     Route::post('/hubcredito-clt/consult-jobs/{id}/preview/generate', [HubCreditoConsultController::class, 'requestPreview'])->whereNumber('id');
     Route::get('/hubcredito-clt/consult-jobs/{id}/preview', [HubCreditoConsultController::class, 'downloadPreview'])->whereNumber('id');
+    Route::post('/hubcredito-clt/consult-jobs/{id}/pause', [HubCreditoConsultController::class, 'pause'])->whereNumber('id');
+    Route::post('/hubcredito-clt/consult-jobs/{id}/resume', [HubCreditoConsultController::class, 'resume'])->whereNumber('id');
     Route::post('/hubcredito-clt/consult-jobs/{id}/cancel', [HubCreditoConsultController::class, 'cancel'])->whereNumber('id');
     Route::delete('/hubcredito-clt/consult-jobs/{id}', [HubCreditoConsultController::class, 'destroy'])->whereNumber('id');
 

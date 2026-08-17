@@ -5,6 +5,9 @@ namespace App\Services\MultiConsulta;
 use App\Modules\FactaCLT\Jobs\StoreFactaCltExternalReportJob;
 use App\Modules\FactaCLT\Models\FactaCltConsultJob;
 use App\Modules\FactaCLT\Services\FactaCltExternalApiService;
+use App\Modules\HubCredito\Jobs\StoreHubCreditoExternalReportJob;
+use App\Modules\HubCredito\Models\HubCreditoConsultJob;
+use App\Modules\HubCredito\Services\HubCreditoExternalApiService;
 use App\Modules\Presenca\Jobs\StorePresencaExternalReportJob;
 use App\Modules\Presenca\Models\PresencaConsultJob;
 use App\Modules\Presenca\Services\PresencaExternalApiService;
@@ -33,6 +36,7 @@ class SyncActiveExternalConsultJobsService
             'presenca' => $this->syncPresenca(),
             'soma_clt' => $this->syncSomaClt(),
             'facta_clt_offline' => $this->syncFactaCltOffline(),
+            'hubcredito' => $this->syncHubCredito(),
         ];
     }
 
@@ -189,6 +193,26 @@ class SyncActiveExternalConsultJobsService
                 StoreFactaCltExternalReportJob::dispatch($job->id);
             }
         }, 'Facta CLT Offline');
+    }
+
+    private function syncHubCredito(): int
+    {
+        $api = app(HubCreditoExternalApiService::class);
+        return $this->sync($this->active(HubCreditoConsultJob::class), function (HubCreditoConsultJob $job) use ($api): void {
+            $remote = $api->getJob((string) $job->external_job_id);
+            $metrics = (array) ($remote['metrics'] ?? []); $status = $this->status($remote); $hasReport = (bool) ($remote['has_report'] ?? false);
+            $p1Errors = max(0, (int) ($metrics['phase1.errors'] ?? 0)); $p2Errors = max(0, (int) ($metrics['phase2.errors'] ?? 0));
+            $job->update([
+                ...$this->common($job, $remote, $status, $hasReport),
+                'phase' => match ($remote['phase'] ?? null) { 'phase_1' => 'fase_1', 'phase_2' => 'fase_2', default => null },
+                'aprovado_count' => max(0, (int) ($metrics['phase2.approved'] ?? 0)),
+                'nao_aprovado_count' => max(0, (int) ($metrics['phase2.not_approved'] ?? 0)), 'fail_count' => $p1Errors + $p2Errors,
+                'phase1_submitted_count' => max(0, (int) ($metrics['phase1.submitted'] ?? 0)), 'phase1_not_approved_count' => max(0, (int) ($metrics['phase1.not_approved'] ?? 0)), 'phase1_fail_count' => $p1Errors,
+                'phase2_approved_count' => max(0, (int) ($metrics['phase2.approved'] ?? 0)), 'phase2_not_approved_count' => max(0, (int) ($metrics['phase2.not_approved'] ?? 0)), 'phase2_fail_count' => $p2Errors,
+                'scheduled_for' => $remote['scheduled_for'] ?? $job->scheduled_for, 'paused_at' => $remote['paused_at'] ?? ($status === 'pausado' ? ($job->paused_at ?? now()) : null),
+            ]);
+            if ($hasReport && !$this->hasStoredReport($job)) StoreHubCreditoExternalReportJob::dispatch($job->id);
+        }, 'Hub Crédito');
     }
 
     private function active(string $model): \Illuminate\Database\Eloquent\Collection

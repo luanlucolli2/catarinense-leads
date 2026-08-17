@@ -76,6 +76,8 @@ import {
   downloadHubCreditoReport,
   downloadHubCreditoPreview,
   cancelHubCreditoConsultJob,
+  pauseHubCreditoConsultJob,
+  resumeHubCreditoConsultJob,
   deleteHubCreditoConsultJob,
   HubCreditoConsultJobListItem,
   HubCreditoConsultJobShow,
@@ -283,9 +285,11 @@ const CLTConsultaPage = () => {
       const job = query.state.data as V8ConsultJobShow | undefined;
       if (!job) return false;
       if (job.status === "agendado") return 15000;
+      if (job.status === "agendado") return 15000;
       const open =
         job.status === "pendente" ||
         job.status === "em_progresso" ||
+        job.status === "pausado" ||
         (job.status === "cancelado" && !job.finished_at);
       return open ? 5000 : false;
     },
@@ -432,6 +436,13 @@ const CLTConsultaPage = () => {
         aprovado_count: watchedHubCreditoJob.aprovado_count,
         nao_aprovado_count: watchedHubCreditoJob.nao_aprovado_count,
         fail_count: watchedHubCreditoJob.fail_count,
+        executor: watchedHubCreditoJob.executor ?? i.executor,
+        phase1_submitted_count: watchedHubCreditoJob.phase1_submitted_count,
+        phase1_not_approved_count: watchedHubCreditoJob.phase1_not_approved_count,
+        phase1_fail_count: watchedHubCreditoJob.phase1_fail_count,
+        phase2_approved_count: watchedHubCreditoJob.phase2_approved_count,
+        phase2_not_approved_count: watchedHubCreditoJob.phase2_not_approved_count,
+        phase2_fail_count: watchedHubCreditoJob.phase2_fail_count,
         spool_bytes: watchedHubCreditoJob.spool_bytes ?? i.spool_bytes,
         spool_path: watchedHubCreditoJob.spool_path ?? i.spool_path,
         spool_inputs_path: watchedHubCreditoJob.spool_inputs_path ?? i.spool_inputs_path,
@@ -813,11 +824,11 @@ const CLTConsultaPage = () => {
     onError: (e: any) => toast.error(e?.message ?? "Não foi possível excluir"),
   });
 
-  const createHubCreditoMutation = useMutation<any, any, { title: string; lines: string }>({
+  const createHubCreditoMutation = useMutation<any, any, { title: string; lines: string; run_at?: string; timezone?: string }>({
     mutationFn: (vars) => createHubCreditoConsultJob(vars),
     onSuccess: (data, vars) => {
       setWatchingHubCreditoJobId(data.id);
-      toast.success(`Consulta "${vars.title}" criada.`);
+      toast.success(data.status === "agendado" ? `Consulta "${vars.title}" agendada.` : `Consulta "${vars.title}" criada.`);
       setPageHubCredito(1);
       void qc.invalidateQueries({ queryKey: ["hubcredito:list"] });
     },
@@ -850,6 +861,9 @@ const CLTConsultaPage = () => {
     },
     onError: (e: any) => toast.error(deleteJobErrorMessage(e)),
   });
+
+  const pauseHubCreditoMutation = useMutation({ mutationFn: pauseHubCreditoConsultJob, onSuccess: (_data, id) => { setWatchingHubCreditoJobId(id); void qc.invalidateQueries({ queryKey: ["hubcredito:list"] }); void qc.invalidateQueries({ queryKey: ["hubcredito:job", id] }); }, onError: (e: any) => toast.error(e?.message ?? "Não foi possível pausar") });
+  const resumeHubCreditoMutation = useMutation({ mutationFn: resumeHubCreditoConsultJob, onSuccess: (_data, id) => { setWatchingHubCreditoJobId(id); void qc.invalidateQueries({ queryKey: ["hubcredito:list"] }); void qc.invalidateQueries({ queryKey: ["hubcredito:job", id] }); }, onError: (e: any) => toast.error(e?.message ?? "Não foi possível retomar") });
 
   const createPresencaMutation = useMutation<any, any, { title: string; lines: string; run_at?: string; timezone?: string }>({
     mutationFn: (vars) => createPresencaConsultJob(vars),
@@ -962,8 +976,8 @@ const CLTConsultaPage = () => {
     });
   };
 
-  const handleNewHubCreditoConsult = async (title: string, lines: string) => {
-    await createHubCreditoMutation.mutateAsync({ title, lines });
+  const handleNewHubCreditoConsult = async (title: string, lines: string, opts?: { runAt?: string | null; timezone?: string | null }) => {
+    await createHubCreditoMutation.mutateAsync({ title, lines, ...(opts?.runAt ? { run_at: opts.runAt } : {}), ...(opts?.timezone ? { timezone: opts.timezone } : {}) });
   };
 
   const getOrCreatePreviewToast = (id: number) => {
@@ -1203,6 +1217,8 @@ const CLTConsultaPage = () => {
   const handleDeleteHubCredito = async (id: number) => {
     await deleteHubCreditoMutation.mutateAsync(id);
   };
+  const handlePauseHubCredito = async (id: number) => { await pauseHubCreditoMutation.mutateAsync(id); };
+  const handleResumeHubCredito = async (id: number) => { await resumeHubCreditoMutation.mutateAsync(id); };
 
   const handleDownloadPresenca = async (id: number, opts?: { preview?: boolean }) => {
     if (presencaInFlight.current.has(id)) {
@@ -1432,8 +1448,10 @@ const CLTConsultaPage = () => {
             }}
             statusOptions={[
               { value: "todos", label: "Todos os status" },
+              { value: "agendado", label: "Agendado" },
               { value: "pendente", label: "Pendente" },
               { value: "em_progresso", label: "Em andamento" },
+              { value: "pausado", label: "Pausado" },
               { value: "concluido", label: "Concluído" },
               { value: "falhou", label: "Falhou" },
               { value: "cancelado", label: "Cancelado" },
@@ -1445,6 +1463,8 @@ const CLTConsultaPage = () => {
             loading={!!(hubCreditoListLoading && !hubCreditoJobsPage)}
             onDownload={handleDownloadHubCredito}
             onCancel={handleCancelHubCredito}
+            onPause={handlePauseHubCredito}
+            onResume={handleResumeHubCredito}
             onDelete={handleDeleteHubCredito}
             onRefresh={() => refetchHubCreditoList()}
             page={pageHubCredito}

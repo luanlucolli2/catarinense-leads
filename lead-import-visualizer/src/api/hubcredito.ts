@@ -1,8 +1,10 @@
 import axiosClient, { DOWNLOAD_TIMEOUT_MS } from "./axiosClient";
 
 export type HubCreditoJobStatus =
+  | "agendado"
   | "pendente"
   | "em_progresso"
+  | "pausado"
   | "concluido"
   | "falhou"
   | "cancelado";
@@ -13,12 +15,19 @@ export type HubCreditoJobPhase = "fase_1" | "fase_2" | null | string;
 export interface HubCreditoConsultJobListItem {
   id: number;
   title: string;
+  executor?: "local" | "api";
   status: HubCreditoJobStatus;
   phase?: HubCreditoJobPhase;
   total_cpfs: number;
   aprovado_count: number;
   nao_aprovado_count: number;
   fail_count: number;
+  phase1_submitted_count?: number;
+  phase1_not_approved_count?: number;
+  phase1_fail_count?: number;
+  phase2_approved_count?: number;
+  phase2_not_approved_count?: number;
+  phase2_fail_count?: number;
   has_file?: boolean | null;
   file_disk?: string | null;
   file_path?: string | null;
@@ -30,18 +39,27 @@ export interface HubCreditoConsultJobListItem {
   finished_at?: string | null;
   canceled_at?: string | null;
   cancel_reason?: string | null;
+  scheduled_for?: string | null;
+  paused_at?: string | null;
   created_at: string;
 }
 
 export interface HubCreditoConsultJobShow {
   id: number;
   title: string;
+  executor?: "local" | "api";
   status: HubCreditoJobStatus;
   phase?: HubCreditoJobPhase;
   total_cpfs: number;
   aprovado_count: number;
   nao_aprovado_count: number;
   fail_count: number;
+  phase1_submitted_count?: number;
+  phase1_not_approved_count?: number;
+  phase1_fail_count?: number;
+  phase2_approved_count?: number;
+  phase2_not_approved_count?: number;
+  phase2_fail_count?: number;
   has_file: boolean;
   preview_running?: boolean;
   spool_bytes?: number | null;
@@ -51,6 +69,8 @@ export interface HubCreditoConsultJobShow {
   finished_at?: string | null;
   canceled_at?: string | null;
   cancel_reason?: string | null;
+  scheduled_for?: string | null;
+  paused_at?: string | null;
   created_at: string;
 }
 
@@ -66,6 +86,8 @@ const BASE = "/hubcredito-clt/consult-jobs";
 const HUBCREDITO_JOB_STATUSES: HubCreditoJobStatus[] = [
   "pendente",
   "em_progresso",
+  "agendado",
+  "pausado",
   "concluido",
   "falhou",
   "cancelado",
@@ -91,7 +113,7 @@ export async function listHubCreditoConsultJobs(
   return data;
 }
 
-export async function createHubCreditoConsultJob(input: { title: string; lines: string }) {
+export async function createHubCreditoConsultJob(input: { title: string; lines: string; run_at?: string; timezone?: string }) {
   const { data } = await axiosClient.post<{ id: number; status: HubCreditoJobStatus; phase?: HubCreditoJobPhase }>(
     BASE,
     input
@@ -161,6 +183,16 @@ export async function cancelHubCreditoConsultJob(id: number, reason?: string) {
     cancel_reason?: string | null;
     finished_at?: string | null;
   }>(`${BASE}/${id}/cancel`, reason ? { reason } : {});
+  return data;
+}
+
+export async function pauseHubCreditoConsultJob(id: number) {
+  const { data } = await axiosClient.post(`${BASE}/${id}/pause`);
+  return data;
+}
+
+export async function resumeHubCreditoConsultJob(id: number) {
+  const { data } = await axiosClient.post(`${BASE}/${id}/resume`);
   return data;
 }
 

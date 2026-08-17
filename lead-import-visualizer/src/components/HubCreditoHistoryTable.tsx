@@ -8,6 +8,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  Pause,
+  Play,
   AlertCircle,
   ChevronLeft,
   ChevronRight,
@@ -39,6 +41,8 @@ type Props = {
   loading?: boolean;
   onDownload: (id: number, opts?: { preview?: boolean }) => void;
   onCancel: (id: number) => Promise<void>;
+  onPause: (id: number) => Promise<void>;
+  onResume: (id: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onRefresh?: () => void;
   page: number;
@@ -61,6 +65,10 @@ function getStatusInfo(status: HubCreditoJobStatus) {
         className: "pointer-events-none select-none bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800",
         label: "Em andamento",
       };
+    case "agendado":
+      return { icon: <Clock className="w-4 h-4" />, className: "pointer-events-none select-none bg-violet-100 text-violet-800 border-violet-200", label: "Agendado" };
+    case "pausado":
+      return { icon: <Pause className="w-4 h-4" />, className: "pointer-events-none select-none bg-amber-100 text-amber-800 border-amber-200", label: "Pausado" };
     case "falhou":
       return {
         icon: <XCircle className="w-4 h-4" />,
@@ -88,14 +96,14 @@ function getPhaseInfo(phase: HubCreditoConsultJobListItem["phase"]) {
     return {
       className:
         "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800",
-      label: "Fase 1",
+      label: "Fase 1 • Pré-simulação",
     };
   }
   if (phase === "fase_2") {
     return {
       className:
         "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800",
-      label: "Fase 2",
+      label: "Fase 2 • Consulta e simulação",
     };
   }
   return null;
@@ -111,6 +119,10 @@ function calcSegments(i: HubCreditoConsultJobListItem) {
 }
 
 function SegmentedProgressBar({ item }: { item: HubCreditoConsultJobListItem }) {
+  if (item.executor === "api") return <div className="grid grid-cols-1 gap-4">
+    <Phase title="Consulta" processed={(item.phase1_submitted_count ?? 0) + (item.phase1_not_approved_count ?? 0) + (item.phase1_fail_count ?? 0)} total={item.total_cpfs} metrics={[[item.phase1_submitted_count ?? 0, "Enviados", "bg-blue-500"], [item.phase1_not_approved_count ?? 0, "Não aprovados", "bg-amber-500"], [item.phase1_fail_count ?? 0, "Falhas", "bg-red-500"]]} />
+    <Phase title="Política de crédito" processed={(item.phase2_approved_count ?? 0) + (item.phase2_not_approved_count ?? 0) + (item.phase2_fail_count ?? 0)} total={item.phase1_submitted_count ?? 0} metrics={[[item.phase2_approved_count ?? 0, "Aprovados", "bg-emerald-500"], [item.phase2_not_approved_count ?? 0, "Não aprovados", "bg-amber-500"], [item.phase2_fail_count ?? 0, "Falhas", "bg-red-500"]]} />
+  </div>;
   const s = calcSegments(item);
   const total = item.total_cpfs || 0;
   const processed = (item.aprovado_count + item.nao_aprovado_count + item.fail_count).toLocaleString();
@@ -173,11 +185,18 @@ function SegmentedProgressBar({ item }: { item: HubCreditoConsultJobListItem }) 
   );
 }
 
+function Phase({ title, processed, total, metrics }: { title: string; processed: number; total: number; metrics: [number, string, string][] }) {
+  const percent = total ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  return <div className="rounded-xl border border-border/70 bg-muted/5 p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><span className="text-sm font-semibold">{title}</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{processed.toLocaleString()} de {total.toLocaleString()} · {percent}%</span></div><div className="mb-3 h-2.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${percent}%` }} /></div><div className="flex flex-wrap items-center gap-3 text-xs">{metrics.map(([value, label, color]) => <span key={label} className="inline-flex items-center gap-1.5"><i className={`size-2 rounded-full ${color}`} /><span className="text-muted-foreground">{label}</span><b>{value.toLocaleString()}</b></span>)}</div></div>;
+}
+
 export const HubCreditoHistoryTable = ({
   items,
   loading,
   onDownload,
   onCancel,
+  onPause,
+  onResume,
   onDelete,
   page,
   lastPage,
@@ -192,13 +211,16 @@ export const HubCreditoHistoryTable = ({
   const canDownloadFinal = (i: HubCreditoConsultJobListItem) =>
     (i.status === "concluido" || i.status === "falhou" || i.status === "cancelado") && Boolean(i.has_file ?? i.file_path);
   const canDownloadPreview = (i: HubCreditoConsultJobListItem) =>
+    (i.executor === "api" && ["pendente", "em_progresso", "pausado"].includes(i.status)) ||
     i.status === "pendente" ||
     i.status === "em_progresso" ||
     (i.status === "cancelado" && (Boolean(i.spool_path) || Number(i.spool_bytes ?? 0) > 0));
-  const canCancel = (i: HubCreditoConsultJobListItem) => i.status === "pendente" || i.status === "em_progresso";
+  const canPause = (i: HubCreditoConsultJobListItem) => i.executor === "api" && (i.status === "pendente" || i.status === "em_progresso");
+  const canResume = (i: HubCreditoConsultJobListItem) => i.executor === "api" && i.status === "pausado";
+  const canCancel = (i: HubCreditoConsultJobListItem) => ["agendado", "pendente", "em_progresso", "pausado"].includes(i.status);
   const isCancelStopPending = (i: HubCreditoConsultJobListItem) => i.status === "cancelado" && !i.finished_at;
   const canDelete = (i: HubCreditoConsultJobListItem) =>
-    !(i.status === "pendente" || i.status === "em_progresso" || isCancelStopPending(i));
+    !(["agendado", "pendente", "em_progresso", "pausado"].includes(i.status) || isCancelStopPending(i));
 
   const executeCancel = async () => {
     if (!confirmJob) return;
@@ -243,9 +265,13 @@ export const HubCreditoHistoryTable = ({
       ) : (
         items.map((i) => {
           const statusInfo = getStatusInfo(i.status as HubCreditoJobStatus);
-          const phaseInfo = i.phase && (i.status === "pendente" || i.status === "em_progresso")
+          const phaseInfo = i.phase && ["agendado", "pendente", "em_progresso", "pausado"].includes(i.status)
             ? getPhaseInfo(i.phase)
             : null;
+          const phaseAndStatusInfo = phaseInfo
+            ? { icon: statusInfo.icon, className: statusInfo.className, label: `${phaseInfo.label} • ${statusInfo.label}` }
+            : statusInfo;
+          const isActive = i.status === "pendente" || i.status === "em_progresso";
           const finalReady = canDownloadFinal(i);
           const previewReady = canDownloadPreview(i);
           const downloadDisabled = !finalReady && !previewReady;
@@ -254,10 +280,10 @@ export const HubCreditoHistoryTable = ({
             <Card
               key={i.id}
               className={cn(
-                "relative rounded-xl border border-slate-200/80 dark:border-neutral-700/80",
-                "bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80",
-                "shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10",
-                "transition-shadow"
+                "relative rounded-xl border transition-all duration-500",
+                isActive
+                  ? "border-blue-400/60 dark:border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] dark:shadow-[0_0_15px_rgba(59,130,246,0.1)] bg-blue-50/40 dark:bg-blue-900/10 ring-1 ring-blue-400/20"
+                  : "border-slate-200/80 dark:border-neutral-700/80 bg-gradient-to-b from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-900/80 shadow-md hover:shadow-lg ring-1 ring-black/5 dark:ring-white/10"
               )}
             >
               <CardHeader className="pb-3">
@@ -267,6 +293,7 @@ export const HubCreditoHistoryTable = ({
                       <h3 className="font-semibold text-card-foreground truncate mb-1 text-base sm:text-lg">{i.title}</h3>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
                         <span>Criado em {formatDateTimeBR(i.created_at)}</span>
+                        {i.scheduled_for && <span>Agendado para {formatDateTimeBR(i.scheduled_for)}</span>}
                       </div>
                     </div>
 
@@ -278,7 +305,9 @@ export const HubCreditoHistoryTable = ({
                             <span className="sr-only">Mais ações</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-56">
+                          {canPause(i) && <DropdownMenuItem onClick={() => void onPause(i.id)}><Pause className="w-4 h-4 mr-2" />Pausar</DropdownMenuItem>}
+                          {canResume(i) && <DropdownMenuItem onClick={() => void onResume(i.id)}><Play className="w-4 h-4 mr-2" />Retomar</DropdownMenuItem>}
                           {canCancel(i) && (
                             <DropdownMenuItem onClick={() => setConfirmJob(i)} className="text-orange-600 dark:text-orange-400">
                               <X className="w-4 h-4 mr-2" />
@@ -299,19 +328,9 @@ export const HubCreditoHistoryTable = ({
                     </div>
 
                     <div className="hidden sm:flex flex-wrap items-center justify-end gap-2 sm:gap-3 ml-4">
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 text-xs border",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
-                        {statusInfo.icon}
-                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", phaseAndStatusInfo.className)}>
+                        {phaseAndStatusInfo.icon}
+                        <span className="whitespace-nowrap">{phaseAndStatusInfo.label}</span>
                       </Badge>
 
                       <Button
@@ -333,7 +352,9 @@ export const HubCreditoHistoryTable = ({
                             <span className="sr-only">Mais ações</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-56">
+                          {canPause(i) && <DropdownMenuItem onClick={() => void onPause(i.id)}><Pause className="w-4 h-4 mr-2" />Pausar</DropdownMenuItem>}
+                          {canResume(i) && <DropdownMenuItem onClick={() => void onResume(i.id)}><Play className="w-4 h-4 mr-2" />Retomar</DropdownMenuItem>}
                           {canCancel(i) && (
                             <DropdownMenuItem onClick={() => setConfirmJob(i)} className="text-orange-600 dark:text-orange-400">
                               <X className="w-4 h-4 mr-2" />
@@ -356,19 +377,9 @@ export const HubCreditoHistoryTable = ({
 
                   <div className="sm:hidden flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      {phaseInfo && (
-                        <Badge
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 text-xs border",
-                            phaseInfo.className
-                          )}
-                        >
-                          <span className="whitespace-nowrap">{phaseInfo.label}</span>
-                        </Badge>
-                      )}
-                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", statusInfo.className)}>
-                        {statusInfo.icon}
-                        <span className="whitespace-nowrap">{statusInfo.label}</span>
+                      <Badge className={cn("flex items-center gap-1.5 px-2.5 py-1 text-xs", phaseAndStatusInfo.className)}>
+                        {phaseAndStatusInfo.icon}
+                        <span className="whitespace-nowrap">{phaseAndStatusInfo.label}</span>
                       </Badge>
                     </div>
 
