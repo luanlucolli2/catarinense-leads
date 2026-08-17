@@ -6,7 +6,8 @@ use App\Models\ImportJob;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Http\Controllers\Controller;
-use App\Modules\Leads\Services\RollbackService;
+use App\Modules\Leads\Jobs\RollbackLeadImportJob;
+use Illuminate\Support\Facades\DB;
 class RollbackController extends Controller
 {
     /**
@@ -33,6 +34,15 @@ class RollbackController extends Controller
                 'error' => 'Esta importação já foi revertida.'
             ], 422);
         }
+        if ($job->status === 'rollback_falhou') {
+            DB::table('import_jobs')->where('id', $job->id)->update([
+                'status' => 'revertendo',
+                'updated_at' => now(),
+            ]);
+            RollbackLeadImportJob::dispatch($job->id);
+            return response()->json(['message' => 'Nova tentativa de reversão iniciada.', 'status' => 'revertendo'], 202);
+        }
+
         if ($job->status !== 'concluido') {
             return response()->json([
                 'error' => 'Somente importações concluídas podem ser revertidas.'
@@ -56,11 +66,19 @@ class RollbackController extends Controller
             ], 403);
         }
 
-        // executa rollback de forma síncrona (pode demorar!)
-        (new RollbackService())->rollback($job);
+        DB::table('import_jobs')
+            ->where('id', $job->id)
+            ->where('status', 'concluido')
+            ->update([
+                'status' => 'revertendo',
+                'rollback_final_status' => 'revertido',
+                'updated_at' => now(),
+            ]);
+        RollbackLeadImportJob::dispatch($job->id);
 
         return response()->json([
-            'message' => 'Rollback concluído com sucesso.',
-        ], 200);
+            'message' => 'Reversão iniciada.',
+            'status' => 'revertendo',
+        ], 202);
     }
 }

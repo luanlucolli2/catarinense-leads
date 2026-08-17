@@ -27,8 +27,6 @@ class ImportController extends Controller
         return [
             'cadastral' => ['csv'],
             'higienizacao' => ['csv'],
-            'clt' => ['xlsx', 'xls'],
-            'mercantil' => ['csv'],
         ];
     }
 
@@ -44,7 +42,7 @@ class ImportController extends Controller
             return array_values(array_unique(array_map('strtolower', $typeAllowed)));
         }
 
-        $fallback = array_values(array_filter((array) config('leads.import.mimes', ['xlsx', 'xls'])));
+        $fallback = array_values(array_filter((array) config('leads.import.mimes', ['csv'])));
         return array_values(array_unique(array_map('strtolower', $fallback)));
     }
 
@@ -65,9 +63,9 @@ class ImportController extends Controller
 
     public function store(Request $request)
     {
-        $types = array_values(array_filter((array) config('leads.import.types', ['cadastral', 'higienizacao', 'clt', 'mercantil'])));
+        $types = array_values(array_filter((array) config('leads.import.types', ['cadastral', 'higienizacao'])));
         if (empty($types)) {
-            $types = ['cadastral', 'higienizacao', 'clt', 'mercantil'];
+            $types = ['cadastral', 'higienizacao'];
         }
 
         $validated = $request->validate([
@@ -192,6 +190,7 @@ class ImportController extends Controller
             'processed_rows',
             'started_at',
             'finished_at',
+            'rolled_back_at',
         ]);
 
         return response()->json($jobs);
@@ -211,18 +210,23 @@ class ImportController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
-        DB::table('import_jobs')
+        $cancelled = DB::table('import_jobs')
             ->where('id', $importJob->id)
             ->whereIn('status', ['pendente', 'em_progresso'])
             ->update([
-                'status' => 'cancelado',
-                'finished_at' => now(),
+                'status' => 'cancelamento_solicitado',
                 'updated_at' => now(),
             ]);
+        if ($cancelled === 0) {
+            return response()->json([
+                'message' => 'Não foi possível cancelar esta importação.',
+            ], Response::HTTP_CONFLICT);
+        }
 
         return response()->json([
-            'message' => 'Importação cancelada.',
-        ]);
+            'message' => 'Cancelamento solicitado. As alterações serão revertidas.',
+            'status' => 'cancelamento_solicitado',
+        ], Response::HTTP_ACCEPTED);
     }
 
     public function errors(Request $request, ImportJob $importJob)

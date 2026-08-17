@@ -21,6 +21,7 @@ class ImportJob extends Model
         'started_at',
         'finished_at',
         'rolled_back_at',      // ✅ agora permitido
+        'rollback_final_status',
         'total_rows',
         'processed_rows',
     ];

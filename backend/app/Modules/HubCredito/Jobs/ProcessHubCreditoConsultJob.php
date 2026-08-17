@@ -47,7 +47,7 @@ class ProcessHubCreditoConsultJob implements ShouldQueue, ShouldBeUnique
     public function __construct(int $jobId)
     {
         $this->jobId = $jobId;
-        $this->timeout = (int) config('hubcredito.job.timeout_seconds', 10800);
+        $this->timeout = (int) config('hubcredito.job.timeout_seconds', 259200);
         $this->disk = (string) config('hubcredito.storage.reports_disk', 'local');
         $this->dirSpool = (string) config('hubcredito.storage.dir_spool', 'hubcredito-spool');
         $this->finalPrefix = (string) config('hubcredito.storage.final_prefix', 'hubcredito-consulta');

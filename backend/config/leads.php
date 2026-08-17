@@ -19,13 +19,11 @@ return [
     |--------------------------------------------------------------------------
     */
     'import' => [
-        'mimes' => ['xlsx', 'xls', 'csv'],
-        'types' => ['cadastral', 'higienizacao', 'clt', 'mercantil'],
+        'mimes' => ['csv'],
+        'types' => ['cadastral', 'higienizacao'],
         'allowed_extensions' => [
             'cadastral' => ['csv'],
             'higienizacao' => ['csv'],
-            'clt' => ['xlsx', 'xls'],
-            'mercantil' => ['csv'],
         ],
         'default_origin' => 'Upload Padrão',
 
@@ -39,45 +37,23 @@ return [
         'storage' => [
             'disk' => 'local',
             'directory' => 'imports',
-            'fallback_disks' => ['public'],
         ],
 
-        'in_progress_statuses' => ['pendente', 'em_progresso'],
+        'in_progress_statuses' => [
+            'pendente',
+            'em_progresso',
+            'cancelamento_solicitado',
+            'revertendo',
+            'rollback_falhou',
+        ],
 
-        'chunk_size' => 1000,
-        'db_batch_size' => (int) env('LEADS_IMPORT_DB_BATCH_SIZE', 500),
+        'batch_size' => (int) env('LEADS_IMPORT_BATCH_SIZE', 1000),
         'max_errors_per_job' => (int) env('LEADS_IMPORT_MAX_ERRORS_PER_JOB', 5000),
-        'vendor_cache_max' => (int) env('LEADS_IMPORT_VENDOR_CACHE_MAX', 5000),
-        'pre_count_total_rows' => filter_var(env('LEADS_IMPORT_PRE_COUNT_TOTAL_ROWS', true), FILTER_VALIDATE_BOOL),
+        'stale_seconds' => (int) env('LEADS_IMPORT_STALE_SECONDS', 900),
+        'pending_stale_seconds' => (int) env('LEADS_IMPORT_PENDING_STALE_SECONDS', 86400),
         'csv' => [
             'delimiter' => (string) env('LEADS_IMPORT_CSV_DELIMITER', ';'),
             'enclosure' => (string) env('LEADS_IMPORT_CSV_ENCLOSURE', '"'),
-        ],
-        'mercantil' => [
-            'chunk_size' => (int) env('LEADS_IMPORT_MERCANTIL_CHUNK_SIZE', 500),
-            'csv' => [
-                'delimiter' => (string) env('LEADS_IMPORT_MERCANTIL_CSV_DELIMITER', ';'),
-                'enclosure' => (string) env('LEADS_IMPORT_MERCANTIL_CSV_ENCLOSURE', '"'),
-            ],
-            'ignored_statuses' => [
-                'CAMPO_CELULAR_TRAVADO',
-                'ERRO_AUTORIZACAO_DIGITAL',
-                'ERRO_AUTORIZACAO_DIGITAL_MAIN',
-                'ERRO_DESCONHECIDO',
-                'ERRO_EXTRACAO',
-                'ERRO_EXTRACAO_DOM',
-                'ERRO_FATAL',
-                'ERRO_LINK_NAO_APARECEU',
-                'ERRO_LINK_VAZIO',
-                'ERRO_SISTEMA_POS_AUTH',
-                'ERRO_TELA_GENERICA_FINAL',
-                'ERRO_TELA_SIMULACAO',
-                'SESSAO_EXPIRADA',
-                'TIMEOUT_CONSULTA',
-                'TIMEOUT_LISTA_PRODUTOS',
-                'TIMEOUT_RESULTADO_FINAL',
-                'TIMEOUT_SIMULACAO',
-            ],
         ],
     ],
 

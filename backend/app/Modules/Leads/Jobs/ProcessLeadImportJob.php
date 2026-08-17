@@ -3,404 +3,152 @@
 namespace App\Modules\Leads\Jobs;
 
 use App\Models\ImportJob;
-use App\Models\ImportError;
 use App\Modules\Leads\Imports\CadastralImport;
+use App\Modules\Leads\Imports\Exceptions\ImportCancelledException;
+use App\Modules\Leads\Imports\Exceptions\ImportHeaderException;
 use App\Modules\Leads\Imports\HigienizacaoImport;
-use App\Modules\Leads\Imports\FactaCltSnapshotImport;
-use App\Modules\Leads\Imports\MercantilCsvImport;
-use Maatwebsite\Excel\Facades\Excel;
-use Maatwebsite\Excel\Excel as ExcelReaderType;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
-use PhpOffice\PhpSpreadsheet\Reader\Exception as ReaderException;
 
 class ProcessLeadImportJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public ImportJob $importJob;
+    public int $timeout = 0;
+    public int $tries = 1;
 
-    public function __construct(ImportJob $importJob)
+    public function __construct(public ImportJob $importJob)
     {
-        $this->importJob = $importJob;
-        // Forca o job a ir para a fila configurada para importacao de leads
         $this->onQueue((string) config('leads.import.queue', 'imports'));
     }
 
     public function handle(): void
     {
         $this->importJob->refresh();
-        if ($this->importJob->status === 'cancelado') {
-            return;
-        }
-
-        $this->importJob->update([
-            'status'     => 'em_progresso',
-            'started_at' => $this->importJob->started_at ?? now(),
-        ]);
-        $this->importJob->refresh();
-        if ($this->importJob->status === 'cancelado') {
-            return;
-        }
-
-        // caminho relativo salvo no job (ex.: "imports/abc.xlsx")
         $uploadPath = $this->importJob->file_path;
 
         try {
-            $primaryDisk = (string) config('leads.import.storage.disk', 'local');
-            $fallbackDisks = array_values(array_filter((array) config('leads.import.storage.fallback_disks', ['public'])));
-
-            $disk = $primaryDisk;
-            $path = $this->importJob->file_path;
-
-            $exists = Storage::disk($disk)->exists($path);
-            $fullPath = $exists ? Storage::disk($disk)->path($path) : null;
-
-            if (!$exists) {
-                foreach ($fallbackDisks as $fallbackDisk) {
-                    if ($fallbackDisk === '' || $fallbackDisk === $disk) {
-                        continue;
-                    }
-
-                    if (Storage::disk($fallbackDisk)->exists($path)) {
-                        $disk = $fallbackDisk;
-                        $fullPath = Storage::disk($fallbackDisk)->path($path);
-                        $exists = true;
-                        break;
-                    }
-                }
+            if ($this->importJob->status === 'cancelamento_solicitado') {
+                $this->startRollback('cancelado');
+                return;
             }
-
-            if (!$exists || !$fullPath || !is_file($fullPath) || !is_readable($fullPath)) {
-                throw new \RuntimeException('Arquivo de importação não encontrado ou ilegível: ' . ($fullPath ?? $path));
-            }
-
-            $type = $this->importJob->type;
-
-            if ($type === 'mercantil') {
-                [$missing, $totalRows] = $this->inspectMercantilCsv($fullPath);
-
-                if (!empty($missing)) {
-                    foreach ($missing as $h) {
-                        ImportError::create([
-                            'import_job_id' => $this->importJob->id,
-                            'row_number'    => 1,
-                            'column_name'   => $h,
-                            'error_message' => 'Cabeçalho ausente.',
-                        ]);
-                    }
-                    $this->importJob->update([
-                        'status'      => 'falhou',
-                        'finished_at' => now(),
-                    ]);
-                    return;
-                }
-
-                if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
-                    $this->importJob->update(['total_rows' => (int) $totalRows]);
-                }
-
-                (new MercantilCsvImport($this->importJob))->process($fullPath);
+            if ($this->importJob->status !== 'pendente') {
                 return;
             }
 
-            if ($type === 'cadastral' || $type === 'higienizacao') {
-                [$missing, $totalRows] = $this->inspectLeadCsv($fullPath, $type);
-
-                if (!empty($missing)) {
-                    foreach ($missing as $h) {
-                        ImportError::create([
-                            'import_job_id' => $this->importJob->id,
-                            'row_number'    => 1,
-                            'column_name'   => $h,
-                            'error_message' => 'Cabeçalho ausente.',
-                        ]);
-                    }
-                    $this->importJob->update([
-                        'status'      => 'falhou',
-                        'finished_at' => now(),
-                    ]);
-                    return;
-                }
-
-                if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
-                    $this->importJob->update(['total_rows' => (int) $totalRows]);
-                }
-
-                $importer = $type === 'cadastral'
-                    ? new CadastralImport($this->importJob, app(\App\Services\BackupService::class))
-                    : new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class));
-
-                $importer->process($fullPath);
-                return;
-            }
-
-            // pré-validação leve (Excel)
-            if ($type !== 'facta') {
-                $requiredHeaders = ($type === 'cadastral' ? CadastralImport::REQUIRED_HEADERS : HigienizacaoImport::REQUIRED_HEADERS);
-                $headers = $this->readHeaders($fullPath);
-                $missing = $this->diffMissingHeadersIndexed($headers, $requiredHeaders);
-                if (!empty($missing)) {
-                    foreach ($missing as $h) {
-                        ImportError::create([
-                            'import_job_id' => $this->importJob->id,
-                            'row_number'    => 1,
-                            'column_name'   => $h,
-                            'error_message' => 'Cabeçalho ausente.',
-                        ]);
-                    }
-                    $this->importJob->update([
-                        'status'      => 'falhou',
-                        'finished_at' => now(),
-                    ]);
-                    return;
-                }
-            }
-
-            // Contagem prévia é opcional (evita uma passagem extra no arquivo em ambientes restritos).
-            if ($this->shouldPreCountTotalRows($type)) {
-                try {
-                    $totalRows = $this->quickTotalRows($fullPath);
-                    if ($totalRows > 0 && (int) $this->importJob->total_rows !== (int) $totalRows) {
-                        $this->importJob->update(['total_rows' => (int) $totalRows]);
-                    }
-                } catch (ReaderException $e) {
-                }
-            }
-
-            // importar
-            $importer = match ($type) {
-                'cadastral'    => new CadastralImport($this->importJob, app(\App\Services\BackupService::class)),
-                'higienizacao' => new HigienizacaoImport($this->importJob, app(\App\Services\BackupService::class)),
-                'facta'          => new FactaCltSnapshotImport($this->importJob),
-                default        => throw new \InvalidArgumentException("Tipo de import não suportado: {$type}"),
-            };
-
-            $ext = strtolower(pathinfo($this->importJob->file_name ?? $fullPath, PATHINFO_EXTENSION));
-            $readerType = $ext === 'xls' ? ExcelReaderType::XLS : ExcelReaderType::XLSX;
-
-            Excel::import($importer, $fullPath, null, $readerType);
-
-        } catch (Throwable $e) {
-            $this->importJob->refresh();
-            if ($this->importJob->status === 'cancelado') {
-                return;
-            }
-
-            $this->importJob->update([
-                'status'      => 'falhou',
-                'finished_at' => now(),
+            DB::table('import_jobs')->where('id', $this->importJob->id)->where('status', 'pendente')->update([
+                'status' => 'em_progresso',
+                'started_at' => $this->importJob->started_at ?? now(),
+                'updated_at' => now(),
             ]);
-            Log::error("Falha na importação do Job ID {$this->importJob->id}", ['exception' => $e]);
+            $this->importJob->refresh();
+            if ($this->importJob->status === 'cancelamento_solicitado') {
+                $this->startRollback('cancelado');
+                return;
+            }
+
+            $path = $this->uploadedFilePath();
+            $processor = match ($this->importJob->type) {
+                'cadastral' => new CadastralImport($this->importJob),
+                'higienizacao' => new HigienizacaoImport($this->importJob),
+                default => throw new \InvalidArgumentException('Tipo de importação não suportado: ' . $this->importJob->type),
+            };
+            $processor->process($path);
+        } catch (ImportHeaderException $e) {
+            $this->markHeaderFailure($e);
+        } catch (ImportCancelledException) {
+            $this->startRollback('cancelado');
+        } catch (Throwable $e) {
+            $this->markFatalFailure($e);
         } finally {
-            // apaga o arquivo enviado, independente de sucesso ou falha
-            try {
-                $this->deleteUploadedFile($uploadPath);
-            } catch (Throwable $t) {
-                Log::warning("Não foi possível apagar o arquivo do Job ID {$this->importJob->id}", ['path' => $uploadPath, 'exception' => $t]);
-            }
+            $this->deleteUploadedFile($uploadPath);
         }
     }
 
-    private function readHeaders(string $fullPath): array
+    private function markHeaderFailure(ImportHeaderException $e): void
     {
-        $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-        $readerName = $ext === 'xls' ? 'Xls' : 'Xlsx';
-
-        $reader = IOFactory::createReader($readerName);
-        $reader->setReadDataOnly(true);
-        $reader->setReadFilter(new HeaderRowReadFilter(1));
-
-        $spreadsheet = $reader->load($fullPath);
-        $sheet = $spreadsheet->getSheet(0);
-
-        $highestColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
-        $headers = [];
-        for ($col = 1; $col <= $highestColIndex; $col++) {
-            $val = $sheet->getCellByColumnAndRow($col, 1)->getValue();
-            $headers[$col] = is_string($val) ? \Illuminate\Support\Str::slug($val, '_') : '';
-        }
-
-        $spreadsheet->disconnectWorksheets();
-        unset($sheet, $spreadsheet);
-
-        return $headers;
+        DB::transaction(function () use ($e): void {
+            $now = now();
+            $rows = array_map(fn (string $header) => [
+                'import_job_id' => $this->importJob->id,
+                'row_number' => 1,
+                'column_name' => $header,
+                'error_message' => 'Cabeçalho ausente.',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $e->missing);
+            if ($rows !== []) DB::table('import_errors')->insert($rows);
+            DB::table('import_jobs')->where('id', $this->importJob->id)->update([
+                'status' => 'falhou',
+                'finished_at' => $now,
+                'updated_at' => $now,
+            ]);
+        });
     }
 
-    private function quickTotalRows(string $fullPath): int
+    private function markFatalFailure(Throwable $e): void
     {
-        $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-        $readerInfo = $ext === 'xls'
-            ? new \PhpOffice\PhpSpreadsheet\Reader\Xls()
-            : new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
-
-        $info = $readerInfo->listWorksheetInfo($fullPath);
-        return max((int)(($info[0]['totalRows'] ?? 1) - 1), 0);
+        Log::error('Falha na importação de leads.', ['import_job_id' => $this->importJob->id, 'exception' => $e]);
+        DB::table('import_errors')->insert([
+            'import_job_id' => $this->importJob->id,
+            'row_number' => 0,
+            'column_name' => 'Geral',
+            'error_message' => 'Falha técnica durante a importação. As alterações serão revertidas.',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->startRollback('falhou');
     }
 
-    private function shouldPreCountTotalRows(string $type): bool
+    private function startRollback(string $finalStatus): void
     {
-        if ($type === 'facta') {
-            return true;
+        if (DB::table('import_jobs')->where('id', $this->importJob->id)->value('status') === 'cancelamento_solicitado') {
+            $finalStatus = 'cancelado';
         }
 
-        return (bool) config('leads.import.pre_count_total_rows', true);
+        $updated = DB::table('import_jobs')
+            ->where('id', $this->importJob->id)
+            ->whereIn('status', ['pendente', 'em_progresso', 'cancelamento_solicitado'])
+            ->update([
+                'status' => 'revertendo',
+                'rollback_final_status' => $finalStatus,
+                'updated_at' => now(),
+            ]);
+
+        if ($updated > 0) {
+            RollbackLeadImportJob::dispatch($this->importJob->id);
+        }
     }
 
-    private function diffMissingHeadersIndexed(array $presentByIndex, array $requiredOriginal): array
+    private function uploadedFilePath(): string
     {
-        $present = array_values($presentByIndex);
-        $normalizedRequired = array_map(fn ($h) => \Illuminate\Support\Str::slug($h, '_'), $requiredOriginal);
-
-        $missing = [];
-        foreach ($normalizedRequired as $i => $slugReq) {
-            if (!in_array($slugReq, $present, true)) {
-                $missing[] = $requiredOriginal[$i];
-            }
+        $disk = (string) config('leads.import.storage.disk', 'local');
+        $path = $this->importJob->file_path;
+        if (!Storage::disk($disk)->exists($path)) {
+            throw new \RuntimeException('Arquivo de importação não encontrado.');
         }
-        return $missing;
+        $fullPath = Storage::disk($disk)->path($path);
+        if (!is_file($fullPath) || !is_readable($fullPath)) {
+            throw new \RuntimeException('Arquivo de importação ilegível.');
+        }
+        return $fullPath;
     }
 
-    /**
-     * @return array{0: array<int, string>, 1: int}
-     */
-    private function inspectMercantilCsv(string $fullPath): array
+    private function deleteUploadedFile(?string $path): void
     {
-        $handle = fopen($fullPath, 'rb');
-        if (!$handle) {
-            throw new \RuntimeException("Não foi possível abrir o CSV Mercantil: {$fullPath}");
-        }
-
+        if (!$path) return;
+        $disk = (string) config('leads.import.storage.disk', 'local');
         try {
-            $delimiter = (string) config('leads.import.mercantil.csv.delimiter', ';');
-            $enclosure = (string) config('leads.import.mercantil.csv.enclosure', '"');
-            $delimiter = $delimiter !== '' ? $delimiter[0] : ';';
-            $enclosure = $enclosure !== '' ? $enclosure[0] : '"';
-
-            $headers = fgetcsv($handle, 0, $delimiter, $enclosure);
-            if ($headers === false) {
-                return [MercantilCsvImport::requiredFieldLabels(), 0];
-            }
-
-            $missing = MercantilCsvImport::missingRequiredFields($headers);
-
-            $totalRows = 0;
-            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
-                if ($this->isCsvRowEmpty($row)) {
-                    continue;
-                }
-
-                $totalRows++;
-            }
-
-            return [$missing, $totalRows];
-        } finally {
-            fclose($handle);
+            Storage::disk($disk)->delete($path);
+        } catch (Throwable $e) {
+            Log::warning('Não foi possível apagar arquivo de importação.', ['import_job_id' => $this->importJob->id, 'exception' => $e]);
         }
     }
-
-    /**
-     * @return array{0: array<int, string>, 1: int}
-     */
-    private function inspectLeadCsv(string $fullPath, string $type): array
-    {
-        $handle = fopen($fullPath, 'rb');
-        if (!$handle) {
-            throw new \RuntimeException("Não foi possível abrir o CSV de importação: {$fullPath}");
-        }
-
-        try {
-            $delimiter = $this->csvDelimiter();
-            $enclosure = $this->csvEnclosure();
-
-            $headers = fgetcsv($handle, 0, $delimiter, $enclosure);
-            if ($headers === false) {
-                $required = $type === 'cadastral'
-                    ? CadastralImport::REQUIRED_HEADERS
-                    : HigienizacaoImport::REQUIRED_HEADERS;
-                return [$required, 0];
-            }
-
-            $missing = $type === 'cadastral'
-                ? CadastralImport::missingRequiredHeaders($headers)
-                : HigienizacaoImport::missingRequiredHeaders($headers);
-
-            $totalRows = 0;
-            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure)) !== false) {
-                if ($this->isCsvRowEmpty($row)) {
-                    continue;
-                }
-                $totalRows++;
-            }
-
-            return [$missing, $totalRows];
-        } finally {
-            fclose($handle);
-        }
-    }
-
-    /**
-     * @param array<int, string> $row
-     */
-    private function isCsvRowEmpty(array $row): bool
-    {
-        foreach ($row as $value) {
-            if (trim((string) $value) !== '') {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function csvDelimiter(): string
-    {
-        $configured = (string) config('leads.import.csv.delimiter', ';');
-        return $configured !== '' ? $configured[0] : ';';
-    }
-
-    private function csvEnclosure(): string
-    {
-        $configured = (string) config('leads.import.csv.enclosure', '"');
-        return $configured !== '' ? $configured[0] : '"';
-    }
-
-    private function deleteUploadedFile(?string $relativePath): void
-    {
-        if (!$relativePath) return;
-
-        $primaryDisk = (string) config('leads.import.storage.disk', 'local');
-        $fallbackDisks = array_values(array_filter((array) config('leads.import.storage.fallback_disks', ['public'])));
-        $disks = array_values(array_unique(array_filter(array_merge([$primaryDisk], $fallbackDisks))));
-        if (empty($disks)) {
-            $disks = ['local', 'public'];
-        }
-
-        // tenta apagar no disco principal e nos discos de fallback
-        foreach ($disks as $disk) {
-            try {
-                if (Storage::disk($disk)->exists($relativePath)) {
-                    Storage::disk($disk)->delete($relativePath);
-                }
-            } catch (Throwable $t) {
-                // continua tentando nos demais discos
-            }
-        }
-    }
-}
-
-/* ReadFilter inalterado */
-class HeaderRowReadFilter implements IReadFilter
-{
-    private int $row;
-    public function __construct(int $row = 1) { $this->row = $row; }
-    public function readCell($column, $row, $worksheetName = '') { return $row === $this->row; }
 }

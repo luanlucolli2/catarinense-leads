@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
 import { useQuery, keepPreviousData } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { usePersistedState } from "@/hooks/usePersistedState"
 
@@ -405,6 +406,7 @@ const DASHBOARD_360_EXPORT_COLUMN_MAP: Record<string, string> = {
 }
 
 const Dashboard = () => {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = usePersistedState<ActiveTab>("dashboard:activeTab", "360")
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(10)
@@ -2160,6 +2162,7 @@ const Dashboard = () => {
         onImportSuccess={() => {
           refetch()
           refetchTotalLeads()
+          navigate("/leads/importacoes")
         }}
       />
 

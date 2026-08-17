@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils"; // Import `cn` para classes condicionais
 
+const ACTIVE_IMPORT_STATUSES = new Set([
+  "pendente",
+  "em_progresso",
+  "cancelamento_solicitado",
+  "revertendo",
+]);
+
 const HistoricoPage = () => {
   const queryClient = useQueryClient();
   const [selectedJob, setSelectedJob] = useState<ImportJob | null>(null);
@@ -39,6 +46,7 @@ const HistoricoPage = () => {
     queryKey: ["importJobs"],
     queryFn: listImportJobs,
     staleTime: 0,
+    refetchInterval: query => query.state.data?.some(job => ACTIVE_IMPORT_STATUSES.has(job.status)) ? 2000 : false,
     refetchOnWindowFocus: true,
   });
 
@@ -75,7 +83,6 @@ const HistoricoPage = () => {
     setLoadingRollback(job.id);
     try {
       await rollbackImportJob(job.id);
-      toast.success("Rollback da importação concluído com sucesso.");
       await queryClient.invalidateQueries({ queryKey: ["importJobs"] });
       setConfirmJob(null); // Fecha o modal SÓ no sucesso
     } catch (err: any) {
@@ -90,7 +97,6 @@ const HistoricoPage = () => {
     setLoadingCancel(job.id);
     try {
       await cancelImportJob(job.id);
-      toast.success("Importação cancelada.");
       await queryClient.invalidateQueries({ queryKey: ["importJobs"] });
       setCancelJobConfirm(null);
     } catch (err: any) {
@@ -103,18 +109,29 @@ const HistoricoPage = () => {
   const formatDateStr = (date: string | null) =>
     date ? format(new Date(date), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-";
 
+  const formatProgress = (job: ImportJob) => {
+    if (job.totalRows === 0) return `${job.processedRows} linhas processadas`;
+
+    const percent = Math.min(100, Math.floor(job.processedRows / job.totalRows * 100));
+    return `${job.processedRows}/${job.totalRows} (${percent}%)`;
+  };
+
   const getStatusBadge = (status: ImportJob["status"]) => {
     const map = {
       concluido: "bg-green-100 text-green-800",
       revertido: "bg-gray-200 text-gray-800",
       falhou: "bg-red-100 text-red-800",
       cancelado: "bg-amber-100 text-amber-800",
+      cancelamento_solicitado: "bg-amber-100 text-amber-800 animate-pulse",
+      revertendo: "bg-blue-100 text-blue-800 animate-pulse",
+      rollback_falhou: "bg-red-100 text-red-800",
       pendente: "bg-blue-100 text-blue-800",
       em_progresso: "bg-blue-100 text-blue-800 animate-pulse",
     } as const;
     const label = {
       concluido: "Concluído", revertido: "Revertido",
       em_progresso: "Em progresso", pendente: "Pendente", falhou: "Falhou", cancelado: "Cancelado",
+      cancelamento_solicitado: "Cancelando", revertendo: "Revertendo", rollback_falhou: "Falha ao reverter",
     } as const;
     return <Badge variant="outline" className={cn("border-transparent", map[status])}>{label[status]}</Badge>;
   };
@@ -168,6 +185,7 @@ const HistoricoPage = () => {
                 <TableHead>Origem</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Progresso</TableHead>
                 <TableHead>Erros</TableHead>
                 <TableHead>Início</TableHead>
                 <TableHead>Término</TableHead>
@@ -178,7 +196,7 @@ const HistoricoPage = () => {
 
             <TableBody>
               {jobs.map(job => {
-                const isRollbackTarget = job.id === lastRollbackEligibleJobId;
+                const isRollbackTarget = job.id === lastRollbackEligibleJobId || job.status === "rollback_falhou";
                 const rollbackDisabled = !isRollbackTarget;
                 const cancellable = job.status === "pendente" || job.status === "em_progresso";
 
@@ -188,6 +206,7 @@ const HistoricoPage = () => {
                     <TableCell className="truncate">{job.origin}</TableCell>
                     <TableCell>{getTypeBadge(job.type)}</TableCell>
                     <TableCell>{getStatusBadge(job.status)}</TableCell>
+                    <TableCell className="text-sm text-gray-600">{formatProgress(job)}</TableCell>
                     <TableCell className="font-semibold">
                       <span className={job.errorsCount > 0 ? "text-red-600" : "text-gray-500"}>
                         {job.errorsCount}
@@ -233,7 +252,7 @@ const HistoricoPage = () => {
         {/* mobile */}
         <div className="lg:hidden space-y-4 p-4">
           {jobs.map(job => {
-            const isRollbackTarget = job.id === lastRollbackEligibleJobId;
+            const isRollbackTarget = job.id === lastRollbackEligibleJobId || job.status === "rollback_falhou";
             const rollbackDisabled = !isRollbackTarget;
             const cancellable = job.status === "pendente" || job.status === "em_progresso";
 
@@ -265,6 +284,7 @@ const HistoricoPage = () => {
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 border-t pt-2 mt-2">
+                  <p>Progresso: {formatProgress(job)}</p>
                   <p>Início: {formatDateStr(job.startedAt)}</p>
                   <p>Término: {formatDateStr(job.finishedAt)}</p>
                   <p>Por: <strong>{job.user.name}</strong></p>

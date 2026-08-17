@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 import { startImport } from "@/api/importJobs"
-import { useImportProgressCtx } from "@/contexts/ImportProgressContext"
 import { toast } from "sonner"              /* ✅ usar sonner direto */
 
 interface ImportModalProps {
@@ -14,7 +13,7 @@ interface ImportModalProps {
   onImportSuccess: () => void
 }
 
-type ImportType = "cadastral" | "higienizacao" | "mercantil"
+type ImportType = "cadastral" | "higienizacao"
 
 export const ImportModal = ({
   isOpen,
@@ -26,8 +25,6 @@ export const ImportModal = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [origin, setOrigin] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const { addJob } = useImportProgressCtx()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -52,13 +49,7 @@ export const ImportModal = ({
     if (origin) formData.append("origin", origin)
 
     try {
-      /* 1 ▸ POST /import (agora retorna apenas { job_id }) */
-      const response = await startImport(formData) // `response` agora é { job_id: ... }
-
-      /* 2 ▸ ativa acompanhamento global com o ID recebido */
-      addJob(response.job_id) // Use o ID da resposta direta
-
-
+      await startImport(formData)
       onImportSuccess()
       handleClose()
     } catch (error: any) {
@@ -154,7 +145,7 @@ export const ImportModal = ({
             <label className="mb-3 block text-sm font-medium text-gray-700">
               Tipo de Importação
             </label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 onClick={() => setImportType("cadastral")}
                 className={cn(
@@ -176,17 +167,6 @@ export const ImportModal = ({
                 )}
               >
                 Dados de Higienização
-              </Button>
-              <Button
-                onClick={() => setImportType("mercantil")}
-                className={cn(
-                  "h-auto min-h-10 whitespace-normal break-words px-2 py-2 text-center text-xs leading-tight transition-colors duration-200",
-                  importType === "mercantil"
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
-                )}
-              >
-                Mercantil (CSV)
               </Button>
             </div>
           </div>
@@ -215,26 +195,18 @@ export const ImportModal = ({
                 <h4 className="mb-1 text-sm font-medium text-blue-800">
                   Template
                 </h4>
-                {importType === "mercantil" ? (
-                  <p className="text-xs text-blue-600">
-                    Este tipo de importação não possui template.
-                  </p>
-                ) : (
-                  <p className="text-xs text-blue-600">
-                    Baixe o template do tipo selecionado.
-                  </p>
-                )}
+                <p className="text-xs text-blue-600">
+                  Baixe o template do tipo selecionado.
+                </p>
               </div>
-              {importType !== "mercantil" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownloadTemplate(importType)}
-                  className="border-blue-300 text-blue-700 hover:bg-blue-100"
-                >
-                  <Download className="mr-1 h-4 w-4" /> Baixar template
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownloadTemplate(importType)}
+                className="border-blue-300 text-blue-700 hover:bg-blue-100"
+              >
+                <Download className="mr-1 h-4 w-4" /> Baixar template
+              </Button>
             </div>
           </div>
 

@@ -16,6 +16,7 @@ use App\Modules\V8\Services\ResumeActiveV8ConsultJobsService;
 use App\Modules\V8Fgts\Services\ResumeActiveV8FgtsJobsService;
 use App\Models\C6AuthorizationLink;
 use App\Services\MultiConsulta\SyncActiveExternalConsultJobsService;
+use App\Modules\Leads\Services\RecoverStaleImportsService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -104,7 +105,7 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
     $external = app(SyncActiveExternalConsultJobsService::class)->handle();
 
     $this->info(sprintf(
-        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d, Facta Offline %d sincronizados.',
+        'Retomada pos-deploy: CLT %d/%d, V8 %d/%d, Presenca %d/%d, V8 FGTS prep %d batch %d de %d. API V8 %d, Presenca %d, V8 FGTS %d, Facta Offline %d, Hub Crédito %d sincronizados.',
         (int) ($clt['dispatched'] ?? 0),
         (int) ($clt['scanned'] ?? 0),
         (int) ($v8['dispatched'] ?? 0),
@@ -118,6 +119,7 @@ Artisan::command('consult-jobs:resume-active-after-deploy', function () {
         (int) ($external['presenca'] ?? 0),
         (int) ($external['v8_fgts'] ?? 0),
         (int) ($external['facta_clt_offline'] ?? 0),
+        (int) ($external['hubcredito'] ?? 0),
     ));
 })->purpose('Religa jobs ativos de CLT, V8, Presença e V8 FGTS após deploy/restart do worker');
 
@@ -179,3 +181,8 @@ Artisan::command('uy3:backfill-snapshots', function () {
         (int) ($result['skipped'] ?? 0),
     ));
 })->purpose('Reprocessa uy3_webhook_posts e preenche leads + uy3_snapshots');
+
+Artisan::command('leads:recover-stale-imports', function () {
+    $recovered = app(RecoverStaleImportsService::class)->handle();
+    $this->info("Importações recuperadas: {$recovered}");
+})->purpose('Reverte importações de leads sem atividade');

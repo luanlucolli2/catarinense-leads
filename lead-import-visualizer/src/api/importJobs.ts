@@ -4,15 +4,6 @@ const IMPORT_UPLOAD_TIMEOUT_MS = Number(import.meta.env.VITE_IMPORT_UPLOAD_TIMEO
   ? Number(import.meta.env.VITE_IMPORT_UPLOAD_TIMEOUT_MS)
   : 120000;
 
-/** Para polling (toast de progresso) */
-export interface ActiveImportJobDto {
-  id: number;
-  status: "pendente" | "em_progresso" | "concluido" | "falhou" | "cancelado";
-  processed_rows: number;
-  total_rows: number;
-  errors: number;
-}
-
 /** Para a listagem de Histórico */
 export interface ImportJob {
   id: number;
@@ -24,7 +15,10 @@ export interface ImportJob {
   | "concluido"
   | "falhou"
   | "cancelado"
-  | "revertido";
+  | "revertido"
+  | "cancelamento_solicitado"
+  | "revertendo"
+  | "rollback_falhou";
   totalRows: number;
   processedRows: number;
   errorsCount: number;
@@ -43,34 +37,15 @@ export interface ImportError {
   error_message: string;
 }
 
-/** POST /import → inicia upload e retorna o DTO de polling */
+/** POST /import → inicia upload */
 export async function startImport(
   formData: FormData
-): Promise<{ job_id: number }> { // O retorno agora é mais simples
+): Promise<{ job_id: number }> {
   const { data } = await axiosClient.post("/import", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: IMPORT_UPLOAD_TIMEOUT_MS,
   });
-  // Apenas retorne os dados da resposta do POST
   return data;
-}
-
-/** GET /import/{id} → status para polling */
-export async function getImportJob(
-  id: number
-): Promise<ActiveImportJobDto> {
-  const { data } = await axiosClient.get(`/import/${id}`);
-  return { id, ...data };
-}
-
-/** GET /imports?status=pendente,em_progresso → polling de jobs ativos */
-export async function listActiveImports(): Promise<
-  ActiveImportJobDto[]
-> {
-  const { data } = await axiosClient.get("/imports", {
-    params: { status: "pendente,em_progresso", scope: "mine" },
-  });
-  return data as ActiveImportJobDto[];
 }
 
 export async function rollbackImportJob(id: number): Promise<void> {

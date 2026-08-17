@@ -4,13 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface NewHubCreditoConsultModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (title: string, lines: string) => void | Promise<void>;
+  onSubmit: (title: string, lines: string, opts?: { runAt?: string | null; timezone?: string | null }) => void | Promise<void>;
 }
 
 export const NewHubCreditoConsultModal = ({
@@ -22,6 +23,8 @@ export const NewHubCreditoConsultModal = ({
   const [lines, setLines] = useState("");
   const [lineCount, setLineCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [runAtLocal, setRunAtLocal] = useState("");
 
   useEffect(() => {
     if (lines.trim()) {
@@ -41,13 +44,16 @@ export const NewHubCreditoConsultModal = ({
       toast.error("Adicione pelo menos uma linha");
       return;
     }
+    if (isScheduled && !runAtLocal) { toast.error("Informe a data e hora do agendamento"); return; }
 
     try {
       setSubmitting(true);
-      await onSubmit(title, lines);
+      await onSubmit(title, lines, isScheduled ? { runAt: runAtLocal, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : undefined);
       setTitle("");
       setLines("");
       setLineCount(0);
+      setIsScheduled(false);
+      setRunAtLocal("");
       onClose();
     } finally {
       setSubmitting(false);
@@ -59,10 +65,13 @@ export const NewHubCreditoConsultModal = ({
     setTitle("");
     setLines("");
     setLineCount(0);
+    setIsScheduled(false);
+    setRunAtLocal("");
     onClose();
   };
 
   const noFocus = "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0";
+  const minNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -88,20 +97,31 @@ export const NewHubCreditoConsultModal = ({
 
           <div className="space-y-2">
             <Label htmlFor="lines-hubcredito" className="text-sm font-medium">
-              Linhas (CPF Nome DataNascimento) *
+              Linhas (CPF;Nome;Data de nascimento) *
             </Label>
             <Textarea
               id="lines-hubcredito"
               value={lines}
               onChange={(e) => setLines(e.target.value)}
-              placeholder={`01711922145 LEIDIANE SILVA ALVES 06/04/1986\n01699639507 LEONARDO DA SILVA SAMPAIO 07/04/1983`}
+              placeholder={`01711922145;LEIDIANE SILVA ALVES;06/04/1986\n01699639507;LEONARDO DA SILVA SAMPAIO;07/04/1983`}
               className={cn("min-h-[220px] w-full font-mono text-sm", noFocus)}
               disabled={submitting}
             />
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-gray-600">
-              <span>Uma pessoa por linha. Formato aceito: `cpf nome data_nascimento` com data em `dd/mm/aaaa` ou `aaaa-mm-dd`.</span>
+              <span>Uma pessoa por linha: `cpf;nome;data_nascimento`, com data em `dd/mm/aaaa` ou `aaaa-mm-dd`.</span>
               <span className="font-medium text-blue-600">Detectadas: {lineCount} linhas</span>
             </div>
+          </div>
+
+          <div className="space-y-3 border-t border-gray-100 pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox id="hubcredito-agendamento" checked={isScheduled} onCheckedChange={(checked) => setIsScheduled(!!checked)} disabled={submitting} />
+              <Label htmlFor="hubcredito-agendamento" className="cursor-pointer text-sm font-medium">Agendar início</Label>
+            </div>
+            {isScheduled && <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/70 p-3">
+              <Label htmlFor="hubcredito-run-at" className="text-sm font-medium">Iniciar em</Label>
+              <Input id="hubcredito-run-at" type="datetime-local" value={runAtLocal} onChange={(e) => setRunAtLocal(e.target.value)} min={minNow} className={cn("max-w-xs", noFocus)} disabled={submitting} />
+            </div>}
           </div>
         </div>
 
@@ -114,7 +134,7 @@ export const NewHubCreditoConsultModal = ({
             disabled={submitting}
             className={cn("bg-blue-600 hover:bg-blue-700", noFocus)}
           >
-            {submitting ? "Criando..." : "Criar consulta"}
+            {submitting ? "Criando..." : isScheduled ? "Agendar consulta" : "Criar consulta"}
           </Button>
         </DialogFooter>
       </DialogContent>

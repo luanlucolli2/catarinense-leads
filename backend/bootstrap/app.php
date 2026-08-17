@@ -48,6 +48,10 @@ return Application::configure(basePath: dirname(__DIR__))
             ->everyThirtyMinutes()
             ->timezone('America/Sao_Paulo')
             ->runInBackground();
+
+        $schedule->command('leads:recover-stale-imports')
+            ->everyMinute()
+            ->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->shouldRenderJsonWhen(function (Request $request, \Throwable $e): bool {
