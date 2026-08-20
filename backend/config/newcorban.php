@@ -51,10 +51,15 @@ return [
             'promoter_id' => '4633',
             'typing_login' => '05395929940@9019',
         ],
+        'bmg' => [
+            'bank_id' => '318',
+            'promoter_id' => '411',
+            'typing_login' => 'nova.9089mb',
+        ],
         'pan' => [
             'bank_id' => '623',
             'promoter_id' => '411',
-            'typing_login' => '11521981906_007528',
+            'typing_login' => '03805806086_007528',
         ],
         'c6' => [
             'bank_id' => '626',
@@ -69,7 +74,7 @@ return [
         ],
         'zili' => [
             'bank_id' => '2560065',
-            'promoter_id' => '3570',
+            'promoter_id' => '3650',
             'typing_login' => '05395929940',
             'omit_table_code' => true,
         ],
