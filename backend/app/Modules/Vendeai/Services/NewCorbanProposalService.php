@@ -41,11 +41,14 @@ class NewCorbanProposalService
                     $responseBody = ['raw' => $response->body()];
                 }
 
-                if (! $this->shouldRetryClienteNaoEncontrado($response->status(), $responseBody) || $attempt === 2) {
+                $shouldRetry = $this->shouldRetryClienteNaoEncontrado($response->status(), $responseBody)
+                    || $response->status() === 502;
+
+                if (! $shouldRetry || $attempt === 2) {
                     break;
                 }
 
-                usleep(250000);
+                usleep($response->status() === 502 ? 5000000 : 250000);
             }
 
             $webhook->update([
