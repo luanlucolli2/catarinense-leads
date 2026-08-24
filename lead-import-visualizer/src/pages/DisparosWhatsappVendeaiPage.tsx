@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
+import { toast } from "sonner"
 import { AlertTriangle, Check, ChevronRight, ClipboardList, Clock3, LoaderCircle, Lock, MessageSquareText, Send, Settings2, ShieldCheck, Users } from "lucide-react"
 import factaLogo from "@/assets/factalogo.png"
 import mercantilLogo from "@/assets/mercantilogo.png"
@@ -13,9 +14,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { CAMPAIGN_PRODUCTS, OFFICIAL_INBOXES, REGISTERED_LEADS_PREVIEW_FIXTURE, type CampaignProduct, type OfficialInbox, type OfficialTemplate, type PhoneQualityRating } from "@/features/disparosWhatsappVendeai/configurationFixtures"
+import { CAMPAIGN_PRODUCTS, OFFICIAL_INBOXES, type CampaignProduct, type OfficialInbox, type OfficialTemplate, type PhoneQualityRating } from "@/features/disparosWhatsappVendeai/configurationFixtures"
 import { parseBrazilianMobilePhoneList } from "@/features/disparosWhatsappVendeai/phoneList"
 import { CompactDispatchConfigurationStep } from "@/features/disparosWhatsappVendeai/CompactDispatchConfigurationStep"
+import { DispatchConfirmationStep } from "@/features/disparosWhatsappVendeai/DispatchConfirmationStep"
+import { previewRegisteredLeads } from "@/features/disparosWhatsappVendeai/registeredLeadsPreview"
 import { cn } from "@/lib/utils"
 
 type LeadSource = "pasted_numbers" | "registered_leads"
@@ -23,10 +26,10 @@ type BankKey = "facta" | "mercantil" | "uy3"
 type CombinationMode = "any" | "all"
 type BankFilters = Record<string, string>
 type ParameterSource = "fixed" | "lead_field"
-type RegisteredPreviewStatus = "idle" | "loading" | "ready" | "stale"
+type RegisteredPreviewStatus = "idle" | "loading" | "ready" | "stale" | "error"
 
 type RegisteredLeadFilters = { selectedBanks: BankKey[]; combinationMode: CombinationMode; facta: BankFilters; mercantil: BankFilters; uy3: BankFilters }
-type RegisteredPreview = { status: RegisteredPreviewStatus; recipientCount: number | null }
+type RegisteredPreview = { status: RegisteredPreviewStatus; recipientCount: number | null; errorMessage?: string }
 type SenderConfiguration = { inboxId: string; templateIds: string[]; sendLimitEnabled: boolean; maxSends: string }
 type DispatchConfiguration = {
   product: CampaignProduct | ""
@@ -110,7 +113,8 @@ function configurationErrors(configuration: DispatchConfiguration, recipientCoun
 
 export default function DisparosWhatsappVendeaiPage() {
   const [isWizardOpen, setIsWizardOpen] = useState(false)
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
+  const [isConfirmationAcknowledged, setIsConfirmationAcknowledged] = useState(false)
   const [source, setSource] = useState<LeadSource>("pasted_numbers")
   const [pastedNumbers, setPastedNumbers] = useState("")
   const [filters, setFilters] = useState<RegisteredLeadFilters>(createDefaultFilters)
@@ -125,7 +129,7 @@ export default function DisparosWhatsappVendeaiPage() {
 
   const resetWizard = () => {
     previewRevision.current += 1
-    setCurrentStep(1); setSource("pasted_numbers"); setPastedNumbers(""); setFilters(createDefaultFilters()); setRegisteredPreview({ status: "idle", recipientCount: null }); setConfiguration(createDefaultConfiguration())
+    setCurrentStep(1); setIsConfirmationAcknowledged(false); setSource("pasted_numbers"); setPastedNumbers(""); setFilters(createDefaultFilters()); setRegisteredPreview({ status: "idle", recipientCount: null }); setConfiguration(createDefaultConfiguration())
   }
   const handleOpenChange = (open: boolean) => { setIsWizardOpen(open); if (!open) resetWizard() }
   const updateFilters = (updater: (current: RegisteredLeadFilters) => RegisteredLeadFilters) => {
@@ -133,17 +137,28 @@ export default function DisparosWhatsappVendeaiPage() {
     setFilters((current) => updater(current))
     setRegisteredPreview((current) => ({ status: current.status === "ready" || current.status === "stale" ? "stale" : "idle", recipientCount: null }))
   }
-  const requestRegisteredPreview = () => {
+  const requestRegisteredPreview = async () => {
     if (filters.selectedBanks.length === 0 || bankErrors.length > 0 || registeredPreview.status === "loading") return
     const revision = previewRevision.current
     setRegisteredPreview({ status: "loading", recipientCount: null })
-    window.setTimeout(() => { if (revision === previewRevision.current) setRegisteredPreview({ status: "ready", recipientCount: REGISTERED_LEADS_PREVIEW_FIXTURE.recipientCount }) }, 450)
+    try {
+      const preview = await previewRegisteredLeads(filters)
+      if (revision === previewRevision.current) setRegisteredPreview({ status: "ready", recipientCount: preview.recipient_count })
+    } catch (error) {
+      if (revision !== previewRevision.current) return
+      const message = typeof error === "object" && error !== null && "response" in error
+        ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined
+      const errorMessage = message ?? "Não foi possível atualizar a prévia. Tente novamente."
+      setRegisteredPreview({ status: "error", recipientCount: null, errorMessage })
+      toast.error(errorMessage)
+    }
   }
 
-  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Identifique a campanha, selecione a base e confira os destinatários." : "Defina remetentes, mensagens e entrega."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-5xl space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} /><LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /></> : <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => setCurrentStep(2)}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
+  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Identifique a campanha, selecione a base e confira os destinatários." : currentStep === 2 ? "Defina remetentes, mensagens e entrega." : "Revise a operação antes de confirmar o disparo."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-5xl space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} /><LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /></> : currentStep === 2 ? <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} /> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} acknowledged={isConfirmationAcknowledged} onAcknowledgedChange={setIsConfirmationAcknowledged} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => setCurrentStep(2)}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={stepTwoErrors.length > 0} onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(3) }}>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></> : <><Button variant="outline" onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(2) }}>Voltar</Button><div className="flex items-center gap-3"><span className="hidden text-xs text-gray-500 lg:inline">O envio será conectado ao backend na próxima etapa.</span><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!isConfirmationAcknowledged}>Confirmar e iniciar disparo <Send className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
 }
 
-function WizardProgress({ currentStep }: { currentStep: 1 | 2 }) {
+function WizardProgress({ currentStep }: { currentStep: 1 | 2 | 3 }) {
   return <ol className="grid gap-2 sm:grid-cols-3" aria-label="Etapas do novo disparo">{WIZARD_STEPS.map((step, index) => { const number = index + 1; const isCurrent = number === currentStep; const isCompleted = number < currentStep; const StepIcon = step.icon; return <li key={step.label} className={cn("flex items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors", isCurrent && "border-blue-200 bg-blue-50 text-blue-900", isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-900", !isCurrent && !isCompleted && "border-slate-200 bg-white text-slate-500")}><span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", isCurrent && "bg-blue-600 text-white", isCompleted && "bg-emerald-600 text-white", !isCurrent && !isCompleted && "bg-slate-100 text-slate-500")}>{isCompleted ? <Check className="h-4 w-4" /> : isCurrent ? <StepIcon className="h-4 w-4" /> : <Lock className="h-3.5 w-3.5" />}</span><span className="font-medium"><span className="sr-only">Etapa {number}: </span>{step.label}</span></li> })}</ol>
 }
 

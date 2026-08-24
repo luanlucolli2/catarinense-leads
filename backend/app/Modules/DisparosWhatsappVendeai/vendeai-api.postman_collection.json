@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "f6dbd6f6-54d8-4c27-9f20-9c65bca7a2a1",
     "name": "VendeAI API - Mailing",
-    "description": "Collection baseada na documentação fornecida da VendeAI.\n\nInclui:\n- Listagem de inboxes e templates Meta disponíveis\n- Envio via WhatsApp oficial (template Meta)\n- Envio via WhatsApp não oficial (texto livre)\n- Cadastro/upsert de base de campanha\n\nWebhook outbound foi intencionalmente omitido.\n\nObservações:\n- `account_id` e `crm_api_access_token` devem pertencer à mesma conta.\n- `inbox_id` identifica a inbox/canal remetente no Chatwoot.\n- `customer_phone` deve estar em formato internacional E.164 no endpoint de envio.\n- Para WhatsApp oficial, use somente template Meta válido retornado pela listagem de inboxes.\n- Para canal não oficial (ex.: Evolution), use `whatsapp_nao_oficial`.",
+    "description": "Collection baseada na documentação fornecida da VendeAI.\n\nInclui:\n- Listagem de inboxes e templates Meta disponíveis\n- Envio via WhatsApp oficial (template Meta)\n- Envio via WhatsApp não oficial (texto livre)\n- Cadastro/upsert de base de campanha\n\nWebhook outbound foi intencionalmente omitido.\n\nObservações:\n- `account_id` e `crm_api_access_token` devem pertencer à mesma conta.\n- `inbox_id` identifica a inbox/canal remetente no Chatwoot.\n- `customer_phone` deve estar em formato internacional E.164 no endpoint de envio.\n- Para WhatsApp oficial, use somente template Meta válido retornado pela listagem de inboxes.\n- Para canal não oficial (ex.: Evolution), use `whatsapp_nao_oficial`.\n\nA request de listagem de inboxes inclui um exemplo de response 200 com inbox sem templates, template com variável e template sem variável.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -89,7 +89,7 @@
                 ""
               ]
             },
-            "description": "Retorna as inboxes da conta no Chatwoot e os templates Meta válidos para disparo.\n\nCada inbox pode incluir `id`, `name`, `channel`, `phone_number` e `templates`.\n\nUse o `id` da inbox escolhida como `inbox_id` nas requests de envio."
+            "description": "Retorna as inboxes da conta no Chatwoot e os templates Meta válidos para disparo.\n\nCada item de `inboxes` representa uma inbox/canal remetente e pode incluir `id`, `name`, `channel`, `phone_number` e `templates`.\n\nRegras importantes sobre `templates`:\n- `templates: []` significa que nenhum template foi retornado para aquela inbox.\n- Uma inbox pode retornar um ou mais templates.\n- Um template pode ter variáveis posicionais, por exemplo `{{1}}`, refletidas em `variables: [\"1\"]`.\n- Um template também pode não ter variáveis; nesse caso, `variables` pode ser `[]` e o body não contém placeholders.\n- `header_variables` segue a mesma ideia para variáveis de cabeçalho quando aplicável.\n\nUse o `id` da inbox escolhida como `inbox_id` nas requests de envio."
           },
           "event": [
             {
@@ -117,6 +117,55 @@
                   "}"
                 ]
               }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 - Exemplo de inboxes e templates",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"account_id\": \"{{accountId}}\",\n  \"crm_api_access_token\": \"{{crmApiAccessToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/message-handler/mailing/inboxes/",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "message-handler",
+                    "mailing",
+                    "inboxes",
+                    ""
+                  ]
+                },
+                "description": "Retorna as inboxes da conta no Chatwoot e os templates Meta válidos para disparo.\n\nCada item de `inboxes` representa uma inbox/canal remetente e pode incluir `id`, `name`, `channel`, `phone_number` e `templates`.\n\nRegras importantes sobre `templates`:\n- `templates: []` significa que nenhum template foi retornado para aquela inbox.\n- Uma inbox pode retornar um ou mais templates.\n- Um template pode ter variáveis posicionais, por exemplo `{{1}}`, refletidas em `variables: [\"1\"]`.\n- Um template também pode não ter variáveis; nesse caso, `variables` pode ser `[]` e o body não contém placeholders.\n- `header_variables` segue a mesma ideia para variáveis de cabeçalho quando aplicável.\n\nUse o `id` da inbox escolhida como `inbox_id` nas requests de envio."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"inboxes\": [\n    {\n      \"id\": \"87000\",\n      \"name\": \"0661-T07\",\n      \"channel\": \"whatsapp\",\n      \"phone_number\": \"+5547996080661\",\n      \"templates\": []\n    },\n    {\n      \"id\": \"86686\",\n      \"name\": \"(1170) WABA SALVY P74\",\n      \"channel\": \"whatsapp\",\n      \"phone_number\": \"+554764291170\",\n      \"templates\": [\n        {\n          \"id\": \"1578838047297858\",\n          \"name\": \"fade\",\n          \"status\": \"APPROVED\",\n          \"category\": \"UTILITY\",\n          \"language\": \"en\",\n          \"components\": [\n            {\n              \"text\": \"Olá {{1}} Sua atualização foi concluída.\",\n              \"type\": \"BODY\",\n              \"example\": {\n                \"body_text\": [\n                  [\n                    \"mauricio lima\"\n                  ]\n                ]\n              }\n            }\n          ],\n          \"sub_category\": \"CUSTOM\",\n          \"parameter_format\": \"POSITIONAL\",\n          \"disable_ios_autofill\": false,\n          \"is_primary_device_delivery_only\": false,\n          \"variables\": [\n            \"1\"\n          ],\n          \"header_variables\": [],\n          \"header_type\": null,\n          \"header_text\": null,\n          \"body\": \"Olá {{1}} Sua atualização foi concluída.\"\n        }\n      ]\n    },\n    {\n      \"id\": \"99999\",\n      \"name\": \"Exemplo WABA - template sem variável\",\n      \"channel\": \"whatsapp\",\n      \"phone_number\": \"+5511999999999\",\n      \"templates\": [\n        {\n          \"id\": \"1234567890123456\",\n          \"name\": \"aviso_simples\",\n          \"status\": \"APPROVED\",\n          \"category\": \"UTILITY\",\n          \"language\": \"pt_BR\",\n          \"components\": [\n            {\n              \"text\": \"Olá! Sua atualização foi concluída.\",\n              \"type\": \"BODY\"\n            }\n          ],\n          \"sub_category\": \"CUSTOM\",\n          \"parameter_format\": \"POSITIONAL\",\n          \"disable_ios_autofill\": false,\n          \"is_primary_device_delivery_only\": false,\n          \"variables\": [],\n          \"header_variables\": [],\n          \"header_type\": null,\n          \"header_text\": null,\n          \"body\": \"Olá! Sua atualização foi concluída.\"\n        }\n      ]\n    }\n  ]\n}"
             }
           ]
         },
