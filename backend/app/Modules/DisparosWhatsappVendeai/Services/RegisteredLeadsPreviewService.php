@@ -44,6 +44,7 @@ class RegisteredLeadsPreviewService
             'with_phones' => true,
             'selected_banks' => (array) ($filters['selected_banks'] ?? []),
             'bank_combination_mode' => (string) ($filters['combination_mode'] ?? 'any'),
+            'birth_month' => (array) ($filters['birth_month'] ?? []),
             'facta_situacao' => $facta['situacao'] ?? null,
             'facta_consulta_from' => $facta['consulta_from'] ?? null,
             'facta_consulta_to' => $facta['consulta_to'] ?? null,

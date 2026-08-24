@@ -6,6 +6,7 @@ import uy3Logo from "@/assets/logouy3png.png"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { MultiSelect } from "@/components/ui/multi-select"
 import {
   Select,
   SelectContent,
@@ -27,6 +28,8 @@ type Props = {
   onWithPhonesFilterChange: (v: boolean) => void
   noPhonesFilter: boolean
   onNoPhonesFilterChange: (v: boolean) => void
+  birthMonthFilter: string[]
+  onBirthMonthFilterChange: (values: string[]) => void
   selectedBanks: LeadBankKey[]
   onSelectedBanksChange: (v: LeadBankKey[]) => void
   bankCombinationMode: LeadBankCombinationMode
@@ -162,9 +165,9 @@ function Group({
       <div
         className={cn(
           "grid grid-flow-dense gap-4 sm:gap-5",
-          "[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]",
-          "lg:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]",
-          "xl:[grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]"
+          "[grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]",
+          "lg:[grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))]",
+          "xl:[grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]"
         )}
       >
         {children}
@@ -179,6 +182,21 @@ const BANKS = [
   { value: "uy3" as LeadBankKey, label: "UY3", imageSrc: uy3Logo, alt: "UY3" },
 ]
 
+const BIRTH_MONTH_OPTIONS = [
+  { value: "1", label: "Janeiro" },
+  { value: "2", label: "Fevereiro" },
+  { value: "3", label: "Março" },
+  { value: "4", label: "Abril" },
+  { value: "5", label: "Maio" },
+  { value: "6", label: "Junho" },
+  { value: "7", label: "Julho" },
+  { value: "8", label: "Agosto" },
+  { value: "9", label: "Setembro" },
+  { value: "10", label: "Outubro" },
+  { value: "11", label: "Novembro" },
+  { value: "12", label: "Dezembro" },
+]
+
 export const FiltersModal360 = ({
   isOpen,
   onClose,
@@ -188,6 +206,8 @@ export const FiltersModal360 = ({
   onWithPhonesFilterChange,
   noPhonesFilter,
   onNoPhonesFilterChange,
+  birthMonthFilter,
+  onBirthMonthFilterChange,
   selectedBanks = [],
   onSelectedBanksChange,
   bankCombinationMode,
@@ -249,6 +269,7 @@ export const FiltersModal360 = ({
 }: Props) => {
   const [localWithPhones, setLocalWithPhones] = useState(withPhonesFilter)
   const [localNoPhones, setLocalNoPhones] = useState(noPhonesFilter)
+  const [localBirthMonths, setLocalBirthMonths] = useState<string[]>(birthMonthFilter)
   const [localSelectedBanks, setLocalSelectedBanks] = useState<LeadBankKey[]>(selectedBanks.filter((bank) => bank !== "fgts"))
   const [localBankMode, setLocalBankMode] = useState<LeadBankCombinationMode>(bankCombinationMode)
   const [localCltSituacao, setLocalCltSituacao] = useState<LoanSituation>(cltSituacao)
@@ -283,6 +304,7 @@ export const FiltersModal360 = ({
     if (!isOpen) return
     setLocalWithPhones(withPhonesFilter)
     setLocalNoPhones(noPhonesFilter)
+    setLocalBirthMonths(birthMonthFilter)
     setLocalSelectedBanks(selectedBanks.filter((bank) => bank !== "fgts"))
     setLocalBankMode(bankCombinationMode)
     setLocalCltSituacao(cltSituacao)
@@ -313,7 +335,7 @@ export const FiltersModal360 = ({
     setLocalUy3ParcelasMin(uy3NumeroParcelasMin)
     setLocalUy3ParcelasMax(uy3NumeroParcelasMax)
   }, [
-    isOpen, withPhonesFilter, noPhonesFilter, selectedBanks, bankCombinationMode,
+    isOpen, withPhonesFilter, noPhonesFilter, birthMonthFilter, selectedBanks, bankCombinationMode,
     cltSituacao, cltConsultaFrom, cltConsultaTo, cltMesesAdmissaoMin, cltMesesAdmissaoMax, cltMargemMin, cltMargemMax, cltNumeroParcelasMin, cltNumeroParcelasMax,
     mercantilSituacao, mercantilConsultaFrom, mercantilConsultaTo, mercantilValorParcelaMin, mercantilValorParcelaMax, mercantilNumeroParcelasMin, mercantilNumeroParcelasMax,
     uy3Situacao, uy3ConsultaFrom, uy3ConsultaTo, uy3MesesAdmissaoMin, uy3MesesAdmissaoMax, uy3MargemMin, uy3MargemMax, uy3ValorLiberadoMin, uy3ValorLiberadoMax, uy3NumeroParcelasMin, uy3NumeroParcelasMax,
@@ -335,6 +357,7 @@ export const FiltersModal360 = ({
   const apply = () => {
     onWithPhonesFilterChange(localWithPhones)
     onNoPhonesFilterChange(localNoPhones)
+    onBirthMonthFilterChange(localBirthMonths)
     onSelectedBanksChange(localSelectedBanks)
     onBankCombinationModeChange(localBankMode)
     onCltSituacaoChange(localCltSituacao)
@@ -374,6 +397,7 @@ export const FiltersModal360 = ({
 
   // Actives logic for header chips
   const actPhones = localWithPhones || localNoPhones
+  const actBirthMonth = localBirthMonths.length > 0
   const actClt = localCltSituacao !== "todos" || any([localCltConsultaFrom, localCltConsultaTo, localCltMesesMin, localCltMesesMax, localCltMargemMin, localCltMargemMax, localCltParcelasMin, localCltParcelasMax])
   const actMercantil = localMercantilSituacao !== "todos" || any([localMercantilConsultaFrom, localMercantilConsultaTo, localMercantilParcelaMin, localMercantilParcelaMax, localMercantilParcelasMin, localMercantilParcelasMax])
   const actUy3 = localUy3Situacao !== "todos" || any([localUy3ConsultaFrom, localUy3ConsultaTo, localUy3MesesMin, localUy3MesesMax, localUy3MargemMin, localUy3MargemMax, localUy3ValorMin, localUy3ValorMax, localUy3ParcelasMin, localUy3ParcelasMax])
@@ -381,6 +405,7 @@ export const FiltersModal360 = ({
   const chips: string[] = []
   if (localWithPhones) chips.push("Com telefone")
   if (localNoPhones) chips.push("Sem telefone")
+  if (actBirthMonth) chips.push("Aniversário (" + localBirthMonths.length + ")")
   if (localSelectedBanks.length > 0) chips.push(`Bancos (${localSelectedBanks.length})`)
   if (showClt && actClt) chips.push("Facta")
   if (showMercantil && actMercantil) chips.push("Mercantil")
@@ -388,7 +413,7 @@ export const FiltersModal360 = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
-      <div className="filters-modal flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
+      <div className="filters-modal flex max-h-[90vh] w-full max-w-[96vw] flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
         
         {/* Cabeçalho */}
         <header className="flex flex-col gap-3 border-b p-4 sm:p-6 flex-shrink-0 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 shadow-sm">
@@ -473,7 +498,21 @@ export const FiltersModal360 = ({
               </Section>
             </div>
 
-            <div className="col-span-1 lg:col-span-2">
+            <div>
+              <Section title="Aniversário" description="Selecione um ou mais meses." active={actBirthMonth}>
+                <div>
+                  <Label text="Mês(es) de aniversário" active={actBirthMonth} />
+                  <MultiSelect
+                    options={BIRTH_MONTH_OPTIONS}
+                    selected={localBirthMonths}
+                    onChange={setLocalBirthMonths}
+                    placeholder="Selecione os meses…"
+                  />
+                </div>
+              </Section>
+            </div>
+
+            <div className="col-span-1 lg:col-span-3">
               <Section title="Bancos da Consulta" description="Combine múltiplos bancos e defina a regra." active={localSelectedBanks.length > 0}>
                 <div className="grid gap-3 md:grid-cols-3 mb-4">
                   {BANKS.map((bank) => (

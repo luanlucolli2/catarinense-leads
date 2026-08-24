@@ -25,6 +25,8 @@ class PreviewRegisteredLeadsRequest extends FormRequest
             'selected_banks' => ['required', 'array', 'min:1'],
             'selected_banks.*' => ['required', 'string', 'distinct', Rule::in(['facta', 'mercantil', 'uy3'])],
             'combination_mode' => ['required', 'string', Rule::in(['all', 'any'])],
+            'birth_month' => ['nullable', 'array'],
+            'birth_month.*' => ['integer', 'between:1,12', 'distinct'],
 
             'facta' => ['nullable', 'array'],
             'facta.situacao' => ['nullable', 'string', Rule::in(['aprovado', 'nao_aprovado'])],
@@ -68,6 +70,10 @@ class PreviewRegisteredLeadsRequest extends FormRequest
         $payload['selected_banks'] = array_values(array_filter(array_map(
             fn (mixed $value): string => strtolower(trim((string) $value)),
             Arr::wrap($payload['selected_banks'] ?? []),
+        )));
+        $payload['birth_month'] = array_values(array_unique(array_map(
+            fn (mixed $value): int => (int) $value,
+            Arr::wrap($payload['birth_month'] ?? []),
         )));
 
         foreach ([
@@ -127,6 +133,7 @@ class PreviewRegisteredLeadsRequest extends FormRequest
         return [
             'selected_banks' => $this->selectedBanks(),
             'combination_mode' => (string) $validated['combination_mode'],
+            'birth_month' => array_values(array_map('intval', $validated['birth_month'] ?? [])),
             'facta' => (array) ($validated['facta'] ?? []),
             'mercantil' => (array) ($validated['mercantil'] ?? []),
             'uy3' => (array) ($validated['uy3'] ?? []),

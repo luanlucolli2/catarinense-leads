@@ -28,7 +28,7 @@ type BankFilters = Record<string, string>
 type ParameterSource = "fixed" | "lead_field"
 type RegisteredPreviewStatus = "idle" | "loading" | "ready" | "stale" | "error"
 
-type RegisteredLeadFilters = { selectedBanks: BankKey[]; combinationMode: CombinationMode; facta: BankFilters; mercantil: BankFilters; uy3: BankFilters }
+type RegisteredLeadFilters = { selectedBanks: BankKey[]; combinationMode: CombinationMode; birthMonth: string[]; facta: BankFilters; mercantil: BankFilters; uy3: BankFilters }
 type RegisteredPreview = { status: RegisteredPreviewStatus; recipientCount: number | null; errorMessage?: string }
 type SenderConfiguration = { inboxId: string; templateIds: string[]; sendLimitEnabled: boolean; maxSends: string }
 type DispatchConfiguration = {
@@ -73,6 +73,7 @@ const BANK_FIELDS: Record<BankKey, FilterField[]> = {
     { key: "parcelas_min", label: "Parcelas mín.", type: "number", placeholder: "Ex.: 12" }, { key: "parcelas_max", label: "Parcelas máx.", type: "number", placeholder: "Ex.: 48" },
   ],
 }
+const BIRTH_MONTH_OPTIONS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"].map((label, index) => ({ value: String(index + 1), label }))
 const QUALITY_LABELS: Record<PhoneQualityRating, { label: string; className: string }> = {
   GREEN: { label: "Boa", className: "border-emerald-200 bg-emerald-50 text-emerald-800" }, YELLOW: { label: "Média", className: "border-amber-200 bg-amber-50 text-amber-800" }, RED: { label: "Baixa", className: "border-red-200 bg-red-50 text-red-800" }, NA: { label: "Indisponível", className: "border-slate-200 bg-slate-50 text-slate-700" },
 }
@@ -80,7 +81,7 @@ const TEMPLATE_QUALITY_LABELS: Record<OfficialTemplate["quality"], { label: stri
   ALTA: { label: "Alta", className: "border-emerald-200 bg-emerald-50 text-emerald-800" }, "MÉDIA": { label: "Média", className: "border-amber-200 bg-amber-50 text-amber-800" }, INDISPONÍVEL: { label: "Indisponível", className: "border-slate-200 bg-slate-50 text-slate-700" },
 }
 
-const createDefaultFilters = (): RegisteredLeadFilters => ({ selectedBanks: [], combinationMode: "any", facta: {}, mercantil: {}, uy3: {} })
+const createDefaultFilters = (): RegisteredLeadFilters => ({ selectedBanks: [], combinationMode: "any", birthMonth: [], facta: {}, mercantil: {}, uy3: {} })
 const createDefaultConfiguration = (): DispatchConfiguration => ({ product: "", campaign: "", senders: [], intervalSeconds: "30", startMode: "now", scheduledAt: "", resendProtectionEnabled: false, resendProtectionDays: "", templateParameters: {} })
 const createTemplateParameters = (template: OfficialTemplate) => Object.fromEntries(template.parameters.map((parameter) => [parameter.key, { source: "fixed" as const, value: "" }]))
 const bankLabel = (bank: BankKey) => BANK_OPTIONS.find((option) => option.value === bank)?.label ?? bank
@@ -149,13 +150,13 @@ export default function DisparosWhatsappVendeaiPage() {
       const message = typeof error === "object" && error !== null && "response" in error
         ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
         : undefined
-      const errorMessage = message ?? "Não foi possível atualizar a prévia. Tente novamente."
+      const errorMessage = message ?? "Não foi possível consultar os resultados. Tente novamente."
       setRegisteredPreview({ status: "error", recipientCount: null, errorMessage })
       toast.error(errorMessage)
     }
   }
 
-  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Identifique a campanha, selecione a base e confira os destinatários." : currentStep === 2 ? "Defina remetentes, mensagens e entrega." : "Revise a operação antes de confirmar o disparo."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-5xl space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} /><LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /></> : currentStep === 2 ? <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} /> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} acknowledged={isConfirmationAcknowledged} onAcknowledgedChange={setIsConfirmationAcknowledged} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => setCurrentStep(2)}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={stepTwoErrors.length > 0} onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(3) }}>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></> : <><Button variant="outline" onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(2) }}>Voltar</Button><div className="flex items-center gap-3"><span className="hidden text-xs text-gray-500 lg:inline">O envio será conectado ao backend na próxima etapa.</span><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!isConfirmationAcknowledged}>Confirmar e iniciar disparo <Send className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
+  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Identifique a campanha, selecione a base e confira os destinatários." : currentStep === 2 ? "Defina remetentes, mensagens e entrega." : "Revise a operação antes de confirmar o disparo."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-none space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} /><LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /></> : currentStep === 2 ? <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} /> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} acknowledged={isConfirmationAcknowledged} onAcknowledgedChange={setIsConfirmationAcknowledged} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => setCurrentStep(2)}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={stepTwoErrors.length > 0} onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(3) }}>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></> : <><Button variant="outline" onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(2) }}>Voltar</Button><div className="flex items-center gap-3"><span className="hidden text-xs text-gray-500 lg:inline">O envio será conectado ao backend na próxima etapa.</span><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!isConfirmationAcknowledged}>Confirmar e iniciar disparo <Send className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
 }
 
 function WizardProgress({ currentStep }: { currentStep: 1 | 2 | 3 }) {
@@ -168,19 +169,164 @@ function CampaignDataSection({ configuration, setConfiguration }: { configuratio
 
 type LeadSelectionStepProps = { source: LeadSource; setSource: Dispatch<SetStateAction<LeadSource>>; pastedNumbers: string; setPastedNumbers: Dispatch<SetStateAction<string>>; phoneListSummary: ReturnType<typeof parseBrazilianMobilePhoneList>; filters: RegisteredLeadFilters; updateFilters: (updater: (current: RegisteredLeadFilters) => RegisteredLeadFilters) => void; bankErrors: BankKey[]; registeredPreview: RegisteredPreview; onRequestPreview: () => void }
 function LeadSelectionStep({ source, setSource, pastedNumbers, setPastedNumbers, phoneListSummary, filters, updateFilters, bankErrors, registeredPreview, onRequestPreview }: LeadSelectionStepProps) {
-  return <section className="space-y-5"><SectionHeading number="1" title="Selecionar leads" description="Escolha a origem dos destinatários e atualize a prévia antes de avançar." /><div className="grid gap-3 md:grid-cols-2"><SourceOption active={source === "pasted_numbers"} icon={<ClipboardList className="h-5 w-5" />} title="Lista de números" description="Cole uma base externa de celulares." onClick={() => setSource("pasted_numbers")} /><SourceOption active={source === "registered_leads"} icon={<Users className="h-5 w-5" />} title="Leads cadastrados" description="Filtre a base higienizada disponível no sistema." onClick={() => setSource("registered_leads")} /></div>{source === "pasted_numbers" ? <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")} aria-labelledby="numbers-title"><div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between"><div><h3 id="numbers-title" className="text-sm font-semibold text-gray-900">Números de celular</h3><p className="mt-1 text-sm text-gray-600">Use uma linha, vírgula ou ponto e vírgula. O prefixo +55 é opcional.</p></div>{phoneListSummary.validNumbers.length > 0 ? <Badge variant="outline" className="w-fit border-blue-200 bg-blue-50 text-blue-800">Base identificada</Badge> : null}</div><Textarea id="pasted-numbers" value={pastedNumbers} onChange={(event) => setPastedNumbers(event.target.value)} placeholder={"+55 (11) 99999-0001\n11999990002, 21999990003"} className="mt-4 min-h-40 border-gray-300 bg-white font-mono text-sm focus-visible:ring-blue-500" /><div className="mt-4 grid gap-3 sm:grid-cols-3"><Metric label="Celulares válidos" value={phoneListSummary.validNumbers.length} color="text-blue-700" /><Metric label="Duplicados removidos" value={phoneListSummary.duplicateCount} color="text-amber-700" /><Metric label="Números inválidos" value={phoneListSummary.invalidTokens.length} color="text-red-700" /></div>{phoneListSummary.invalidTokens.length > 0 ? <InlineNotice tone="red" className="mt-3">Corrija ou remova os números inválidos para continuar.</InlineNotice> : null}</section> : <RegisteredLeadsFilters filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} preview={registeredPreview} onRequestPreview={onRequestPreview} />}</section>
+  return (
+    <section className="space-y-5">
+      <SectionHeading number="1" title="Selecionar leads" description="Escolha a origem e confirme a base antes de avançar." />
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <SourceOption active={source === "pasted_numbers"} icon={<ClipboardList className="h-5 w-5" />} title="Lista de números" description="Cole celulares de uma base externa." onClick={() => setSource("pasted_numbers")} />
+        <SourceOption active={source === "registered_leads"} icon={<Users className="h-5 w-5" />} title="Leads cadastrados" description="Filtre a base disponível no sistema." onClick={() => setSource("registered_leads")} />
+      </div>
+
+      {source === "pasted_numbers" ? (
+        <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")} aria-labelledby="numbers-title">
+          <SectionLabel icon={<ClipboardList className="h-4 w-4" />} title="Lista de números" description="Separe os celulares por linha, vírgula ou ponto e vírgula." />
+          <Textarea id="pasted-numbers" value={pastedNumbers} onChange={(event) => setPastedNumbers(event.target.value)} placeholder={"+55 (11) 99999-0001\n11999990002, 21999990003"} className="mt-4 min-h-32 border-gray-300 bg-white font-mono text-sm focus-visible:ring-blue-500" />
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+            <span><strong className="text-blue-700">{phoneListSummary.validNumbers.length.toLocaleString("pt-BR")}</strong> válidos</span>
+            <span><strong className="text-amber-700">{phoneListSummary.duplicateCount.toLocaleString("pt-BR")}</strong> duplicados removidos</span>
+            <span><strong className="text-red-700">{phoneListSummary.invalidTokens.length.toLocaleString("pt-BR")}</strong> inválidos</span>
+          </div>
+          {phoneListSummary.invalidTokens.length > 0 ? <InlineNotice tone="red" className="mt-3">Corrija ou remova os números inválidos para continuar.</InlineNotice> : null}
+        </section>
+      ) : (
+        <RegisteredLeadsFilters filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} preview={registeredPreview} onRequestPreview={onRequestPreview} />
+      )}
+    </section>
+  )
 }
 
 function SectionHeading({ number, title, description }: { number: string; title: string; description: string }) { return <div><div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">{number}</span><h2 className="text-base font-semibold text-gray-900">{title}</h2></div><p className="mt-1 text-sm text-gray-600">{description}</p></div> }
-function SourceOption({ active, icon, title, description, onClick }: { active: boolean; icon: ReactNode; title: string; description: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={cn("group relative rounded-lg border bg-white p-4 text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", active ? "border-blue-500 ring-1 ring-blue-500" : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/30")}><span className={cn("mb-4 flex h-9 w-9 items-center justify-center rounded-md", active ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-700")}>{icon}</span><div className="pr-8 text-sm font-semibold text-gray-900">{title}</div><p className="mt-1 text-sm text-gray-600">{description}</p><span className={cn("absolute right-4 top-4 flex h-4 w-4 items-center justify-center rounded-full border", active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white")}>{active ? <Check className="h-3 w-3" /> : null}</span></button> }
-function Metric({ label, value, color }: { label: string; value: number; color: string }) { return <div className="rounded-md border border-gray-200 bg-white px-3 py-3"><div className={cn("text-xl font-semibold", color)}>{value.toLocaleString("pt-BR")}</div><div className="mt-0.5 text-xs text-gray-600">{label}</div></div> }
-
+function SourceOption({ active, icon, title, description, onClick }: { active: boolean; icon: ReactNode; title: string; description: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={cn("group flex min-w-0 items-center gap-3 rounded-lg border bg-white p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", active ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/30")}><span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", active ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-700")}>{icon}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-gray-900">{title}</span><span className="mt-0.5 block truncate text-xs text-gray-600">{description}</span></span><span className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded-full border", active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white")}>{active ? <Check className="h-3 w-3" /> : null}</span></button> }
 function RegisteredLeadsFilters({ filters, updateFilters, bankErrors, preview, onRequestPreview }: { filters: RegisteredLeadFilters; updateFilters: (updater: (current: RegisteredLeadFilters) => RegisteredLeadFilters) => void; bankErrors: BankKey[]; preview: RegisteredPreview; onRequestPreview: () => void }) {
-  const [openBanks, setOpenBanks] = useState<string[]>([])
   const canRequestPreview = filters.selectedBanks.length > 0 && bankErrors.length === 0 && preview.status !== "loading"
-  const toggleBank = (bank: BankKey, checked: boolean) => { updateFilters((current) => ({ ...current, selectedBanks: checked ? [...new Set([...current.selectedBanks, bank])] : current.selectedBanks.filter((value) => value !== bank) })); setOpenBanks((current) => checked ? [...new Set([...current, bank])] : current.filter((value) => value !== bank)) }
+  const [openBanks, setOpenBanks] = useState<string[]>([])
+  const toggleBank = (bank: BankKey, checked: boolean) => {
+    updateFilters((current) => ({ ...current, selectedBanks: checked ? [...new Set([...current.selectedBanks, bank])] : current.selectedBanks.filter((value) => value !== bank) }))
+    setOpenBanks((current) => checked ? [...new Set([...current, bank])] : current.filter((value) => value !== bank))
+  }
   const updateBankFilter = (bank: BankKey, field: string, value: string) => updateFilters((current) => ({ ...current, [bank]: { ...current[bank], [field]: value } }))
-  return <section className={cn(PANEL_CLASS_NAME, "space-y-5 p-4 sm:p-5")}><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-sm font-semibold text-gray-900">Filtros de leads cadastrados</h3><p className="mt-1 text-sm text-gray-600">A prévia considera somente leads que possuem telefone cadastrado.</p></div><Badge variant="outline" className="w-fit border-blue-200 bg-blue-50 text-blue-800">Somente com telefone</Badge></div><div className="border-t border-gray-100 pt-5"><Label className="text-sm font-medium text-gray-700">Bancos da consulta *</Label><p className="mt-1 text-sm text-gray-600">Para cada banco marcado, informe pelo menos um critério.</p><div className="mt-3 grid gap-3 md:grid-cols-3">{BANK_OPTIONS.map((bank) => { const checked = filters.selectedBanks.includes(bank.value); return <label key={bank.value} className={cn("flex cursor-pointer items-center gap-3 rounded-md border p-3 text-sm transition-colors", checked ? "border-blue-500 bg-blue-50 text-blue-900" : "border-gray-200 bg-white hover:border-blue-300")}><Checkbox checked={checked} onCheckedChange={(value) => toggleBank(bank.value, Boolean(value))} className={CHECKBOX_CLASS_NAME} /><img src={bank.imageSrc} alt={bank.alt} className="h-6 w-6 object-contain" /><span className="font-medium">{bank.label}</span></label> })}</div></div>{filters.selectedBanks.length > 1 ? <div className="rounded-md border border-gray-200 bg-slate-50 p-4"><Label htmlFor="bank-combination" className="text-sm font-medium text-gray-700">Modo de combinação</Label><p className="mt-1 text-sm text-gray-600">O lead deve atender todos os bancos marcados ou apenas um deles?</p><Select value={filters.combinationMode} onValueChange={(value) => updateFilters((current) => ({ ...current, combinationMode: value as CombinationMode }))}><SelectTrigger id="bank-combination" className="mt-3 max-w-sm border-gray-300 bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="any">Qualquer banco selecionado</SelectItem><SelectItem value="all">Todos os bancos selecionados</SelectItem></SelectContent></Select></div> : null}{filters.selectedBanks.length === 0 ? <InlineNotice tone="amber">Selecione ao menos um banco para montar a prévia.</InlineNotice> : null}{bankErrors.length > 0 ? <InlineNotice tone="amber">Complete ao menos um filtro em: {bankErrors.map(bankLabel).join(", ")}.</InlineNotice> : null}{filters.selectedBanks.length > 0 ? <Accordion type="multiple" value={openBanks} onValueChange={setOpenBanks} className="space-y-3">{filters.selectedBanks.map((bank) => <AccordionItem key={bank} value={bank} className="rounded-md border border-gray-200 bg-white px-4"><AccordionTrigger className="text-sm font-semibold text-gray-800 hover:no-underline">Filtros {bankLabel(bank)}</AccordionTrigger><AccordionContent className="pb-4"><div className="grid gap-4 pt-2 sm:grid-cols-2 xl:grid-cols-3">{BANK_FIELDS[bank].map((field) => <Field key={field.key} label={field.label} id={`${bank}-${field.key}`}>{field.type === "situation" ? <Select value={filters[bank][field.key] || "all"} onValueChange={(value) => updateBankFilter(bank, field.key, value === "all" ? "" : value)}><SelectTrigger id={`${bank}-${field.key}`} className="border-gray-300 bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem><SelectItem value="aprovado">Aprovado</SelectItem><SelectItem value="nao_aprovado">Não aprovado</SelectItem></SelectContent></Select> : <Input id={`${bank}-${field.key}`} type={field.type} inputMode={field.type === "number" ? "decimal" : undefined} placeholder={field.placeholder} value={filters[bank][field.key] ?? ""} onChange={(event) => updateBankFilter(bank, field.key, event.target.value)} className="border-gray-300" />}</Field>)}</div></AccordionContent></AccordionItem>)}</Accordion> : null}<section className="rounded-md border border-blue-200 bg-blue-50/50 p-4" aria-live="polite"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-semibold text-gray-900">Prévia de destinatários</div><p className="mt-1 text-sm text-gray-600">Atualize a prévia para confirmar a quantidade de leads que entrarão no disparo.</p></div><Button type="button" variant="outline" disabled={!canRequestPreview} onClick={onRequestPreview}>{preview.status === "loading" ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Atualizando</> : "Atualizar prévia"}</Button></div>{preview.status === "ready" && preview.recipientCount !== null ? <div className="mt-4 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-900"><Check className="h-4 w-4 shrink-0" /><span><strong>{preview.recipientCount.toLocaleString("pt-BR")} destinatários</strong> com telefone identificados para esta campanha.</span></div> : null}{preview.status === "stale" ? <InlineNotice tone="amber" className="mt-4">Os filtros foram alterados. Atualize a prévia para continuar.</InlineNotice> : null}</section></section>
+
+  return (
+    <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
+      <SectionLabel icon={<Users className="h-4 w-4" />} title="Filtrar leads cadastrados" description="Selecione a base e consulte os resultados para continuar." />
+
+      <div className="mt-4 divide-y divide-gray-100 border-t border-gray-100">
+        <div className="py-4 first:pt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-gray-900">Filtros gerais</div>
+              <p className="mt-1 text-xs text-gray-500">Aplicados a toda a base selecionada.</p>
+            </div>
+            <Badge variant="outline" className="w-fit shrink-0 border-blue-200 bg-blue-50 text-blue-800">Somente com telefone</Badge>
+          </div>
+          <div className="mt-3">
+            <Field label="Mês de aniversário" id="registered-birth-month">
+              <Select value={filters.birthMonth[0] || "all"} onValueChange={(value) => updateFilters((current) => ({ ...current, birthMonth: value === "all" ? [] : [value] }))}>
+                <SelectTrigger id="registered-birth-month" className="w-full border-gray-300 bg-white sm:w-80"><SelectValue placeholder="Todos os meses" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os meses</SelectItem>
+                  {BIRTH_MONTH_OPTIONS.map((month) => <SelectItem key={month.value} value={month.value}>{month.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+        </div>
+
+        <div className="py-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-semibold text-gray-900">Bancos da consulta *</div>
+            <p className="text-xs text-gray-500">Informe ao menos um critério por banco.</p>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {BANK_OPTIONS.map((bank) => {
+              const checked = filters.selectedBanks.includes(bank.value)
+              return (
+                <label key={bank.value} className={cn("flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 text-sm transition-colors", checked ? "border-blue-500 bg-blue-50 text-blue-900" : "border-gray-200 bg-white text-gray-700 hover:border-blue-300")}>
+                  <Checkbox checked={checked} onCheckedChange={(value) => toggleBank(bank.value, Boolean(value))} className={CHECKBOX_CLASS_NAME} />
+                  <img src={bank.imageSrc} alt={bank.alt} className="h-5 w-5 object-contain" />
+                  <span className="font-medium">{bank.label}</span>
+                </label>
+              )
+            })}
+          </div>
+
+          {filters.selectedBanks.length > 1 ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Label htmlFor="bank-combination" className="shrink-0 text-sm font-medium text-gray-700">Combinar bancos</Label>
+              <Select value={filters.combinationMode} onValueChange={(value) => updateFilters((current) => ({ ...current, combinationMode: value as CombinationMode }))}>
+                <SelectTrigger id="bank-combination" className="w-full border-gray-300 bg-white sm:w-72"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Qualquer banco selecionado</SelectItem><SelectItem value="all">Todos os bancos selecionados</SelectItem></SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {filters.selectedBanks.length === 0 ? <InlineNotice tone="amber" className="mt-3">Selecione ao menos um banco.</InlineNotice> : null}
+          {bankErrors.length > 0 ? <InlineNotice tone="amber" className="mt-3">Falta um critério em: {bankErrors.map(bankLabel).join(", ")}.</InlineNotice> : null}
+        </div>
+
+        {filters.selectedBanks.length > 0 ? (
+          <div className="py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-gray-900">Critérios por banco</div>
+              <span className="text-xs text-gray-500">Abra somente o que precisar ajustar.</span>
+            </div>
+            <Accordion type="multiple" value={openBanks} onValueChange={setOpenBanks} className="mt-3 divide-y rounded-md border border-gray-200">
+              {filters.selectedBanks.map((bank) => {
+                const active = bankHasOwnFilter(filters, bank)
+                return (
+                  <AccordionItem key={bank} value={bank} className="border-0 px-3">
+                    <AccordionTrigger className="py-3 text-sm font-medium text-gray-800 hover:no-underline">
+                      <span className="flex items-center gap-2">
+                        <img src={BANK_OPTIONS.find((option) => option.value === bank)?.imageSrc} alt="" className="h-5 w-5 object-contain" />
+                        {bankLabel(bank)}
+                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", active ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-800")}>{active ? "ativo" : "pendente"}</span>
+                      </span>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-4">
+                      <div className="grid gap-3 border-t border-gray-100 pt-4 sm:grid-cols-2">
+                        {BANK_FIELDS[bank].map((field) => (
+                          <Field key={field.key} label={field.label} id={bank + "-" + field.key} className={field.type === "situation" ? "sm:col-span-2" : undefined}>
+                            {field.type === "situation" ? (
+                              <Select value={filters[bank][field.key] || "all"} onValueChange={(value) => updateBankFilter(bank, field.key, value === "all" ? "" : value)}>
+                                <SelectTrigger id={bank + "-" + field.key} className="border-gray-300 bg-white"><SelectValue /></SelectTrigger>
+                                <SelectContent><SelectItem value="all">Todas</SelectItem><SelectItem value="aprovado">Aprovado</SelectItem><SelectItem value="nao_aprovado">Não aprovado</SelectItem></SelectContent>
+                              </Select>
+                            ) : (
+                              <Input id={bank + "-" + field.key} type={field.type} inputMode={field.type === "number" ? "decimal" : undefined} placeholder={field.placeholder} value={filters[bank][field.key] ?? ""} onChange={(event) => updateBankFilter(bank, field.key, event.target.value)} className="border-gray-300 bg-white" />
+                            )}
+                          </Field>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                )
+              })}
+            </Accordion>
+          </div>
+        ) : null}
+
+        <div className="border-t border-gray-100 pt-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white"><Users className="h-4 w-4" /></span>
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Resultado da seleção</div>
+                  <p className="mt-1 text-xs text-gray-600">Confira quantos leads atendem aos critérios.</p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+                {preview.status === "ready" && preview.recipientCount !== null ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{preview.recipientCount.toLocaleString("pt-BR")} leads encontrados</div> : null}
+                <Button type="button" className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canRequestPreview} onClick={onRequestPreview}>{preview.status === "loading" ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Consultando</> : "Ver resultados"}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {preview.status === "stale" ? <InlineNotice tone="amber" className="mt-3">Os filtros foram alterados. Veja os resultados novamente.</InlineNotice> : null}
+        {preview.status === "error" && preview.errorMessage ? <InlineNotice tone="red" className="mt-3">{preview.errorMessage}</InlineNotice> : null}
+      </div>
+    </section>
+  )
 }
 
 function DispatchConfigurationStep({ source, recipientCount, configuration, setConfiguration }: { source: LeadSource; recipientCount: number; configuration: DispatchConfiguration; setConfiguration: Dispatch<SetStateAction<DispatchConfiguration>> }) {
@@ -213,4 +359,4 @@ function TemplateVariables({ template, configuration, leadFields, updateParamete
 function SectionLabel({ icon, title, description }: { icon: ReactNode; title: string; description: string }) { return <div className="flex gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">{icon}</span><div><h3 className="text-sm font-semibold text-gray-900">{title}</h3><p className="mt-1 text-sm text-gray-600">{description}</p></div></div> }
 function QualityBadge({ label, className }: { label: string; className: string }) { return <Badge variant="outline" className={cn("whitespace-nowrap", className)}>{label}</Badge> }
 function InlineNotice({ tone, className, children }: { tone: "amber" | "red"; className?: string; children: ReactNode }) { return <div className={cn("rounded-md border px-3 py-2 text-sm", tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-red-200 bg-red-50 text-red-900", className)}>{children}</div> }
-function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) { return <div className="space-y-2"><Label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</Label>{children}</div> }
+function Field({ label, id, className, children }: { label: string; id: string; className?: string; children: ReactNode }) { return <div className={cn("space-y-2", className)}><Label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</Label>{children}</div> }

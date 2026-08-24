@@ -66,6 +66,23 @@ class RegisteredLeadsPreviewControllerTest extends TestCase
         ])->assertOk()->assertExactJson(['recipient_count' => 1]);
     }
 
+    public function test_preview_applies_birth_month_filter(): void
+    {
+        $this->authenticate();
+        Cache::flush();
+        $this->createLead('87000000021', ['data_nascimento' => '1990-05-10', 'fone1' => '47999990021']);
+        $this->createLead('87000000022', ['data_nascimento' => '1990-06-10', 'fone1' => '47999990022']);
+        $this->createFactaSnapshot('87000000021');
+        $this->createFactaSnapshot('87000000022');
+
+        $this->postJson('/api/disparos-whatsapp-vendeai/leads/preview', [
+            'selected_banks' => ['facta'],
+            'combination_mode' => 'any',
+            'birth_month' => ['5'],
+            'facta' => ['situacao' => 'aprovado'],
+        ])->assertOk()->assertExactJson(['recipient_count' => 1]);
+    }
+
     public function test_preview_rejects_bank_without_filter_and_inverted_ranges(): void
     {
         $this->authenticate();

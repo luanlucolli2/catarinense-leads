@@ -445,6 +445,8 @@ export const FiltersModal = ({
         onWithPhonesFilterChange={onWithPhonesFilterChange}
         noPhonesFilter={noPhonesFilter}
         onNoPhonesFilterChange={onNoPhonesFilterChange}
+        birthMonthFilter={birthMonthFilter}
+        onBirthMonthFilterChange={onBirthMonthFilterChange}
         selectedBanks={selectedBanks.filter((bank) => bank !== "fgts")}
         onSelectedBanksChange={onSelectedBanksChange}
         bankCombinationMode={bankCombinationMode}
