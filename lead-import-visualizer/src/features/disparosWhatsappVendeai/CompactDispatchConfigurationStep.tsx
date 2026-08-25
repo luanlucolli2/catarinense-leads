@@ -1,6 +1,7 @@
-import { type Dispatch, type SetStateAction } from "react";
-import { AlertTriangle, Clock3, Image, MessageSquareText, Send, Type } from "lucide-react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { ChevronDown, Clock3, Image, MessageSquareText, RefreshCw, Send, Type } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,12 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  OFFICIAL_INBOXES,
-  type OfficialInbox,
-  type OfficialTemplate,
-  type PhoneQualityRating,
-} from "./configurationFixtures";
+import { type OfficialInbox, type OfficialTemplate } from "./configurationFixtures";
+import { formatPhone } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm";
@@ -44,31 +41,10 @@ type DispatchConfiguration = {
   templateHeaders: Record<string, string>;
 };
 
-const qualityStyles: Record<
-  PhoneQualityRating,
-  { label: string; className: string }
-> = {
-  GREEN: {
-    label: "Boa",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  },
-  YELLOW: {
-    label: "Média",
-    className: "border-amber-200 bg-amber-50 text-amber-800",
-  },
-  RED: { label: "Baixa", className: "border-red-200 bg-red-50 text-red-800" },
-  NA: {
-    label: "Não consultada",
-    className: "border-gray-200 bg-gray-50 text-gray-700",
-  },
-};
-
-const findInbox = (inboxId: string) =>
-  OFFICIAL_INBOXES.find((inbox) => inbox.id === inboxId);
-const selectedTemplates = (configuration: DispatchConfiguration) => {
+const selectedTemplates = (configuration: DispatchConfiguration, inboxes: OfficialInbox[]) => {
   const templates = new Map<string, OfficialTemplate>();
   configuration.senders.forEach((sender) =>
-    findInbox(sender.inboxId)
+    inboxes.find((inbox) => inbox.id === sender.inboxId)
       ?.templates.filter((template) => sender.templateIds.includes(template.id))
       .forEach((template) => templates.set(template.id, template)),
   );
@@ -143,13 +119,43 @@ export function CompactDispatchConfigurationStep({
   recipientCount,
   configuration,
   setConfiguration,
+  inboxes,
+  onRefresh,
+  isRefreshing,
 }: {
   source: LeadSource;
   recipientCount: number;
   configuration: DispatchConfiguration;
   setConfiguration: Dispatch<SetStateAction<DispatchConfiguration>>;
+  inboxes: OfficialInbox[];
+  onRefresh: () => void;
+  isRefreshing: boolean;
 }) {
-  const templates = selectedTemplates(configuration);
+  const templates = selectedTemplates(configuration, inboxes);
+  const canUseLeadFields = source === "registered_leads";
+  const inboxesWithTemplates = inboxes.filter((inbox) => inbox.templates.length > 0);
+  const inboxesWithoutTemplates = inboxes.filter((inbox) => inbox.templates.length === 0);
+  const [showEmptyInboxes, setShowEmptyInboxes] = useState(false);
+
+  useEffect(() => {
+    if (canUseLeadFields) return;
+
+    setConfiguration((current) => {
+      let changed = false;
+      const templateParameters = Object.fromEntries(
+        Object.entries(current.templateParameters).map(([templateId, parameters]) => [
+          templateId,
+          Object.fromEntries(Object.entries(parameters).map(([key, parameter]) => {
+            if (parameter.source !== "lead_field") return [key, parameter];
+            changed = true;
+            return [key, { source: "fixed" as const, value: "" }];
+          })),
+        ]),
+      );
+
+      return changed ? { ...current, templateParameters } : current;
+    });
+  }, [canUseLeadFields, setConfiguration]);
   const leadFields =
     source === "registered_leads"
       ? [
@@ -193,6 +199,7 @@ export function CompactDispatchConfigurationStep({
     }));
   const toggleTemplate = (inboxId: string, template: OfficialTemplate) =>
     setConfiguration((current) => {
+      if (template.status !== "APPROVED") return current;
       const sender = current.senders.find((item) => item.inboxId === inboxId);
       if (!sender) return current;
       const selected = sender.templateIds.includes(template.id);
@@ -225,7 +232,7 @@ export function CompactDispatchConfigurationStep({
           ? current.templateHeaders
           : {
               ...current.templateHeaders,
-              [template.id]: current.templateHeaders[template.id] ?? "",
+              [template.id]: current.templateHeaders[template.id] ?? template.headerText ?? "",
             },
       };
     });
@@ -270,32 +277,34 @@ export function CompactDispatchConfigurationStep({
       </div>
       <div className="space-y-4">
         <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
-          <SectionLabel
-            icon={<Send className="h-4 w-4" />}
-            title="Remetentes e templates"
-            description="Selecione os números oficiais e as mensagens que cada um poderá enviar."
-          />
+          <div className="flex items-start justify-between gap-3">
+            <SectionLabel
+              icon={<Send className="h-4 w-4" />}
+              title="Remetentes e templates"
+              description="Selecione os números oficiais e as mensagens que cada um poderá enviar."
+            />
+            <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
+              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+              Atualizar
+            </Button>
+          </div>
           <div className="mt-4 divide-y divide-gray-100">
-            {OFFICIAL_INBOXES.map((inbox) => {
+            {inboxesWithTemplates.map((inbox) => {
               const sender = configuration.senders.find(
                 (item) => item.inboxId === inbox.id,
               );
-              const unavailable = inbox.templates.length === 0;
-              const quality = qualityStyles[inbox.qualityRating ?? "NA"];
               return (
                 <div
                   key={inbox.id}
                   className={cn(
                     "px-4 py-3",
                     sender && "bg-blue-50/30",
-                    unavailable && "bg-gray-50/60",
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <Checkbox
                       id={`compact-sender-${inbox.id}`}
                       checked={Boolean(sender)}
-                      disabled={unavailable}
                       onCheckedChange={() => toggleSender(inbox)}
                       className="border-blue-600 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white"
                     />
@@ -303,26 +312,23 @@ export function CompactDispatchConfigurationStep({
                       htmlFor={`compact-sender-${inbox.id}`}
                       className={cn(
                         "min-w-0 flex-1 cursor-pointer",
-                        unavailable && "cursor-not-allowed",
                       )}
                     >
                       <span className="block text-sm font-medium text-gray-900">
                         {inbox.name}
                       </span>
                       <span className="block text-xs text-gray-500">
-                        {inbox.phoneNumber}{inbox.verifiedName ? ` · ${inbox.verifiedName}` : " · Nome verificado não informado"}
+                        {formatPhone(inbox.phoneNumber)}
                       </span>
                     </label>
                     <Badge
                       variant="outline"
-                      className={cn("hidden sm:inline-flex", quality.className)}
+                      className="hidden border-slate-200 bg-slate-50 text-slate-700 sm:inline-flex"
                     >
-                      {quality.label}
+                      Qualidade não consultada
                     </Badge>
                     <span className="text-xs text-gray-500">
-                      {unavailable
-                        ? "Sem templates"
-                        : `${inbox.templates.length} modelos`}
+                      {`${inbox.templates.length} modelos`}
                     </span>
                   </div>
                   {sender ? (
@@ -332,9 +338,11 @@ export function CompactDispatchConfigurationStep({
                           <button
                             key={template.id}
                             type="button"
+                            disabled={template.status !== "APPROVED"}
                             onClick={() => toggleTemplate(inbox.id, template)}
                             className={cn(
                               "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                              template.status !== "APPROVED" && "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400 opacity-80",
                               sender.templateIds.includes(template.id)
                                 ? "border-blue-600 bg-blue-600 text-white"
                                 : "border-gray-200 bg-white text-gray-700 hover:border-blue-300",
@@ -395,18 +403,35 @@ export function CompactDispatchConfigurationStep({
                             className="h-8 w-28 border-gray-300 bg-white text-sm"
                           />
                         ) : null}
-                        {inbox.qualityRating === "RED" ? (
-                          <span className="flex items-center gap-1 text-xs text-red-700">
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            Qualidade baixa
-                          </span>
-                        ) : null}
                       </div>
                     </div>
                   ) : null}
                 </div>
               );
             })}
+            {inboxesWithoutTemplates.length > 0 ? (
+              <div className="pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowEmptyInboxes((current) => !current)}
+                  className="flex w-full items-center justify-between rounded-md border border-dashed border-gray-200 px-3 py-2 text-left text-xs text-gray-500 hover:border-blue-300 hover:text-gray-700"
+                  aria-expanded={showEmptyInboxes}
+                >
+                  <span>{showEmptyInboxes ? "Ocultar" : "Ver"} {inboxesWithoutTemplates.length} inbox(es) sem templates</span>
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", showEmptyInboxes && "rotate-180")} />
+                </button>
+                {showEmptyInboxes ? (
+                  <div className="mt-2 space-y-1 rounded-md bg-gray-50 p-2">
+                    {inboxesWithoutTemplates.map((inbox) => (
+                      <div key={inbox.id} className="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">{inbox.name}</span>
+                        <span>{formatPhone(inbox.phoneNumber)} · Sem templates disponíveis</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </section>
         {templates.length > 0 ? (
@@ -449,7 +474,7 @@ export function CompactDispatchConfigurationStep({
                             value={configuration.templateHeaders[template.id] ?? ""}
                             onChange={(event) => updateTemplateHeader(template.id, event.target.value)}
                             type={template.headerType === "TEXT" ? "text" : "url"}
-                            placeholder={template.headerType === "TEXT" ? "Texto do cabeçalho" : "https://seu-dominio.com/arquivo"}
+                            placeholder={template.headerType === "TEXT" ? template.headerText ?? "Texto do cabeçalho" : "https://seu-dominio.com/arquivo"}
                             className="mt-2 h-9 border-blue-200 bg-white"
                           />
                         </div>
@@ -528,8 +553,8 @@ export function CompactDispatchConfigurationStep({
                                   <SelectItem value="fixed">
                                     Texto fixo
                                   </SelectItem>
-                                  <SelectItem value="lead_field">
-                                    Campo do lead
+                                  <SelectItem value="lead_field" disabled={!canUseLeadFields}>
+                                    Dados cadastrados do lead{!canUseLeadFields ? " (indisponível para lista)" : ""}
                                   </SelectItem>
                                 </SelectContent>
                               </Select>

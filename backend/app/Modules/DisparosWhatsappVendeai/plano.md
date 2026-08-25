@@ -106,20 +106,27 @@ somente na seleção dos leads que receberão os disparos.
   quantidade será simulada e o estado existirá somente enquanto o modal estiver
   aberto.
 
-## Decisões — protótipo frontend da etapa 2
+## Decisões — etapa 2 funcional
 
 - O wizard liberará a configuração somente após uma seleção válida: a lista
   colada deverá ter ao menos um celular válido e nenhum inválido; bancos
   selecionados deverão ter ao menos um filtro próprio.
-- O protótipo usará somente inboxes simuladas de WhatsApp oficial. A integração
-  futura carregará da VendeAI id, nome, número, templates, categoria, idioma,
-  status, variáveis posicionais, corpo e `header_type`.
+- A interface carrega `GET /disparos-whatsapp-vendeai/inboxes`, autenticado e
+  limitado por throttle. O backend consulta `POST
+  /api/message-handler/mailing/inboxes/` da VendeAI, com cache de cinco minutos
+  e `refresh=1` para atualização manual.
+- As credenciais ficam somente nas variáveis de ambiente
+  `VENDEAI_MAILING_BASE_URL`, `VENDEAI_MAILING_ACCOUNT_ID` e
+  `VENDEAI_MAILING_CRM_API_ACCESS_TOKEN`; nenhum token é enviado ao frontend.
+- Serão retornadas todas as inboxes `whatsapp`, mesmo sem templates, expondo id, nome, telefone,
+  template, categoria, idioma, corpo, variáveis, status e metadados de
+  cabeçalho necessários para a configuração. Na interface, somente templates
+  `APPROVED` poderão ser selecionados.
 - O status de aprovação do template será exibido a partir de
   `template.status`; a resposta real observada usa valores como `APPROVED`, e
   não uma escala Alta/Média/Baixa.
-  Qualidade, status e nome verificado do número seguirão os dados disponíveis na
-  Cloud API da Meta, após mapeamento da inbox para o `phone_number_id`; o nome
-  verificado será opcional quando não estiver disponível.
+  A qualidade do número será exibida como não consultada nesta fase. A API da
+  Meta não será chamada agora.
 - Cada parâmetro de template poderá receber valor fixo ou dado do lead. Para
   lista colada, somente telefone estará disponível; para leads cadastrados,
   também nome, CPF e data de nascimento.
@@ -139,6 +146,6 @@ somente na seleção dos leads que receberão os disparos.
   exibidos nem configurados.
 - A proteção contra reenvio ao mesmo destinatário iniciará desativada e, quando
   ativada, exigirá um período positivo.
-- Não haverá envio, agendamento, persistência, cadastro de leads na VendeAI ou
-  consulta à Meta nesta etapa. A ação final da confirmação permanecerá bloqueada
-  até a integração do backend.
+- Não haverá envio, agendamento real, persistência, cadastro de leads na
+  VendeAI, job, histórico ou consulta à Meta nesta etapa. A confirmação apenas
+  revisa a configuração.

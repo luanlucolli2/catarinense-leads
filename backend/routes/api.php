@@ -31,6 +31,7 @@ use App\Modules\Vendeai\Controllers\VendeaiWebhookController;
 use App\Http\Controllers\Api\UraSendOfficialTemplateController;
 use App\Http\Middleware\VerifyUraWebhook;
 use App\Modules\Lemit\Controllers\LemitPoolController;
+use App\Modules\DisparosWhatsappVendeai\Controllers\MailingInboxesController;
 use App\Modules\DisparosWhatsappVendeai\Controllers\RegisteredLeadsPreviewController;
 use App\Modules\Uy3\Controllers\Uy3PostExportController;
 use App\Modules\Uy3\Controllers\Uy3PostListController;
@@ -137,6 +138,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/lemit/pool/sample', [LemitPoolController::class, 'sample']);
 
     Route::post('/disparos-whatsapp-vendeai/leads/preview', RegisteredLeadsPreviewController::class)
+        ->middleware('throttle:30,1');
+    Route::get('/disparos-whatsapp-vendeai/inboxes', MailingInboxesController::class)
         ->middleware('throttle:30,1');
 
     /* Importação (FGTS) */

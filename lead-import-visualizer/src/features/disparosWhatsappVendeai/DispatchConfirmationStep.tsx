@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   Check,
   ClipboardList,
   Clock3,
@@ -9,13 +8,9 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  OFFICIAL_INBOXES,
-  type CampaignProduct,
-  type OfficialTemplate,
-  type PhoneQualityRating,
-} from "./configurationFixtures";
+import { type CampaignProduct, type OfficialInbox, type OfficialTemplate } from "./configurationFixtures";
 import { cn } from "@/lib/utils";
+import { formatPhone } from "@/lib/formatters";
 
 type LeadSource = "pasted_numbers" | "registered_leads";
 type SenderConfiguration = {
@@ -40,12 +35,6 @@ const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm";
 const productLabels: Record<CampaignProduct, string> = {
   clt: "Crédito do Trabalhador",
   fgts: "FGTS",
-};
-const qualityLabels: Record<PhoneQualityRating, string> = {
-  GREEN: "Boa",
-  YELLOW: "Média",
-  RED: "Baixa",
-  NA: "Não consultada",
 };
 const templateStatusLabel = (status: string) => (({ APPROVED: "Aprovado", PAUSED: "Pausado", DISABLED: "Desativado" } as Record<string, string>)[status] ?? status) || "Sem status";
 
@@ -95,10 +84,11 @@ function SectionLabel({
 
 function selectedTemplates(
   configuration: DispatchConfiguration,
+  inboxes: OfficialInbox[],
 ): OfficialTemplate[] {
   const templates = new Map<string, OfficialTemplate>();
   configuration.senders.forEach((sender) =>
-    OFFICIAL_INBOXES.find((inbox) => inbox.id === sender.inboxId)
+    inboxes.find((inbox) => inbox.id === sender.inboxId)
       ?.templates.filter((template) => sender.templateIds.includes(template.id))
       .forEach((template) => templates.set(template.id, template)),
   );
@@ -119,21 +109,18 @@ export function DispatchConfirmationStep({
   source,
   recipientCount,
   configuration,
+  inboxes,
   acknowledged,
   onAcknowledgedChange,
 }: {
   source: LeadSource;
   recipientCount: number;
   configuration: DispatchConfiguration;
+  inboxes: OfficialInbox[];
   acknowledged: boolean;
   onAcknowledgedChange: (checked: boolean) => void;
 }) {
-  const templates = selectedTemplates(configuration);
-  const redSenders = configuration.senders
-    .map((sender) =>
-      OFFICIAL_INBOXES.find((inbox) => inbox.id === sender.inboxId),
-    )
-    .filter((inbox) => inbox?.qualityRating === "RED");
+  const templates = selectedTemplates(configuration, inboxes);
 
   return (
     <section className="space-y-5">
@@ -197,7 +184,7 @@ export function DispatchConfirmationStep({
         />
         <div className="mt-4 divide-y divide-gray-100">
           {configuration.senders.map((sender) => {
-            const inbox = OFFICIAL_INBOXES.find(
+            const inbox = inboxes.find(
               (item) => item.id === sender.inboxId,
             );
             if (!inbox) return null;
@@ -210,18 +197,11 @@ export function DispatchConfirmationStep({
                   <span className="text-sm font-semibold text-gray-900">
                     {inbox.name}
                   </span>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      inbox.qualityRating === "RED"
-                        ? "border-red-200 bg-red-50 text-red-800"
-                        : "border-gray-200 text-gray-600",
-                    )}
-                  >
-                    Qualidade {qualityLabels[inbox.qualityRating]}
+                  <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                    Qualidade não consultada
                   </Badge>
                   <span className="text-xs text-gray-500">
-                    {inbox.phoneNumber}
+                    {formatPhone(inbox.phoneNumber)}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -264,16 +244,6 @@ export function DispatchConfirmationStep({
             </strong>
           </div>
         </div>
-        {redSenders.length > 0 ? (
-          <div className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Revise o volume:{" "}
-              {redSenders.map((inbox) => inbox?.name).join(", ")} possui
-              qualidade baixa.
-            </span>
-          </div>
-        ) : null}
       </section>
       <label
         className={cn(
@@ -293,7 +263,7 @@ export function DispatchConfirmationStep({
             Revisei a base, os remetentes e as regras de envio.
           </span>
           <span className="mt-1 block text-sm text-gray-600">
-            Estou ciente de que a confirmação iniciará ou agendará este disparo.
+            Esta confirmação apenas revisa a configuração; o envio ainda não será iniciado.
           </span>
         </span>
       </label>

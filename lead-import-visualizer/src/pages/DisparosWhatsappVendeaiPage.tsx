@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { toast } from "sonner"
-import { AlertTriangle, Check, ChevronRight, ClipboardList, Clock3, Filter, LoaderCircle, MessageSquareText, Send, ShieldCheck, Users } from "lucide-react"
+import { Check, ChevronRight, ClipboardList, Filter, Info, LoaderCircle, Send, Users } from "lucide-react"
 import factaLogo from "@/assets/factalogo.png"
 import mercantilLogo from "@/assets/mercantilogo.png"
 import uy3Logo from "@/assets/logouy3png.png"
@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { CAMPAIGN_PRODUCTS, OFFICIAL_INBOXES, type CampaignProduct, type OfficialInbox, type OfficialTemplate, type PhoneQualityRating } from "@/features/disparosWhatsappVendeai/configurationFixtures"
+import { CAMPAIGN_PRODUCTS, type CampaignProduct, type OfficialInbox, type OfficialTemplate } from "@/features/disparosWhatsappVendeai/configurationFixtures"
+import { listMailingInboxes } from "@/features/disparosWhatsappVendeai/mailingInboxes"
 import { parseBrazilianMobilePhoneList } from "@/features/disparosWhatsappVendeai/phoneList"
 import { CompactDispatchConfigurationStep } from "@/features/disparosWhatsappVendeai/CompactDispatchConfigurationStep"
 import { DispatchConfirmationStep } from "@/features/disparosWhatsappVendeai/DispatchConfirmationStep"
@@ -75,34 +76,22 @@ const BANK_FIELDS: Record<BankKey, FilterField[]> = {
   ],
 }
 const BIRTH_MONTH_OPTIONS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"].map((label, index) => ({ value: String(index + 1), label }))
-const QUALITY_LABELS: Record<PhoneQualityRating, { label: string; className: string }> = {
-  GREEN: { label: "Boa", className: "border-emerald-200 bg-emerald-50 text-emerald-800" }, YELLOW: { label: "Média", className: "border-amber-200 bg-amber-50 text-amber-800" }, RED: { label: "Baixa", className: "border-red-200 bg-red-50 text-red-800" }, NA: { label: "Não consultada", className: "border-slate-200 bg-slate-50 text-slate-700" },
-}
-const TEMPLATE_STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  APPROVED: { label: "Aprovado", className: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-  PAUSED: { label: "Pausado", className: "border-amber-200 bg-amber-50 text-amber-800" },
-  DISABLED: { label: "Desativado", className: "border-red-200 bg-red-50 text-red-800" },
-}
-const templateStatusLabel = (status: string) => TEMPLATE_STATUS_LABELS[status] ?? { label: status || "Sem status", className: "border-slate-200 bg-slate-50 text-slate-700" }
-
 const createDefaultFilters = (): RegisteredLeadFilters => ({ selectedBanks: [], combinationMode: "any", birthMonth: [], facta: {}, mercantil: {}, uy3: {} })
 const createDefaultConfiguration = (): DispatchConfiguration => ({ product: "", campaign: "", senders: [], intervalSeconds: "30", startMode: "now", scheduledAt: "", resendProtectionEnabled: false, resendProtectionDays: "", templateParameters: {}, templateHeaders: {} })
-const createTemplateParameters = (template: OfficialTemplate) => Object.fromEntries(template.parameters.map((parameter) => [parameter.key, { source: "fixed" as const, value: "" }]))
 const bankLabel = (bank: BankKey) => BANK_OPTIONS.find((option) => option.value === bank)?.label ?? bank
 const bankHasOwnFilter = (filters: RegisteredLeadFilters, bank: BankKey) => Object.values(filters[bank]).some((value) => value.trim() !== "")
-const findInbox = (inboxId: string) => OFFICIAL_INBOXES.find((inbox) => inbox.id === inboxId)
 const isPositiveInteger = (value: string) => Number.isInteger(Number(value)) && Number(value) > 0
 const isFutureDateTime = (value: string) => value !== "" && new Date(value).getTime() > Date.now()
 const isPublicHttpUrl = (value: string) => /^https?:\/\/[^\s]+$/i.test(value)
 
-function selectedTemplateDefinitions(configuration: DispatchConfiguration): OfficialTemplate[] {
+function selectedTemplateDefinitions(configuration: DispatchConfiguration, inboxes: OfficialInbox[]): OfficialTemplate[] {
   const templates = new Map<string, OfficialTemplate>()
-  configuration.senders.forEach((sender) => findInbox(sender.inboxId)?.templates.filter((template) => sender.templateIds.includes(template.id)).forEach((template) => templates.set(template.id, template)))
+  configuration.senders.forEach((sender) => inboxes.find((inbox) => inbox.id === sender.inboxId)?.templates.filter((template) => sender.templateIds.includes(template.id)).forEach((template) => templates.set(template.id, template)))
   return Array.from(templates.values())
 }
 
-function configurationErrors(configuration: DispatchConfiguration, recipientCount: number): string[] {
-  const selectedTemplates = selectedTemplateDefinitions(configuration)
+function configurationErrors(configuration: DispatchConfiguration, recipientCount: number, inboxes: OfficialInbox[]): string[] {
+  const selectedTemplates = selectedTemplateDefinitions(configuration, inboxes)
   const allSendersHaveLimits = configuration.senders.length > 0 && configuration.senders.every((sender) => sender.sendLimitEnabled)
   const totalCapacity = configuration.senders.reduce((total, sender) => total + (Number(sender.maxSends) || 0), 0)
   return [
@@ -120,6 +109,25 @@ function configurationErrors(configuration: DispatchConfiguration, recipientCoun
   ].filter(Boolean) as string[]
 }
 
+function reconcileConfiguration(configuration: DispatchConfiguration, inboxes: OfficialInbox[]): DispatchConfiguration {
+  const availableInboxIds = new Set(inboxes.map((inbox) => inbox.id))
+  const availableTemplateIds = new Set(inboxes.flatMap((inbox) => inbox.templates.map((template) => template.id)))
+  const senders = configuration.senders
+    .filter((sender) => availableInboxIds.has(sender.inboxId))
+    .map((sender) => {
+      const inbox = inboxes.find((item) => item.id === sender.inboxId)
+      const templateIds = sender.templateIds.filter((templateId) => inbox?.templates.some((template) => template.id === templateId && template.status === "APPROVED"))
+      return { ...sender, templateIds }
+    })
+
+  return {
+    ...configuration,
+    senders,
+    templateParameters: Object.fromEntries(Object.entries(configuration.templateParameters).filter(([templateId]) => availableTemplateIds.has(templateId))),
+    templateHeaders: Object.fromEntries(Object.entries(configuration.templateHeaders).filter(([templateId]) => availableTemplateIds.has(templateId))),
+  }
+}
+
 export default function DisparosWhatsappVendeaiPage() {
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
@@ -129,16 +137,19 @@ export default function DisparosWhatsappVendeaiPage() {
   const [filters, setFilters] = useState<RegisteredLeadFilters>(createDefaultFilters)
   const [registeredPreview, setRegisteredPreview] = useState<RegisteredPreview>({ status: "idle", recipientCount: null })
   const [configuration, setConfiguration] = useState<DispatchConfiguration>(createDefaultConfiguration)
+  const [mailingInboxes, setMailingInboxes] = useState<OfficialInbox[]>([])
+  const [mailingStatus, setMailingStatus] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [mailingError, setMailingError] = useState<string | null>(null)
   const previewRevision = useRef(0)
   const phoneListSummary = useMemo(() => parseBrazilianMobilePhoneList(pastedNumbers), [pastedNumbers])
   const bankErrors = filters.selectedBanks.filter((bank) => !bankHasOwnFilter(filters, bank))
   const recipientCount = source === "pasted_numbers" ? phoneListSummary.validNumbers.length : registeredPreview.recipientCount ?? 0
   const canContinueFromStepOne = source === "pasted_numbers" ? phoneListSummary.validNumbers.length > 0 && phoneListSummary.invalidTokens.length === 0 : filters.selectedBanks.length > 0 && bankErrors.length === 0 && registeredPreview.status === "ready" && recipientCount > 0
-  const stepTwoErrors = useMemo(() => configurationErrors(configuration, recipientCount), [configuration, recipientCount])
+  const stepTwoErrors = useMemo(() => configurationErrors(configuration, recipientCount, mailingInboxes), [configuration, recipientCount, mailingInboxes])
 
   const resetWizard = () => {
     previewRevision.current += 1
-    setCurrentStep(1); setIsConfirmationAcknowledged(false); setSource("pasted_numbers"); setPastedNumbers(""); setFilters(createDefaultFilters()); setRegisteredPreview({ status: "idle", recipientCount: null }); setConfiguration(createDefaultConfiguration())
+    setCurrentStep(1); setIsConfirmationAcknowledged(false); setSource("pasted_numbers"); setPastedNumbers(""); setFilters(createDefaultFilters()); setRegisteredPreview({ status: "idle", recipientCount: null }); setConfiguration(createDefaultConfiguration()); setMailingInboxes([]); setMailingStatus("idle"); setMailingError(null)
   }
   const handleOpenChange = (open: boolean) => { setIsWizardOpen(open); if (!open) resetWizard() }
   const updateFilters = (updater: (current: RegisteredLeadFilters) => RegisteredLeadFilters) => {
@@ -163,16 +174,43 @@ export default function DisparosWhatsappVendeaiPage() {
       toast.error(errorMessage)
     }
   }
+  const requestMailingInboxes = async (refresh = false) => {
+    if (mailingStatus === "loading") return
+    setMailingStatus("loading")
+    setMailingError(null)
+    try {
+      const inboxes = await listMailingInboxes(refresh)
+      setMailingInboxes(inboxes)
+      setConfiguration((current) => reconcileConfiguration(current, inboxes))
+      setMailingStatus("ready")
+    } catch (error) {
+      const message = typeof error === "object" && error !== null && "response" in error
+        ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined
+      const errorMessage = message ?? "Não foi possível carregar inboxes e templates. Tente novamente."
+      setMailingError(errorMessage)
+      setMailingStatus("error")
+      toast.error(errorMessage)
+    }
+  }
 
-  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Selecione a base e confira os destinatários." : currentStep === 2 ? "Identifique a campanha e defina remetentes, mensagens e entrega." : "Revise a operação antes de confirmar o disparo."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-none space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /> : currentStep === 2 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} /><CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} /></> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} acknowledged={isConfirmationAcknowledged} onAcknowledgedChange={setIsConfirmationAcknowledged} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => setCurrentStep(2)}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={stepTwoErrors.length > 0} onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(3) }}>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></> : <><Button variant="outline" onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(2) }}>Voltar</Button><div className="flex items-center gap-3"><span className="hidden text-xs text-gray-500 lg:inline">O envio será conectado ao backend na próxima etapa.</span><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!isConfirmationAcknowledged}>Confirmar e iniciar disparo <Send className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
+  return <div className="p-4 lg:p-6"><div className="max-w-3xl"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Monte a campanha, selecione a base e configure os remetentes antes da confirmação.</p></div></div><Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><Dialog open={isWizardOpen} onOpenChange={handleOpenChange}><DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl"><DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14"><DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle><DialogDescription className="mt-1">{currentStep === 1 ? "Selecione a base e confira os destinatários." : currentStep === 2 ? "Identifique a campanha e defina remetentes, mensagens e entrega." : "Revise a configuração antes da próxima etapa."}</DialogDescription></DialogHeader><div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-5 py-5 sm:px-6 sm:py-6"><div className="mx-auto max-w-none space-y-6"><WizardProgress currentStep={currentStep} />{currentStep === 1 ? <LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /> : currentStep === 2 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} />{mailingStatus === "loading" ? <LoadingInboxesState /> : mailingStatus === "error" ? <InboxesErrorState message={mailingError} onRetry={() => void requestMailingInboxes(true)} /> : <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} inboxes={mailingInboxes} onRefresh={() => void requestMailingInboxes(true)} isRefreshing={false} />}</> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} inboxes={mailingInboxes} acknowledged={isConfirmationAcknowledged} onAcknowledgedChange={setIsConfirmationAcknowledged} />}</div></div><DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-5 py-4 sm:px-6">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => { setCurrentStep(2); void requestMailingInboxes() }}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><div className="flex items-center gap-3">{stepTwoErrors.length > 0 ? <span className="hidden text-xs text-amber-700 lg:inline">Complete os itens indicados para avançar.</span> : null}<Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={mailingStatus !== "ready" || stepTwoErrors.length > 0} onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(3) }}>Continuar para confirmação <ChevronRight className="ml-1 h-4 w-4" /></Button></div></> : <><Button variant="outline" onClick={() => { setIsConfirmationAcknowledged(false); setCurrentStep(2) }}>Voltar</Button><div className="flex items-center gap-3"><span className="hidden text-xs text-gray-500 lg:inline">O envio será conectado ao backend na próxima etapa.</span><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!isConfirmationAcknowledged}>Confirmar configuração <Check className="ml-1 h-4 w-4" /></Button></div></>}</DialogFooter></DialogContent></Dialog></div>
 }
 
 function WizardProgress({ currentStep }: { currentStep: 1 | 2 | 3 }) {
   return <ol className="grid gap-2 sm:grid-cols-3" aria-label="Etapas do novo disparo">{WIZARD_STEPS.map((label, index) => { const number = index + 1; const isCurrent = number === currentStep; const isCompleted = number < currentStep; return <li key={label} className={cn("flex items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors", isCurrent && "border-blue-200 bg-blue-50 text-blue-900", isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-900", !isCurrent && !isCompleted && "border-slate-200 bg-white text-slate-500")}><span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", isCurrent && "bg-blue-600 text-white", isCompleted && "bg-emerald-600 text-white", !isCurrent && !isCompleted && "bg-slate-100 text-slate-500")}>{number}</span><span className="font-medium"><span className="sr-only">Etapa {number}: </span>{label}</span></li> })}</ol>
 }
 
+function LoadingInboxesState() {
+  return <div className={cn(PANEL_CLASS_NAME, "flex items-center gap-3 p-5 text-sm text-gray-600")}><LoaderCircle className="h-5 w-5 animate-spin text-blue-600" />Carregando remetentes e templates...</div>
+}
+
+function InboxesErrorState({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return <div className={cn(PANEL_CLASS_NAME, "flex flex-wrap items-center justify-between gap-3 p-5")}><p className="text-sm text-red-800">{message ?? "Não foi possível carregar inboxes e templates."}</p><Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={onRetry}>Tentar novamente</Button></div>
+}
+
 function CampaignDataSection({ configuration, setConfiguration }: { configuration: DispatchConfiguration; setConfiguration: Dispatch<SetStateAction<DispatchConfiguration>> }) {
-  return <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}><SectionLabel icon={<ClipboardList className="h-4 w-4" />} title="Dados da campanha" description="Defina o produto e uma identificação interna para este disparo." /><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="Produto *" id="dispatch-product"><Select value={configuration.product || undefined} onValueChange={(value) => setConfiguration((current) => ({ ...current, product: value as CampaignProduct }))}><SelectTrigger id="dispatch-product" className="border-gray-300 bg-white"><SelectValue placeholder="Selecione o produto" /></SelectTrigger><SelectContent>{CAMPAIGN_PRODUCTS.map((product) => <SelectItem key={product.value} value={product.value}>{product.label}</SelectItem>)}</SelectContent></Select></Field><Field label="Campanha" id="dispatch-campaign"><Input id="dispatch-campaign" value={configuration.campaign} onChange={(event) => setConfiguration((current) => ({ ...current, campaign: event.target.value }))} placeholder="Ex.: campanha_agosto" className="border-gray-300" /></Field></div></section>
+  return <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}><SectionLabel icon={<Info className="h-4 w-4" />} title="Dados da campanha" description="Defina o produto e uma identificação interna para este disparo." /><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="Produto *" id="dispatch-product"><Select value={configuration.product || undefined} onValueChange={(value) => setConfiguration((current) => ({ ...current, product: value as CampaignProduct }))}><SelectTrigger id="dispatch-product" className="border-gray-300 bg-white"><SelectValue placeholder="Selecione o produto" /></SelectTrigger><SelectContent>{CAMPAIGN_PRODUCTS.map((product) => <SelectItem key={product.value} value={product.value}>{product.label}</SelectItem>)}</SelectContent></Select></Field><Field label="Campanha" id="dispatch-campaign"><Input id="dispatch-campaign" value={configuration.campaign} onChange={(event) => setConfiguration((current) => ({ ...current, campaign: event.target.value }))} placeholder="Ex.: campanha_agosto" className="border-gray-300" /></Field></div></section>
 }
 
 type LeadSelectionStepProps = { source: LeadSource; setSource: Dispatch<SetStateAction<LeadSource>>; pastedNumbers: string; setPastedNumbers: Dispatch<SetStateAction<string>>; phoneListSummary: ReturnType<typeof parseBrazilianMobilePhoneList>; filters: RegisteredLeadFilters; updateFilters: (updater: (current: RegisteredLeadFilters) => RegisteredLeadFilters) => void; bankErrors: BankKey[]; registeredPreview: RegisteredPreview; onRequestPreview: () => void }
@@ -337,6 +375,7 @@ function RegisteredLeadsFilters({ filters, updateFilters, bankErrors, preview, o
   )
 }
 
+/*
 function DispatchConfigurationStep({ source, recipientCount, configuration, setConfiguration }: { source: LeadSource; recipientCount: number; configuration: DispatchConfiguration; setConfiguration: Dispatch<SetStateAction<DispatchConfiguration>> }) {
   const selectedTemplates = selectedTemplateDefinitions(configuration)
   const errors = configurationErrors(configuration, recipientCount)
@@ -364,7 +403,8 @@ function SenderConfigurationCard({ inbox, sender, recipientCount, onToggleTempla
 function TemplateOption({ template, selected, onClick }: { template: OfficialTemplate; selected: boolean; onClick: () => void }) { const status = templateStatusLabel(template.status); return <button type="button" onClick={onClick} className={cn("rounded-md border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", selected ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "border-gray-200 bg-white hover:border-blue-300")}><div className="flex items-start justify-between gap-2"><span className="text-sm font-semibold text-gray-900">{template.name}</span>{selected ? <Check className="h-4 w-4 text-blue-700" /> : <Badge variant="outline" className="border-slate-200 text-slate-600">{template.category}</Badge>}</div><p className="mt-3 text-sm leading-5 text-gray-600">{template.body}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500"><Badge variant="outline" className="border-slate-200 text-slate-600">{template.category}</Badge><span>{template.language}</span><span>·</span><QualityBadge label={`Status: ${status.label}`} className={status.className} /></div></button> }
 function SenderCapacitySummary({ senders, recipientCount }: { senders: SenderConfiguration[]; recipientCount: number }) { const allLimited = senders.length > 0 && senders.every((sender) => sender.sendLimitEnabled && isPositiveInteger(sender.maxSends)); const hasUnlimitedSender = senders.some((sender) => !sender.sendLimitEnabled); const totalCapacity = senders.reduce((total, sender) => total + (Number(sender.maxSends) || 0), 0); const insufficient = allLimited && totalCapacity < recipientCount; return <div className={cn("rounded-md border px-4 py-3 text-sm", insufficient ? "border-red-200 bg-red-50 text-red-900" : "border-blue-200 bg-blue-50 text-blue-900")}><div className="font-medium">Distribuição automática</div><p className="mt-1">{hasUnlimitedSender ? "Há números sem limite configurado. Eles receberão destinatários após respeitados os limites dos demais remetentes." : !allLimited ? "Informe os limites configurados para calcular a capacidade total." : insufficient ? `Capacidade insuficiente: ${totalCapacity.toLocaleString("pt-BR")} mensagens para ${recipientCount.toLocaleString("pt-BR")} destinatários.` : `Capacidade configurada: ${totalCapacity.toLocaleString("pt-BR")} mensagens para ${recipientCount.toLocaleString("pt-BR")} destinatários.`}</p></div> }
 function TemplateVariables({ template, configuration, leadFields, updateParameter }: { template: OfficialTemplate; configuration: DispatchConfiguration; leadFields: Array<{ value: string; label: string }>; updateParameter: (templateId: string, key: string, update: Partial<{ source: ParameterSource; value: string }>) => void }) { return <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-gray-900">{template.name}</h3><Badge variant="outline" className="border-slate-200 text-slate-600">Variáveis do template</Badge></div><div className="mt-3 rounded-md border border-gray-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-gray-700">{template.body}</div><div className="mt-4 space-y-3">{template.parameters.map((parameter) => { const config = configuration.templateParameters[template.id]?.[parameter.key] ?? { source: "fixed" as const, value: "" }; return <div key={parameter.key} className="grid gap-3 rounded-md border border-gray-200 bg-white p-4 md:grid-cols-[minmax(180px,1fr)_180px_minmax(220px,1fr)] md:items-end"><div><div className="text-sm font-semibold text-gray-800">{parameter.label}</div><div className="mt-1 text-xs text-gray-500">Variável {`{{${parameter.key}}}`} da mensagem</div></div><Field label="Usar" id={`parameter-source-${template.id}-${parameter.key}`}><Select value={config.source} onValueChange={(value) => updateParameter(template.id, parameter.key, { source: value as ParameterSource, value: "" })}><SelectTrigger id={`parameter-source-${template.id}-${parameter.key}`} className="border-gray-300"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Texto fixo</SelectItem><SelectItem value="lead_field">Dado do lead</SelectItem></SelectContent></Select></Field><Field label={config.source === "fixed" ? "Texto" : "Campo"} id={`parameter-value-${template.id}-${parameter.key}`}>{config.source === "fixed" ? <Input id={`parameter-value-${template.id}-${parameter.key}`} value={config.value} onChange={(event) => updateParameter(template.id, parameter.key, { value: event.target.value })} placeholder="Ex.: Crédito disponível" className="border-gray-300" /> : <Select value={config.value} onValueChange={(value) => updateParameter(template.id, parameter.key, { value })}><SelectTrigger id={`parameter-value-${template.id}-${parameter.key}`} className="border-gray-300"><SelectValue placeholder="Selecione o campo" /></SelectTrigger><SelectContent>{leadFields.map((field) => <SelectItem key={field.value} value={field.value}>{field.label}</SelectItem>)}</SelectContent></Select>}</Field></div> })}</div></section> }
-function SectionLabel({ icon, title, description }: { icon: ReactNode; title: string; description: string }) { return <div className="flex gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">{icon}</span><div><h3 className="text-sm font-semibold text-gray-900">{title}</h3><p className="mt-1 text-sm text-gray-600">{description}</p></div></div> }
 function QualityBadge({ label, className }: { label: string; className: string }) { return <Badge variant="outline" className={cn("whitespace-nowrap", className)}>{label}</Badge> }
+*/
+function SectionLabel({ icon, title, description }: { icon: ReactNode; title: string; description: string }) { return <div className="flex gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">{icon}</span><div><h3 className="text-sm font-semibold text-gray-900">{title}</h3><p className="mt-1 text-sm text-gray-600">{description}</p></div></div> }
 function InlineNotice({ tone, className, children }: { tone: "amber" | "red"; className?: string; children: ReactNode }) { return <div className={cn("rounded-md border px-3 py-2 text-sm", tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-red-200 bg-red-50 text-red-900", className)}>{children}</div> }
 function Field({ label, id, className, children }: { label: string; id: string; className?: string; children: ReactNode }) { return <div className={cn("space-y-2", className)}><Label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</Label>{children}</div> }
