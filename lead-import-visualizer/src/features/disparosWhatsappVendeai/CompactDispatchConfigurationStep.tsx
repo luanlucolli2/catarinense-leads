@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction } from "react";
-import { AlertTriangle, Clock3, MessageSquareText, Send } from "lucide-react";
+import { AlertTriangle, Clock3, Image, MessageSquareText, Send, Type } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ type DispatchConfiguration = {
     string,
     Record<string, { source: ParameterSource; value: string }>
   >;
+  templateHeaders: Record<string, string>;
 };
 
 const qualityStyles: Record<
@@ -57,7 +58,7 @@ const qualityStyles: Record<
   },
   RED: { label: "Baixa", className: "border-red-200 bg-red-50 text-red-800" },
   NA: {
-    label: "Indisponível",
+    label: "Não consultada",
     className: "border-gray-200 bg-gray-50 text-gray-700",
   },
 };
@@ -73,6 +74,10 @@ const selectedTemplates = (configuration: DispatchConfiguration) => {
   );
   return [...templates.values()];
 };
+const templateStatusStyles = (status: string) => ({
+  label: (({ APPROVED: "Aprovado", PAUSED: "Pausado", DISABLED: "Desativado" } as Record<string, string>)[status] ?? status) || "Sem status",
+  className: status === "APPROVED" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status === "PAUSED" ? "border-amber-200 bg-amber-50 text-amber-800" : status === "DISABLED" ? "border-red-200 bg-red-50 text-red-800" : "border-slate-200 bg-slate-50 text-slate-700",
+});
 
 function Field({
   label,
@@ -216,6 +221,12 @@ export function CompactDispatchConfigurationStep({
                   ]),
                 ),
             },
+        templateHeaders: selected
+          ? current.templateHeaders
+          : {
+              ...current.templateHeaders,
+              [template.id]: current.templateHeaders[template.id] ?? "",
+            },
       };
     });
   const updateParameter = (
@@ -235,6 +246,11 @@ export function CompactDispatchConfigurationStep({
           },
         },
       },
+    }));
+  const updateTemplateHeader = (templateId: string, value: string) =>
+    setConfiguration((current) => ({
+      ...current,
+      templateHeaders: { ...current.templateHeaders, [templateId]: value },
     }));
 
   return (
@@ -265,7 +281,7 @@ export function CompactDispatchConfigurationStep({
                 (item) => item.inboxId === inbox.id,
               );
               const unavailable = inbox.templates.length === 0;
-              const quality = qualityStyles[inbox.qualityRating];
+              const quality = qualityStyles[inbox.qualityRating ?? "NA"];
               return (
                 <div
                   key={inbox.id}
@@ -294,7 +310,7 @@ export function CompactDispatchConfigurationStep({
                         {inbox.name}
                       </span>
                       <span className="block text-xs text-gray-500">
-                        {inbox.phoneNumber} · {inbox.verifiedName}
+                        {inbox.phoneNumber}{inbox.verifiedName ? ` · ${inbox.verifiedName}` : " · Nome verificado não informado"}
                       </span>
                     </label>
                     <Badge
@@ -324,7 +340,12 @@ export function CompactDispatchConfigurationStep({
                                 : "border-gray-200 bg-white text-gray-700 hover:border-blue-300",
                             )}
                           >
-                            <span className="block">{template.name}</span>
+                            <span className="flex items-center gap-2">
+                              <span className="truncate">{template.name}</span>
+                              <Badge variant="outline" className={cn("shrink-0 px-1.5 py-0 text-[10px]", templateStatusStyles(template.status).className)}>
+                                {templateStatusStyles(template.status).label}
+                              </Badge>
+                            </span>
                             <span
                               className={cn(
                                 "mt-0.5 block max-w-[28rem] truncate text-left text-[11px] font-normal",
@@ -393,8 +414,8 @@ export function CompactDispatchConfigurationStep({
             <div className="flex items-start justify-between gap-3">
               <SectionLabel
                 icon={<MessageSquareText className="h-4 w-4" />}
-                title="Variáveis das mensagens"
-                description="Personalize somente os campos exigidos pelos templates escolhidos."
+                title="Conteúdo dos templates"
+                description="Preencha variáveis e cabeçalhos exigidos pelos templates escolhidos."
               />
               <span className="shrink-0 text-xs text-gray-500">
                 {templates.length} selecionado(s)
@@ -411,6 +432,30 @@ export function CompactDispatchConfigurationStep({
                       {template.body}
                     </span>
                   </div>
+                  {template.headerType ? (
+                    <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/60 p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 text-blue-700">
+                          {template.headerType === "TEXT" ? <Type className="h-4 w-4" /> : <Image className="h-4 w-4" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold text-blue-900">
+                            Cabeçalho {template.headerType === "TEXT" ? "de texto" : `de ${template.headerType.toLowerCase()}`}
+                          </div>
+                          <p className="mt-1 text-xs text-blue-800">
+                            {template.headerType === "TEXT" ? "Informe o valor que será enviado no cabeçalho." : "Use uma URL pública, acessível sem autenticação."}
+                          </p>
+                          <Input
+                            value={configuration.templateHeaders[template.id] ?? ""}
+                            onChange={(event) => updateTemplateHeader(template.id, event.target.value)}
+                            type={template.headerType === "TEXT" ? "text" : "url"}
+                            placeholder={template.headerType === "TEXT" ? "Texto do cabeçalho" : "https://seu-dominio.com/arquivo"}
+                            className="mt-2 h-9 border-blue-200 bg-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   {template.parameters.length > 0 ? (
                     <div className="mt-3 grid gap-2 md:grid-cols-2">
                       {template.parameters.map((parameter) => {

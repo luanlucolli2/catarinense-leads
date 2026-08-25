@@ -33,6 +33,7 @@ type DispatchConfiguration = {
   scheduledAt: string;
   resendProtectionEnabled: boolean;
   resendProtectionDays: string;
+  templateHeaders: Record<string, string>;
 };
 
 const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm";
@@ -44,8 +45,9 @@ const qualityLabels: Record<PhoneQualityRating, string> = {
   GREEN: "Boa",
   YELLOW: "Média",
   RED: "Baixa",
-  NA: "Indisponível",
+  NA: "Não consultada",
 };
+const templateStatusLabel = (status: string) => (({ APPROVED: "Aprovado", PAUSED: "Pausado", DISABLED: "Desativado" } as Record<string, string>)[status] ?? status) || "Sem status";
 
 function SectionHeading({
   number,
@@ -224,12 +226,10 @@ export function DispatchConfirmationStep({
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {senderTemplates.map((template) => (
-                    <span
-                      key={template.id}
-                      className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700"
-                    >
-                      {template.name}
-                    </span>
+                    <div key={template.id} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700">
+                      <span>{template.name} · Status: {templateStatusLabel(template.status)}</span>
+                      {template.headerType ? <span className="mt-1 block text-gray-500">Cabeçalho: {configuration.templateHeaders[template.id] || "Pendente"}</span> : null}
+                    </div>
                   ))}
                 </div>
                 <p className="mt-2 text-xs text-gray-600">
