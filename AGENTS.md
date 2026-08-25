@@ -46,21 +46,26 @@ Se precisar acessar algum desses arquivos, explique o motivo em uma linha antes.
 - Não narrar cada passo.
 - Só pedir confirmação quando precisar sair do escopo, alterar contrato, adicionar dependência ou rodar comando pesado.
 
+## Verificação antes de responder
+
+- Dúvidas sobre comportamento, arquitetura, contratos, fluxos, campos, validações,
+  erros ou implementação devem ser verificadas no código antes de serem respondidas.
+- Não responda com base apenas em suposições, padrões comuns ou memória do contexto.
+- Localize primeiro os símbolos, arquivos e testes diretamente relacionados à dúvida.
+- Quando o código não permitir uma conclusão segura, informe explicitamente o que foi
+  verificado, o que permanece incerto e quais informações estão faltando.
+
 ## Resposta final
 
-Após concluir, responda somente neste formato:
+Após concluir uma alteração, informe somente:
 
-Arquivos:
-- `caminho/do/arquivo`
+- resumo do que foi feito;
+- arquivos alterados;
+- validações ou testes executados;
+- riscos, limitações ou pendências.
 
-Validação:
-- `comando mínimo ou "não executado"`
+Para dúvidas, diagnósticos ou explicações sem alteração de arquivos, responda
+diretamente com contexto suficiente, evidências verificadas e comandos relevantes
+quando ajudarem a esclarecer a resposta.
 
-Observações:
-- `máximo 1 linha, somente se houver risco ou pendência`
-
-Não explique a implementação.
-Não mostre diff.
-Não repita código.
-Não sugira próximos passos.
-Não ultrapasse 6 linhas na resposta final.
+Não mostre diff nem repita código completo, salvo solicitação explícita.

@@ -3,6 +3,14 @@
 return [
     'webhook_token' => env('VENDEAI_WEBHOOK_TOKEN', ''),
 
+    'mailing' => [
+        'base_url' => rtrim((string) env('VENDEAI_MAILING_BASE_URL', 'https://ia.vendeaitecnologia.com.br'), '/'),
+        'account_id' => (string) env('VENDEAI_MAILING_ACCOUNT_ID', ''),
+        'crm_api_access_token' => (string) env('VENDEAI_MAILING_CRM_API_ACCESS_TOKEN', ''),
+        'timeout_seconds' => (int) env('VENDEAI_MAILING_TIMEOUT_SECONDS', 15),
+        'inboxes_cache_seconds' => (int) env('VENDEAI_MAILING_INBOXES_CACHE_SECONDS', 300),
+    ],
+
     'export' => [
         'queue' => env('VENDEAI_EXPORT_QUEUE', env('PREVIEW_JOB_QUEUE', 'reports')),
         'ttl_seconds' => (int) env('VENDEAI_EXPORT_TTL_SECONDS', 6 * 3600),

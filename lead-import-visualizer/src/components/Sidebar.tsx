@@ -12,6 +12,8 @@ import {
   Link2,
   Loader2,
   Handshake,
+  MessageCircle,
+  Phone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -128,6 +130,12 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             active: location.pathname === "/leads",
           },
           {
+            name: "Higienização Lemit",
+            icon: Phone,
+            path: "/leads/higienizacao-lemit",
+            active: isActive("/leads/higienizacao-lemit"),
+          },
+          {
             name: "Importações (Leads)",
             icon: FileText,
             path: "/leads/importacoes",
@@ -185,6 +193,12 @@ const Sidebar = ({ className, isCollapsed, onToggle }: SidebarProps) => {
             icon: Link2,
             path: "/ferramentas/links",
             active: isActive("/ferramentas/links"),
+          },
+          {
+            name: "Disparos WhatsApp VendeAI",
+            icon: MessageCircle,
+            path: "/ferramentas/disparos-whatsapp-vendeai",
+            active: isActive("/ferramentas/disparos-whatsapp-vendeai"),
           },
           c6Item,
         ],

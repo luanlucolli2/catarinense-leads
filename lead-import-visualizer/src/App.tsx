@@ -13,10 +13,12 @@ import {
 import Dashboard from "./pages/Dashboard";
 import HistoricoPage from "./pages/Importacoes/HistoricoPage";
 import Login from "./pages/Login";
+import LemitPoolPage from "./pages/LemitPoolPage";
 import NotFound from "./pages/NotFound";
 import CLTConsultaPage from "./pages/CLTConsultaPage"; // 👈 nova página
 import FGTSConsultaPage from "./pages/FGTSConsultaPage"; // 👈 nova página FGTS
 import C6LinksPage from "./pages/C6LinksPage";
+import DisparosWhatsappVendeaiPage from "./pages/DisparosWhatsappVendeaiPage";
 import ParceirosUY3Page from "./pages/ParceirosUY3Page";
 import IntegracoesVendeaiPage from "./modules/vendeai/pages/IntegracoesVendeaiPage";
 import LinksPage from "./pages/LinksPage";
@@ -62,6 +64,11 @@ const App = () => (
 
                 <Route path="leads" element={<Dashboard />} />
 
+                <Route
+                  path="leads/higienizacao-lemit"
+                  element={<LemitPoolPage />}
+                />
+
                 {/* histórico de importações */}
                 <Route path="leads/importacoes" element={<HistoricoPage />} />
 
@@ -72,6 +79,11 @@ const App = () => (
                 <Route path="consultas/fgts" element={<FGTSConsultaPage />} />
 
                 <Route path="ferramentas/c6/links" element={<C6LinksPage />} />
+
+                <Route
+                  path="ferramentas/disparos-whatsapp-vendeai"
+                  element={<DisparosWhatsappVendeaiPage />}
+                />
 
                 <Route path="integracoes/uy3" element={<ParceirosUY3Page />} />
 
