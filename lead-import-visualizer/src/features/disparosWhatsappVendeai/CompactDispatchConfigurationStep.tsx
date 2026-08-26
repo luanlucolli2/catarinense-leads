@@ -34,6 +34,9 @@ type DispatchConfiguration = {
   scheduledAt: string;
   resendProtectionEnabled: boolean;
   resendProtectionDays: string;
+  sendWindowEnabled: boolean;
+  sendWindowStart: string;
+  sendWindowEnd: string;
   templateParameters: Record<
     string,
     Record<string, { source: ParameterSource; value: string }>
@@ -122,6 +125,7 @@ export function CompactDispatchConfigurationStep({
   inboxes,
   onRefresh,
   isRefreshing,
+  validationErrors,
 }: {
   source: LeadSource;
   recipientCount: number;
@@ -130,12 +134,19 @@ export function CompactDispatchConfigurationStep({
   inboxes: OfficialInbox[];
   onRefresh: () => void;
   isRefreshing: boolean;
+  validationErrors: string[];
 }) {
   const templates = selectedTemplates(configuration, inboxes);
+  const configurableTemplates = templates.filter((template) => template.parameters.length > 0 || template.headerType);
   const canUseLeadFields = source === "registered_leads";
   const inboxesWithTemplates = inboxes.filter((inbox) => inbox.templates.length > 0);
   const inboxesWithoutTemplates = inboxes.filter((inbox) => inbox.templates.length === 0);
   const [showEmptyInboxes, setShowEmptyInboxes] = useState(false);
+  const allSendersHaveLimits = configuration.senders.length > 0 && configuration.senders.every((sender) => sender.sendLimitEnabled && Number.isInteger(Number(sender.maxSends)) && Number(sender.maxSends) > 0);
+  const totalCapacity = configuration.senders.reduce((total, sender) => total + (Number(sender.maxSends) || 0), 0);
+  const senderErrors = validationErrors.filter((error) => /número remetente|template para cada número/i.test(error));
+  const contentErrors = validationErrors.filter((error) => /variáveis|cabeçalho/i.test(error));
+  const deliveryErrors = validationErrors.filter((error) => /intervalo|data e hora|janela|reenvio/i.test(error));
 
   useEffect(() => {
     if (canUseLeadFields) return;
@@ -281,7 +292,7 @@ export function CompactDispatchConfigurationStep({
             <SectionLabel
               icon={<Send className="h-4 w-4" />}
               title="Remetentes e templates"
-              description="Selecione os números oficiais e as mensagens que cada um poderá enviar."
+              description="Escolha os números e a mensagem disponível para cada um. A divisão será automática."
             />
             <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
               <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", isRefreshing && "animate-spin")} />
@@ -432,22 +443,24 @@ export function CompactDispatchConfigurationStep({
                 ) : null}
               </div>
             ) : null}
+            {allSendersHaveLimits && totalCapacity < recipientCount ? <div role="alert" className="mx-4 my-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Os limites somam {totalCapacity.toLocaleString("pt-BR")} envios para uma base de {recipientCount.toLocaleString("pt-BR")} destinatários.</div> : null}
+            {senderErrors.length > 0 ? <div role="alert" className="mx-4 my-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{senderErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
           </div>
         </section>
-        {templates.length > 0 ? (
+        {configurableTemplates.length > 0 ? (
           <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
             <div className="flex items-start justify-between gap-3">
               <SectionLabel
                 icon={<MessageSquareText className="h-4 w-4" />}
-                title="Conteúdo dos templates"
-                description="Preencha variáveis e cabeçalhos exigidos pelos templates escolhidos."
+                title="Personalizar mensagens"
+                description="Preencha somente os campos exigidos pelos templates selecionados."
               />
               <span className="shrink-0 text-xs text-gray-500">
-                {templates.length} selecionado(s)
+                {configurableTemplates.length} com campos
               </span>
             </div>
             <div className="mt-4 divide-y divide-gray-100">
-              {templates.map((template) => (
+              {configurableTemplates.map((template) => (
                 <div key={template.id} className="px-4 py-3">
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-sm font-medium text-gray-900">
@@ -567,101 +580,42 @@ export function CompactDispatchConfigurationStep({
                 </div>
               ))}
             </div>
+            {contentErrors.length > 0 ? <div role="alert" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{contentErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
           </section>
         ) : null}
         <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
           <SectionLabel
             icon={<Clock3 className="h-4 w-4" />}
-            title="Entrega"
-            description="Defina o intervalo, o início e a proteção contra reenvio."
+            title="Programação de envio"
+            description="Defina quando a campanha começa, seu ritmo e as proteções aplicadas."
           />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <Field label="Intervalo (seg.)">
-              <Input
-                type="number"
-                min="1"
-                value={configuration.intervalSeconds}
-                onChange={(event) =>
-                  setConfiguration((current) => ({
-                    ...current,
-                    intervalSeconds: event.target.value,
-                  }))
-                }
-                className="border-gray-300"
-              />
-            </Field>
-            <Field label="Início">
-              <Select
-                value={configuration.startMode}
-                onValueChange={(value) =>
-                  setConfiguration((current) => ({
-                    ...current,
-                    startMode: value as DispatchConfiguration["startMode"],
-                  }))
-                }
-              >
-                <SelectTrigger className="border-gray-300 bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="now">Agora</SelectItem>
-                  <SelectItem value="scheduled">Agendar</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            {configuration.startMode === "scheduled" ? (
-              <Field label="Data e hora">
-                <Input
-                  type="datetime-local"
-                  value={configuration.scheduledAt}
-                  onChange={(event) =>
-                    setConfiguration((current) => ({
-                      ...current,
-                      scheduledAt: event.target.value,
-                    }))
-                  }
-                  className="border-gray-300"
-                />
-              </Field>
-            ) : (
-              <div className="flex items-end">
-                <div className="flex h-10 items-center gap-2">
-                  <Switch
-                    id="compact-resend"
-                    checked={configuration.resendProtectionEnabled}
-                    className="data-[state=checked]:bg-blue-600"
-                    onCheckedChange={(checked) =>
-                      setConfiguration((current) => ({
-                        ...current,
-                        resendProtectionEnabled: checked,
-                      }))
-                    }
-                  />
-                  <Label
-                    htmlFor="compact-resend"
-                    className="text-sm font-medium text-gray-800"
-                  >
-                    Evitar reenvio
-                  </Label>
-                </div>
+          <div className="mt-4 divide-y divide-gray-100">
+            <div className="py-4 first:pt-0">
+              <p className="text-sm font-semibold text-gray-800">Quando enviar</p>
+              <p className="mt-1 text-xs text-gray-600">Escolha o início e, se necessário, limite os horários em que o disparo pode continuar.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {(["now", "scheduled"] as const).map((mode) => (
+                  <button key={mode} type="button" onClick={() => setConfiguration((current) => ({ ...current, startMode: mode }))} className={cn("min-h-16 rounded-md border bg-white px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", configuration.startMode === mode ? "border-blue-500 bg-blue-50 text-blue-900" : "border-gray-300 text-gray-700 hover:border-blue-300")}>
+                    <span className="block text-sm font-medium">{mode === "now" ? "Enviar assim que possível" : "Agendar início"}</span>
+                    <span className="mt-0.5 block text-xs text-gray-500">{mode === "now" ? "Começa quando o envio estiver disponível" : "Escolha data e hora"}</span>
+                  </button>
+                ))}
               </div>
-            )}
-            {configuration.resendProtectionEnabled ? (
-              <Field label="Sem reenvio (dias)">
-                <Input
-                  type="number"
-                  min="1"
-                  value={configuration.resendProtectionDays}
-                  onChange={(event) =>
-                    setConfiguration((current) => ({
-                      ...current,
-                      resendProtectionDays: event.target.value,
-                    }))
-                  }
-                  className="border-gray-300"
-                />
-              </Field>
-            ) : null}
+              {configuration.startMode === "scheduled" ? <div className="mt-3"><Field label="Data e hora de início"><Input type="datetime-local" value={configuration.scheduledAt} onChange={(event) => setConfiguration((current) => ({ ...current, scheduledAt: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+                <div><Label htmlFor="compact-send-window" className="text-sm font-medium text-gray-800">Limitar a uma faixa de horário</Label><p className="mt-1 text-xs text-gray-600">Fora da faixa, a campanha aguarda o próximo horário permitido.</p></div>
+                <Switch id="compact-send-window" checked={configuration.sendWindowEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, sendWindowEnabled: checked }))} />
+              </div>
+              {configuration.sendWindowEnabled ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><Field label="A partir de"><Input type="time" value={configuration.sendWindowStart} onChange={(event) => setConfiguration((current) => ({ ...current, sendWindowStart: event.target.value }))} className="border-gray-300 bg-white" /></Field><Field label="Até"><Input type="time" value={configuration.sendWindowEnd} onChange={(event) => setConfiguration((current) => ({ ...current, sendWindowEnd: event.target.value }))} className="border-gray-300 bg-white" /></Field><p className="text-xs text-gray-500 sm:col-span-2">Horário de Brasília (UTC−03:00).</p></div> : null}
+            </div>
+            <div className="py-4 last:pb-0">
+              <p className="mb-3 text-sm font-semibold text-gray-800">Ritmo e proteção</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Intervalo entre mensagens (seg.)"><Input type="number" min="1" value={configuration.intervalSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field>
+                <div className="rounded-md border border-gray-200 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div><Label htmlFor="compact-resend" className="text-sm font-medium text-gray-800">Evitar reenvio</Label><p className="mt-1 text-xs text-gray-600">Bloqueia novo contato pelo período definido.</p></div><Switch id="compact-resend" checked={configuration.resendProtectionEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, resendProtectionEnabled: checked }))} /></div>{configuration.resendProtectionEnabled ? <div className="mt-3"><Field label="Sem reenvio (dias)"><Input type="number" min="1" value={configuration.resendProtectionDays} onChange={(event) => setConfiguration((current) => ({ ...current, resendProtectionDays: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}</div>
+              </div>
+              {deliveryErrors.length > 0 ? <div role="alert" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{deliveryErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
+            </div>
           </div>
         </section>
       </div>

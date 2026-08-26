@@ -7,7 +7,6 @@ import {
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { type CampaignProduct, type OfficialInbox, type OfficialTemplate } from "./configurationFixtures";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/formatters";
@@ -28,6 +27,9 @@ type DispatchConfiguration = {
   scheduledAt: string;
   resendProtectionEnabled: boolean;
   resendProtectionDays: string;
+  sendWindowEnabled: boolean;
+  sendWindowStart: string;
+  sendWindowEnd: string;
   templateHeaders: Record<string, string>;
 };
 
@@ -105,20 +107,25 @@ function formatSchedule(configuration: DispatchConfiguration): string {
     : "Agendamento pendente";
 }
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "Não calculado";
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
+}
+
 export function DispatchConfirmationStep({
   source,
   recipientCount,
   configuration,
   inboxes,
-  acknowledged,
-  onAcknowledgedChange,
 }: {
   source: LeadSource;
   recipientCount: number;
   configuration: DispatchConfiguration;
   inboxes: OfficialInbox[];
-  acknowledged: boolean;
-  onAcknowledgedChange: (checked: boolean) => void;
 }) {
   const templates = selectedTemplates(configuration, inboxes);
 
@@ -126,16 +133,16 @@ export function DispatchConfirmationStep({
     <section className="space-y-5">
       <SectionHeading
         number="3"
-        title="Revisar e confirmar"
-        description="Confira os pontos essenciais. Para corrigir algo, volte à etapa anterior."
+        title="Revisar configuração"
+        description="Confira os pontos essenciais antes de encerrar esta configuração."
       />
       <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
         <SectionLabel
           icon={<ClipboardList className="h-4 w-4" />}
           title="Resumo da campanha"
-          description="Visão rápida antes de liberar o disparo."
+          description="Visão rápida da campanha configurada."
         />
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <SummaryItem
             icon={<Users className="h-4 w-4" />}
             label="Destinatários"
@@ -157,6 +164,12 @@ export function DispatchConfirmationStep({
             label="Início"
             value={configuration.startMode === "now" ? "Agora" : "Agendado"}
             detail={formatSchedule(configuration)}
+          />
+          <SummaryItem
+            icon={<Clock3 className="h-4 w-4" />}
+            label="Duração estimada"
+            value={formatDuration(Math.max(0, recipientCount - 1) * Number(configuration.intervalSeconds))}
+            detail="Sem considerar pausas da janela"
           />
         </div>
         <dl className="mt-4 grid gap-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
@@ -225,10 +238,10 @@ export function DispatchConfirmationStep({
       <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
         <SectionLabel
           icon={<ShieldCheck className="h-4 w-4" />}
-          title="Regras de envio"
-          description="Estas regras serão aplicadas durante a execução."
+          title="Programação e proteção"
+          description="Regras que serão aplicadas quando o envio estiver disponível."
         />
-        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
             <span className="text-gray-500">Intervalo</span>
             <strong className="mt-1 block text-gray-900">
@@ -243,30 +256,20 @@ export function DispatchConfirmationStep({
                 : "Não ativada"}
             </strong>
           </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+            <span className="text-gray-500">Janela de envio</span>
+            <strong className="mt-1 block text-gray-900">
+              {configuration.sendWindowEnabled
+                ? `${configuration.sendWindowStart}–${configuration.sendWindowEnd} · Brasília (UTC−03:00)`
+                : "Sem restrição de horário"}
+            </strong>
+          </div>
         </div>
       </section>
-      <label
-        className={cn(
-          "flex cursor-pointer items-start gap-3 rounded-lg border p-4 shadow-sm transition-colors",
-          acknowledged
-            ? "border-blue-500 bg-blue-50"
-            : "border-gray-200 bg-white hover:border-blue-300",
-        )}
-      >
-        <Checkbox
-          checked={acknowledged}
-          onCheckedChange={(value) => onAcknowledgedChange(Boolean(value))}
-          className="mt-0.5 border-blue-300 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white"
-        />
-        <span>
-          <span className="block text-sm font-semibold text-gray-900">
-            Revisei a base, os remetentes e as regras de envio.
-          </span>
-          <span className="mt-1 block text-sm text-gray-600">
-            Esta confirmação apenas revisa a configuração; o envio ainda não será iniciado.
-          </span>
-        </span>
-      </label>
+      <div role="status" className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        <ClipboardList className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>A criação e o envio da campanha ainda não estão disponíveis nesta etapa. Você pode voltar para editar ou fechar esta revisão.</span>
+      </div>
     </section>
   );
 }
