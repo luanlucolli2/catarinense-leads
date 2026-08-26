@@ -35,7 +35,8 @@ type DispatchConfiguration = {
   product: CampaignProduct | ""
   campaign: string
   senders: SenderConfiguration[]
-  intervalSeconds: string
+  intervalMinSeconds: string
+  intervalMaxSeconds: string
   startMode: "now" | "scheduled"
   scheduledAt: string
   resendProtectionEnabled: boolean
@@ -79,7 +80,7 @@ const BANK_FIELDS: Record<BankKey, FilterField[]> = {
 }
 const BIRTH_MONTH_OPTIONS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"].map((label, index) => ({ value: String(index + 1), label }))
 const createDefaultFilters = (): RegisteredLeadFilters => ({ selectedBanks: [], combinationMode: "any", birthMonth: [], facta: {}, mercantil: {}, uy3: {} })
-const createDefaultConfiguration = (): DispatchConfiguration => ({ product: "", campaign: "", senders: [], intervalSeconds: "30", startMode: "now", scheduledAt: "", resendProtectionEnabled: false, resendProtectionDays: "", sendWindowEnabled: false, sendWindowStart: "08:00", sendWindowEnd: "18:00", templateParameters: {}, templateHeaders: {} })
+const createDefaultConfiguration = (): DispatchConfiguration => ({ product: "", campaign: "", senders: [], intervalMinSeconds: "30", intervalMaxSeconds: "45", startMode: "now", scheduledAt: "", resendProtectionEnabled: false, resendProtectionDays: "", sendWindowEnabled: false, sendWindowStart: "08:00", sendWindowEnd: "18:00", templateParameters: {}, templateHeaders: {} })
 const bankLabel = (bank: BankKey) => BANK_OPTIONS.find((option) => option.value === bank)?.label ?? bank
 const bankHasOwnFilter = (filters: RegisteredLeadFilters, bank: BankKey) => Object.values(filters[bank]).some((value) => value.trim() !== "")
 const isPositiveInteger = (value: string) => Number.isInteger(Number(value)) && Number(value) > 0
@@ -102,7 +103,7 @@ function configurationErrors(configuration: DispatchConfiguration, recipientCoun
     configuration.senders.some((sender) => sender.templateIds.length === 0) && "Escolha ao menos um template para cada número remetente.",
     configuration.senders.some((sender) => sender.sendLimitEnabled && !isPositiveInteger(sender.maxSends)) && "Informe um limite positivo para cada número com limite ativado.",
     allSendersHaveLimits && totalCapacity < recipientCount && `A capacidade total (${totalCapacity}) é menor que a base selecionada (${recipientCount}).`,
-    (!Number.isInteger(Number(configuration.intervalSeconds)) || Number(configuration.intervalSeconds) <= 0) && "Informe um intervalo positivo entre mensagens.",
+    (!isPositiveInteger(configuration.intervalMinSeconds) || !isPositiveInteger(configuration.intervalMaxSeconds) || Number(configuration.intervalMinSeconds) > Number(configuration.intervalMaxSeconds)) && "Informe uma faixa de intervalo válida entre mensagens.",
     configuration.startMode === "scheduled" && !isFutureDateTime(configuration.scheduledAt) && "Informe uma data e hora futura para o agendamento.",
     configuration.sendWindowEnabled && (!/^\d{2}:\d{2}$/.test(configuration.sendWindowStart) || !/^\d{2}:\d{2}$/.test(configuration.sendWindowEnd) || configuration.sendWindowStart >= configuration.sendWindowEnd) && "Informe uma janela de envio válida.",
     configuration.resendProtectionEnabled && !isPositiveInteger(configuration.resendProtectionDays) && "Informe um período positivo sem reenvio.",
@@ -314,7 +315,7 @@ function RegisteredLeadsFilters({ filters, updateFilters, bankErrors, preview, o
     <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
       <SectionLabel icon={<Filter className="h-4 w-4" />} title="Filtrar leads cadastrados" description="Selecione a base e consulte os resultados para continuar." />
 
-      <div className="mt-4 divide-y divide-gray-100 border-t border-gray-100">
+      <div className="mt-4 divide-y divide-slate-200 border-t border-slate-200">
         <div className="py-4 first:pt-4">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -386,7 +387,7 @@ function RegisteredLeadsFilters({ filters, updateFilters, bankErrors, preview, o
                       </span>
                     </AccordionTrigger>
                     <AccordionContent className="pb-4">
-                      <div className="grid gap-3 border-t border-gray-100 pt-4 sm:grid-cols-2">
+                      <div className="grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
                         {BANK_FIELDS[bank].map((field) => (
                           <Field key={field.key} label={field.label} id={bank + "-" + field.key} className={field.type === "situation" ? "sm:col-span-2" : undefined}>
                             {field.type === "situation" ? (
@@ -408,7 +409,7 @@ function RegisteredLeadsFilters({ filters, updateFilters, bankErrors, preview, o
           </div>
         ) : null}
 
-        <div className="border-t border-gray-100 pt-4">
+        <div className="border-t border-slate-200 pt-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">

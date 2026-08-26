@@ -22,7 +22,8 @@ type DispatchConfiguration = {
   product: CampaignProduct | "";
   campaign: string;
   senders: SenderConfiguration[];
-  intervalSeconds: string;
+  intervalMinSeconds: string;
+  intervalMaxSeconds: string;
   startMode: "now" | "scheduled";
   scheduledAt: string;
   resendProtectionEnabled: boolean;
@@ -116,6 +117,11 @@ function formatDuration(seconds: number): string {
   return remainingMinutes ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
 }
 
+function formatDurationRange(minSeconds: number, maxSeconds: number, recipients: number): string {
+  if (recipients <= 1 || !Number.isFinite(minSeconds) || !Number.isFinite(maxSeconds)) return "Não calculado";
+  return `${formatDuration((recipients - 1) * minSeconds)}–${formatDuration((recipients - 1) * maxSeconds)}`;
+}
+
 export function DispatchConfirmationStep({
   source,
   recipientCount,
@@ -168,11 +174,11 @@ export function DispatchConfirmationStep({
           <SummaryItem
             icon={<Clock3 className="h-4 w-4" />}
             label="Duração estimada"
-            value={formatDuration(Math.max(0, recipientCount - 1) * Number(configuration.intervalSeconds))}
+            value={formatDurationRange(Number(configuration.intervalMinSeconds), Number(configuration.intervalMaxSeconds), recipientCount)}
             detail="Sem considerar pausas da janela"
           />
         </div>
-        <dl className="mt-4 grid gap-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
+        <dl className="mt-4 grid gap-3 border-t border-slate-200 pt-4 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-gray-500">Produto</dt>
             <dd className="mt-1 font-medium text-gray-900">
@@ -195,7 +201,7 @@ export function DispatchConfirmationStep({
           title="Remetentes e mensagens"
           description="Distribuição que será usada no disparo."
         />
-        <div className="mt-4 divide-y divide-gray-100">
+        <div className="mt-4 divide-y divide-slate-200">
           {configuration.senders.map((sender) => {
             const inbox = inboxes.find(
               (item) => item.id === sender.inboxId,
@@ -245,7 +251,7 @@ export function DispatchConfirmationStep({
           <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
             <span className="text-gray-500">Intervalo</span>
             <strong className="mt-1 block text-gray-900">
-              {configuration.intervalSeconds} segundos entre mensagens
+              {configuration.intervalMinSeconds}–{configuration.intervalMaxSeconds} segundos entre mensagens
             </strong>
           </div>
           <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
