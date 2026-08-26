@@ -632,9 +632,9 @@ class LeadFilter
             }
 
             if ($r->filled('contract_from') || $r->filled('contract_to')) {
-                $from = $r->input('contract_from', '1900-01-01');
-                $to = $r->input('contract_to', now()->toDateString());
-                $query->whereHas('contracts', fn(Builder $q) => $q->whereBetween('data_contrato', [$from, $to]));
+                $query->whereHas('contracts', function (Builder $q) use ($r): void {
+                    self::applyDateRange($q, $r, 'contract_from', 'contract_to', 'data_contrato', false);
+                });
             }
 
             $vendors = self::requestList($r, 'vendors');
@@ -1052,6 +1052,26 @@ class LeadFilter
         ));
     }
 
+    private static function applyDateRange(
+        Builder $query,
+        Request $r,
+        string $fromKey,
+        string $toKey,
+        string $column,
+        bool $datetime = true,
+    ): void {
+        $from = $r->filled($fromKey) ? (string) $r->input($fromKey) : null;
+        $to = $r->filled($toKey) ? (string) $r->input($toKey) : null;
+
+        if ($from !== null) {
+            $query->where($column, '>=', $datetime ? "{$from} 00:00:00" : $from);
+        }
+
+        if ($to !== null) {
+            $query->where($column, '<=', $datetime ? "{$to} 23:59:59" : $to);
+        }
+    }
+
     private static function range($sq, Request $r, string $minKey, string $maxKey, string $column): void
     {
         $hasMin = $r->filled($minKey);
@@ -1146,15 +1166,13 @@ class LeadFilter
         }
 
         if ($r->filled('date_from') || $r->filled('date_to')) {
-            $from = $r->input('date_from', '1900-01-01');
-            $to = $r->input('date_to', now()->toDateString());
-            $query->whereBetween('leads.data_atualizacao', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+            self::applyDateRange($query, $r, 'date_from', 'date_to', 'leads.data_atualizacao');
         }
 
         if ($r->filled('contract_from') || $r->filled('contract_to')) {
-            $from = $r->input('contract_from', '1900-01-01');
-            $to = $r->input('contract_to', now()->toDateString());
-            $query->whereHas('contracts', fn(Builder $contractQuery) => $contractQuery->whereBetween('data_contrato', [$from, $to]));
+            $query->whereHas('contracts', function (Builder $contractQuery) use ($r): void {
+                self::applyDateRange($contractQuery, $r, 'contract_from', 'contract_to', 'data_contrato', false);
+            });
         }
 
         $vendors = self::requestList($r, 'vendors');
@@ -1173,9 +1191,7 @@ class LeadFilter
         }
 
         if ($r->filled('fgts_consulta_from') || $r->filled('fgts_consulta_to')) {
-            $from = $r->input('fgts_consulta_from', '1900-01-01');
-            $to = $r->input('fgts_consulta_to', now()->toDateString());
-            $query->whereBetween('fos.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+            self::applyDateRange($query, $r, 'fgts_consulta_from', 'fgts_consulta_to', 'fos.updated_at');
         }
     }
 
@@ -1239,15 +1255,11 @@ class LeadFilter
             }
 
             if ($r->filled('facta_consulta_from') || $r->filled('facta_consulta_to')) {
-                $from = $r->input('facta_consulta_from', '1900-01-01');
-                $to = $r->input('facta_consulta_to', now()->toDateString());
-                $query->whereBetween('cs.consulted_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+                self::applyDateRange($query, $r, 'facta_consulta_from', 'facta_consulta_to', 'cs.consulted_at');
             }
 
             if ($r->filled('facta_admissao_from') || $r->filled('facta_admissao_to')) {
-                $from = $r->input('facta_admissao_from', '1900-01-01');
-                $to = $r->input('facta_admissao_to', now()->toDateString());
-                $query->whereBetween('cs.data_admissao', [$from, $to]);
+                self::applyDateRange($query, $r, 'facta_admissao_from', 'facta_admissao_to', 'cs.data_admissao', false);
             }
 
             if ($r->filled('facta_meses_min') || $r->filled('facta_meses_max')) {
@@ -1257,9 +1269,7 @@ class LeadFilter
             }
 
             if ($r->filled('facta_inicio_empregador_from') || $r->filled('facta_inicio_empregador_to')) {
-                $from = $r->input('facta_inicio_empregador_from', '1900-01-01');
-                $to = $r->input('facta_inicio_empregador_to', now()->toDateString());
-                $query->whereBetween('cs.inicio_atividade_empregador', [$from, $to]);
+                self::applyDateRange($query, $r, 'facta_inicio_empregador_from', 'facta_inicio_empregador_to', 'cs.inicio_atividade_empregador', false);
             }
 
             if ($r->filled('facta_categoria_codigos')) {
@@ -1374,9 +1384,7 @@ class LeadFilter
         }
 
         if ($r->filled('mercantil_consulta_from') || $r->filled('mercantil_consulta_to')) {
-            $from = $r->input('mercantil_consulta_from', '1900-01-01');
-            $to = $r->input('mercantil_consulta_to', now()->toDateString());
-            $query->whereBetween('ms.data_hora_origem', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+            self::applyDateRange($query, $r, 'mercantil_consulta_from', 'mercantil_consulta_to', 'ms.data_hora_origem');
         }
 
         self::range($query, $r, 'mercantil_valor_parcela_min', 'mercantil_valor_parcela_max', 'ms.valor_parcela');
@@ -1422,9 +1430,7 @@ class LeadFilter
         }
 
         if ($r->filled('uy3_consulta_from') || $r->filled('uy3_consulta_to')) {
-            $from = $r->input('uy3_consulta_from', '1900-01-01');
-            $to = $r->input('uy3_consulta_to', now()->toDateString());
-            $query->whereBetween('us.updated_at', ["{$from} 00:00:00", "{$to} 23:59:59"]);
+            self::applyDateRange($query, $r, 'uy3_consulta_from', 'uy3_consulta_to', 'us.updated_at');
         }
 
         self::applyUy3MonthsAdmissionRange($query, $r->input('uy3_meses_admissao_min'), $r->input('uy3_meses_admissao_max'));

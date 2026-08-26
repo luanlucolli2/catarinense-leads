@@ -83,6 +83,25 @@ class RegisteredLeadsPreviewControllerTest extends TestCase
         ])->assertOk()->assertExactJson(['recipient_count' => 1]);
     }
 
+    public function test_preview_accepts_open_ended_mercantil_consulta_from(): void
+    {
+        $this->authenticate();
+        Cache::flush();
+        $this->createLead('87000000031', ['fone1' => '47999990031']);
+        $this->createMercantilSnapshot('87000000031', [
+            'data_hora_origem' => now()->addDay(),
+        ]);
+
+        $this->postJson('/api/disparos-whatsapp-vendeai/leads/preview', [
+            'selected_banks' => ['mercantil'],
+            'combination_mode' => 'any',
+            'mercantil' => [
+                'situacao' => 'aprovado',
+                'consulta_from' => now()->toDateString(),
+            ],
+        ])->assertOk()->assertExactJson(['recipient_count' => 1]);
+    }
+
     public function test_preview_rejects_bank_without_filter_and_inverted_ranges(): void
     {
         $this->authenticate();

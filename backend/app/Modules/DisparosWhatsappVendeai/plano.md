@@ -5,8 +5,8 @@
 Realizar disparos a partir de:
 
 - bases externas, copiando e colando uma lista de números; ou
-- leads higienizados cadastrados no sistema, com filtro por banco, como no sistema
-  de filtragem do módulo `backend/app/Modules/Lemit`.
+- leads higienizados cadastrados no sistema, com filtro por banco, usando o modo
+  360 do módulo de Leads.
 
 Os disparos utilizarão a API da VendeAI.
 
@@ -79,8 +79,8 @@ com opção de:
 
 ## Escopo inicial
 
-Vamos trabalhar primeiro na etapa 1, usando como referência o que foi feito no
-módulo abandonado Lemit.
+Vamos trabalhar primeiro na etapa 1, usando como referência o filtro otimizado
+do modo 360 do módulo de Leads.
 
 A etapa 1 não utilizará as APIs da VendeAI — para números, templates e inbox —
 nem a API da Meta — para obter a qualidade dos números oficiais —, pois consiste
@@ -99,7 +99,7 @@ somente na seleção dos leads que receberão os disparos.
 - A lista colada aceitará quebras de linha, vírgulas e ponto e vírgula; aceitará
   celulares brasileiros de 11 dígitos com ou sem o prefixo `+55`, removerá
   duplicados e indicará entradas inválidas.
-- A origem de leads cadastrados terá todos os filtros atuais do Lemit para
+- A origem de leads cadastrados terá os filtros disponíveis no modo 360 para
   Facta CLT, CLT Mercantil e CLT UY3. A seleção final será limitada a leads que
   possuem telefone.
 - O protótipo não fará chamadas de API nem persistência de dados; a prévia de
