@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { toast } from "sonner"
-import { Check, ChevronRight, ClipboardList, Filter, Info, LoaderCircle, Send, Users } from "lucide-react"
+import { ArrowLeft, Check, ChevronRight, ClipboardList, Filter, Info, LoaderCircle, Send, Users } from "lucide-react"
 import factaLogo from "@/assets/factalogo.png"
 import mercantilLogo from "@/assets/mercantilogo.png"
 import uy3Logo from "@/assets/logouy3png.png"
@@ -8,7 +8,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -198,61 +197,11 @@ export default function DisparosWhatsappVendeaiPage() {
     }
   }
 
-  return (
-    <div className="p-4 lg:p-6">
-      <div className="max-w-3xl">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1>
-            <p className="mt-1 text-sm text-gray-600 lg:text-base">Selecione a base, configure a campanha e revise antes do envio.</p>
-          </div>
-        </div>
-        <Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button>
-      </div>
-      <Dialog open={isWizardOpen} onOpenChange={handleOpenChange}>
-        <DialogContent onInteractOutside={(event) => event.preventDefault()} className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl">
-          <DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14">
-            <DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle>
-            <DialogDescription className="sr-only">Configure uma nova campanha de disparo em três etapas.</DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6 sm:py-6">
-            <div className="mx-auto max-w-none space-y-6">
-              <WizardProgress currentStep={currentStep} />
-              {currentStep === 1 ? (
-                <LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} />
-              ) : currentStep === 2 ? (
-                <>
-                  <CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} showProductError={showStepTwoValidation && configuration.product === ""} />
-                  {mailingStatus === "loading" ? <LoadingInboxesState /> : mailingStatus === "error" ? <InboxesErrorState message={mailingError} onRetry={() => void requestMailingInboxes(true)} /> : <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} inboxes={mailingInboxes} onRefresh={() => void requestMailingInboxes(true)} isRefreshing={false} validationErrors={showStepTwoValidation ? stepTwoErrors : []} />}
-                </>
-              ) : (
-                <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} inboxes={mailingInboxes} />
-              )}
-            </div>
-          </div>
-          <DialogFooter className="shrink-0 border-t border-gray-200 bg-white px-4 py-4 sm:px-6">
-            {currentStep === 1 ? (
-              <>
-                <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button>
-                <Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => { setCurrentStep(2); void requestMailingInboxes() }}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button>
-              </>
-            ) : currentStep === 2 ? (
-              <>
-                <Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button>
-                <Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={mailingStatus !== "ready"} onClick={() => { if (stepTwoErrors.length > 0) { setShowStepTwoValidation(true); return }; setCurrentStep(3) }}>Continuar para revisão <ChevronRight className="ml-1 h-4 w-4" /></Button>
-              </>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => handleOpenChange(false)}>Fechar</Button>
-                <Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => setCurrentStep(2)}>Voltar e editar</Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
+  if (!isWizardOpen) {
+    return <div className="min-h-full bg-gray-50 p-4 lg:p-6"><div className="mx-auto max-w-6xl space-y-6"><div className="flex items-start justify-between gap-4"><div className="flex items-start gap-3"><div className="rounded-lg bg-blue-100 p-2.5 text-blue-700"><Send className="h-5 w-5" /></div><div><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Disparos WhatsApp VendeAI</h1><p className="mt-1 text-sm text-gray-600 lg:text-base">Acompanhe campanhas e crie novos disparos.</p></div></div><Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button></div><section className={cn(PANEL_CLASS_NAME, "bg-white p-6 sm:p-8")}><div className="flex min-h-56 flex-col items-center justify-center text-center"><ClipboardList className="h-10 w-10 text-blue-600" /><h2 className="mt-4 text-lg font-semibold text-gray-900">Histórico de disparos</h2><p className="mt-1 max-w-md text-sm text-gray-600">As campanhas criadas aparecerão aqui com status, destinatários e andamento.</p></div></section></div></div>
+  }
+
+  return <div className="min-h-full bg-gray-50 p-4 lg:p-6"><div className="mx-auto max-w-6xl space-y-6"><div className="flex flex-wrap items-center justify-between gap-3"><Button variant="ghost" className="-ml-2 text-slate-700 hover:bg-white" onClick={() => handleOpenChange(false)}><ArrowLeft className="mr-2 h-4 w-4" />Voltar para histórico</Button><span className="text-sm text-slate-500">Novo disparo WhatsApp</span></div><header><h1 className="text-xl font-bold text-gray-900 lg:text-2xl">Novo disparo WhatsApp</h1><p className="mt-1 text-sm text-gray-600">Selecione a base, configure a campanha e revise antes do envio.</p></header><WizardProgress currentStep={currentStep} /><main className="space-y-6">{currentStep === 1 ? <LeadSelectionStep source={source} setSource={setSource} pastedNumbers={pastedNumbers} setPastedNumbers={setPastedNumbers} phoneListSummary={phoneListSummary} filters={filters} updateFilters={updateFilters} bankErrors={bankErrors} registeredPreview={registeredPreview} onRequestPreview={requestRegisteredPreview} /> : currentStep === 2 ? <><CampaignDataSection configuration={configuration} setConfiguration={setConfiguration} showProductError={showStepTwoValidation && configuration.product === ""} />{mailingStatus === "loading" ? <LoadingInboxesState /> : mailingStatus === "error" ? <InboxesErrorState message={mailingError} onRetry={() => void requestMailingInboxes(true)} /> : <CompactDispatchConfigurationStep source={source} recipientCount={recipientCount} configuration={configuration} setConfiguration={setConfiguration} inboxes={mailingInboxes} onRefresh={() => void requestMailingInboxes(true)} isRefreshing={false} validationErrors={showStepTwoValidation ? stepTwoErrors : []} />}</> : <DispatchConfirmationStep source={source} recipientCount={recipientCount} configuration={configuration} inboxes={mailingInboxes} />}</main><footer className="flex flex-col-reverse gap-2 border-t border-slate-300 pt-4 sm:flex-row sm:items-center sm:justify-end">{currentStep === 1 ? <><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={!canContinueFromStepOne} onClick={() => { setCurrentStep(2); void requestMailingInboxes() }}>Continuar <ChevronRight className="ml-1 h-4 w-4" /></Button></> : currentStep === 2 ? <><Button variant="outline" onClick={() => setCurrentStep(1)}>Voltar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} disabled={mailingStatus !== "ready"} onClick={() => { if (stepTwoErrors.length > 0) { setShowStepTwoValidation(true); return }; setCurrentStep(3) }}>Continuar para revisão <ChevronRight className="ml-1 h-4 w-4" /></Button></> : <><Button variant="outline" onClick={() => handleOpenChange(false)}>Fechar</Button><Button className={PRIMARY_BUTTON_CLASS_NAME} onClick={() => setCurrentStep(2)}>Voltar e editar</Button></>}</footer></div></div>
 }
 
 function WizardProgress({ currentStep }: { currentStep: 1 | 2 | 3 }) {
