@@ -33,7 +33,7 @@ type DispatchConfiguration = {
   templateHeaders: Record<string, string>;
 };
 
-const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm";
+const PANEL_CLASS_NAME = "rounded-lg border border-slate-300 bg-slate-50 shadow-sm";
 const productLabels: Record<CampaignProduct, string> = {
   clt: "Crédito do Trabalhador",
   fgts: "FGTS",

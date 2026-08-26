@@ -17,7 +17,7 @@ import { type OfficialInbox, type OfficialTemplate } from "./configurationFixtur
 import { formatPhone } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
-const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm";
+const PANEL_CLASS_NAME = "rounded-lg border border-slate-300 bg-slate-50 shadow-sm";
 
 type LeadSource = "pasted_numbers" | "registered_leads";
 type ParameterSource = "fixed" | "lead_field";
@@ -610,9 +610,9 @@ export function CompactDispatchConfigurationStep({
             </div>
             <div className="py-4 last:pb-0">
               <p className="mb-3 text-sm font-semibold text-gray-800">Ritmo e proteção</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Intervalo entre mensagens (seg.)"><Input type="number" min="1" value={configuration.intervalSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field>
-                <div className="rounded-md border border-gray-200 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div><Label htmlFor="compact-resend" className="text-sm font-medium text-gray-800">Evitar reenvio</Label><p className="mt-1 text-xs text-gray-600">Bloqueia novo contato pelo período definido.</p></div><Switch id="compact-resend" checked={configuration.resendProtectionEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, resendProtectionEnabled: checked }))} /></div>{configuration.resendProtectionEnabled ? <div className="mt-3"><Field label="Sem reenvio (dias)"><Input type="number" min="1" value={configuration.resendProtectionDays} onChange={(event) => setConfiguration((current) => ({ ...current, resendProtectionDays: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}</div>
+              <div className="space-y-4">
+                <div className="max-w-sm"><Field label="Intervalo entre mensagens (seg.)"><Input type="number" min="1" value={configuration.intervalSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field></div>
+                <div className="rounded-md border border-gray-200 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div><Label htmlFor="compact-resend" className="text-sm font-medium text-gray-800">Evitar reenvio</Label><p className="mt-1 text-xs text-gray-600">Bloqueia novo contato pelo período definido.</p></div><Switch id="compact-resend" checked={configuration.resendProtectionEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, resendProtectionEnabled: checked }))} /></div>{configuration.resendProtectionEnabled ? <div className="mt-3 max-w-sm"><Field label="Sem reenvio (dias)"><Input type="number" min="1" value={configuration.resendProtectionDays} onChange={(event) => setConfiguration((current) => ({ ...current, resendProtectionDays: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}</div>
               </div>
               {deliveryErrors.length > 0 ? <div role="alert" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{deliveryErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
             </div>

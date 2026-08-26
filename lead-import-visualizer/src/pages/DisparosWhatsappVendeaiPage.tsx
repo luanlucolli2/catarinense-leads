@@ -50,7 +50,7 @@ type FilterField = { key: string; label: string; type: "date" | "number" | "situ
 
 const PRIMARY_BUTTON_CLASS_NAME = "bg-blue-600 text-white shadow-sm hover:bg-blue-700"
 const CHECKBOX_CLASS_NAME = "border-blue-300 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
-const PANEL_CLASS_NAME = "rounded-lg border border-gray-200 bg-white shadow-sm"
+const PANEL_CLASS_NAME = "rounded-lg border border-slate-300 bg-slate-50 shadow-sm"
 const WIZARD_STEPS = ["Selecionar leads", "Configurar", "Revisar"]
 const BANK_OPTIONS: Array<{ value: BankKey; label: string; imageSrc: string; alt: string }> = [
   { value: "facta", label: "Facta CLT", imageSrc: factaLogo, alt: "Facta" },
@@ -215,7 +215,7 @@ export default function DisparosWhatsappVendeaiPage() {
             <DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle>
             <DialogDescription className="sr-only">Configure uma nova campanha de disparo em três etapas.</DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-4 py-5 sm:px-6 sm:py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6 sm:py-6">
             <div className="mx-auto max-w-none space-y-6">
               <WizardProgress currentStep={currentStep} />
               {currentStep === 1 ? (
