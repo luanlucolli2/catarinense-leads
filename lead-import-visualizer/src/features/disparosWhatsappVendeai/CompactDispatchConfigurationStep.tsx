@@ -29,7 +29,8 @@ type SenderConfiguration = {
 };
 type DispatchConfiguration = {
   senders: SenderConfiguration[];
-  intervalSeconds: string;
+  intervalMinSeconds: string;
+  intervalMaxSeconds: string;
   startMode: "now" | "scheduled";
   scheduledAt: string;
   resendProtectionEnabled: boolean;
@@ -299,7 +300,7 @@ export function CompactDispatchConfigurationStep({
               Atualizar
             </Button>
           </div>
-          <div className="mt-4 divide-y divide-gray-100">
+          <div className="mt-4 divide-y divide-slate-200">
             {inboxesWithTemplates.map((inbox) => {
               const sender = configuration.senders.find(
                 (item) => item.inboxId === inbox.id,
@@ -444,7 +445,7 @@ export function CompactDispatchConfigurationStep({
               </div>
             ) : null}
             {allSendersHaveLimits && totalCapacity < recipientCount ? <div role="alert" className="mx-4 my-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Os limites somam {totalCapacity.toLocaleString("pt-BR")} envios para uma base de {recipientCount.toLocaleString("pt-BR")} destinatários.</div> : null}
-            {senderErrors.length > 0 ? <div role="alert" className="mx-4 my-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{senderErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
+            {senderErrors.length > 0 ? <div role="alert" className="my-3 w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{senderErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
           </div>
         </section>
         {configurableTemplates.length > 0 ? (
@@ -459,7 +460,7 @@ export function CompactDispatchConfigurationStep({
                 {configurableTemplates.length} com campos
               </span>
             </div>
-            <div className="mt-4 divide-y divide-gray-100">
+            <div className="mt-4 divide-y divide-slate-200">
               {configurableTemplates.map((template) => (
                 <div key={template.id} className="px-4 py-3">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -589,7 +590,7 @@ export function CompactDispatchConfigurationStep({
             title="Programação de envio"
             description="Defina quando a campanha começa, seu ritmo e as proteções aplicadas."
           />
-          <div className="mt-4 divide-y divide-gray-100">
+          <div className="mt-4 divide-y divide-slate-200">
             <div className="py-4 first:pt-0">
               <p className="text-sm font-semibold text-gray-800">Quando enviar</p>
               <p className="mt-1 text-xs text-gray-600">Escolha o início e, se necessário, limite os horários em que o disparo pode continuar.</p>
@@ -602,17 +603,17 @@ export function CompactDispatchConfigurationStep({
                 ))}
               </div>
               {configuration.startMode === "scheduled" ? <div className="mt-3"><Field label="Data e hora de início"><Input type="datetime-local" value={configuration.scheduledAt} onChange={(event) => setConfiguration((current) => ({ ...current, scheduledAt: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}
-              <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
                 <div><Label htmlFor="compact-send-window" className="text-sm font-medium text-gray-800">Limitar a uma faixa de horário</Label><p className="mt-1 text-xs text-gray-600">Fora da faixa, a campanha aguarda o próximo horário permitido.</p></div>
                 <Switch id="compact-send-window" checked={configuration.sendWindowEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, sendWindowEnabled: checked }))} />
               </div>
               {configuration.sendWindowEnabled ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><Field label="A partir de"><Input type="time" value={configuration.sendWindowStart} onChange={(event) => setConfiguration((current) => ({ ...current, sendWindowStart: event.target.value }))} className="border-gray-300 bg-white" /></Field><Field label="Até"><Input type="time" value={configuration.sendWindowEnd} onChange={(event) => setConfiguration((current) => ({ ...current, sendWindowEnd: event.target.value }))} className="border-gray-300 bg-white" /></Field><p className="text-xs text-gray-500 sm:col-span-2">Horário de Brasília (UTC−03:00).</p></div> : null}
             </div>
             <div className="py-4 last:pb-0">
-              <p className="mb-3 text-sm font-semibold text-gray-800">Ritmo e proteção</p>
+              <p className="mb-3 text-sm font-semibold text-gray-800">Intervalo entre envios</p>
               <div className="space-y-4">
-                <div className="max-w-sm"><Field label="Intervalo entre mensagens (seg.)"><Input type="number" min="1" value={configuration.intervalSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field></div>
-                <div className="rounded-md border border-gray-200 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div><Label htmlFor="compact-resend" className="text-sm font-medium text-gray-800">Evitar reenvio</Label><p className="mt-1 text-xs text-gray-600">Bloqueia novo contato pelo período definido.</p></div><Switch id="compact-resend" checked={configuration.resendProtectionEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, resendProtectionEnabled: checked }))} /></div>{configuration.resendProtectionEnabled ? <div className="mt-3 max-w-sm"><Field label="Sem reenvio (dias)"><Input type="number" min="1" value={configuration.resendProtectionDays} onChange={(event) => setConfiguration((current) => ({ ...current, resendProtectionDays: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}</div>
+                <div className="grid max-w-sm gap-3 sm:grid-cols-2"><Field label="Mínimo (seg.)"><Input type="number" min="1" value={configuration.intervalMinSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalMinSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field><Field label="Máximo (seg.)"><Input type="number" min="1" value={configuration.intervalMaxSeconds} onChange={(event) => setConfiguration((current) => ({ ...current, intervalMaxSeconds: event.target.value }))} className="border-gray-300 bg-white" /></Field></div>
+                <div className="border-t border-slate-200 pt-4"><div className="flex items-center justify-between gap-3"><div><Label htmlFor="compact-resend" className="text-sm font-semibold text-gray-800">Proteção contra reenvio</Label><p className="mt-1 text-xs text-gray-600">Bloqueia novo contato pelo período definido.</p></div><Switch id="compact-resend" checked={configuration.resendProtectionEnabled} className="data-[state=checked]:bg-blue-600" onCheckedChange={(checked) => setConfiguration((current) => ({ ...current, resendProtectionEnabled: checked }))} /></div>{configuration.resendProtectionEnabled ? <div className="mt-3 max-w-sm"><Field label="Sem reenvio (dias)"><Input type="number" min="1" value={configuration.resendProtectionDays} onChange={(event) => setConfiguration((current) => ({ ...current, resendProtectionDays: event.target.value }))} className="border-gray-300 bg-white" /></Field></div> : null}</div>
               </div>
               {deliveryErrors.length > 0 ? <div role="alert" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{deliveryErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
             </div>
