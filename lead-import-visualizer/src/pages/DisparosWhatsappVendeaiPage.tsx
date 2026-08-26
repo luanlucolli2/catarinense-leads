@@ -211,7 +211,7 @@ export default function DisparosWhatsappVendeaiPage() {
         <Button className={cn("mt-6", PRIMARY_BUTTON_CLASS_NAME)} onClick={() => setIsWizardOpen(true)}>Novo disparo</Button>
       </div>
       <Dialog open={isWizardOpen} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl">
+        <DialogContent onInteractOutside={(event) => event.preventDefault()} className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden border-gray-200 p-0 shadow-xl">
           <DialogHeader className="shrink-0 border-b border-gray-200 px-5 py-5 pr-12 sm:px-6 sm:pr-14">
             <DialogTitle className="text-xl font-semibold text-gray-900">Novo disparo WhatsApp</DialogTitle>
             <DialogDescription className="sr-only">Configure uma nova campanha de disparo em três etapas.</DialogDescription>

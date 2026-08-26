@@ -1,5 +1,4 @@
 import {
-  Check,
   ClipboardList,
   Clock3,
   Send,
@@ -137,11 +136,16 @@ export function DispatchConfirmationStep({
 
   return (
     <section className="space-y-5">
-      <SectionHeading
-        number="3"
-        title="Revisar configuração"
-        description="Confira os pontos essenciais antes de encerrar esta configuração."
-      />
+      <div className="flex items-start justify-between gap-3">
+        <SectionHeading
+          number="3"
+          title="Revisar configuração"
+          description="Confira os pontos essenciais antes de encerrar esta configuração."
+        />
+        <Badge variant="outline" className="shrink-0 border-blue-200 bg-blue-50 text-blue-800">
+          {recipientCount.toLocaleString("pt-BR")} destinatários
+        </Badge>
+      </div>
       <section className={cn(PANEL_CLASS_NAME, "p-4 sm:p-5")}>
         <SectionLabel
           icon={<ClipboardList className="h-4 w-4" />}
@@ -199,7 +203,7 @@ export function DispatchConfirmationStep({
         <SectionLabel
           icon={<Send className="h-4 w-4" />}
           title="Remetentes e mensagens"
-          description="Distribuição que será usada no disparo."
+          description="Números e templates selecionados para a campanha."
         />
         <div className="mt-4 divide-y divide-slate-200">
           {configuration.senders.map((sender) => {
