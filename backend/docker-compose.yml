@@ -71,14 +71,14 @@ services:
   # ===== SERVIÇO FRONTEND =====
   frontend:
     build:
-      context: ../lead-import-visualizer
+      context: ../frontend
       dockerfile: Dockerfile
     image: catarinense-frontend
     container_name: catarinense-frontend-app
     ports:
       - "8080:8080"
     volumes:
-      - ../lead-import-visualizer:/app
+      - ../frontend:/app
       - /app/node_modules
     networks:
       - sail
