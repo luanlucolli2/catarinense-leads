@@ -3,7 +3,7 @@
 Este repositório possui dois projetos principais:
 
 - `backend/`: API Laravel 12
-- `lead-import-visualizer/`: frontend React/Vite/TypeScript
+- `frontend/`: frontend React/Vite/TypeScript
 
 ## Objetivo
 
