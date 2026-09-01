@@ -21,7 +21,7 @@ import {
 } from "@/api/vendeai";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { formatCPF, formatPhone } from "@/lib/formatters";
+import { formatCPF, formatPhoneDigits } from "@/lib/formatters";
 import newcorbanLogo from "@/assets/newcorbanlogo.png";
 import { VendeaiControls } from "../components/VendeaiControls";
 import { VendeaiFiltersModal } from "../components/VendeaiFiltersModal";
@@ -1014,7 +1014,7 @@ export default function IntegracoesVendeaiPage() {
     () =>
       (filterOptionsQuery.data?.inbox_phone_numbers ?? []).map((value) => ({
         value,
-        label: formatPhone(value) || value,
+        label: formatPhoneDigits(value),
       })),
     [filterOptionsQuery.data?.inbox_phone_numbers]
   );
@@ -1038,7 +1038,7 @@ export default function IntegracoesVendeaiPage() {
     ...(applied.product.length ? [`Produto: ${summarizeSelected(applied.product, productLabel)}`] : []),
     ...(applied.bank.length ? [`Banco: ${summarizeSelected(applied.bank, bankLabel)}`] : []),
     ...(applied.stage.length ? [`Etapa: ${summarizeSelected(applied.stage, (value) => stageLabel(value))}`] : []),
-    ...(applied.inboxPhoneNumber.length ? [`Número da IA: ${summarizeSelected(applied.inboxPhoneNumber, (value) => formatPhone(value) || value)}`] : []),
+    ...(applied.inboxPhoneNumber.length ? [`Número da IA: ${summarizeSelected(applied.inboxPhoneNumber, formatPhoneDigits)}`] : []),
     ...(applied.proposalStatus.length ? [`Status da proposta: ${summarizeSelected(applied.proposalStatus, (value) => proposalStatusLabel(value))}`] : []),
     ...(applied.newcorbanStatus.length ? [`New Corban: ${summarizeSelected(applied.newcorbanStatus, (value) => newcorbanStatusLabel(value as VendeaiNewcorbanStatusFilter))}`] : []),
     ...(applied.tags.length ? [`Tags: ${applied.tags.join(", ")}`] : []),
@@ -1472,8 +1472,8 @@ export default function IntegracoesVendeaiPage() {
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatCPF(lead.customer_cpf)}</td>
                           <td className="min-w-[180px] px-4 py-3 font-medium text-gray-900">{lead.customer_name || "-"}</td>
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatDate(lead.customer_birth_date)}</td>
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.customer_phone)}</td>
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhone(lead.inbox_phone_number)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhoneDigits(lead.customer_phone)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{formatPhoneDigits(lead.inbox_phone_number)}</td>
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{lead.chat_id || "-"}</td>
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{stageLabel(lead.stage)}</td>
                           <td className="px-4 py-3">

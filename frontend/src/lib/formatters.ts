@@ -143,3 +143,11 @@ export const formatPhone = (phone: string | null | undefined): string => {
 
   return phone; // Retorna o original se não se encaixar
 };
+
+export const formatPhoneDigits = (phone: string | null | undefined): string => {
+  if (!phone) return '--';
+
+  const digits = phone.replace(/\D/g, '');
+
+  return digits || '--';
+};
