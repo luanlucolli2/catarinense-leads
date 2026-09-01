@@ -59,7 +59,7 @@ Scope selection rules:
 - For changes in both frontend and backend related to one business module, use the business module as the scope.
 - For shared Laravel controllers, services, middleware, routes, or configuration, use the closest domain scope such as `api`, `auth`, `c6`, `inovachat`, or `ura`.
 - For migrations, seeders, database indexes, and schema changes, use `database` unless the migration clearly belongs to one business module.
-- For changes limited to `lead-import-visualizer` with no specific business domain, use `frontend`.
+- For changes limited to `frontend` with no specific business domain, use `frontend`.
 - For Dockerfiles, Docker Compose, Supervisor, PHP configuration, or infrastructure files, use `docker`.
 - For root repository files, Git settings, editor configuration, or general maintenance, use `repo`.
 - When a commit truly changes unrelated modules, use the module with the primary user-facing impact. Do not use multiple scopes.
