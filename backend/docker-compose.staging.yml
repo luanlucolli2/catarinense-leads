@@ -93,7 +93,7 @@ services:
   # ===== FRONTEND (NGINX + REACT) =====
   frontend:
     build:
-      context: ../lead-import-visualizer
+      context: ../frontend
       dockerfile: Dockerfile
     image: leads-frontend
     container_name: leads-frontend
