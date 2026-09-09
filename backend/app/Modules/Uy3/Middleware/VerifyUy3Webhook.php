@@ -4,7 +4,7 @@ namespace App\Modules\Uy3\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use App\Modules\Uy3\Support\Uy3WebhookRejectionLogger;
 use Symfony\Component\HttpFoundation\Response;
 
 class VerifyUy3Webhook
@@ -23,7 +23,12 @@ class VerifyUy3Webhook
         $configured = config('uy3.webhook_secret');
 
         if (! is_string($configured) || $configured === '') {
-            Log::critical('UY3 webhook secret not configured in .env or config/uy3.php');
+            Uy3WebhookRejectionLogger::critical(
+                $request,
+                500,
+                'server_configuration_error',
+                ['message' => 'UY3 webhook secret not configured in .env or config/uy3.php'],
+            );
 
             return response()->json([
                 'error'   => 'server_configuration_error',
@@ -34,6 +39,8 @@ class VerifyUy3Webhook
         $provided = $this->extractProvidedSecret($request);
 
         if (! is_string($provided) || $provided === '' || ! hash_equals($configured, $provided)) {
+            Uy3WebhookRejectionLogger::warning($request, 401, 'invalid_webhook_signature');
+
             return response()->json([
                 'error'   => 'unauthorized',
                 'message' => 'Invalid webhook signature.',
