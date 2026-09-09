@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Uy3\Models\Uy3WebhookPost;
 use App\Modules\Uy3\Services\Uy3SnapshotPersistService;
 use App\Modules\Uy3\Support\Uy3WebhookPayloadNormalizer;
+use App\Modules\Uy3\Support\Uy3WebhookRejectionLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,8 @@ class Uy3WebhookPostController extends Controller
         $rawPayload = (string) $request->getContent();
 
         if (trim($rawPayload) === '') {
+            Uy3WebhookRejectionLogger::warning($request, 422, 'empty_payload');
+
             return response()->json([
                 'error'   => 'invalid_payload',
                 'message' => 'Empty JSON payload.',
@@ -28,6 +31,8 @@ class Uy3WebhookPostController extends Controller
         try {
             $payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
+            Uy3WebhookRejectionLogger::warning($request, 422, 'invalid_json');
+
             return response()->json([
                 'error'   => 'invalid_payload',
                 'message' => 'Request body must be valid JSON.',
@@ -37,6 +42,10 @@ class Uy3WebhookPostController extends Controller
         try {
             $payload = Uy3WebhookPayloadNormalizer::normalize($payload);
         } catch (ValidationException $e) {
+            Uy3WebhookRejectionLogger::warning($request, 422, 'invalid_webhook_payload', [
+                'errors' => $e->errors(),
+            ]);
+
             return response()->json([
                 'error' => 'validation_error',
                 'message' => 'Invalid webhook payload.',
