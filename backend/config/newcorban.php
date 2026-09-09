@@ -54,7 +54,7 @@ return [
         'bmg' => [
             'bank_id' => '318',
             'promoter_id' => '411',
-            'typing_login' => 'nova.9089mb',
+            'typing_login' => 'nova.9089lp',
         ],
         'pan' => [
             'bank_id' => '623',
